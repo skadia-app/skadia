@@ -121,7 +121,7 @@ function syncLayerVisibility(
   }
 }
 
-export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersion: number) {
+export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersion: number, enabled = true) {
   const [state, setState] = useState<CoverageOverlayState>(loadState)
   const stateRef = useRef(state)
   stateRef.current = state
@@ -134,6 +134,7 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
   const { data: coverageInfo } = useQuery({
     queryKey: ['coverage-info'],
     queryFn: fetchCoverageInfo,
+    enabled,
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
@@ -145,7 +146,7 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
 
   // Effect 1: Manage sources — only re-create when buildTimestamp or style changes
   useEffect(() => {
-    if (!mapInstance || styleVersion === 0) return
+    if (!enabled || !mapInstance || styleVersion === 0) return
 
     // Add all possible sources (one per API layer)
     const allApiLayers = [...new Set(Object.values(COMPOSITE_LAYERS).flat())]
@@ -191,13 +192,13 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
         if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
       }
     }
-  }, [mapInstance, styleVersion, buildTimestamp, adminEnabled])
+  }, [enabled, mapInstance, styleVersion, buildTimestamp, adminEnabled])
 
   // Effect 2: Sync visibility + opacity — no source/layer add/remove
   useEffect(() => {
-    if (!mapInstance || styleVersion === 0) return
+    if (!enabled || !mapInstance || styleVersion === 0) return
     syncLayerVisibility(mapInstance, state, adminEnabled)
-  }, [mapInstance, state, styleVersion, adminEnabled])
+  }, [enabled, mapInstance, state, styleVersion, adminEnabled])
 
   const updateComposite = useCallback(
     (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => {

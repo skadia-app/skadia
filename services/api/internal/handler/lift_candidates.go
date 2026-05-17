@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
@@ -542,6 +543,7 @@ func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID
 	streamSettings := enrichment.StreamEnrichmentSettings{
 		EnableLiftDetection: true,
 		FailOnModuleError:   true,
+		ForceDisableOSMSnap: h.featureNotAvailableReasonWithContext(ctx, capabilities.KeyOSMLiftSnap) != "",
 	}
 	return enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings)
 }

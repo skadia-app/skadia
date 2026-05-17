@@ -13,6 +13,7 @@ import (
 	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/paulmach/orb/geojson"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
@@ -73,6 +74,9 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeature(w, r, capabilities.KeyIsochrone) {
+		return
+	}
 
 	req, ok := httputil.DecodeJSON[IsochroneRequest](w, r)
 	if !ok {
@@ -97,14 +101,12 @@ func (h *Handler) Isochrone(w http.ResponseWriter, r *http.Request) {
 
 	// ----- Router availability -----
 	if h.GraphManager == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "No Routing Engine",
-			"routing graph is not configured", r.URL.Path)
+		writeFeatureUnavailable(w, r, capabilities.KeyIsochrone, capabilities.ReasonMissingArtifacts)
 		return
 	}
 	router := h.GraphManager.UnifiedRouter()
 	if router == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "No Routing Engine",
-			"routing graph has not been loaded yet", r.URL.Path)
+		writeFeatureUnavailable(w, r, capabilities.KeyIsochrone, capabilities.ReasonMissingArtifacts)
 		return
 	}
 

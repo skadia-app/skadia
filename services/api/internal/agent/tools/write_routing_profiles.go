@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -40,6 +41,7 @@ func CreateRoutingProfileVariantTool() *Tool {
 		Description:          "Prepare and create a new user-owned routing profile variant after confirmation. Existing profiles are never overwritten.",
 		InputSchema:          json.RawMessage(`{"type":"object","required":["base_profile_key","changes"],"properties":{"base_profile_key":{"type":"string","minLength":1},"intent":{"type":"string"},"changes":{"type":"object","minProperties":1,"additionalProperties":{"type":["string","number","boolean"]}},"name_hint":{"type":"string"},"activate_for":{"type":"string"}},"additionalProperties":false}`),
 		Permission:           PermissionWriteSafe,
+		RequiredCapabilities: []string{capabilities.KeyBadRouter},
 		RequiresConfirmation: true,
 		AuditMode:            AuditWrite,
 		IsUserOwned:          true,

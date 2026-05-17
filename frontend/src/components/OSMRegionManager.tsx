@@ -37,10 +37,12 @@ export interface OSMRegionManagerBatchUpdateProps {
 
 export function OSMRegionManager({
   hasOsmData,
+  fullGeodataAvailable = true,
   renderBatchUpdateButton,
   onBatchUpdateState,
 }: {
   hasOsmData?: boolean
+  fullGeodataAvailable?: boolean
   /**
    * Optional render-prop that lets the parent place the "Alle Regionen aktualisieren"
    * button outside the imported-regions table (e.g. in a bottom action row).
@@ -63,8 +65,9 @@ export function OSMRegionManager({
   const { data: regionData, isFetched: regionsFetched } = useQuery({
     queryKey: ['osm-regions-status'],
     queryFn: fetchOSMRegionStatus,
+    enabled: fullGeodataAvailable,
     refetchInterval: (query) =>
-      query.state.data?.regions?.some((r) => r.status === 'importing') ? 5000 : false,
+      fullGeodataAvailable && query.state.data?.regions?.some((r) => r.status === 'importing') ? 5000 : false,
   })
 
   const deleteMutation = useMutation({
@@ -156,6 +159,7 @@ export function OSMRegionManager({
   const { data: diskData } = useQuery({
     queryKey: ['osm-disk-usage'],
     queryFn: fetchOSMDiskUsage,
+    enabled: fullGeodataAvailable,
     refetchInterval: activeJobs.size > 0 ? 30000 : false,
   })
 
@@ -201,6 +205,39 @@ export function OSMRegionManager({
   // When either escape hatch is supplied, suppress the inline button so the parent
   // owns placement. Render-prop wins when both are supplied.
   const inlineBatchUpdateHidden = !!renderBatchUpdateButton || !!onBatchUpdateState
+
+  if (!fullGeodataAvailable) {
+    return (
+      <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
+        <div className="flex items-start gap-2 mb-3">
+          <Route className="w-4 h-4 mt-0.5 text-neutral-500 dark:text-neutral-400 shrink-0" />
+          <div>
+            <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">BRouter-Segmente</h4>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">rd5-Routing-Daten aus dem Regionskatalog herunterladen</p>
+          </div>
+        </div>
+        <div className="pl-6">
+          <div className="flex items-start justify-between mb-2">
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">RD5-Download</span>
+            <button
+              onClick={() => brouterDlMut.mutate(brouterDlRegions)}
+              disabled={brouterDlMut.isPending || !!activeBrouterDl}
+              className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
+            >
+              {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
+            </button>
+          </div>
+          <RegionSelector
+            regions={catalogData?.regions?.map(r => ({ id: r.id, label: r.label, continent: r.continent })) ?? []}
+            selected={brouterDlRegions}
+            onChange={setBrouterDlRegions}
+            showContinentTabs
+            hint="Alle Regionen aus dem Katalog verfügbar."
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>

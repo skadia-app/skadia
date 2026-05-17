@@ -23,6 +23,10 @@ type Config struct {
 	DevAuth             bool
 	FrontendURL         string // e.g. "http://localhost:5173"
 
+	// Deployment profile
+	DeploymentProfile       string // "core" or "full"
+	DeploymentProfileSource string // "implicit_legacy" or "env"
+
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret      string
 	JWTSecretBytes []byte // decoded at startup by auth.ValidateConfig
@@ -35,6 +39,7 @@ type Config struct {
 	MaxUploadSize    int64  // Maximum upload size in bytes (default 50 MB)
 
 	// ShadowFS (unified storage)
+	StorageMode           string // "local", "s3-local-garage", or "s3-external"
 	StorageBackend        string // "local" (default) or "s3"
 	LibraryBasePath       string // e.g. /data/library
 	LibraryKeepVersions   int    // 0=delete, 1=keep last, -1=keep all
@@ -154,6 +159,8 @@ func Load() (*Config, error) {
 		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
+		DeploymentProfile:     strings.TrimSpace(os.Getenv("SKADIA_DEPLOYMENT_PROFILE")),
+		StorageMode:           strings.TrimSpace(os.Getenv("SKADIA_STORAGE_MODE")),
 		StorageBackend:        getEnvDefault("STORAGE_BACKEND", "local"),
 		LibraryBasePath:       getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
 		LibraryKeepVersions:   parseIntDefault(os.Getenv("LIBRARY_KEEP_VERSIONS"), 1),
@@ -178,12 +185,12 @@ func Load() (*Config, error) {
 		GDPRArtifactS3QuotaBytes:          parseInt64Default(os.Getenv("GDPR_ARTIFACT_S3_QUOTA_BYTES"), 0),
 		GDPRImportStagingQuotaBytes:       parseInt64Default(os.Getenv("GDPR_IMPORT_STAGING_QUOTA_BYTES"), int64(32)*1024*1024*1024),
 
-		// S3 with fallback to GARAGE_* for backward compatibility
-		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
-		S3AccessKey:      getSecretWithFallback("S3_ACCESS_KEY", "GARAGE_ACCESS_KEY", ""),
-		S3SecretKey:      getSecretWithFallback("S3_SECRET_KEY", "GARAGE_SECRET_KEY", ""),
-		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
-		S3Region:         getEnvDefault("S3_REGION", "garage"),
+		// S3 with local-Garage fallback applied after storage mode normalization.
+		S3Endpoint:       strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
+		S3AccessKey:      getSecret("S3_ACCESS_KEY", ""),
+		S3SecretKey:      getSecret("S3_SECRET_KEY", ""),
+		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia-originals"),
+		S3Region:         strings.TrimSpace(os.Getenv("S3_REGION")),
 		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "true",
 		S3BucketActivity: os.Getenv("S3_BUCKET_ACTIVITY"),
 		S3BucketMedia:    os.Getenv("S3_BUCKET_MEDIA"),
@@ -304,6 +311,13 @@ func Load() (*Config, error) {
 	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
 		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
 	}
+	if err := normalizeDeploymentProfile(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeStorageMode(cfg); err != nil {
+		return nil, err
+	}
+	applyLocalGarageS3Fallbacks(cfg)
 	if err := validateGDPRArtifactConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -311,16 +325,28 @@ func Load() (*Config, error) {
 	if cfg.MLLLMBrokerToken == "" {
 		cfg.MLLLMBrokerToken = cfg.MLCallbackSecret
 	}
+	if strings.TrimSpace(os.Getenv("S3_FORCE_PATH_STYLE")) == "" && isLocalGarageS3(cfg) {
+		cfg.S3ForcePathStyle = true
+	}
 
 	if cfg.StorageBackend == "s3" {
+		if cfg.S3Endpoint == "" {
+			if isLocalGarageS3(cfg) {
+				return nil, fmt.Errorf("S3_ENDPOINT (or GARAGE_ENDPOINT for local Garage) is required when STORAGE_BACKEND=s3")
+			}
+			return nil, fmt.Errorf("S3_ENDPOINT is required when STORAGE_BACKEND=s3")
+		}
 		if cfg.S3AccessKey == "" {
-			return nil, fmt.Errorf("S3_ACCESS_KEY (or GARAGE_ACCESS_KEY) is required when STORAGE_BACKEND=s3")
+			if isLocalGarageS3(cfg) {
+				return nil, fmt.Errorf("S3_ACCESS_KEY (or GARAGE_ACCESS_KEY for local Garage) is required when STORAGE_BACKEND=s3")
+			}
+			return nil, fmt.Errorf("S3_ACCESS_KEY is required when STORAGE_BACKEND=s3")
 		}
 		if cfg.S3SecretKey == "" {
-			return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY) is required when STORAGE_BACKEND=s3")
-		}
-		if !cfg.S3ForcePathStyle && isLocalGarageS3(cfg) {
-			slog.Warn("S3_FORCE_PATH_STYLE is not set but local Garage requires path-style access; set S3_FORCE_PATH_STYLE=true")
+			if isLocalGarageS3(cfg) {
+				return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY for local Garage) is required when STORAGE_BACKEND=s3")
+			}
+			return nil, fmt.Errorf("S3_SECRET_KEY is required when STORAGE_BACKEND=s3")
 		}
 	}
 
@@ -332,12 +358,120 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-func isLocalGarageS3(cfg *Config) bool {
-	if strings.TrimSpace(os.Getenv("SKADIA_S3_PROVIDER")) == "local-garage" {
-		return true
+func normalizeDeploymentProfile(cfg *Config) error {
+	if cfg.DeploymentProfile == "" {
+		cfg.DeploymentProfile = "full"
+		cfg.DeploymentProfileSource = "implicit_legacy"
+		return nil
 	}
-	endpoint := strings.TrimSpace(strings.ToLower(cfg.S3Endpoint))
-	return endpoint == "http://garage:3900" || endpoint == "http://localhost:3900" || endpoint == "http://127.0.0.1:3900"
+	switch cfg.DeploymentProfile {
+	case "core", "full":
+		cfg.DeploymentProfileSource = "env"
+		return nil
+	default:
+		return fmt.Errorf("SKADIA_DEPLOYMENT_PROFILE must be 'core' or 'full', got %q", cfg.DeploymentProfile)
+	}
+}
+
+func isLocalGarageS3(cfg *Config) bool {
+	return cfg.StorageMode == "s3-local-garage"
+}
+
+func applyLocalGarageS3Fallbacks(cfg *Config) {
+	if !isLocalGarageS3(cfg) {
+		return
+	}
+	if cfg.S3Endpoint == "" {
+		cfg.S3Endpoint = getEnvDefault("GARAGE_ENDPOINT", "http://garage:3900")
+	}
+	if cfg.S3AccessKey == "" {
+		cfg.S3AccessKey = getSecret("GARAGE_ACCESS_KEY", "")
+	}
+	if cfg.S3SecretKey == "" {
+		cfg.S3SecretKey = getSecret("GARAGE_SECRET_KEY", "")
+	}
+}
+
+func normalizeStorageMode(cfg *Config) error {
+	provider := strings.TrimSpace(os.Getenv("SKADIA_S3_PROVIDER"))
+	rawBackend := strings.TrimSpace(os.Getenv("STORAGE_BACKEND"))
+	legacyGarageEndpoint := strings.TrimSpace(os.Getenv("GARAGE_ENDPOINT"))
+	endpointForLegacyDetection := cfg.S3Endpoint
+	if endpointForLegacyDetection == "" {
+		endpointForLegacyDetection = legacyGarageEndpoint
+	}
+	if provider != "" && provider != "local-garage" && provider != "external" {
+		return fmt.Errorf("SKADIA_S3_PROVIDER must be 'local-garage' or 'external', got %q", provider)
+	}
+
+	if cfg.StorageMode == "" {
+		switch cfg.StorageBackend {
+		case "local":
+			cfg.StorageMode = "local"
+		case "s3":
+			switch {
+			case provider == "local-garage":
+				cfg.StorageMode = "s3-local-garage"
+			case provider == "external":
+				cfg.StorageMode = "s3-external"
+			case isLocalGarageEndpoint(endpointForLegacyDetection):
+				cfg.StorageMode = "s3-local-garage"
+			default:
+				cfg.StorageMode = "s3-external"
+			}
+		}
+	} else {
+		switch cfg.StorageMode {
+		case "local", "s3-local-garage", "s3-external":
+		default:
+			return fmt.Errorf("SKADIA_STORAGE_MODE must be 'local', 's3-local-garage', or 's3-external', got %q", cfg.StorageMode)
+		}
+	}
+
+	expectedBackend := "local"
+	if cfg.StorageMode != "local" {
+		expectedBackend = "s3"
+	}
+	if rawBackend == "" {
+		cfg.StorageBackend = expectedBackend
+	}
+	if cfg.StorageBackend != expectedBackend {
+		return fmt.Errorf("SKADIA_STORAGE_MODE=%s requires STORAGE_BACKEND=%s, got %s", cfg.StorageMode, expectedBackend, cfg.StorageBackend)
+	}
+
+	switch cfg.StorageMode {
+	case "local":
+		if provider != "" {
+			return fmt.Errorf("SKADIA_S3_PROVIDER must be empty when SKADIA_STORAGE_MODE=local")
+		}
+	case "s3-local-garage":
+		if provider == "external" {
+			return fmt.Errorf("SKADIA_S3_PROVIDER=external conflicts with SKADIA_STORAGE_MODE=s3-local-garage")
+		}
+		if cfg.S3Endpoint == "" {
+			cfg.S3Endpoint = getEnvDefault("GARAGE_ENDPOINT", "http://garage:3900")
+		}
+		if cfg.S3Region == "" {
+			cfg.S3Region = "us-east-1"
+		}
+	case "s3-external":
+		if provider == "local-garage" {
+			return fmt.Errorf("SKADIA_S3_PROVIDER=local-garage conflicts with SKADIA_STORAGE_MODE=s3-external")
+		}
+		if isLocalGarageEndpoint(cfg.S3Endpoint) {
+			return fmt.Errorf("SKADIA_STORAGE_MODE=s3-external cannot use local Garage endpoint %q", cfg.S3Endpoint)
+		}
+		if cfg.S3Region == "" {
+			return fmt.Errorf("S3_REGION is required when SKADIA_STORAGE_MODE=s3-external")
+		}
+	}
+
+	return nil
+}
+
+func isLocalGarageEndpoint(endpoint string) bool {
+	normalized := strings.TrimRight(strings.TrimSpace(strings.ToLower(endpoint)), "/")
+	return normalized == "http://garage:3900" || normalized == "https://garage:3900" || normalized == "http://localhost:3900" || normalized == "http://127.0.0.1:3900"
 }
 
 func validateGDPRArtifactConfig(cfg *Config) error {

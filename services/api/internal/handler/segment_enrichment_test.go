@@ -66,6 +66,30 @@ func TestEnrichmentHandler_400_TooManyCoordinates(t *testing.T) {
 	}
 }
 
+func TestCoreBlocksSegmentEnrichmentSuggestAfterValidation(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core"}, DB: &database.DB{Pool: nil}}
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/enrichment-suggest", h.EnrichmentSuggest)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"coordinates": [][2]float64{{11.0, 47.0}, {11.1, 47.1}},
+		"seg_type":    "trail",
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/enrichment-suggest", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), "00000000-0000-0000-0000-000000000003", false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "feature_unavailable") {
+		t.Fatalf("response body %q does not contain feature_unavailable", body)
+	}
+}
+
 // TestEnrichmentHandler_RateLimit429 verifies that repeated rapid requests
 // for the same user are rate-limited to HTTP 429.
 // Requires DB because the first requests (within burst) reach PostGIS.
@@ -182,4 +206,3 @@ func TestEnrichmentHandler_NoGraph_Returns200(t *testing.T) {
 		t.Errorf("Reason = %q, want %q — graph is nil and OSM ways absent at mid-Atlantic coords", resp.Reason, "no_graph")
 	}
 }
-

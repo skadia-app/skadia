@@ -73,15 +73,15 @@ func TestEnrichStreamLifts_BothOff_CleansUpStaleCandidates(t *testing.T) {
 	// user OSM=true, user heuristic=true, overrides=false/false → opts={false,false}.
 	fTrue := true
 	settings := &model.EnrichmentSettings{
-		EnableLiftDetection:           true,
-		EnableLiftDetectionOSM:        true,
-		EnableLiftDetectionHeuristic:  true,
+		EnableLiftDetection:          true,
+		EnableLiftDetectionOSM:       true,
+		EnableLiftDetectionHeuristic: true,
 	}
 	_ = fTrue
 
 	db := &database.DB{Pool: pool}
 	stream := []EnrichmentStreamPoint{}
-	if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, settings); err != nil {
+	if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, false, settings); err != nil {
 		t.Fatalf("enrichStreamLiftsCore: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestEnrichStreamLifts_HeuristicOff_OSMOn_NilRidesSafe(t *testing.T) {
 		}
 	}()
 
-	if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, settings); err != nil {
+	if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, false, settings); err != nil {
 		t.Fatalf("enrichStreamLiftsCore: %v (want nil)", err)
 	}
 

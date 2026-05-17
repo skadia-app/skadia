@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -57,10 +58,10 @@ type osmImportRequest struct {
 	Regions       []string `json:"regions"`
 	Categories    []string `json:"categories"`
 	BuildBRouter  bool     `json:"build_brouter"`
-	RunEnrichment *bool    `json:"run_enrichment"`  // nil = true (backwards compatible)
-	BuildTiles    bool     `json:"build_tiles"`     // opt-in, default false
-	BuildCoverage bool     `json:"build_coverage"`  // opt-in, build coverage grids after import
-	DownloadDEM   bool     `json:"download_dem"`    // download GLO-30 HGT tiles for selected regions
+	RunEnrichment *bool    `json:"run_enrichment"` // nil = true (backwards compatible)
+	BuildTiles    bool     `json:"build_tiles"`    // opt-in, default false
+	BuildCoverage bool     `json:"build_coverage"` // opt-in, build coverage grids after import
+	DownloadDEM   bool     `json:"download_dem"`   // download GLO-30 HGT tiles for selected regions
 }
 
 func (r osmImportRequest) shouldRunEnrichment() bool {
@@ -70,6 +71,9 @@ func (r osmImportRequest) shouldRunEnrichment() bool {
 // CancelOSMImport bricht einen laufenden OSM-Import ab.
 // POST /api/v1/admin/osm-import/cancel/{jobID}
 func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	jobID := chi.URLParam(r, "jobID")
 	if jobID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing job ID", r.URL.Path)
@@ -95,6 +99,9 @@ func (h *Handler) ListOSMRegions(w http.ResponseWriter, r *http.Request) {
 // StartOSMImport startet einen asynchronen OSM-Import-Job.
 // POST /api/v1/admin/osm-import/start
 func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -184,6 +191,8 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
+	defer capabilities.InvalidateCache()
+
 	pipeline := &osmregions.Pipeline{
 		Pool:    h.DB.Pool,
 		DataDir: h.Config.OSMDataDir,
@@ -232,9 +241,9 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 		mainReporter.SetProgress(0)
 		slog.Info("osm import: building BRouter segments", "dir", segmentsDir)
 		if err := pipeline.BuildBRouterSegments(ctx, osmregions.BRouterPaths{
-				ProfilesDir: h.Config.BRouterProfilesDir,
-				DEMDir:      h.Config.DEMDataDir,
-			}, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
+			ProfilesDir: h.Config.BRouterProfilesDir,
+			DEMDir:      h.Config.DEMDataDir,
+		}, succeededRegions, pipeline.DataDir, segmentsDir, mainReporter); err != nil {
 			slog.Error("osm import: BRouter segment build failed", "error", err)
 		}
 	}

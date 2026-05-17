@@ -59,6 +59,7 @@ async function renderHeader(props: {
   jobRunning?: boolean
   onJobStarted?: () => void
   config?: LiftDetectionConfigResponse
+  osmSnapAvailable?: boolean
 }) {
   const { default: LiftDetectionHeader } = await import('./LiftDetectionHeader')
   const config = props.config ?? makeConfig()
@@ -69,6 +70,7 @@ async function renderHeader(props: {
       activityId={props.activityId ?? 'act-1'}
       jobRunning={props.jobRunning ?? false}
       onJobStarted={props.onJobStarted ?? vi.fn()}
+      osmSnapAvailable={props.osmSnapAvailable}
     />,
     { wrapper },
   )
@@ -122,6 +124,14 @@ describe('LiftDetectionHeader — disabled state', () => {
     })
     const osmSwitch = screen.getByTestId('toggle-osm').querySelector('button')!
     expect(osmSwitch.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('hides OSM-Snap while keeping Heuristik available when OSM snap capability is unavailable', async () => {
+    await renderHeader({ osmSnapAvailable: false })
+    await waitFor(() => {
+      expect(screen.getByTestId('toggle-heuristic')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('toggle-osm')).toBeNull()
   })
 
   it('shows master-off notice when master_enabled=false', async () => {
@@ -316,5 +326,29 @@ describe('LiftDetectionHeader — Reset control', () => {
         { method: 'POST' },
       )
     })
+  })
+
+  it('disables reset/recompute when OSM snap is unavailable and the reset target has no effective detector', async () => {
+    mockDelete.mockResolvedValue(undefined)
+    mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
+
+    await renderHeader({
+      osmSnapAvailable: false,
+      config: makeConfig({
+        effective: { osm: false, heuristic: false },
+        user_setting: { osm: true, heuristic: false },
+        override: { osm: true, heuristic: null },
+      }),
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('override-badge').hasAttribute('disabled')).toBe(true)
+    })
+    expect(screen.getByText(/kein aktiver Lift-Detektor verfügbar/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('override-badge'))
+
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockApiFetch).not.toHaveBeenCalled()
   })
 })

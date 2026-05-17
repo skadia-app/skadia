@@ -38,6 +38,9 @@ export interface SystemLayerDescriptor {
   category: 'vector' | 'coverage'
   composite_group?: 'nature' | 'noise' | 'trafficUrban'
   default_label: string
+  required_capability?: string
+  available?: boolean
+  reason?: string
 }
 
 export interface UserMapLayer {

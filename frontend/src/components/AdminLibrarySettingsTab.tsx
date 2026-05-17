@@ -155,6 +155,9 @@ export function AdminLibrarySettingsTab() {
     : null
 
   const toggleDirty = localToggles !== null
+  const localActionsAvailable = effective
+    ? effective.backend !== 's3' && effective.local_actions_available !== false
+    : false
 
   const saveToggles = useMutation({
     mutationFn: () => updateAdminLibrarySettings(effective!),
@@ -179,6 +182,20 @@ export function AdminLibrarySettingsTab() {
     return (
       <div className="text-sm text-neutral-500 dark:text-neutral-400">
         {LIB_LABELS.adminTabTitle}…
+      </div>
+    )
+  }
+
+  if (!localActionsAvailable) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+          {LIB_LABELS.adminTabTitle}
+        </h2>
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{LIB_LABELS.schemaS3Inactive}</span>
+        </div>
       </div>
     )
   }

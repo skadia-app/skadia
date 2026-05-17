@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/osm"
 	graphpkg "github.com/skadia-app/skadia/services/api/internal/routing/graph"
@@ -113,6 +114,9 @@ func ResolveRoutePlaceTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executeResolveRoutePlace,
+		RequiredCapabilities: []string{
+			capabilities.KeyLocalPOISearch,
+		},
 	}
 }
 
@@ -135,6 +139,9 @@ func ResolveRouteFeatureTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executeResolveRouteFeature,
+		RequiredCapabilities: []string{
+			capabilities.KeyLocalPOISearch,
+		},
 	}
 }
 
@@ -148,6 +155,9 @@ func GetRoutingCoverageTool() *Tool {
 		Timeout:          5 * time.Second,
 		IsUserOwned:      false,
 		ExecuteRead:      executeGetRoutingCoverage,
+		RequiredCapabilities: []string{
+			capabilities.KeyCoverage,
+		},
 	}
 }
 
@@ -186,6 +196,9 @@ func PlanRouteBetweenTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executePlanRouteBetween,
+		RequiredCapabilities: []string{
+			capabilities.KeyRouting,
+		},
 	}
 }
 
@@ -199,6 +212,9 @@ func SuggestRouteGoalTool() *Tool {
 		Timeout:          75 * time.Second,
 		IsUserOwned:      false,
 		ExecuteRead:      executeSuggestRouteGoal,
+		RequiredCapabilities: []string{
+			capabilities.KeyRouteSuggestion,
+		},
 	}
 }
 

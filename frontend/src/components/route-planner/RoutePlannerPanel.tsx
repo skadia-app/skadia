@@ -245,6 +245,7 @@ export interface RoutePlannerPanelProps {
   routingEngine: 'badrouter' | 'brouter'
   brouterProfile: string
   badRouterAvailable: boolean
+  routeSuggestionAvailable?: boolean
   onRoutingEngineChange: (engine: 'badrouter' | 'brouter') => void
   onBrouterProfileChange: (profile: string) => void
   // Stats (computed by parent from segments)
@@ -280,6 +281,7 @@ export default function RoutePlannerPanel({
   routingEngine,
   brouterProfile,
   badRouterAvailable,
+  routeSuggestionAvailable = badRouterAvailable,
   onRoutingEngineChange,
   onBrouterProfileChange,
   totalDistanceM,
@@ -357,12 +359,14 @@ export default function RoutePlannerPanel({
   })
 
   function handleSaveProfile() {
+    if (!badRouterAvailable) return
     const name = saveProfileName.trim()
     if (!name || !profileConfig) return
     createMutation.mutate(buildCreateProfilePayload(name, profileConfig, currentBadRouterEntry))
   }
 
   async function handleResetToDefault() {
+    if (!badRouterAvailable) return
     if (!profileConfig) return
     const profileName = profileConfig.profile ?? 'hiking'
     const entry = badRouterProfiles.find(p => p.name === profileName && p.source === 'system')
@@ -387,6 +391,7 @@ export default function RoutePlannerPanel({
   }
 
   async function handleSelectProfile(p: { base_profile: string; config?: Record<string, unknown> | null }) {
+    if (!badRouterAvailable) return
     if (p.config) {
       onProfileChange({ profile: p.base_profile, ...p.config } as ProfileConfig)
       return
@@ -412,6 +417,7 @@ export default function RoutePlannerPanel({
   }
 
   async function handleExportProfile(id: string, name: string) {
+    if (!badRouterAvailable) return
     try {
       const { blob, filename } = await apiDownload(exportProfileUrl(id))
       const url = URL.createObjectURL(blob)
@@ -426,6 +432,7 @@ export default function RoutePlannerPanel({
   }
 
   async function handleImportFiles(files: FileList | null) {
+    if (!badRouterAvailable) return
     if (!files || files.length === 0) return
     const fileArr = Array.from(files)
     try {
@@ -538,18 +545,18 @@ export default function RoutePlannerPanel({
             {/* Routing engine toggle */}
             <div className="px-3 pt-2.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
               <div className="flex items-center gap-1 p-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800">
-                <button
-                  onClick={() => onRoutingEngineChange('badrouter')}
-                  disabled={!badRouterAvailable}
-                  title={!badRouterAvailable ? 'Routing-Engine nicht verfügbar (keine Tiles)' : undefined}
-                  className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
-                    routingEngine === 'badrouter'
-                      ? 'bg-accent-DEFAULT text-white shadow-sm'
-                      : 'bg-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
-                  }`}
-                >
-                  BadRouter
-                </button>
+                {badRouterAvailable && (
+                  <button
+                    onClick={() => onRoutingEngineChange('badrouter')}
+                    className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                      routingEngine === 'badrouter'
+                        ? 'bg-accent-DEFAULT text-white shadow-sm'
+                        : 'bg-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
+                    }`}
+                  >
+                    BadRouter
+                  </button>
+                )}
                 <button
                   onClick={() => onRoutingEngineChange('brouter')}
                   className={`flex-1 px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
@@ -564,7 +571,7 @@ export default function RoutePlannerPanel({
             </div>
 
             {/* Profile editor (BadRouter) or BRouter profile selector */}
-            {routingEngine === 'badrouter' ? (
+            {routingEngine === 'badrouter' && badRouterAvailable ? (
               <>
                 {/* Hidden file input for import */}
                 <input
@@ -895,15 +902,17 @@ export default function RoutePlannerPanel({
             {/* Action buttons */}
             <div className="px-3 pb-3 pt-1 space-y-2">
               {/* Suggest route button */}
-              <button
-                onClick={onSuggest}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-DEFAULT/10 text-xs font-medium transition-colors cursor-pointer"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                </svg>
-                Route vorschlagen
-              </button>
+              {routeSuggestionAvailable && (
+                <button
+                  onClick={onSuggest}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-DEFAULT/10 text-xs font-medium transition-colors cursor-pointer"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                  </svg>
+                  Route vorschlagen
+                </button>
+              )}
 
               {/* Save / Clear row */}
               <div className="flex gap-2">

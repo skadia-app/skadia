@@ -751,6 +751,7 @@ func main() {
 	}}
 	toolRegistry := agenttools.NewRegistry()
 	agenttools.RegisterAll(toolRegistry)
+	var profileStatus badRouterProfileStartupStatus
 	toolDeps := &agenttools.Deps{
 		DB:                 db,
 		Readonly:           db.ReadonlyPool,
@@ -767,6 +768,24 @@ func main() {
 		Audit:              agent.NewAuditWriter(db),
 		Confirm:            confirmMgr,
 		Preferences:        agentPrefs,
+	}
+	toolDeps.CapabilityProvider = func(ctx context.Context) capabilities.Capabilities {
+		return capabilities.Detect(ctx, db.Pool, capabilities.DetectInput{
+			DeploymentProfile:           cfg.DeploymentProfile,
+			DeploymentProfileSrc:        cfg.DeploymentProfileSource,
+			StorageMode:                 cfg.StorageMode,
+			StorageBackend:              cfg.StorageBackend,
+			BRouterURL:                  cfg.BRouterURL,
+			TileDir:                     filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
+			PMTilesDir:                  cfg.TilesDir,
+			CoverageDir:                 filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+			BadRouterProfilesKnown:      true,
+			BadRouterProfilesConfigured: profileStatus.Configured,
+			BadRouterProfilesAvailable:  profileStatus.Available,
+			BadRouterProfilesReason:     profileStatus.Reason,
+			ImportAllowedDirs:           cfg.ImportAllowedDirs,
+			MLProbeVersion:              capabilities.MLProbeVersion(),
+		})
 	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
 	chatAgent := agent.New(agent.Config{
@@ -791,35 +810,42 @@ func main() {
 		ImportService:  importSvc,
 		DEMSvc:         demSvc,
 		Config: &handler.HandlerConfig{
-			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
-			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
-			LLMEncryptionKey:    cfg.LLMEncryptionKey,
-			LLMBaseURL:          cfg.LLMBaseURL,
-			LLMAPIKey:           cfg.LLMAPIKey,
-			LLMModel:            cfg.LLMModel,
-			LLMContextWindow:    cfg.LLMContextWindow,
-			MLServiceURL:        cfg.MLServiceURL,
-			MLCallbackSecret:    mlCallbackSecret,
-			MLLLMBrokerToken:    cfg.MLLLMBrokerToken,
-			BRouterURL:          cfg.BRouterURL,
-			KomootEncryptionKey: cfg.KomootEncryptionKey,
-			OAuthEncryptionKey:  cfg.OAuthEncryptionKey,
-			RoutingGraphPath:    cfg.RoutingGraphPath,
-			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
-			MaxUploadSize:       cfg.MaxUploadSize,
-			ImportAllowedDirs:   cfg.ImportAllowedDirs,
-			OSMDataDir:          cfg.OSMDataDir,
-			DEMDataDir:          cfg.DEMDataDir,
-			BRouterSegmentsDir:  cfg.BRouterSegmentsDir,
-			BRouterProfilesDir:  cfg.BRouterProfilesDir,
-			TilesDir:            cfg.TilesDir,
-			LibraryBasePath:     cfg.LibraryBasePath,
-			StorageBackend:      cfg.StorageBackend,
-			KeepVersions:        cfg.LibraryKeepVersions,
-			SyncEnabled:         cfg.LibrarySyncEnabled,
-			LocalBE:             localBE,
-			S3BE:                s3BE,
-			BucketFn:            store.BucketFor,
+			DeploymentProfile:           cfg.DeploymentProfile,
+			DeploymentProfileSource:     cfg.DeploymentProfileSource,
+			StorageMode:                 cfg.StorageMode,
+			LiteLLMConfigPath:           cfg.LiteLLMConfigPath,
+			LiteLLMInternalURL:          cfg.LiteLLMInternalURL,
+			LLMEncryptionKey:            cfg.LLMEncryptionKey,
+			LLMBaseURL:                  cfg.LLMBaseURL,
+			LLMAPIKey:                   cfg.LLMAPIKey,
+			LLMModel:                    cfg.LLMModel,
+			LLMContextWindow:            cfg.LLMContextWindow,
+			MLServiceURL:                cfg.MLServiceURL,
+			MLCallbackSecret:            mlCallbackSecret,
+			MLLLMBrokerToken:            cfg.MLLLMBrokerToken,
+			BRouterURL:                  cfg.BRouterURL,
+			BadRouterProfilesKnown:      true,
+			BadRouterProfilesConfigured: profileStatus.Configured,
+			BadRouterProfilesAvailable:  profileStatus.Available,
+			BadRouterProfilesReason:     profileStatus.Reason,
+			KomootEncryptionKey:         cfg.KomootEncryptionKey,
+			OAuthEncryptionKey:          cfg.OAuthEncryptionKey,
+			RoutingGraphPath:            cfg.RoutingGraphPath,
+			RoutingTimeout:              parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
+			MaxUploadSize:               cfg.MaxUploadSize,
+			ImportAllowedDirs:           cfg.ImportAllowedDirs,
+			OSMDataDir:                  cfg.OSMDataDir,
+			DEMDataDir:                  cfg.DEMDataDir,
+			BRouterSegmentsDir:          cfg.BRouterSegmentsDir,
+			BRouterProfilesDir:          cfg.BRouterProfilesDir,
+			TilesDir:                    cfg.TilesDir,
+			LibraryBasePath:             cfg.LibraryBasePath,
+			StorageBackend:              cfg.StorageBackend,
+			KeepVersions:                cfg.LibraryKeepVersions,
+			SyncEnabled:                 cfg.LibrarySyncEnabled,
+			LocalBE:                     localBE,
+			S3BE:                        s3BE,
+			BucketFn:                    store.BucketFor,
 		},
 	}
 	toolDeps.RouteGoalSuggester = func(ctx context.Context, userID string, req agenttools.RouteGoalSuggestionRequest) (agenttools.RouteGoalSuggestionResponse, error) {
@@ -925,7 +951,9 @@ func main() {
 			tileCacheBytes = n
 		}
 	}
-	if unified, err := graphMgr.InitTiledReader(tileDir, tileCacheBytes); err != nil {
+	if cfg.DeploymentProfile == "core" {
+		slog.Info("routing: tiled BadRouter reader disabled by deployment profile")
+	} else if unified, err := graphMgr.InitTiledReader(tileDir, tileCacheBytes); err != nil {
 		slog.Warn("unified tiled reader init failed", "error", err)
 	} else if unified {
 		slog.Info("routing: unified router active")
@@ -941,7 +969,9 @@ func main() {
 
 	// DiskCoverageReader — mmap-based reader for FCOV coverage binaries
 	coverageDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
-	if _, statErr := os.Stat(coverageDir); statErr == nil {
+	if cfg.DeploymentProfile == "core" {
+		slog.Info("disk coverage reader disabled by deployment profile")
+	} else if _, statErr := os.Stat(coverageDir); statErr == nil {
 		diskReader, drErr := coverage.NewDiskCoverageReader(coverageDir, 256)
 		if drErr != nil {
 			slog.Warn("disk coverage reader init failed", "error", drErr)
@@ -1133,28 +1163,28 @@ func main() {
 	if profileDir == "" {
 		profileDir = "config/badrouter"
 	}
-	profileCount, profileErr := routing.LoadBuiltinProfiles(profileDir)
-	if profileErr != nil {
-		slog.Error("built-in profile load errors", "dir", profileDir, "error", profileErr)
+	profileStatus = loadBadRouterProfilesForStartup(cfg.DeploymentProfile, cfg.DeploymentProfileSource, profileDir)
+	h.Config.BadRouterProfilesKnown = true
+	h.Config.BadRouterProfilesConfigured = profileStatus.Configured
+	h.Config.BadRouterProfilesAvailable = profileStatus.Available
+	h.Config.BadRouterProfilesReason = profileStatus.Reason
+	if profileStatus.Error != "" {
+		slog.Warn("built-in profile load issue", "dir", profileDir, "reason", profileStatus.Reason, "error", profileStatus.Error)
 	}
-	if profileCount == 0 {
-		slog.Error("no profiles found — check directory and JSON files", "dir", profileDir)
-		os.Exit(1)
+	if profileStatus.Available {
+		slog.Info("built-in profiles loaded", "count", profileStatus.Count, "dir", profileDir)
+	} else {
+		slog.Warn("BadRouter profiles unavailable", "dir", profileDir, "deployment_profile", cfg.DeploymentProfile, "reason", profileStatus.Reason)
 	}
-	for _, name := range routing.ValidProfileNames {
-		if _, err := routing.BuiltinProfile(name); err != nil {
-			slog.Error("required profile missing after load", "profile", name, "dir", profileDir)
-			os.Exit(1)
-		}
-	}
-	slog.Info("built-in profiles loaded", "count", profileCount, "dir", profileDir)
 
 	// Seed profiles into DB: config/badrouter/ as system, data/profiles/ as filesystem.
 	// Order matters: filesystem overrides system on name collision (ON CONFLICT).
-	if n, err := handler.SeedProfiles(ctx, profileDir, db, routing.SourceSystem); err != nil {
-		slog.Warn("system profile seed failed", "error", err)
-	} else if n > 0 {
-		slog.Info("system profiles seeded", "count", n)
+	if profileStatus.Count > 0 {
+		if n, err := handler.SeedProfiles(ctx, profileDir, db, routing.SourceSystem); err != nil {
+			slog.Warn("system profile seed failed", "error", err)
+		} else if n > 0 {
+			slog.Info("system profiles seeded", "count", n)
+		}
 	}
 
 	// Filesystem profile scan — import BadRouter JSON profiles from data/profiles/badrouter/
@@ -1907,6 +1937,9 @@ func main() {
 			r.Post("/routes/{id}/photos", h.UploadRoutePhoto)
 			r.Delete("/routes/{id}/photos/{photoId}", h.DeleteRoutePhoto)
 			r.Put("/routes/{id}/photos/reorder", h.ReorderRoutePhotos)
+			r.Get("/routes/{id}/photos/{photoId}/thumb", h.StreamRoutePhotoThumb)
+			r.Get("/routes/{id}/photos/{photoId}/preview", h.StreamRoutePhotoPreview)
+			r.Get("/routes/{id}/photos/{photoId}/full", h.StreamRoutePhotoFull)
 			r.Post("/routes/from-activity/{activityId}", h.RouteFromActivity)
 			r.Get("/routes/from-activity/{activityId}/waypoints", h.RouteFromActivityWaypoints)
 

@@ -155,7 +155,7 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 						}
 					}
 					if liftSettings != nil {
-						if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, liftSettings); err != nil {
+						if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, false, liftSettings); err != nil {
 							slog.Warn("re-enrich: lifts failed", "activity_id", activityID, "error", err)
 						}
 					}

@@ -72,6 +72,9 @@ export interface AdminLibrarySettings {
   user_can_edit_dir_name: boolean
   user_can_edit_schemas: boolean
   default_schemas: Record<string, string>
+  backend: 'local' | 's3'
+  local_actions_available: boolean
+  admin_managed_reason: 's3_backend' | null
 }
 
 // API response status constants — mirror backend status strings from

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -244,6 +245,109 @@ func TestGetFileSchemasContextBasic(t *testing.T) {
 	}
 	if body["admin_managed_reason"] != nil {
 		t.Errorf("admin_managed_reason: got %v, want null", body["admin_managed_reason"])
+	}
+}
+
+func TestGetFileSchemasContextS3IsNotEditableEvenWhenUserSchemasEnabled(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	store := settings.NewStoreForTest(map[string]string{
+		"library.user_can_edit_schemas": "true",
+	})
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+		Config:   &HandlerConfig{StorageBackend: "s3"},
+	}
+
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+	req := httptest.NewRequest("GET", "/api/v1/settings/file-schemas-context", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.GetFileSchemasContext(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Editable           bool    `json:"editable"`
+		Backend            string  `json:"backend"`
+		AdminManagedReason *string `json:"admin_managed_reason"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Editable {
+		t.Fatalf("editable = true, want false for s3 backend")
+	}
+	if body.Backend != "s3" {
+		t.Fatalf("backend = %q, want s3", body.Backend)
+	}
+	if body.AdminManagedReason == nil || *body.AdminManagedReason != "s3_backend" {
+		t.Fatalf("admin_managed_reason = %v, want s3_backend", body.AdminManagedReason)
+	}
+}
+
+func TestFileSchemaMutationsRejectS3Backend(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	store := settings.NewStoreForTest(map[string]string{
+		"library.user_can_edit_schemas": "true",
+	})
+	h := &Handler{
+		DB:       db,
+		Settings: store,
+		Config:   &HandlerConfig{StorageBackend: "s3"},
+	}
+	ctx := context.WithValue(context.Background(), middleware.UserIDKey, userID)
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		handler http.HandlerFunc
+	}{
+		{
+			name:    "update schema",
+			method:  http.MethodPut,
+			path:    "/api/v1/settings/file-schemas/activity",
+			body:    `{"schema":"{year}/{filename}"}`,
+			handler: h.UpdateFileSchema,
+		},
+		{
+			name:    "rename preview",
+			method:  http.MethodPost,
+			path:    "/api/v1/settings/file-schemas/activity/rename-preview",
+			body:    `{"schema":"{year}/{filename}"}`,
+			handler: h.PreviewFileRename,
+		},
+		{
+			name:    "rename execute",
+			method:  http.MethodPost,
+			path:    "/api/v1/settings/file-schemas/activity/rename-execute",
+			body:    `{}`,
+			handler: h.ExecuteFileRename,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body)).WithContext(ctx)
+			req.Header.Set("Content-Type", "application/json")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("type", "activity")
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+			w := httptest.NewRecorder()
+			tt.handler(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), "s3_backend") {
+				t.Fatalf("response does not mention s3_backend: %s", w.Body.String())
+			}
+		})
 	}
 }
 

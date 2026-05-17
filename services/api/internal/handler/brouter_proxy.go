@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -75,6 +76,10 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Alternatives > 5 {
 		req.Alternatives = 5
+	}
+
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyBRouter) {
+		return
 	}
 
 	brouterURL := h.brouterBaseURL()
@@ -405,11 +410,11 @@ func fillMissingElevFromDEM(coords []brouterCoord, profile []map[string]any, dem
 	return rebuilt
 }
 
-// brouterBaseURL returns the configured BRouter base URL, defaulting to the
-// standard container address when the environment variable is not set.
+// brouterBaseURL returns the configured BRouter base URL. An empty URL disables
+// BRouter consistently with capability detection.
 func (h *Handler) brouterBaseURL() string {
 	if h.Config != nil && h.Config.BRouterURL != "" {
 		return h.Config.BRouterURL
 	}
-	return "http://brouter:17777"
+	return ""
 }

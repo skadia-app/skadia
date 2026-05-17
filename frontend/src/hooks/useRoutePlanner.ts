@@ -12,7 +12,6 @@ import type {
   RouteElevationPoint,
 } from '@/api/routes'
 import {
-  getCapabilities,
   listRoutes,
   getRoute,
   createRoute,
@@ -25,9 +24,11 @@ import {
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
 import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { needsMigration, migrateRouteCached } from './migrateRoute'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
+import { featureAvailable, featureReason } from '@/lib/deploymentCapabilities'
 import { storeETagForPath } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
@@ -716,18 +717,15 @@ export function useRoutePlanner() {
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
-  const capabilitiesQuery = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 30 * 1000, // 30s — matches backend cache TTL
-    retry: 1,
-  })
+  const capabilitiesQuery = useCapabilities()
 
-  // Set default engine based on capabilities: if routing=false, fall back to brouter
+  // Set default engine based on capabilities: if BadRouter is unavailable for
+  // fresh planning, fall back to BRouter. Loaded BadRouter routes keep their
+  // persisted geometry readable; recomputation is blocked separately.
   useEffect(() => {
-    if (capabilitiesQuery.data && !capabilitiesQuery.data.routing) {
+    if (capabilitiesQuery.data && !featureAvailable(capabilitiesQuery.data, 'badrouter')) {
       setState(s => {
-        if (s.routingEngine === 'badrouter') {
+        if (s.routingEngine === 'badrouter' && s.editingRouteId === null && s.segments.length === 0) {
           return { ...s, routingEngine: 'brouter' }
         }
         return s
@@ -765,6 +763,17 @@ export function useRoutePlanner() {
     engine: RoutingEngine = 'badrouter',
     brouterProf: string = 'hiking-mountain',
   ): Promise<void> => {
+    if (engine === 'badrouter' && capabilitiesQuery.data && !featureAvailable(capabilitiesQuery.data, 'badrouter')) {
+      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? 'nicht verfuegbar'
+      addToast({
+        type: 'error',
+        title: 'BadRouter nicht verfuegbar',
+        message: `Diese Route kann in diesem Profil nicht neu berechnet werden (${reason}).`,
+        duration: 5000,
+      })
+      setState(s => ({ ...s, isCalculating: false, calculationError: 'feature_unavailable' }))
+      return
+    }
     setState(s => ({ ...s, isCalculating: true, calculationError: null }))
     try {
       const result =
@@ -876,7 +885,7 @@ export function useRoutePlanner() {
       }))
     }
   // setState from useState is stable
-  }, [])
+  }, [capabilitiesQuery.data, addToast])
 
   // ── Offroad DEM fill (Phase D.2) ─────────────────────────────────────────────
   //
@@ -1572,6 +1581,16 @@ export function useRoutePlanner() {
   // ── Routing engine ──────────────────────────────────────────────────────────
 
   const setRoutingEngine = useCallback(async (engine: RoutingEngine) => {
+    if (engine === 'badrouter' && capabilitiesQuery.data && !featureAvailable(capabilitiesQuery.data, 'badrouter')) {
+      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? 'nicht verfuegbar'
+      addToast({
+        type: 'error',
+        title: 'BadRouter nicht verfuegbar',
+        message: `Gespeicherte BadRouter-Geometrien bleiben sichtbar, koennen aber nicht neu berechnet werden (${reason}).`,
+        duration: 5000,
+      })
+      return
+    }
     // Bug B (2026-04-24): switching engines on a LOADED saved route must not
     // wipe its persisted geometry — display-only swap unless the target
     // engine has pending profile/setting changes since the last render.
@@ -1624,7 +1643,7 @@ export function useRoutePlanner() {
       lastRenderedEngine: engine,
       dirtyEngines: { ...s.dirtyEngines, [engine]: false },
     }))
-  }, [state, _calculateSegment])
+  }, [state, _calculateSegment, capabilitiesQuery.data, addToast])
 
   const setBrouterProfile = useCallback(async (profile: string) => {
     // Fix #5 (React 19 StrictMode): compute the recompute decision from the

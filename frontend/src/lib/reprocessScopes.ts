@@ -1,4 +1,6 @@
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
+import type { Capabilities } from '@/api/routes'
+import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabilities'
 
 export type ScopeTuple = readonly [key: string, label: string, description: string | undefined]
 
@@ -56,14 +58,32 @@ export const ALL_REPROCESS_SCOPE_KEYS: readonly AnyReprocessKey[] = [
 
 export const DEFAULT_SCOPES: AnyReprocessKey[] = ['streams', 'sensors', 'metrics', 'details', 'segments', 'auto_title']
 
+export function scopeRequiredCapability(key: string): CapabilityKey | undefined {
+  const module = ANALYSIS_MODULES.find(item =>
+    (item.reprocess.type === 'standalone' || item.reprocess.type === 'coveredBy') &&
+    item.reprocess.scope === key)
+  return module?.requiresCapability
+}
+
+export function scopeAvailable(caps: Capabilities | null | undefined, key: string): boolean {
+  const capability = scopeRequiredCapability(key)
+  return capability === undefined || featureAvailable(caps, capability)
+}
+
+export function availableReprocessScopeKeys(caps: Capabilities | null | undefined): AnyReprocessKey[] {
+  return ALL_REPROCESS_SCOPE_KEYS.filter(key => scopeAvailable(caps, key))
+}
+
 export function toggleScopeKey(prev: Set<AnyReprocessKey>, key: AnyReprocessKey): Set<AnyReprocessKey> {
   const next = new Set(prev)
   if (next.has(key)) next.delete(key); else next.add(key)
   return next
 }
 
-export function toBackendScope(sel: Set<AnyReprocessKey>): string[] {
-  return [...sel]
+export function toBackendScope(sel: Set<AnyReprocessKey>, allowedKeys?: readonly AnyReprocessKey[]): string[] {
+  if (!allowedKeys) return [...sel]
+  const allowed = new Set(allowedKeys)
+  return [...sel].filter(key => allowed.has(key))
 }
 
 export function scopeLabel(key: string): string {

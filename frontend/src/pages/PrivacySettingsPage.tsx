@@ -10,36 +10,7 @@ import { circlePolygon } from '@/lib/geoUtils'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
 
-// Photon reverse-geocoding (public endpoint, no API key required)
-interface PhotonResult {
-  features: Array<{
-    properties: {
-      name?: string
-      city?: string
-      town?: string
-      village?: string
-      suburb?: string
-      street?: string
-      postcode?: string
-      country?: string
-    }
-  }>
-}
-
-async function reverseGeocode(lat: number, lng: number): Promise<string> {
-  const url = `https://photon.komoot.io/reverse?lon=${lng}&lat=${lat}&limit=1&lang=de`
-  const res = await fetch(url)
-  if (!res.ok) return ''
-  const data: PhotonResult = await res.json()
-  const props = data.features?.[0]?.properties
-  if (!props) return ''
-  const place = props.name || props.suburb || props.village || props.town || props.city || ''
-  const city = props.city || props.town || props.village || ''
-  if (place && city && place !== city) return `${place}, ${city}`
-  return place || city || ''
-}
-
-// Zonenlisten-Eintrag mit Reverse-Geocoding
+// Zonenlisten-Eintrag
 function ZoneListItem({
   zone,
   onEdit,
@@ -51,12 +22,6 @@ function ZoneListItem({
   onDelete: (z: PrivacyZone) => void
   onToggle: (z: PrivacyZone) => void
 }) {
-  const { data: address = '' } = useQuery({
-    queryKey: ['reverse-geocode', zone.lat, zone.lng],
-    queryFn: () => reverseGeocode(zone.lat, zone.lng),
-    staleTime: 1000 * 60 * 60, // 1 Stunde cachen
-  })
-
   return (
     <div className="flex items-center gap-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
       {/* Toggle */}
@@ -81,12 +46,6 @@ function ZoneListItem({
         <div className="text-xs text-neutral-400 dark:text-neutral-500 tabular-nums mt-0.5 flex items-center gap-2 flex-wrap">
           {zone.zone_type !== 'polygon' && (
             <span>{zone.lat.toFixed(5)}, {zone.lng.toFixed(5)}</span>
-          )}
-          {address && (
-            <>
-              {zone.zone_type !== 'polygon' && <span className="text-neutral-300 dark:text-neutral-600">·</span>}
-              <span>{address}</span>
-            </>
           )}
         </div>
       </div>

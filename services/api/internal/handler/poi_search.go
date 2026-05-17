@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
@@ -24,6 +25,9 @@ type POIResult struct {
 func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	_, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyLocalPOISearch) {
 		return
 	}
 

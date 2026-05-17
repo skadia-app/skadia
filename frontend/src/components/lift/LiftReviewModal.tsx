@@ -26,6 +26,7 @@ interface LiftReviewModalProps {
   onClose: () => void
   activity: Pick<Activity, 'id' | 'lifts_acknowledged_at'>
   candidates: LiftCandidate[]
+  osmSnapAvailable?: boolean
 }
 
 type ModalMode = 'compact' | 'expanded'
@@ -122,7 +123,7 @@ function apiErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unbekannter Fehler'
 }
 
-export default function LiftReviewModal({ open, onClose, activity, candidates }: LiftReviewModalProps) {
+export default function LiftReviewModal({ open, onClose, activity, candidates, osmSnapAvailable = true }: LiftReviewModalProps) {
   const activityId = activity.id
   const qc = useQueryClient()
   const { addToast } = useToast()
@@ -836,6 +837,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                   jobRunning={jobRunning}
                   onJobStarted={() => setJobPhase('starting')}
                   compact
+                  osmSnapAvailable={osmSnapAvailable}
                 />
                 <button
                   onClick={() => setMode('compact')}
@@ -902,6 +904,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 jobRunning={jobRunning}
                 onJobStarted={() => setJobPhase('starting')}
                 compact
+                osmSnapAvailable={osmSnapAvailable}
               />
               {bulkFooter}
               <button

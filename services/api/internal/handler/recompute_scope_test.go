@@ -3,6 +3,7 @@ package handler
 import (
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 )
 
@@ -138,6 +139,83 @@ func TestBuildRecomputeScopeFlagsAllScopeIncludesAutoTitle(t *testing.T) {
 func TestParseRecomputeScopeValuesRejectsUnknownScopes(t *testing.T) {
 	if _, err := parseRecomputeScopeValues([]string{"bogus"}); err == nil {
 		t.Fatal("parseRecomputeScopeValues accepted unknown scope")
+	}
+}
+
+func TestRecomputeScopeUnavailableReason_CoreBlocksFullOnlyScopes(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core"}}
+
+	for _, tc := range []struct {
+		name  string
+		scope []string
+		want  string
+	}{
+		{name: "all", scope: nil, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "geo", scope: []string{"geo"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "summits", scope: []string{"summits"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "forests", scope: []string{"forests"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "water", scope: []string{"water"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "settlements", scope: []string{"settlements"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "borders", scope: []string{"borders"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "stops", scope: []string{"stops"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "surfaces", scope: []string{"surfaces"}, want: capabilities.KeySurfaceEnrichment},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, err := parseRecomputeScopeValues(tc.scope)
+			if err != nil {
+				t.Fatalf("parseRecomputeScopeValues: %v", err)
+			}
+			key, reason := h.recomputeScopeUnavailableReason(t.Context(), scope)
+			if key != tc.want || reason != capabilities.ReasonCoreProfile {
+				t.Fatalf("unavailable = (%q,%q), want (%q,%q)", key, reason, tc.want, capabilities.ReasonCoreProfile)
+			}
+		})
+	}
+}
+
+func TestRecomputeScopeUnavailableReason_CoreAllowsSafeScopes(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core"}}
+
+	for _, scopeValues := range [][]string{
+		{"auto_title"},
+		{"ascents"},
+		{"intervals"},
+		{"lifts"},
+		{"ascents", "intervals", "lifts"},
+	} {
+		scope, err := parseRecomputeScopeValues(scopeValues)
+		if err != nil {
+			t.Fatalf("parseRecomputeScopeValues(%v): %v", scopeValues, err)
+		}
+		if key, reason := h.recomputeScopeUnavailableReason(t.Context(), scope); key != "" || reason != "" {
+			t.Fatalf("scope %v unavailable = (%q,%q), want allowed", scopeValues, key, reason)
+		}
+	}
+}
+
+func TestRecomputeScopeUnavailableReason_FullBlocksUnavailableGeodataScopes(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+
+	for _, tc := range []struct {
+		name  string
+		scope []string
+		want  string
+	}{
+		{name: "all", scope: nil, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "geo", scope: []string{"geo"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "stops", scope: []string{"stops"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "surfaces", scope: []string{"surfaces"}, want: capabilities.KeySurfaceEnrichment},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, err := parseRecomputeScopeValues(tc.scope)
+			if err != nil {
+				t.Fatalf("parseRecomputeScopeValues: %v", err)
+			}
+			key, reason := h.recomputeScopeUnavailableReason(t.Context(), scope)
+			if key != tc.want || reason != capabilities.ReasonMissingArtifacts {
+				t.Fatalf("unavailable = (%q,%q), want (%q,%q)", key, reason, tc.want, capabilities.ReasonMissingArtifacts)
+			}
+		})
 	}
 }
 

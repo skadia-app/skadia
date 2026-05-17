@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -53,11 +54,12 @@ func (h *Handler) QueryCoverage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.requireFeature(w, r, capabilities.KeyCoverage) {
+		return
+	}
+
 	if h.CoverageReader == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable,
-			"Coverage reader not initialized",
-			"coverage binaries are not available on this server",
-			r.URL.Path)
+		writeFeatureUnavailable(w, r, capabilities.KeyCoverage, capabilities.ReasonMissingArtifacts)
 		return
 	}
 
@@ -121,6 +123,13 @@ func parseCoverageQueryLayers(raw string) ([]string, error) {
 
 // CoverageBuildInfo returns the coverage build timestamp for cache-busting.
 func (h *Handler) CoverageBuildInfo(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyCoverageTiles) {
+		return
+	}
+	if h.CoverageReader == nil {
+		writeFeatureUnavailable(w, r, capabilities.KeyCoverageTiles, capabilities.ReasonMissingArtifacts)
+		return
+	}
 	ts := ""
 	if h.CoverageReader != nil {
 		ts = h.CoverageReader.BuildTimestamp()

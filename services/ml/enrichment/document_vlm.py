@@ -24,7 +24,8 @@ from config import (
     ML_VISION_ROLE,
     call_llm_broker,
 )
-from s3_client import s3_client_kwargs
+from enrichment import user_files as user_file_storage
+from enrichment.user_files import RetryableStorageReadError
 
 logger = logging.getLogger(__name__)
 
@@ -140,107 +141,38 @@ async def extract_from_text(text: str, prompt: str = EXTRACTION_PROMPT) -> Optio
 async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
     """Download a document from S3-compatible storage."""
     try:
-        session = aioboto3.Session()
-        async with session.client("s3", **s3_client_kwargs()) as s3:
-            response = await s3.get_object(Bucket=s3_bucket, Key=s3_key)
-            content_length = response.get("ContentLength")
-            if content_length is not None and int(content_length) > MAX_DOCUMENT_DOWNLOAD_BYTES:
-                logger.warning(
-                    "S3 document exceeds %d bytes: %s/%s",
-                    MAX_DOCUMENT_DOWNLOAD_BYTES,
-                    s3_bucket,
-                    s3_key,
-                )
-                body = response.get("Body")
-                if body and hasattr(body, "close"):
-                    body.close()
-                return None
-            body = response["Body"]
-            chunks: list[bytes] = []
-            total = 0
-            while True:
-                chunk = await body.read(64 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_DOCUMENT_DOWNLOAD_BYTES:
-                    logger.warning(
-                        "S3 document exceeds %d bytes: %s/%s",
-                        MAX_DOCUMENT_DOWNLOAD_BYTES,
-                        s3_bucket,
-                        s3_key,
-                    )
-                    if hasattr(body, "close"):
-                        body.close()
-                    return None
-                chunks.append(chunk)
-            if hasattr(body, "close"):
-                body.close()
-            return b"".join(chunks)
-    except Exception as e:
-        logger.warning("S3 download failed for %s/%s: %s", s3_bucket, s3_key, e)
+        return await user_file_storage.download_s3_user_file(
+            s3_bucket,
+            s3_key,
+            max_bytes=MAX_DOCUMENT_DOWNLOAD_BYTES,
+            label="document",
+        )
+    except RetryableStorageReadError as e:
         raise RetryableDocumentError("S3 document download failed") from e
-    return None
 
 
 def _s3_bucket_for_file_type(file_type: str) -> str:
-    default_bucket = os.getenv("S3_BUCKET", "skadia-originals")
-    if file_type in {"activity", "health"}:
-        return os.getenv("S3_BUCKET_ACTIVITY") or default_bucket
-    if file_type in {"media", "document", "thumb", "preview"}:
-        return os.getenv("S3_BUCKET_MEDIA") or default_bucket
-    return default_bucket
-
-
-def _local_storage_base_path() -> str:
-    return (
-        os.getenv("ML_SHADOWFS_BASE_PATH")
-        or os.getenv("LIBRARY_BASE_PATH")
-        or os.getenv("SHADOW_FS_BASE_PATH")
-        or ""
-    )
+    return user_file_storage.s3_bucket_for_file_type(file_type)
 
 
 async def download_user_file(storage_backend: str, storage_path: str, file_type: str, size_bytes: int | None = None) -> Optional[bytes]:
     """Load bytes for a user_files row without relying on legacy event S3 fields."""
-    storage_backend = (storage_backend or "").strip()
-    storage_path = (storage_path or "").strip()
-    if not storage_backend or not storage_path:
-        return None
     if size_bytes is not None and size_bytes > MAX_DOCUMENT_DOWNLOAD_BYTES:
         logger.warning("document metadata exceeds %d bytes: %s", MAX_DOCUMENT_DOWNLOAD_BYTES, storage_path)
         return None
     if storage_backend == "s3":
         return await download_s3_doc(_s3_bucket_for_file_type(file_type), storage_path)
-    if storage_backend == "local":
-        base = _local_storage_base_path()
-        if not base:
-            logger.info("local ShadowFS document storage is not mounted in ML service")
-            return None
-        base_path = Path(base).resolve()
-        full_path = (base_path / storage_path).resolve()
-        try:
-            full_path.relative_to(base_path)
-        except ValueError:
-            logger.warning("blocked document storage path traversal: %s", storage_path)
-            return None
-        try:
-            return await asyncio.to_thread(_read_limited_file, full_path, MAX_DOCUMENT_DOWNLOAD_BYTES)
-        except RetryableDocumentError:
-            raise
-        except Exception as e:
-            logger.warning("local document read failed for %s: %s", storage_path, e)
-            return None
-    logger.info("unsupported document storage backend %s", storage_backend)
-    return None
-
-
-def _read_limited_file(path: Path, max_bytes: int) -> bytes:
-    with path.open("rb") as f:
-        data = f.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise ValueError(f"document exceeds {max_bytes} bytes")
-    return data
+    try:
+        return await user_file_storage.download_user_file(
+            storage_backend,
+            storage_path,
+            file_type,
+            size_bytes=size_bytes,
+            max_bytes=MAX_DOCUMENT_DOWNLOAD_BYTES,
+            label="document",
+        )
+    except RetryableStorageReadError as e:
+        raise RetryableDocumentError("document storage read failed") from e
 
 
 def _is_pdf_bytes(data: bytes) -> bool:

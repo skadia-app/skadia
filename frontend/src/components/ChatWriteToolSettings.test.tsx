@@ -1,8 +1,18 @@
+import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatWriteToolSettings from '@/components/ChatWriteToolSettings'
 import { ToastProvider } from '@/lib/toast'
+
+const mocks = vi.hoisted(() => ({
+  capabilities: undefined as Record<string, unknown> | undefined,
+  capabilitiesLoading: false,
+}))
+
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({ data: mocks.capabilities, isLoading: mocks.capabilitiesLoading }),
+}))
 
 function renderSettings() {
   const client = new QueryClient({
@@ -34,6 +44,12 @@ describe('ChatWriteToolSettings', () => {
   let fetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
+    mocks.capabilities = {
+      features: {
+        document_ml: { configured: true, available: true },
+      },
+    }
+    mocks.capabilitiesLoading = false
     fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (!init || init.method === undefined || init.method === 'GET') {
         return jsonResponse({
@@ -45,6 +61,40 @@ describe('ChatWriteToolSettings', () => {
       return jsonResponse(JSON.parse(init.body as string))
     })
     vi.stubGlobal('fetch', fetchMock)
+  })
+
+  it('hides document text exposure when document ML is unavailable', async () => {
+    mocks.capabilities = {
+      features: {
+        document_ml: { configured: false, available: false, reason: 'core_profile' },
+      },
+    }
+
+    renderSettings()
+    await screen.findByText('AI-Agent-Berechtigungen')
+
+    expect(screen.queryByRole('switch', {
+      name: 'Dokument-OCR-Text dem AI-Agenten zugänglich machen',
+    })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', {
+      name: 'AI-Agent darf Änderungen vorschlagen',
+    })).toBeInTheDocument()
+  })
+
+  it('does not expose sensitive controls while capabilities are unknown', async () => {
+    mocks.capabilities = undefined
+    mocks.capabilitiesLoading = true
+
+    renderSettings()
+    await screen.findByText('AI-Agent-Berechtigungen')
+
+    expect(screen.queryByRole('switch', {
+      name: 'Dokument-OCR-Text dem AI-Agenten zugänglich machen',
+    })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', {
+      name: 'AI-Agent darf Änderungen vorschlagen',
+    })).toHaveProperty('disabled', true)
+    expect(screen.queryByLabelText('Aktivität umbenennen')).not.toBeInTheDocument()
   })
 
   afterEach(() => {

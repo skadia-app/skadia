@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image/color"
 	"mime/multipart"
 	"net/http"
@@ -81,6 +82,8 @@ func TestUploadGearImageCompletesImportLogWithoutDocumentProcessing(t *testing.T
 }
 
 func TestUploadGearPDFTracksProcessingImportLogWhenDocumentEventIsPublished(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
@@ -132,6 +135,8 @@ func TestUploadGearPDFTracksProcessingImportLogWhenDocumentEventIsPublished(t *t
 }
 
 func TestUploadGearPDFSurvivesSynchronousProcessedCallback(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
@@ -178,7 +183,142 @@ func TestUploadGearPDFSurvivesSynchronousProcessedCallback(t *testing.T) {
 	}
 }
 
+func TestUploadGearPDFPublishFailureKeepsUploadCompleted(t *testing.T) {
+	enableMLServiceForTest(t)
+
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	gearID := insertTestGear(t, pool, userID, "Test Bike", "bike", "bike")
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	pub := &recordingDocumentPublisher{
+		onPublish: func(event.DocumentUploadedEvent) error {
+			return errors.New("broker unavailable")
+		},
+	}
+	h := &Handler{DB: db, ShadowFS: fs, DocumentUploadedPublisher: pub}
+
+	req := newGearDocumentUploadRequest(t, userID, gearID, "broker-down.pdf", "application/pdf", []byte("%PDF-1.4\n%%EOF\n"), "manual")
+	rr := httptest.NewRecorder()
+	h.UploadGearDocument(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("UploadGearDocument pdf status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	var response struct {
+		ID               string `json:"id"`
+		ProcessingStatus string `json:"processing_status"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if response.ProcessingStatus != "failed" {
+		t.Fatalf("pdf response processing_status = %q, want failed", response.ProcessingStatus)
+	}
+
+	var dbStatus string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT processing_status
+		FROM gear_documents
+		WHERE id = $1 AND user_id = $2`,
+		response.ID, userID,
+	).Scan(&dbStatus); err != nil {
+		t.Fatalf("select gear document processing_status: %v", err)
+	}
+	if dbStatus != "failed" {
+		t.Fatalf("gear document processing_status = %q, want failed", dbStatus)
+	}
+
+	var logStatus string
+	var errorMsg *string
+	var textStep, markdownStep string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status, error_msg, metadata #>> '{steps,1,status}', metadata #>> '{steps,2,status}'
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'broker-down.pdf'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&logStatus, &errorMsg, &textStep, &markdownStep); err != nil {
+		t.Fatalf("select gear pdf import_log: %v", err)
+	}
+	if logStatus != "completed" || errorMsg != nil || textStep != "failed" || markdownStep != "failed" {
+		t.Fatalf("gear pdf import_log after publish failure = status %q error %v text %q markdown %q, want completed/<nil>/failed/failed",
+			logStatus, errorMsg, textStep, markdownStep)
+	}
+}
+
+func TestUploadGearPDFDoesNotPublishWhenFileLinkFailsAndCleansStoredFile(t *testing.T) {
+	enableMLServiceForTest(t)
+
+	pool := fusionTestPool(t)
+	if _, err := pool.Exec(context.Background(), `
+		CREATE OR REPLACE FUNCTION fail_gear_document_file_link_for_test()
+		RETURNS trigger AS $$
+		BEGIN
+			IF NEW.original_filename = 'link-fails.pdf' THEN
+				RAISE EXCEPTION 'forced gear document file_id link failure';
+			END IF;
+			RETURN NEW;
+		END
+		$$ LANGUAGE plpgsql;
+		DROP TRIGGER IF EXISTS fail_gear_document_file_link_for_test ON gear_documents;
+		CREATE TRIGGER fail_gear_document_file_link_for_test
+		BEFORE UPDATE OF file_id ON gear_documents
+		FOR EACH ROW
+		EXECUTE FUNCTION fail_gear_document_file_link_for_test();
+	`); err != nil {
+		t.Fatalf("install file-link failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `
+			DROP TRIGGER IF EXISTS fail_gear_document_file_link_for_test ON gear_documents;
+			DROP FUNCTION IF EXISTS fail_gear_document_file_link_for_test();
+		`)
+	})
+
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	gearID := insertTestGear(t, pool, userID, "Test Bike", "bike", "bike")
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	pub := &recordingDocumentPublisher{}
+	h := &Handler{DB: db, ShadowFS: fs, DocumentUploadedPublisher: pub}
+
+	req := newGearDocumentUploadRequest(t, userID, gearID, "link-fails.pdf", "application/pdf", []byte("%PDF-1.4\n%%EOF\n"), "manual")
+	rr := httptest.NewRecorder()
+	h.UploadGearDocument(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("UploadGearDocument link failure status = %d, want 500; body=%s", rr.Code, rr.Body.String())
+	}
+	if len(pub.events) != 0 {
+		t.Fatalf("published document events after file link failure = %d, want 0", len(pub.events))
+	}
+
+	var docRows, fileRows int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM gear_documents
+		WHERE user_id = $1 AND gear_id = $2 AND original_filename = 'link-fails.pdf'`,
+		userID, gearID,
+	).Scan(&docRows); err != nil {
+		t.Fatalf("count gear documents after link failure: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM user_files
+		WHERE user_id = $1 AND file_name = 'link-fails.pdf'`,
+		userID,
+	).Scan(&fileRows); err != nil {
+		t.Fatalf("count stored files after link failure: %v", err)
+	}
+	if docRows != 0 || fileRows != 0 {
+		t.Fatalf("rows after file link failure = gear_documents %d user_files %d, want 0/0", docRows, fileRows)
+	}
+}
+
 func TestUploadGearDocumentSniffsPDFDespiteImageHeader(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)

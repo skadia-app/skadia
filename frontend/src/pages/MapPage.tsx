@@ -26,6 +26,7 @@ import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { buildMapLineColor } from '@/lib/mapSportColors'
 import { buildLayerStyle, expandSwitch, opacityPercentToFloat, type BaseStyle } from '@/lib/mapStyles'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayersMerged } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -269,7 +270,7 @@ export default function MapPage() {
   // DB-driven layer catalog, merged with user-owned custom layers.
   // base/overlay include user layers (appended after system layers by sort_order).
   // raw / systemBase / systemOverlay stay system-only for the overlay diff pipeline.
-  const { base: baseLayers, raw: rawLayers, disabled: disabledLayers } = useMapLayersMerged()
+  const { base: baseLayers, systemOverlay: systemOverlayLayers, disabled: disabledLayers } = useMapLayersMerged()
   const { data: caps } = useCapabilities()
   // Overlay re-apply: track the previous stack to compute minimal diffs.
   const prevOverlayStackRef = useRef<MapLayer[]>([])
@@ -960,7 +961,7 @@ export default function MapPage() {
 
   // ── System-overlay + user-custom stack re-apply ───────────────────────────
   //
-  // Runs whenever the system overlay list (rawLayers) or user layers change.
+  // Runs whenever the capability-passing system overlay list or user layers change.
   // Uses mapLayerStackDiff to compute minimal add/remove/replace operations so
   // MapLibre only re-fetches tiles for layers that actually changed.
   //
@@ -1013,8 +1014,8 @@ export default function MapPage() {
       }
     }
 
-    // System overlays: role='overlay', enabled=true, capability-passing (already filtered in rawLayers hook).
-    const sysOverlays = rawLayers.filter((l) => l.role === 'overlay' && l.enabled && l.source_kind === 'raster_tiles')
+    // System overlays: role='overlay', enabled=true, capability-passing.
+    const sysOverlays = systemOverlayLayers.filter((l) => l.enabled && l.source_kind === 'raster_tiles')
 
     // User-custom raster overlays only: role='overlay', source_kind='raster_tiles'.
     // vector_style user overlays are out of scope — MapLibre style-composition would be
@@ -1061,7 +1062,7 @@ export default function MapPage() {
         enforceRouteLayersOnTop(m)
       })
     }
-  }, [mapRef, styleVersion, rawLayers, userLayersData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapRef, styleVersion, systemOverlayLayers, userLayersData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
   //
@@ -1234,17 +1235,19 @@ export default function MapPage() {
     originalLngLat: { lng: number; lat: number }
   } | null>(null)
 
+  const coverageTilesAvailable = featureAvailable(caps, 'coverage_tiles')
   const { coverageState, updateComposite, toggleLayer: toggleCoverageLayer } = useCoverageOverlays(
     mapRef.current,
     styleVersion,
+    coverageTilesAvailable,
   )
 
   useEffect(() => {
-    if (styleVersion === 0) return
+    if (styleVersion === 0 || !coverageTilesAvailable) return
     registerIds('coverage-nature',  ['coverage-landuse-layer', 'coverage-forest-layer', 'coverage-water-layer', 'coverage-river_proximity-layer', 'coverage-protected-layer'])
     registerIds('coverage-noise',   ['coverage-noise-layer'])
     registerIds('coverage-traffic', ['coverage-urbanization-layer', 'coverage-traffic-layer'])
-  }, [styleVersion, registerIds])
+  }, [styleVersion, coverageTilesAvailable, registerIds])
 
   const queryClient = useQueryClient()
   const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -2731,12 +2734,12 @@ export default function MapPage() {
     return () => cancelAnimationFrame(id)
   }, [styleVersion, layerEntries, applyOrder])
 
-  const plannerAvailable = planner.capabilities?.routing ?? false
+  const plannerAvailable = featureAvailable(planner.capabilities, 'routing')
+  const badRouterAvailable = featureAvailable(planner.capabilities, 'badrouter')
+  const routeSuggestionAvailable = featureAvailable(planner.capabilities, 'route_suggestion')
 
   // System overlay layers from the catalog (raster or vector_style, enabled).
-  const sysOverlaysForPicker = rawLayers.filter(
-    (l) => l.role === 'overlay' && l.enabled && l.is_system,
-  )
+  const sysOverlaysForPicker = systemOverlayLayers.filter((l) => l.enabled && l.is_system)
   // User raster overlays only — vector_style overlays are out of scope for overlay use.
   const userOverlaysForPicker = useMemo(
     () => (userLayersData ?? []).filter(
@@ -2800,7 +2803,8 @@ export default function MapPage() {
                 showHeatmap={viewMode === 'heatmap'}
                 routingEngine={planner.routingEngine}
                 brouterProfile={planner.brouterProfile}
-                badRouterAvailable={planner.capabilities?.routing ?? false}
+                badRouterAvailable={badRouterAvailable}
+                routeSuggestionAvailable={routeSuggestionAvailable}
                 onRoutingEngineChange={planner.setRoutingEngine}
                 onBrouterProfileChange={planner.setBrouterProfile}
                 totalDistanceM={planner.totals.distance_m}
@@ -2845,7 +2849,9 @@ export default function MapPage() {
                     setShowSaveDialog(true)
                   }
                 }}
-                onSuggest={() => setShowSuggestionDialog(true)}
+                onSuggest={() => {
+                  if (routeSuggestionAvailable) setShowSuggestionDialog(true)
+                }}
                 onClose={handlePlannerClose}
                 calculationError={planner.calculationError}
                 onClearError={planner.clearError}
@@ -3281,7 +3287,7 @@ export default function MapPage() {
         )}
 
         {/* Route Suggestion Dialog */}
-        {showSuggestionDialog && (() => {
+        {showSuggestionDialog && routeSuggestionAvailable && (() => {
           const map = mapRef.current
           const center = map ? map.getCenter() : { lat: 47.5, lng: 11.0 }
           const firstWaypoint = planner.waypoints[0]

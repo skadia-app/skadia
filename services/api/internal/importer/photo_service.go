@@ -943,6 +943,8 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			return nil, fmt.Errorf("shadowfs put orphan photo: %w", putErr)
 		}
 		queueMeta["file_store_id"] = rec.ID
+		queueMeta["storage_backend"] = rec.StorageBackend
+		queueMeta["storage_path"] = rec.StoragePath
 
 		// Store thumbnail via ShadowFS (best-effort).
 		if thumbData != nil {
@@ -958,6 +960,8 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 			}, bytes.NewReader(thumbData))
 			if thumbErr == nil {
 				queueMeta["file_store_id_thumb"] = thumbRec.ID
+				queueMeta["storage_backend_thumb"] = thumbRec.StorageBackend
+				queueMeta["storage_path_thumb"] = thumbRec.StoragePath
 			} else {
 				slog.Warn("importer: orphan thumb ShadowFS.Put failed", "err", thumbErr)
 			}
@@ -966,14 +970,16 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 
-	localBE := "local"
+	storageBackend, _ := queueMeta["storage_backend"].(string)
+	storagePath, _ := queueMeta["storage_path"].(string)
 	queueItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        "image_no_match",
 		OriginalFilename: meta.OriginalFilename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		StorageBackend:   &localBE,
+		StorageBackend:   &storageBackend,
+		StoragePath:      &storagePath,
 		Metadata:         queueMeta,
 	}
 	entryID, err := s.DB.CreateImportQueueItem(ctx, queueItem)

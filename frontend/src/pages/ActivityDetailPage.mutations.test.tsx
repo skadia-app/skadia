@@ -4,11 +4,19 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Activity } from '@/api/types'
+import type { Capabilities } from '@/api/routes'
 import { ToastProvider } from '@/lib/toast'
 
 const activityDetailMocks = vi.hoisted(() => ({
   toggleResolved: vi.fn(),
   toggleRejected: vi.fn(),
+  capabilities: {
+    features: {
+      geo_poi_enrichment: { configured: true, available: true },
+      surface_enrichment: { configured: true, available: true },
+      osm_lift_snap: { configured: true, available: true },
+    },
+  } as Capabilities,
 }))
 
 vi.mock('react-router-dom', () => ({
@@ -43,6 +51,11 @@ vi.mock('@/api/activityPhotos', () => ({ uploadActivityPhoto: vi.fn() }))
 vi.mock('@/api/enrichment', () => ({ fetchGeoTags: vi.fn(), fetchStops: vi.fn() }))
 vi.mock('@/api/bestEfforts', () => ({ fetchActivityBestEfforts: vi.fn() }))
 vi.mock('@/api/trackSummary', () => ({ useActivityTrackSummary: vi.fn() }))
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({
+    data: activityDetailMocks.capabilities,
+  }),
+}))
 
 vi.mock('@/hooks/useStickyHighlight', () => ({
   useStickyHighlight: () => ({
@@ -123,7 +136,8 @@ vi.mock('@/components/track-summary/StatsRow', () => ({ default: () => null }))
 vi.mock('@/components/track-summary/TrackSummary', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    default: ({ children }: { children?: ReactNode }) => React.createElement('div', null, children),
+    default: ({ summary, children }: { summary?: unknown; children?: ReactNode }) =>
+      React.createElement('div', null, summary === undefined ? 'track summary loading' : children),
     buildStatsRowProps: vi.fn(() => ({})),
   }
 })
@@ -206,6 +220,13 @@ function wrapper(queryClient: QueryClient) {
 describe('ActivityDetailPage mutation errors', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    activityDetailMocks.capabilities = {
+      features: {
+        geo_poi_enrichment: { configured: true, available: true },
+        surface_enrichment: { configured: true, available: true },
+        osm_lift_snap: { configured: true, available: true },
+      },
+    }
     global.IntersectionObserver = class {
       observe() {}
       disconnect() {}
@@ -267,5 +288,26 @@ describe('ActivityDetailPage mutation errors', () => {
     })
     expect(activityDetailMocks.toggleResolved).not.toHaveBeenCalled()
     expect(invalidateSpy.mock.calls).not.toContainEqual([{ queryKey: ['activity', 'act-1'] }])
+  })
+
+  it('does not leave TrackSummary in loading state when geodata capabilities are unavailable', async () => {
+    activityDetailMocks.capabilities = {
+      features: {
+        geo_poi_enrichment: { configured: false, available: false, reason: 'core_profile' },
+        surface_enrichment: { configured: false, available: false, reason: 'core_profile' },
+        osm_lift_snap: { configured: false, available: false, reason: 'core_profile' },
+      },
+    }
+    mockUseActivityTrackSummary.mockReturnValue({ data: undefined, isError: false, isLoading: false })
+    mockFetchActivity.mockResolvedValue({ ...makeActivity(), has_gps: true, lift_count: 0 })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(<ActivityDetailPage />, { wrapper: wrapper(queryClient) })
+
+    await waitFor(() => expect(mockUseActivityTrackSummary).toHaveBeenCalled())
+    expect(screen.queryByText('track summary loading')).toBeNull()
   })
 })

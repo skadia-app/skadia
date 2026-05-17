@@ -28,6 +28,15 @@ import (
 
 // RoutingGraphStatus returns the current routing status based on tile availability.
 func (h *Handler) RoutingGraphStatus(w http.ResponseWriter, r *http.Request) {
+	if reason := h.featureUnavailableReason(capabilities.KeyBadRouter); reason != "" {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"routing_available": false,
+			"configured":        false,
+			"available":         false,
+			"reason":            reason,
+		})
+		return
+	}
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"routing_available": false,
@@ -65,19 +74,18 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
+		return
+	}
 
 	if h.GraphManager == nil {
-		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "routing not configured",
-		})
+		writeFeatureUnavailable(w, r, capabilities.KeyBadRouter, capabilities.ReasonMissingArtifacts)
 		return
 	}
 
 	unifiedRouter := h.GraphManager.UnifiedRouter()
 	if unifiedRouter == nil {
-		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "routing not available",
-		})
+		writeFeatureUnavailable(w, r, capabilities.KeyBadRouter, capabilities.ReasonMissingArtifacts)
 		return
 	}
 
@@ -299,6 +307,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 // RebuildRoutingTiles triggers a background tile build from PostGIS data.
 // POST /admin/routing/rebuild-tiles
 func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyRoutingTiles) {
+		return
+	}
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not configured",
@@ -397,6 +408,9 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 // Does NOT rebuild tiles. Use when tiles exist but landmarks need recomputing.
 // POST /admin/routing/rebuild-landmarks
 func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyRoutingTiles) {
+		return
+	}
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
 		return
@@ -438,6 +452,9 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 // This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
 // POST /admin/routing/build-brouter-segments
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyBRouterSegmentBuild) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -515,9 +532,9 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 
 		if err := pipeline.BuildBRouterSegments(ctx, osmregions.BRouterPaths{
-				ProfilesDir: h.Config.BRouterProfilesDir,
-				DEMDir:      h.Config.DEMDataDir,
-			}, regions, osmDataDir, segmentsDir, reporter); err != nil {
+			ProfilesDir: h.Config.BRouterProfilesDir,
+			DEMDir:      h.Config.DEMDataDir,
+		}, regions, osmDataDir, segmentsDir, reporter); err != nil {
 			slog.Error("BRouter segment build failed", "error", err, "job_id", jobID)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, "")
 		} else {
@@ -536,6 +553,9 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 // HandleGetProfileDefaults returns the full default ProfileConfig for a profile.
 // GET /api/v1/routing/profiles/{name}
 func (h *Handler) HandleGetProfileDefaults(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	p, err := routing.ProfileDefaults(name)
 	if err != nil {

@@ -8,8 +8,9 @@ import type { ReprocessFilter, ReprocessCompleted } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
-import { ALL_REPROCESS_SCOPE_KEYS, DEFAULT_SCOPES, scopeLabel, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { availableReprocessScopeKeys, DEFAULT_SCOPES, scopeLabel, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
 import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
+import { useCapabilities } from '@/hooks/useCapabilities'
 
 type ReprocessMode = 'all' | 'selection'
 const SELECTION_PAGE_SIZE = 100
@@ -26,6 +27,9 @@ export default function WorkshopReprocessPage() {
   const [result, setResult] = useState<ReprocessCompleted | null>(null)
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
   const searchQuery = search.trim()
+  const { data: capabilities } = useCapabilities()
+  const availableScopeKeys = availableReprocessScopeKeys(capabilities)
+  const selectedScopeKeys = toBackendScope(scope, availableScopeKeys)
 
   const {
     data: activitiesData,
@@ -72,8 +76,7 @@ export default function WorkshopReprocessPage() {
   }
 
   function buildFilter(): ReprocessFilter | undefined {
-    const converted = scope.size > 0 && scope.size < ALL_REPROCESS_SCOPE_KEYS.length ? toBackendScope(scope) : undefined
-    const scopeArr = converted && converted.length > 0 ? converted : undefined
+    const scopeArr = selectedScopeKeys.length > 0 ? selectedScopeKeys : undefined
 
     if (mode === 'selection') {
       if (selectedIds.size === 0) return undefined
@@ -91,7 +94,7 @@ export default function WorkshopReprocessPage() {
   }
 
   function handleStart() {
-    if (scope.size === 0) return
+    if (selectedScopeKeys.length === 0) return
     if (mode === 'selection' && selectedIds.size === 0) return
     setShowConfirm(true)
   }
@@ -129,7 +132,7 @@ export default function WorkshopReprocessPage() {
 
   const activities = activitiesData?.pages.flatMap(page => page.activities) ?? []
   const filteredActivities = activities
-  const tagsReprocessed = scope.has('tags') || scope.size === ALL_REPROCESS_SCOPE_KEYS.length
+  const tagsReprocessed = selectedScopeKeys.includes('tags')
   const reprocessPreservationCopy = 'Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten. Tags bleiben nur unverändert, wenn „Tags“ nicht ausgewählt ist; bei „Tags“ werden Automations- und Systemtags neu ausgewertet.'
 
   return (
@@ -332,14 +335,14 @@ export default function WorkshopReprocessPage() {
         {/* Scope selection */}
         <div>
           <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">Was neu berechnen?</label>
-          <ScopeCheckboxList selected={scope} onToggle={toggleScope} layout="inline" />
+          <ScopeCheckboxList selected={scope} onToggle={toggleScope} layout="inline" capabilities={capabilities} />
         </div>
 
         {/* Action */}
         <div className="flex items-center gap-4">
           <button
             onClick={handleStart}
-            disabled={mutation.isPending || scope.size === 0 || (mode === 'selection' && selectedIds.size === 0)}
+            disabled={mutation.isPending || selectedScopeKeys.length === 0 || (mode === 'selection' && selectedIds.size === 0)}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
                        hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed
                        transition-colors cursor-pointer"
@@ -370,8 +373,8 @@ export default function WorkshopReprocessPage() {
                   : 'Alle passenden Aktivitäten werden neu verarbeitet.'}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Umfang: {scope.size === 0 ? 'Nichts ausgewählt' : [
-                  ...ALL_REPROCESS_SCOPE_KEYS.filter(key => scope.has(key)).map(key => scopeLabel(key)),
+                Umfang: {selectedScopeKeys.length === 0 ? 'Nichts ausgewählt' : [
+                  ...selectedScopeKeys.map(key => scopeLabel(key)),
                 ].join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">

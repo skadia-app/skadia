@@ -8,10 +8,31 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
+
+type importQueueDeleteOrderFS struct {
+	shadowfs.ShadowFS
+	t                   *testing.T
+	pool                *pgxpool.Pool
+	queueID             string
+	sawQueueRowAtDelete bool
+}
+
+func (fs *importQueueDeleteOrderFS) Delete(ctx context.Context, userID, fileID string) error {
+	var count int
+	if err := fs.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM import_queue WHERE id = $1 AND user_id = $2`,
+		fs.queueID, userID,
+	).Scan(&count); err != nil {
+		fs.t.Fatalf("count queue row during storage delete: %v", err)
+	}
+	fs.sawQueueRowAtDelete = count > 0
+	return fs.ShadowFS.Delete(ctx, userID, fileID)
+}
 
 func TestResolvePDFQueueItemCreatesGearDocumentAndCompletesLog(t *testing.T) {
 	pool := fusionTestPool(t)
@@ -142,5 +163,55 @@ func TestGetImportQueueItemPreviewFallsBackToThumbnailWhenOriginalMissing(t *tes
 	}
 	if got := rec.Body.String(); got != "thumb" {
 		t.Fatalf("body = %q, want thumb fallback", got)
+	}
+}
+
+func TestDeleteImportQueueItemDeletesDBRowBeforeStoredFiles(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	baseFS := newActivityPhotoStorageTestFS(t, pool)
+	ctx := context.Background()
+
+	rec, err := baseFS.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "media",
+		ContentType: "image/jpeg",
+		FileName:    "queued-photo.jpg",
+		SizeBytes:   int64(len("photo")),
+	}, bytes.NewBufferString("photo"))
+	if err != nil {
+		t.Fatalf("put queued file: %v", err)
+	}
+
+	queueID, err := db.CreateImportQueueItem(ctx, database.ImportQueueItem{
+		UserID:           userID,
+		QueueType:        "image_no_match",
+		OriginalFilename: "queued-photo.jpg",
+		ContentType:      "image/jpeg",
+		Metadata: map[string]any{
+			"file_store_id": rec.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create queue item: %v", err)
+	}
+	fs := &importQueueDeleteOrderFS{ShadowFS: baseFS, t: t, pool: pool, queueID: queueID}
+	h := &Handler{DB: db, ShadowFS: fs}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/import-queue/"+queueID, nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("id", queueID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+	rr := httptest.NewRecorder()
+
+	h.DeleteImportQueueItem(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DeleteImportQueueItem status = %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	if fs.sawQueueRowAtDelete {
+		t.Fatal("storage delete ran while import_queue row still existed")
 	}
 }

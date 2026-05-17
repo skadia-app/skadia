@@ -39,6 +39,9 @@ export interface RoutePhoto {
   id: string
   original_name?: string
   sort_order: number
+  thumb_url?: string
+  preview_url?: string
+  full_url?: string
 }
 
 export interface PlannedRoute {
@@ -80,6 +83,11 @@ export interface PlannedRoute {
 // Named fields are optional (undefined = not advertised by this backend build) and
 // kept for IDE autocomplete; callers should treat absent keys as false.
 export interface Capabilities {
+  deployment_profile?: 'core' | 'full' | string
+  deployment_profile_source?: 'implicit_legacy' | 'env' | string
+  storage_mode?: 'local' | 's3-local-garage' | 's3-external' | string
+  storage_backend?: 'local' | 's3' | string
+  features?: Record<string, CapabilityFeatureState | undefined>
   routing?: boolean
   brouter?: boolean
   badrouter?: boolean
@@ -90,7 +98,13 @@ export interface Capabilities {
   route_suggestion?: boolean
   ml_service?: boolean
   import_path_enabled?: boolean
-  [k: string]: boolean | undefined
+  [k: string]: boolean | string | Record<string, CapabilityFeatureState | undefined> | undefined
+}
+
+export interface CapabilityFeatureState {
+  configured: boolean
+  available: boolean
+  reason?: string
 }
 
 export interface POIResult {
