@@ -464,6 +464,55 @@ describe('useRoutePlanner routeStats V6-Retrofit', () => {
     expect(result.current.routeStats!.summits_passed).toHaveLength(1)
   })
 
+  it('loadSuggestion uebernimmt Sub-Segmente fuer Wegearten und Oberflaechen', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    act(() => {
+      result.current.loadSuggestion(makeFakeSuggestion({
+        geojson: {
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [12.0, 49.0, 500],
+                [12.01, 49.01, 510],
+                [12.02, 49.02, 505],
+              ],
+            },
+            properties: {
+              segments: [
+                {
+                  from_idx: 0,
+                  to_idx: 2,
+                  highway: 'path',
+                  surface: 'gravel',
+                  sac_scale: 'T2',
+                },
+              ],
+            },
+          }],
+        },
+      }))
+    })
+
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].sub_segments).toEqual([
+      {
+        from_idx: 0,
+        to_idx: 2,
+        highway: 'path',
+        surface: 'gravel',
+        sac_scale: 'T2',
+      },
+    ])
+  })
+
   it('routeStats wird null nach recalculateAll (Quelle 4 — reset)', async () => {
     const { getProfileDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)

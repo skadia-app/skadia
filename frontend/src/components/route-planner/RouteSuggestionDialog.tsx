@@ -14,6 +14,8 @@ import { ModalShell } from '@/components/ui/ModalShell'
 import Toggle from '@/components/Toggle'
 
 const ROUTE_SPORT_OPTIONS = routeSportOptions()
+const MIN_TARGET_DISTANCE_KM = 1
+const MAX_TARGET_DISTANCE_KM = 100
 
 const SURFACE_OPTIONS = [
   { value: 'trails', label: 'Naturwege / Singletrail' },
@@ -105,7 +107,7 @@ export default function RouteSuggestionDialog({
   const { accent } = useAccentColor()
   const { addToast } = useToast()
 
-  // Distance: 1–50 km, stored in km for UI, converted to m for API
+  // Distance is stored in km for UI and converted to meters for the API.
   const [distanceKm, setDistanceKm] = useState(20)
   const [distanceInput, setDistanceInput] = useState('20')
 
@@ -113,14 +115,10 @@ export default function RouteSuggestionDialog({
   const [sportType, setSportType] = useState('cycling')
   const [subType, setSubType] = useState<string | undefined>(undefined)
   const [isElectric, setIsElectric] = useState(false)
-  const [isIndoor, setIsIndoor] = useState(false)
-  const [isVirtual, setIsVirtual] = useState(false)
-  const [isCommute, setIsCommute] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<string>('')
   const [profileSportOverride, setProfileSportOverride] = useState(false)
 
-  // Round-trip + Terra Incognita toggles
-  const [roundTrip, setRoundTrip] = useState(true)
+  // Terra Incognita toggle
   const [preferUnknown, setPreferUnknown] = useState(false)
 
   // Landscape preferences (0–10)
@@ -149,18 +147,13 @@ export default function RouteSuggestionDialog({
 
   const modifierState: ActivityModifierState = {
     is_electric: isElectric,
-    is_indoor: isIndoor,
-    is_virtual: isVirtual,
-    is_commute: isCommute,
+    is_indoor: false,
+    is_virtual: false,
+    is_commute: false,
   }
   const requestModifiers: ModifierFilters | undefined =
-    isElectric || isIndoor || isVirtual || isCommute
-      ? {
-          ...(isElectric ? { is_electric: true } : {}),
-          ...(isIndoor ? { is_indoor: true } : {}),
-          ...(isVirtual ? { is_virtual: true } : {}),
-          ...(isCommute ? { is_commute: true } : {}),
-        }
+    isElectric
+      ? { is_electric: true }
       : undefined
 
   // Filter profiles by selected sport tuple.
@@ -203,9 +196,6 @@ export default function RouteSuggestionDialog({
     setSportType(sport)
     setSubType(sub || undefined)
     if (sport !== 'cycling') setIsElectric(false)
-    setIsIndoor(false)
-    setIsVirtual(false)
-    setIsCommute(false)
     setProfileSportOverride(false)
     setSelectedProfile('') // reset so auto-select kicks in
   }
@@ -218,14 +208,16 @@ export default function RouteSuggestionDialog({
   const handleDistanceInput = (raw: string) => {
     setDistanceInput(raw)
     const n = parseFloat(raw)
-    if (!isNaN(n) && n >= 1 && n <= 50) setDistanceKm(Math.round(n))
+    if (!isNaN(n) && n >= MIN_TARGET_DISTANCE_KM && n <= MAX_TARGET_DISTANCE_KM) {
+      setDistanceKm(Math.round(n))
+    }
   }
 
   const mutation = useMutation({
     mutationFn: () => {
       const params: RouteSuggestionParams = {
         start,
-        round_trip: roundTrip,
+        round_trip: true,
         target_distance_m: distanceKm * 1000,
         sport_type: sportType,
         sub_type: subType,
@@ -317,26 +309,14 @@ export default function RouteSuggestionDialog({
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {sportType === 'cycling' && (
+        {sportType === 'cycling' && (
+          <div className="grid grid-cols-2 gap-3">
             <label className="flex items-center justify-between gap-3 cursor-pointer group">
               <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Bike</span>
               <Toggle checked={isElectric} onChange={setIsElectric} size="sm" aria-label="E-Bike" />
             </label>
-          )}
-          <label className="flex items-center justify-between gap-3 cursor-pointer group">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Indoor</span>
-            <Toggle checked={isIndoor} onChange={setIsIndoor} size="sm" aria-label="Indoor" />
-          </label>
-          <label className="flex items-center justify-between gap-3 cursor-pointer group">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Virtuell</span>
-            <Toggle checked={isVirtual} onChange={setIsVirtual} size="sm" aria-label="Virtuell" />
-          </label>
-          <label className="flex items-center justify-between gap-3 cursor-pointer group">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Pendeln</span>
-            <Toggle checked={isCommute} onChange={setIsCommute} size="sm" aria-label="Pendeln" />
-          </label>
-        </div>
+          </div>
+        )}
 
         {/* Profil */}
         <div>
@@ -440,8 +420,8 @@ export default function RouteSuggestionDialog({
               <input
                 id="rsd-distance-input"
                 type="number"
-                min={1}
-                max={50}
+                min={MIN_TARGET_DISTANCE_KM}
+                max={MAX_TARGET_DISTANCE_KM}
                 step={1}
                 value={distanceInput}
                 onChange={e => handleDistanceInput(e.target.value)}
@@ -453,8 +433,8 @@ export default function RouteSuggestionDialog({
           </div>
           <input
             type="range"
-            min={1}
-            max={50}
+            min={MIN_TARGET_DISTANCE_KM}
+            max={MAX_TARGET_DISTANCE_KM}
             step={1}
             value={distanceKm}
             onChange={e => handleDistanceSlider(Number(e.target.value))}
@@ -463,25 +443,13 @@ export default function RouteSuggestionDialog({
             aria-label="Zieldistanz Slider"
           />
           <div className="flex justify-between text-[10px] text-neutral-400 dark:text-neutral-600 mt-0.5">
-            <span>1 km</span>
-            <span>50 km</span>
+            <span>{MIN_TARGET_DISTANCE_KM} km</span>
+            <span>{MAX_TARGET_DISTANCE_KM} km</span>
           </div>
         </div>
 
         {/* Toggles */}
         <div className="space-y-3">
-          <label className="flex items-center justify-between gap-3 cursor-pointer group">
-            <div>
-              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block">
-                Rundtour
-              </span>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                Start- und Endpunkt sind identisch
-              </span>
-            </div>
-            <Toggle checked={roundTrip} onChange={setRoundTrip} size="sm" aria-label="Rundtour" />
-          </label>
-
           <label className="flex items-center justify-between gap-3 cursor-pointer group">
             <div>
               <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block">
