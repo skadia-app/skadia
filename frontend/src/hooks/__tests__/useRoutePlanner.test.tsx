@@ -570,6 +570,25 @@ describe('useRoutePlanner routeStats V6-Retrofit', () => {
     })
     expect(result.current.routeStats).toBeNull()
   })
+
+  it('loadSuggestion markiert die geladene Vorschlagsroute als BadRouter-Geometrie', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    await act(async () => {
+      await result.current.setRoutingEngine('brouter')
+    })
+    expect(result.current.routingEngine).toBe('brouter')
+
+    act(() => {
+      result.current.loadSuggestion(makeFakeSuggestion())
+    })
+
+    expect(result.current.routingEngine).toBe('badrouter')
+  })
 })
 
 // ── Hook-Integration: addWaypoint → computeInternalRoute → routeStats (Quelle 1) ─

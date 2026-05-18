@@ -317,7 +317,7 @@ func prepareSavePlannedRoute(_ context.Context, _ *Deps, userID string, raw json
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := verifyRoutePreviewToken(userID, args.PreviewToken, args.GeometryGeoJSON, args.Profile)
+	snapshot, err := verifyRoutePreviewSaveArgs(userID, args)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +345,7 @@ func executeSavePlannedRoute(ctx context.Context, deps *WriteExecutionDeps, user
 	if err != nil {
 		return nil, err
 	}
-	if _, err := consumeRoutePreviewToken(userID, args.PreviewToken, args.GeometryGeoJSON, args.Profile); err != nil {
+	if _, err := consumeRoutePreviewSaveArgs(userID, args); err != nil {
 		return nil, err
 	}
 	route, err := args.toPlannedRoute(userID)
