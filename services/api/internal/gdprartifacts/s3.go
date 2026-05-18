@@ -287,6 +287,42 @@ func (s *S3Store) AbortIncompleteUploads(ctx context.Context, prefix ArtifactPre
 	}
 }
 
+func (s *S3Store) CountIncompleteUploads(ctx context.Context, prefix ArtifactPrefix) (int, error) {
+	bucket, s3Prefix, err := s.bucketAndPrefix(prefix.Kind)
+	if err != nil {
+		return 0, err
+	}
+	scoped := cleanS3Prefix(s3Prefix)
+	if prefix.UserID != "" || prefix.JobID != "" {
+		scoped, err = scopedPrefix(s3Prefix, prefix)
+		if err != nil {
+			return 0, err
+		}
+	} else if scoped != "" {
+		scoped += "/"
+	}
+	var count int
+	var keyMarker *string
+	var uploadMarker *string
+	for {
+		out, err := s.client.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
+			Bucket:         aws.String(bucket),
+			Prefix:         aws.String(scoped),
+			KeyMarker:      keyMarker,
+			UploadIdMarker: uploadMarker,
+		})
+		if err != nil {
+			return 0, err
+		}
+		count += len(out.Uploads)
+		if !aws.ToBool(out.IsTruncated) {
+			return count, nil
+		}
+		keyMarker = out.NextKeyMarker
+		uploadMarker = out.NextUploadIdMarker
+	}
+}
+
 func (s *S3Store) validateRef(ref ObjectRef) (string, string, error) {
 	bucket, prefix, err := s.bucketAndPrefix(ref.Kind)
 	if err != nil {

@@ -36,6 +36,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/garmin"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/handler"
 	analyticshandler "github.com/skadia-app/skadia/services/api/internal/handler/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -812,6 +813,8 @@ func main() {
 		Config: &handler.HandlerConfig{
 			DeploymentProfile:           cfg.DeploymentProfile,
 			DeploymentProfileSource:     cfg.DeploymentProfileSource,
+			APIReplicaCount:             cfg.APIReplicaCount,
+			SharedStorage:               cfg.SharedStorage,
 			StorageMode:                 cfg.StorageMode,
 			LiteLLMConfigPath:           cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:          cfg.LiteLLMInternalURL,
@@ -848,6 +851,9 @@ func main() {
 			BucketFn:                    store.BucketFor,
 			FrontendStaticDir:           cfg.FrontendStaticDir,
 		},
+	}
+	if counter, ok := artifactStore.(gdprartifacts.IncompleteMultipartCounter); ok {
+		h.GDPRArtifactCounter = counter
 	}
 	toolDeps.RouteGoalSuggester = func(ctx context.Context, userID string, req agenttools.RouteGoalSuggestionRequest) (agenttools.RouteGoalSuggestionResponse, error) {
 		routeReq := handler.RouteSuggestionRequest{

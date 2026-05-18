@@ -1,17 +1,36 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/buildinfo"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/migrate"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
+	"github.com/google/uuid"
 )
 
 var processStartedAt = time.Now()
+
+type systemStatusStorageProbe interface {
+	HeadBucket(context.Context) error
+	PutGetDelete(context.Context) error
+	ListPrefix(context.Context) error
+	MultipartAbortDryRun(context.Context) error
+}
+
+type shadowFSSystemStatusProbe struct {
+	backend  shadowfs.StorageBackend
+	bucketFn func(string) string
+}
 
 func (h *Handler) GetAdminSystemStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -57,6 +76,10 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 		ComponentCollectors: []systemstatus.ComponentCollector{
 			h.collectAPIComponent,
 			h.collectDBComponent,
+			h.collectTimescaleCompressionComponent,
+			h.collectStorageComponent,
+			h.collectJobsComponent,
+			h.collectGDPRArtifactComponent,
 		},
 		FeatureMatrix: featureMatrix,
 	}
@@ -74,22 +97,263 @@ func (h *Handler) collectAPIComponent(ctx context.Context) systemstatus.Componen
 }
 
 func (h *Handler) collectDBComponent(ctx context.Context) systemstatus.ComponentStatus {
-	st := systemstatus.ComponentStatus{
-		Key:       "db",
-		Label:     "Database",
-		State:     systemstatus.StatusOK,
-		Required:  true,
-		CheckedAt: time.Now().UTC(),
-	}
 	if h.DB == nil || h.DB.Pool == nil {
-		st.State = systemstatus.StatusNotConfigured
-		st.ReasonCode = "db_not_configured"
-		return st
+		return systemstatus.ComponentStatus{
+			Key:        "db",
+			Label:      "Database",
+			State:      systemstatus.StatusNotConfigured,
+			Required:   true,
+			ReasonCode: "db_not_configured",
+			CheckedAt:  time.Now().UTC(),
+		}
+	}
+	snap := systemstatus.DBSnapshot{
+		PingOK:             true,
+		ExpectedExtensions: []string{"postgis", "timescaledb", "fuzzystrmatch", "vector", "postgis_raster", "pg_trgm", "pgcrypto"},
+		OptionalExtensions: []string{"vectorscale"},
+		Extensions:         map[string]systemstatus.ExtensionSnapshot{},
+		CheckedAt:          time.Now().UTC(),
 	}
 	if err := h.DB.Ping(ctx); err != nil {
-		st.State = systemstatus.StatusUnavailable
-		st.ReasonCode = "db_unreachable"
-		st.Summary = "Database connection failed."
+		snap.PingOK = false
+		return systemstatus.DBStatusFromSnapshot(snap)
 	}
-	return st
+	if status, err := migrate.ReadSchemaVersionStatus(ctx, h.DB.Pool); err == nil {
+		snap.MigrationVersion = int(status.Version)
+		snap.MigrationDirty = status.Dirty
+	}
+	_ = h.DB.Pool.QueryRow(ctx, `SELECT postgis_version()`).Scan(&snap.PostGISVersion)
+	_ = h.DB.Pool.QueryRow(ctx, `SHOW server_version`).Scan(&snap.ServerVersion)
+	rows, err := h.DB.Pool.Query(ctx, `SELECT extname, extversion FROM pg_extension`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name, version string
+			if scanErr := rows.Scan(&name, &version); scanErr == nil {
+				snap.Extensions[name] = systemstatus.ExtensionSnapshot{Installed: true, Version: version}
+			}
+		}
+	}
+	snap.Compression = h.collectCompressionSnapshot(ctx)
+	return systemstatus.DBStatusFromSnapshot(snap)
+}
+
+func (h *Handler) collectTimescaleCompressionComponent(ctx context.Context) systemstatus.ComponentStatus {
+	return systemstatus.CompressionStatusFromSnapshot(h.collectCompressionSnapshot(ctx))
+}
+
+func (h *Handler) collectCompressionSnapshot(ctx context.Context) systemstatus.CompressionSnapshot {
+	snap := systemstatus.CompressionSnapshot{CheckedAt: time.Now().UTC()}
+	if h.DB == nil || h.DB.Pool == nil {
+		return snap
+	}
+	var setting string
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT value FROM server_settings WHERE key = 'timescale.compression'`).Scan(&setting); err == nil {
+		snap.SettingEnabled = setting == "true"
+	}
+	_ = h.DB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(compression_enabled, false)
+		FROM timescaledb_information.hypertables
+		WHERE hypertable_name = 'activity_streams'
+		LIMIT 1`).Scan(&snap.HypertableCompressed)
+	_ = h.DB.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM timescaledb_information.jobs
+			WHERE hypertable_name = 'activity_streams'
+			  AND proc_name = 'policy_compression'
+		)`).Scan(&snap.PolicyPresent)
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT attname,
+		       COALESCE(segmentby_column_index, 0),
+		       COALESCE(orderby_column_index, 0),
+		       COALESCE(orderby_asc, false)
+		FROM timescaledb_information.compression_settings
+		WHERE hypertable_name = 'activity_streams'`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var attname string
+			var segmentIdx, orderIdx int
+			var orderAsc bool
+			if scanErr := rows.Scan(&attname, &segmentIdx, &orderIdx, &orderAsc); scanErr != nil {
+				continue
+			}
+			if segmentIdx > 0 {
+				snap.SegmentBy = attname
+			}
+			if orderIdx > 0 {
+				direction := " DESC"
+				if orderAsc {
+					direction = " ASC"
+				}
+				snap.OrderBy = attname + direction
+			}
+		}
+	}
+	var compressedChunks, uncompressedChunks int64
+	_ = h.DB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE is_compressed),
+		       COUNT(*) FILTER (WHERE NOT is_compressed)
+		FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'activity_streams'`).Scan(&compressedChunks, &uncompressedChunks)
+	snap.CompressedChunks = int(compressedChunks)
+	snap.UncompressedChunks = int(uncompressedChunks)
+	var toggleRunning, toggleFailed int64
+	_ = h.DB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status IN ('queued','running')),
+		       COUNT(*) FILTER (WHERE status = 'failed' AND COALESCE(updated_at, finished_at, started_at, NOW()) >= NOW() - INTERVAL '24 hours')
+		  FROM background_jobs
+		 WHERE job_type = 'compression_toggle'`).Scan(&toggleRunning, &toggleFailed)
+	snap.ToggleJobsRunning = int(toggleRunning)
+	snap.ToggleJobsFailed24h = int(toggleFailed)
+	return snap
+}
+
+func (h *Handler) collectStorageComponent(ctx context.Context) systemstatus.ComponentStatus {
+	cfg := h.Config
+	if cfg == nil {
+		return systemstatus.StorageStatusFromSnapshot(systemstatus.StorageSnapshot{Backend: "unknown", StorageMode: "unknown", SharedStorage: "unknown"})
+	}
+	snap := systemstatus.StorageSnapshot{
+		Backend:       cfg.StorageBackend,
+		StorageMode:   cfg.StorageMode,
+		APIReplicas:   cfg.APIReplicaCount,
+		SharedStorage: cfg.SharedStorage,
+		CheckedAt:     time.Now().UTC(),
+	}
+	if snap.APIReplicas == 0 && snap.SharedStorage == "" {
+		snap.SharedStorage = "unknown"
+	}
+	if snap.Backend == "s3" {
+		probe := h.StorageProbe
+		if probe == nil {
+			probe = newShadowFSSystemStatusProbe(cfg.S3BE, cfg.BucketFn)
+		}
+		probed := systemstatus.StorageSnapshotFromProbe(ctx, snap.Backend, snap.StorageMode, probe)
+		snap.HeadBucketOK = probed.HeadBucketOK
+		snap.PutGetDeleteOK = probed.PutGetDeleteOK
+		snap.ListPrefixOK = probed.ListPrefixOK
+		snap.MultipartAbortOK = probed.MultipartAbortOK
+	}
+	return systemstatus.StorageStatusFromSnapshot(snap)
+}
+
+func (h *Handler) collectJobsComponent(ctx context.Context) systemstatus.ComponentStatus {
+	snap := systemstatus.JobSnapshot{CheckedAt: time.Now().UTC()}
+	if h.DB != nil && h.DB.Pool != nil {
+		var running, stuck, failed int64
+		_ = h.DB.Pool.QueryRow(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE status IN ('queued','running')) AS running,
+			  COUNT(*) FILTER (WHERE status IN ('queued','running') AND COALESCE(updated_at, started_at, NOW()) < NOW() - INTERVAL '2 hours') AS stuck,
+			  COUNT(*) FILTER (WHERE status = 'failed' AND COALESCE(updated_at, finished_at, started_at, NOW()) >= NOW() - INTERVAL '24 hours') AS failed_last_24h,
+			  COALESCE(EXTRACT(EPOCH FROM (NOW() - (MIN(COALESCE(updated_at, started_at)) FILTER (WHERE status IN ('queued','running')))))::bigint, 0) AS oldest_age_sec
+			FROM background_jobs`).Scan(&running, &stuck, &failed, &snap.OldestAgeSec)
+		snap.Running = int(running)
+		snap.Stuck = int(stuck)
+		snap.FailedLast24h = int(failed)
+	}
+	return systemstatus.JobStatusFromSnapshot(snap)
+}
+
+func (h *Handler) collectGDPRArtifactComponent(ctx context.Context) systemstatus.ComponentStatus {
+	snap := systemstatus.GDPRArtifactSnapshot{CheckedAt: time.Now().UTC()}
+	if h.DB != nil && h.DB.Pool != nil {
+		var staging string
+		var activeExports, activeImports, expired int64
+		_ = h.DB.Pool.QueryRow(ctx, `
+			SELECT
+			  COUNT(*) FILTER (WHERE j.job_type = 'gdpr_export' AND j.status IN ('queued','running')) AS active_exports,
+			  COUNT(*) FILTER (WHERE j.job_type = 'data_import' AND j.status IN ('queued','running')) AS active_imports,
+			  COUNT(*) FILTER (WHERE r.released_at IS NULL AND r.expires_at < NOW()) AS expired_pending_cleanup,
+			  COALESCE(SUM(r.committed_bytes) FILTER (WHERE r.released_at IS NULL), 0)::text AS staging_bytes
+			FROM gdpr_artifact_reservations r
+			JOIN background_jobs j ON j.id = r.job_id`).Scan(&activeExports, &activeImports, &expired, &staging)
+		snap.ActiveExports = int(activeExports)
+		snap.ActiveImports = int(activeImports)
+		snap.ExpiredPendingCleanup = int(expired)
+		if parsed, err := strconv.ParseInt(staging, 10, 64); err == nil {
+			snap.StagingBytes = parsed
+		}
+	}
+	if h.GDPRArtifactCounter != nil {
+		if count, err := h.GDPRArtifactCounter.CountIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "export"}); err == nil {
+			snap.IncompleteMultipart += count
+		}
+		if count, err := h.GDPRArtifactCounter.CountIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "import"}); err == nil {
+			snap.IncompleteMultipart += count
+		}
+	}
+	return systemstatus.GDPRArtifactStatusFromSnapshot(snap)
+}
+
+func newShadowFSSystemStatusProbe(backend shadowfs.StorageBackend, bucketFn func(string) string) systemStatusStorageProbe {
+	if backend == nil {
+		return nil
+	}
+	return shadowFSSystemStatusProbe{backend: backend, bucketFn: bucketFn}
+}
+
+func (p shadowFSSystemStatusProbe) opts() *shadowfs.BackendOpts {
+	if p.bucketFn == nil {
+		return nil
+	}
+	if bucket := p.bucketFn("activity"); bucket != "" {
+		return &shadowfs.BackendOpts{Bucket: bucket}
+	}
+	return nil
+}
+
+func (p shadowFSSystemStatusProbe) HeadBucket(ctx context.Context) error {
+	type bucketPinger interface {
+		PingBucket(context.Context, string) error
+	}
+	type pinger interface {
+		Ping(context.Context) error
+	}
+	if bucket, ok := p.backend.(bucketPinger); ok {
+		if opts := p.opts(); opts != nil && opts.Bucket != "" {
+			return bucket.PingBucket(ctx, opts.Bucket)
+		}
+	}
+	if ping, ok := p.backend.(pinger); ok {
+		return ping.Ping(ctx)
+	}
+	return p.ListPrefix(ctx)
+}
+
+func (p shadowFSSystemStatusProbe) PutGetDelete(ctx context.Context) error {
+	key := ".skadia/status-probe/" + uuid.NewString()
+	opts := p.opts()
+	if _, _, err := p.backend.Write(ctx, key, bytes.NewReader([]byte("ok")), "text/plain", false, opts); err != nil {
+		return err
+	}
+	defer func() { _ = p.backend.Delete(context.Background(), key, opts) }()
+	exists, err := p.backend.Exists(ctx, key, opts)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("storage probe object missing after write")
+	}
+	return p.backend.Delete(ctx, key, opts)
+}
+
+func (p shadowFSSystemStatusProbe) ListPrefix(ctx context.Context) error {
+	return p.backend.ListFunc(ctx, ".skadia/status-probe/", p.opts(), func(string) error { return nil })
+}
+
+func (p shadowFSSystemStatusProbe) MultipartAbortDryRun(ctx context.Context) error {
+	type multipartLister interface {
+		ListMultipartUploads(ctx context.Context, bucket, prefix string) error
+	}
+	if lister, ok := p.backend.(multipartLister); ok {
+		bucket := ""
+		if opts := p.opts(); opts != nil {
+			bucket = opts.Bucket
+		}
+		return lister.ListMultipartUploads(ctx, bucket, ".skadia/status-probe/")
+	}
+	return nil
 }

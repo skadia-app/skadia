@@ -71,3 +71,20 @@ func TestReadSchemaVersionRejectsDirtyStateBeforeNormalization(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestReadSchemaVersionStatusPreservesDirtyState(t *testing.T) {
+	status, err := ReadSchemaVersionStatus(context.Background(), fakeSchemaQuerier{version: 370, dirty: true})
+	if err != nil {
+		t.Fatalf("ReadSchemaVersionStatus returned error: %v", err)
+	}
+	if status.Version != 370 || !status.Dirty {
+		t.Fatalf("status = %+v, want version 370 dirty", status)
+	}
+}
+
+func TestReadSchemaVersionWrapsDirtyStatusAsError(t *testing.T) {
+	_, err := ReadSchemaVersion(context.Background(), fakeSchemaQuerier{version: 370, dirty: true})
+	if err == nil {
+		t.Fatal("ReadSchemaVersion should still reject dirty state")
+	}
+}

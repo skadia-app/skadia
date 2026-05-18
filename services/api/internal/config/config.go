@@ -27,6 +27,8 @@ type Config struct {
 	// Deployment profile
 	DeploymentProfile       string // "core" or "full"
 	DeploymentProfileSource string // "implicit_legacy" or "env"
+	APIReplicaCount         int
+	SharedStorage           string // "true", "false", or "unknown"
 
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret      string
@@ -162,6 +164,8 @@ func Load() (*Config, error) {
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
 		DeploymentProfile:     strings.TrimSpace(os.Getenv("SKADIA_DEPLOYMENT_PROFILE")),
+		APIReplicaCount:       parseIntDefault(os.Getenv("SKADIA_REPLICA_COUNT"), 1),
+		SharedStorage:         strings.TrimSpace(getEnvDefault("SKADIA_SHARED_STORAGE", "false")),
 		StorageMode:           strings.TrimSpace(os.Getenv("SKADIA_STORAGE_MODE")),
 		StorageBackend:        getEnvDefault("STORAGE_BACKEND", "local"),
 		LibraryBasePath:       getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
@@ -318,6 +322,14 @@ func Load() (*Config, error) {
 	}
 	if err := normalizeStorageMode(cfg); err != nil {
 		return nil, err
+	}
+	switch cfg.SharedStorage {
+	case "true", "false", "unknown":
+	default:
+		return nil, fmt.Errorf("SKADIA_SHARED_STORAGE must be 'true', 'false', or 'unknown', got %q", cfg.SharedStorage)
+	}
+	if cfg.APIReplicaCount < 1 {
+		return nil, fmt.Errorf("SKADIA_REPLICA_COUNT must be >= 1, got %d", cfg.APIReplicaCount)
 	}
 	applyLocalGarageS3Fallbacks(cfg)
 	if err := validateGDPRArtifactConfig(cfg); err != nil {

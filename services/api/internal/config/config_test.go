@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,8 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("SKADIA_STORAGE_MODE", "")
 	t.Setenv("SKADIA_DEPLOYMENT_PROFILE", "")
 	t.Setenv("SKADIA_S3_PROVIDER", "")
+	t.Setenv("SKADIA_REPLICA_COUNT", "")
+	t.Setenv("SKADIA_SHARED_STORAGE", "")
 	t.Setenv("GDPR_ARTIFACT_BACKEND", "")
 	t.Setenv("EXPORTS_BASE_PATH", "")
 	t.Setenv("IMPORTS_BASE_PATH", "")
@@ -41,6 +44,26 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("GDPR_ARTIFACT_USER_ACTIVE_BYTES", "")
 	t.Setenv("GDPR_ARTIFACT_S3_QUOTA_BYTES", "")
 	t.Setenv("GDPR_IMPORT_STAGING_QUOTA_BYTES", "")
+}
+
+func TestLoadReplicaStorageSafetyDefaultsForCompose(t *testing.T) {
+	withBaseEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIReplicaCount != 1 || cfg.SharedStorage != "false" {
+		t.Fatalf("replica/shared defaults = %d/%q, want 1/false", cfg.APIReplicaCount, cfg.SharedStorage)
+	}
+}
+
+func TestLoadRejectsInvalidSharedStorage(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_SHARED_STORAGE", "maybe")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "SKADIA_SHARED_STORAGE") {
+		t.Fatalf("err = %v, want shared-storage validation", err)
+	}
 }
 
 func TestLoadDeploymentProfileDefaultsToFullLegacy(t *testing.T) {
