@@ -18,6 +18,7 @@ type GDPRArtifactSnapshot struct {
 	ActiveImports         int
 	ExpiredPendingCleanup int
 	IncompleteMultipart   int
+	CounterErrors         int
 	StagingBytes          int64
 	CheckedAt             time.Time
 }
@@ -53,8 +54,14 @@ func GDPRArtifactStatusFromSnapshot(s GDPRArtifactSnapshot) ComponentStatus {
 			"active_imports_count":          strconv.Itoa(s.ActiveImports),
 			"expired_pending_cleanup_count": strconv.Itoa(s.ExpiredPendingCleanup),
 			"incomplete_multipart_count":    strconv.Itoa(s.IncompleteMultipart),
+			"artifact_counter_error_count":  strconv.Itoa(s.CounterErrors),
 			"staging_bytes":                 strconv.FormatInt(s.StagingBytes, 10),
 		},
+	}
+	if s.CounterErrors > 0 {
+		st.State = StatusDegraded
+		st.ReasonCode = "artifact_store_probe_failed"
+		return st
 	}
 	if s.ExpiredPendingCleanup > 0 {
 		st.State = StatusDegraded

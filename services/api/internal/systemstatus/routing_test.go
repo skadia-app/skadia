@@ -16,6 +16,21 @@ func TestBadRouterStatusMarksFilePresenceOnlyAsUnknown(t *testing.T) {
 	}
 }
 
+func TestFullOnlyGeodataStatusCanBeDisabled(t *testing.T) {
+	cases := []ComponentStatus{
+		DisabledComponent("badrouter", "Skadia routing graph", "core_profile"),
+		DisabledComponent("osm", "OSM geodata", "core_profile"),
+		DisabledComponent("dem", "DEM", "core_profile"),
+		DisabledComponent("coverage", "Coverage", "core_profile"),
+		DisabledComponent("tiles", "Map tiles", "core_profile"),
+	}
+	for _, got := range cases {
+		if got.State != StatusDisabled || got.ReasonCode != "core_profile" {
+			t.Fatalf("status = %+v, want disabled core_profile", got)
+		}
+	}
+}
+
 func TestOSMStatusMissingWithoutRegions(t *testing.T) {
 	got := OSMStatusFromSnapshot(OSMSnapshot{RegionCount: 0})
 	if got.State != StatusMissingArtifacts || got.ReasonCode != "missing_artifacts" {

@@ -37,6 +37,7 @@ func (h *Handler) GetAdminSystemStatus(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	status := h.collectAdminSystemStatus(ctx)
+	w.Header().Set("Cache-Control", "no-store")
 	httputil.WriteJSON(w, http.StatusOK, systemstatus.SanitizeSystemStatusForUI(status))
 }
 
@@ -87,11 +88,8 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 	if mlBuild != nil {
 		buildMap["ml"] = *mlBuild
 	}
-	featureMatrix := map[string]systemstatus.ComponentStatus{}
-	if h.DB != nil && h.DB.Pool != nil && h.Config != nil {
-		caps := capabilities.Detect(ctx, h.DB.Pool, h.detectInputForGate())
-		featureMatrix = systemstatus.FeatureMatrixFromCapabilities(caps)
-	}
+	caps := h.capabilitiesForStatus(ctx)
+	featureMatrix := systemstatus.FeatureMatrixFromCapabilities(caps)
 	collector := systemstatus.Collector{
 		Build: buildMap,
 		ComponentCollectors: []systemstatus.ComponentCollector{
@@ -101,20 +99,32 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 			h.collectStorageComponent,
 			h.collectJobsComponent,
 			h.collectGDPRArtifactComponent,
-			h.collectNATSComponent,
+			func(context.Context) systemstatus.ComponentStatus {
+				return h.collectNATSComponent(ctx, mlSnap.Configured && mlSnap.Live)
+			},
 			func(context.Context) systemstatus.ComponentStatus {
 				return systemstatus.MLStatusFromSnapshot(mlSnap)
 			},
-			h.collectBRouterComponent,
-			h.collectBadRouterComponent,
-			h.collectOSMComponent,
-			h.collectDEMComponent,
-			h.collectCoverageComponent,
-			h.collectTilesComponent,
+			func(context.Context) systemstatus.ComponentStatus { return h.collectBRouterComponent(ctx, caps) },
+			func(context.Context) systemstatus.ComponentStatus { return h.collectBadRouterComponent(ctx, caps) },
+			func(context.Context) systemstatus.ComponentStatus { return h.collectOSMComponent(ctx, caps) },
+			func(context.Context) systemstatus.ComponentStatus { return h.collectDEMComponent(ctx, caps) },
+			func(context.Context) systemstatus.ComponentStatus { return h.collectCoverageComponent(ctx, caps) },
+			func(context.Context) systemstatus.ComponentStatus { return h.collectTilesComponent(ctx, caps) },
 		},
 		FeatureMatrix: featureMatrix,
 	}
 	return collector.Collect(ctx)
+}
+
+func (h *Handler) capabilitiesForStatus(ctx context.Context) capabilities.Capabilities {
+	if h == nil || h.Config == nil {
+		return capabilities.BuildFromRuntime(capabilities.DetectInput{}, capabilities.RuntimeProbeState{})
+	}
+	if h.DB == nil {
+		return capabilities.Detect(ctx, nil, h.detectInputForGate())
+	}
+	return capabilities.Detect(ctx, h.DB.Pool, h.detectInputForGate())
 }
 
 func (h *Handler) collectAPIComponent(ctx context.Context) systemstatus.ComponentStatus {
@@ -152,6 +162,8 @@ func (h *Handler) collectDBComponent(ctx context.Context) systemstatus.Component
 	if status, err := migrate.ReadSchemaVersionStatus(ctx, h.DB.Pool); err == nil {
 		snap.MigrationVersion = int(status.Version)
 		snap.MigrationDirty = status.Dirty
+	} else {
+		snap.MigrationReadError = true
 	}
 	_ = h.DB.Pool.QueryRow(ctx, `SELECT postgis_version()`).Scan(&snap.PostGISVersion)
 	_ = h.DB.Pool.QueryRow(ctx, `SHOW server_version`).Scan(&snap.ServerVersion)
@@ -311,9 +323,13 @@ func (h *Handler) collectGDPRArtifactComponent(ctx context.Context) systemstatus
 	if h.GDPRArtifactCounter != nil {
 		if count, err := h.GDPRArtifactCounter.CountIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "export"}); err == nil {
 			snap.IncompleteMultipart += count
+		} else {
+			snap.CounterErrors++
 		}
 		if count, err := h.GDPRArtifactCounter.CountIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "import"}); err == nil {
 			snap.IncompleteMultipart += count
+		} else {
+			snap.CounterErrors++
 		}
 	}
 	return systemstatus.GDPRArtifactStatusFromSnapshot(snap)
@@ -332,7 +348,7 @@ func (p shadowFSSystemStatusProbe) bucketNames() []string {
 	}
 	seen := map[string]bool{}
 	var buckets []string
-	for _, fileType := range []string{"activity", "media", "document"} {
+	for _, fileType := range shadowfs.UserFacingFileTypes {
 		bucket := p.bucketFn(fileType)
 		if bucket == "" || seen[bucket] {
 			continue

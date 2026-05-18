@@ -2,15 +2,25 @@ import '@testing-library/jest-dom/vitest'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import AdminSystemStatusTab from './AdminSystemStatusTab'
+
+const mocks = vi.hoisted(() => ({
+  downloadSystemStatusExport: vi.fn(),
+  triggerBlobDownload: vi.fn(),
+  addToast: vi.fn(),
+}))
 
 vi.mock('@/api/systemStatus', () => ({
   fetchSystemStatus: vi.fn(async () => ({
     schema_version: 1,
     generated_at: '2026-05-17T10:00:00Z',
     overall: 'degraded',
-    build: { api: { service: 'api', git_commit: 'abc123', commit_time: '2026-05-17T09:58:00Z', build_time: '2026-05-17T10:00:00Z' } },
+    build: {
+      api: { service: 'api', git_commit: 'abc123456789', commit_time: '2026-05-17T09:58:00Z', build_time: '2026-05-17T10:00:00Z', config_version: '2' },
+      ml: { service: 'ml', git_commit: 'ml123', commit_time: '2026-05-17T09:57:00Z', build_time: '2026-05-17T10:02:00Z' },
+    },
     components: {
       db: { key: 'db', label: 'Database', state: 'degraded', reason_code: 'migration_dirty', checked_at: '2026-05-17T10:00:00Z' },
       timescale_compression: { key: 'timescale_compression', label: 'TimescaleDB compression', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
@@ -31,7 +41,7 @@ vi.mock('@/api/systemStatus', () => ({
       routing: { key: 'routing', label: 'routing', state: 'degraded', reason_code: 'missing_artifacts', checked_at: '2026-05-17T10:00:00Z' },
     },
   })),
-  downloadSystemStatusExport: vi.fn(),
+  downloadSystemStatusExport: mocks.downloadSystemStatusExport,
 }))
 
 vi.mock('@/lib/buildInfo', () => ({
@@ -44,6 +54,15 @@ vi.mock('@/lib/buildInfo', () => ({
   }),
 }))
 
+vi.mock('@/lib/toast', () => ({
+  useToast: () => ({ addToast: mocks.addToast }),
+}))
+
+vi.mock('@/lib/utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/utils')>()),
+  triggerBlobDownload: mocks.triggerBlobDownload,
+}))
+
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
@@ -52,13 +71,30 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('AdminSystemStatusTab', () => {
   it('renders overall system status', async () => {
     render(<AdminSystemStatusTab />, { wrapper })
-    expect(await screen.findByText(/Gesamtstatus: degraded/i)).toBeInTheDocument()
-    expect(screen.getByText(/Frontend-Build: front123.*Commit-Zeit: 2026-05-17T09:59:00Z/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Gesamtstatus: Eingeschränkt/i)).toBeInTheDocument()
+    expect(screen.getAllByText('API').length).toBeGreaterThan(0)
+    expect(screen.getByText('Frontend')).toBeInTheDocument()
+    expect(screen.getByText('ML')).toBeInTheDocument()
+    expect(screen.queryByText('migration_dirty', { exact: false })).not.toBeInTheDocument()
+    expect(screen.getByText('Datenbankmigration', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('Datenbank')).toBeInTheDocument()
     expect(screen.getByText('DSGVO-Artefakte')).toBeInTheDocument()
     expect(screen.getByText('ML-Dienst')).toBeInTheDocument()
     expect(screen.getByText('Skadia-Routinggraph')).toBeInTheDocument()
     expect(screen.getByText('Feature-Matrix')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Diagnose exportieren' })).toBeInTheDocument()
+  })
+
+  it('shows feedback when export fails', async () => {
+    mocks.downloadSystemStatusExport.mockRejectedValueOnce(new Error('network'))
+    render(<AdminSystemStatusTab />, { wrapper })
+    await screen.findByText(/Gesamtstatus: Eingeschränkt/i)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Diagnose exportieren' }))
+
+    expect(mocks.addToast).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Diagnose-Export fehlgeschlagen',
+    }))
   })
 })

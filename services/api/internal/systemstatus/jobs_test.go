@@ -22,3 +22,10 @@ func TestGDPRStatusReportsIncompleteMultipartBacklog(t *testing.T) {
 		t.Fatalf("status = %+v, want degraded incomplete_multipart_backlog with count", got)
 	}
 }
+
+func TestGDPRStatusDegradesOnArtifactStoreProbeError(t *testing.T) {
+	got := GDPRArtifactStatusFromSnapshot(GDPRArtifactSnapshot{CounterErrors: 1})
+	if got.State != StatusDegraded || got.ReasonCode != "artifact_store_probe_failed" || got.Details["artifact_counter_error_count"] != "1" {
+		t.Fatalf("status = %+v, want degraded artifact_store_probe_failed with count", got)
+	}
+}

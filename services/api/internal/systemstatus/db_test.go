@@ -9,6 +9,13 @@ func TestDBStatusFromMigrationDirty(t *testing.T) {
 	}
 }
 
+func TestDBStatusDegradesWhenMigrationStatusUnreadable(t *testing.T) {
+	got := DBStatusFromSnapshot(DBSnapshot{PingOK: true, MigrationReadError: true, PostGISVersion: "3.5"})
+	if got.State != StatusDegraded || got.ReasonCode != "migration_status_unreadable" {
+		t.Fatalf("status = %+v, want degraded migration_status_unreadable", got)
+	}
+}
+
 func TestDBStatusRequiresPostGIS(t *testing.T) {
 	got := DBStatusFromSnapshot(DBSnapshot{PingOK: true, MigrationVersion: 370})
 	if got.State != StatusDegraded || got.ReasonCode != "postgis_missing" {
