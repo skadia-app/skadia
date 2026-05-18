@@ -262,6 +262,8 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	deleteCredentialsAfter := shouldDeleteKomootCredentialsAfterImport(req, creds)
+
 	// Run async
 	go func() {
 		defer func() {
@@ -269,7 +271,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 				slog.Error("komoot import: panic", "job_id", jobID, "panic", rec)
 				_ = h.DB.FailBackgroundJob(context.Background(), jobID)
 				// Ensure credentials are deleted even on panic
-				if req.DeleteCredentialsAfter {
+				if deleteCredentialsAfter {
 					if delErr := h.DB.DeleteKomootCredentials(context.Background(), userID); delErr != nil {
 						slog.Error("komoot import: delete credentials on panic failed", "job_id", jobID, "error", delErr)
 					}
@@ -286,16 +288,6 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 
 		_ = h.DB.UpdateBackgroundJobPhase(bgCtx, jobID, "import")
 
-		// Get tour count to set progress_total
-		allTours, listErr := client.ListTours(bgCtx, nil)
-		if listErr == nil {
-			_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, 0)
-			_, _ = h.DB.Pool.Exec(bgCtx,
-				`UPDATE background_jobs SET progress_total = $1 WHERE id = $2`,
-				int64(len(allTours)), jobID,
-			)
-		}
-
 		params := komoot.KomootImportParams{
 			DB:            h.DB,
 			ShadowFS:      h.ShadowFS,
@@ -305,7 +297,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 			TourIDs:       req.TourIDs,
 			Options:       req.Options,
 			OnProgress: func(current, total int, msg string) {
-				_ = h.DB.UpdateBackgroundJobProgress(bgCtx, jobID, int64(current))
+				updateKomootImportProgress(bgCtx, h.DB, jobID, current, total)
 				slog.Debug("komoot import progress", "job_id", jobID, "current", current, "total", total, "msg", msg)
 			},
 		}
@@ -360,7 +352,7 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 		_ = h.DB.UpdateKomootLastSync(bgCtx, userID, client.UserID())
 
 		// Delete credentials after import if requested
-		if req.DeleteCredentialsAfter {
+		if deleteCredentialsAfter {
 			if delErr := h.DB.DeleteKomootCredentials(bgCtx, userID); delErr != nil {
 				slog.Error("komoot import: delete credentials after import failed", "job_id", jobID, "error", delErr)
 			} else {
@@ -379,6 +371,20 @@ func (h *Handler) KomootStartImport(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+}
+
+func shouldDeleteKomootCredentialsAfterImport(req KomootStartRequest, creds *database.KomootCredentials) bool {
+	return req.DeleteCredentialsAfter || (creds != nil && !creds.SyncEnabled)
+}
+
+type komootProgressUpdater interface {
+	UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int64) error
+	UpdateBackgroundJobTotal(ctx context.Context, jobID string, total int64) error
+}
+
+func updateKomootImportProgress(ctx context.Context, db komootProgressUpdater, jobID string, current, total int) {
+	_ = db.UpdateBackgroundJobTotal(ctx, jobID, int64(total))
+	_ = db.UpdateBackgroundJobProgress(ctx, jobID, int64(current))
 }
 
 // GetKomootImportJob returns the status of a Komoot import job.
@@ -411,6 +417,12 @@ func (h *Handler) KomootCredentialsStatus(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check credentials", r.URL.Path)
 		return
+	}
+	if creds != nil && !creds.SyncEnabled {
+		if err := h.DB.DeleteKomootCredentials(r.Context(), userID); err != nil {
+			slog.Warn("komoot: delete temporary credentials during status check failed", "user_id", userID, "error", err)
+		}
+		creds = nil
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"has_credentials": creds != nil,
