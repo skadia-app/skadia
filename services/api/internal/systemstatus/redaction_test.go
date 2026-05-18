@@ -7,9 +7,9 @@ import (
 )
 
 func TestRedactDiagnosticStringRemovesSecretsAndHostDetails(t *testing.T) {
-	input := "database_dsn=postgres://skadia:secret@db:5432/skadia?sslmode=disable host_path=/srv/skadia/data token=abc123 url=https://storage.example.invalid/export-object?X-Amz-Signature=deadbeef user_id=11111111-1111-1111-1111-111111111111 lat=" + "50" + ".123456 lon=" + "8" + ".123456 bucket=private-bucket"
+	input := "database_dsn=postgres://skadia:secret@db:5432/skadia?sslmode=disable host_path=/srv/skadia/data runtime_path=/data/library token=abc123 url=https://storage.example.invalid/export-object?X-Amz-Signature=deadbeef user_id=11111111-1111-1111-1111-111111111111 lat=" + "50" + ".123456 lon=" + "8" + ".123456 bucket=private-bucket"
 	got := RedactDiagnosticString(input)
-	for _, forbidden := range []string{"postgres://skadia", "abc123", "deadbeef", "11111111-1111-1111-1111-111111111111", "/srv/skadia", "50.123456", "8.123456", "private-bucket"} {
+	for _, forbidden := range []string{"postgres://skadia", "abc123", "deadbeef", "11111111-1111-1111-1111-111111111111", "/srv/skadia", "/data/library", "50.123456", "8.123456", "private-bucket"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("redacted output still contains %q: %q", forbidden, got)
 		}

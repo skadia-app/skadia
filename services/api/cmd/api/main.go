@@ -813,6 +813,7 @@ func main() {
 		Config: &handler.HandlerConfig{
 			DeploymentProfile:           cfg.DeploymentProfile,
 			DeploymentProfileSource:     cfg.DeploymentProfileSource,
+			NatsURL:                     cfg.NatsURL,
 			APIReplicaCount:             cfg.APIReplicaCount,
 			SharedStorage:               cfg.SharedStorage,
 			StorageMode:                 cfg.StorageMode,

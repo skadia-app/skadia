@@ -102,6 +102,7 @@ type Handler struct {
 type HandlerConfig struct {
 	DeploymentProfile           string
 	DeploymentProfileSource     string
+	NatsURL                     string
 	APIReplicaCount             int
 	SharedStorage               string
 	StorageMode                 string

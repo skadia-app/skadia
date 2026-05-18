@@ -83,6 +83,10 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 			}
 		}
 	}
+	mlSnap, mlBuild := h.collectMLSnapshot(ctx)
+	if mlBuild != nil {
+		buildMap["ml"] = *mlBuild
+	}
 	featureMatrix := map[string]systemstatus.ComponentStatus{}
 	if h.DB != nil && h.DB.Pool != nil && h.Config != nil {
 		caps := capabilities.Detect(ctx, h.DB.Pool, h.detectInputForGate())
@@ -98,7 +102,9 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 			h.collectJobsComponent,
 			h.collectGDPRArtifactComponent,
 			h.collectNATSComponent,
-			h.collectMLComponent,
+			func(context.Context) systemstatus.ComponentStatus {
+				return systemstatus.MLStatusFromSnapshot(mlSnap)
+			},
 			h.collectBRouterComponent,
 			h.collectBadRouterComponent,
 			h.collectOSMComponent,
@@ -320,14 +326,28 @@ func newShadowFSSystemStatusProbe(backend shadowfs.StorageBackend, bucketFn func
 	return shadowFSSystemStatusProbe{backend: backend, bucketFn: bucketFn}
 }
 
-func (p shadowFSSystemStatusProbe) opts() *shadowfs.BackendOpts {
+func (p shadowFSSystemStatusProbe) bucketNames() []string {
 	if p.bucketFn == nil {
 		return nil
 	}
-	if bucket := p.bucketFn("activity"); bucket != "" {
-		return &shadowfs.BackendOpts{Bucket: bucket}
+	seen := map[string]bool{}
+	var buckets []string
+	for _, fileType := range []string{"activity", "media", "document"} {
+		bucket := p.bucketFn(fileType)
+		if bucket == "" || seen[bucket] {
+			continue
+		}
+		seen[bucket] = true
+		buckets = append(buckets, bucket)
 	}
-	return nil
+	return buckets
+}
+
+func (p shadowFSSystemStatusProbe) optsForBucket(bucket string) *shadowfs.BackendOpts {
+	if bucket == "" {
+		return nil
+	}
+	return &shadowfs.BackendOpts{Bucket: bucket}
 }
 
 func (p shadowFSSystemStatusProbe) HeadBucket(ctx context.Context) error {
@@ -338,8 +358,14 @@ func (p shadowFSSystemStatusProbe) HeadBucket(ctx context.Context) error {
 		Ping(context.Context) error
 	}
 	if bucket, ok := p.backend.(bucketPinger); ok {
-		if opts := p.opts(); opts != nil && opts.Bucket != "" {
-			return bucket.PingBucket(ctx, opts.Bucket)
+		buckets := p.bucketNames()
+		if len(buckets) > 0 {
+			for _, name := range buckets {
+				if err := bucket.PingBucket(ctx, name); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 	}
 	if ping, ok := p.backend.(pinger); ok {
@@ -349,8 +375,20 @@ func (p shadowFSSystemStatusProbe) HeadBucket(ctx context.Context) error {
 }
 
 func (p shadowFSSystemStatusProbe) PutGetDelete(ctx context.Context) error {
+	buckets := p.bucketNames()
+	if len(buckets) == 0 {
+		return p.putGetDeleteBucket(ctx, nil)
+	}
+	for _, bucket := range buckets {
+		if err := p.putGetDeleteBucket(ctx, p.optsForBucket(bucket)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p shadowFSSystemStatusProbe) putGetDeleteBucket(ctx context.Context, opts *shadowfs.BackendOpts) error {
 	key := ".skadia/status-probe/" + uuid.NewString()
-	opts := p.opts()
 	if _, _, err := p.backend.Write(ctx, key, bytes.NewReader([]byte("ok")), "text/plain", false, opts); err != nil {
 		return err
 	}
@@ -366,7 +404,16 @@ func (p shadowFSSystemStatusProbe) PutGetDelete(ctx context.Context) error {
 }
 
 func (p shadowFSSystemStatusProbe) ListPrefix(ctx context.Context) error {
-	return p.backend.ListFunc(ctx, ".skadia/status-probe/", p.opts(), func(string) error { return nil })
+	buckets := p.bucketNames()
+	if len(buckets) == 0 {
+		return p.backend.ListFunc(ctx, ".skadia/status-probe/", nil, func(string) error { return nil })
+	}
+	for _, bucket := range buckets {
+		if err := p.backend.ListFunc(ctx, ".skadia/status-probe/", p.optsForBucket(bucket), func(string) error { return nil }); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p shadowFSSystemStatusProbe) MultipartAbortDryRun(ctx context.Context) error {
@@ -374,11 +421,15 @@ func (p shadowFSSystemStatusProbe) MultipartAbortDryRun(ctx context.Context) err
 		ListMultipartUploads(ctx context.Context, bucket, prefix string) error
 	}
 	if lister, ok := p.backend.(multipartLister); ok {
-		bucket := ""
-		if opts := p.opts(); opts != nil {
-			bucket = opts.Bucket
+		buckets := p.bucketNames()
+		if len(buckets) == 0 {
+			return lister.ListMultipartUploads(ctx, "", ".skadia/status-probe/")
 		}
-		return lister.ListMultipartUploads(ctx, bucket, ".skadia/status-probe/")
+		for _, bucket := range buckets {
+			if err := lister.ListMultipartUploads(ctx, bucket, ".skadia/status-probe/"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

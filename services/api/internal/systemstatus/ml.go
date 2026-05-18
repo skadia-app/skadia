@@ -20,13 +20,19 @@ type NATSSnapshot struct {
 }
 
 type MLSnapshot struct {
-	Configured   bool
-	Live         bool
-	Ready        bool
-	Version      string
-	MissingRoles []string
-	StorageReady bool
-	CheckedAt    time.Time
+	Configured       bool
+	Live             bool
+	Ready            bool
+	StatusChecked    bool
+	StatusAccessible bool
+	Version          string
+	Build            BuildInfo
+	MetricsAvailable bool
+	LLMBrokerStatus  string
+	RoleStatuses     map[string]string
+	MissingRoles     []string
+	StorageReady     bool
+	CheckedAt        time.Time
 }
 
 func NATSStatusFromSnapshot(s NATSSnapshot) ComponentStatus {
@@ -83,6 +89,9 @@ func MLStatusFromSnapshot(s MLSnapshot) ComponentStatus {
 		Details: map[string]string{
 			"version":            s.Version,
 			"missing_role_count": strconv.Itoa(len(s.MissingRoles)),
+			"status_accessible":  strconv.FormatBool(s.StatusAccessible),
+			"metrics_available":  strconv.FormatBool(s.MetricsAvailable),
+			"llm_broker_status":  s.LLMBrokerStatus,
 		},
 	}
 	if !s.Configured && !s.Live && !s.Ready {
@@ -95,7 +104,17 @@ func MLStatusFromSnapshot(s MLSnapshot) ComponentStatus {
 		st.ReasonCode = "ml_unreachable"
 		return st
 	}
-	if !s.Ready || len(s.MissingRoles) > 0 {
+	if s.StatusChecked && !s.StatusAccessible {
+		st.State = StatusDegraded
+		st.ReasonCode = "ml_status_unavailable"
+		return st
+	}
+	if !s.Ready {
+		st.State = StatusDegraded
+		st.ReasonCode = "ml_not_ready"
+		return st
+	}
+	if len(s.MissingRoles) > 0 || s.LLMBrokerStatus == "degraded" {
 		st.State = StatusDegraded
 		st.ReasonCode = "ml_roles_unavailable"
 	}

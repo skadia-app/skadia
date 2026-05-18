@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -204,6 +207,106 @@ func TestAdminSystemStatusIncludesServiceAndGeodataComponents(t *testing.T) {
 	}
 }
 
+func TestCollectNATSComponentTreatsConfiguredMissingConnectionAsUnavailable(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{NatsURL: "nats://nats:4222"}}
+	got := h.collectNATSComponent(context.Background())
+	if got.State != "unavailable" || got.ReasonCode != "nats_unavailable" {
+		t.Fatalf("NATS status = %+v, want unavailable nats_unavailable", got)
+	}
+}
+
+func TestCollectMLSnapshotUsesInternalStatusForBuildAndRoles(t *testing.T) {
+	ml := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/livez", "/readyz":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/status":
+			if r.Header.Get("X-ML-Callback-Secret") != "status-secret" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"service":"ml","git_commit":"abc123","commit_time":"2026-05-17T09:58:00Z","build_time":"2026-05-17T10:00:00Z","config_version":"1","metrics":{"processed":2},"llm_broker":{"status":"degraded","roles":{"document_extract":"configured","vision":"not_configured"}}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ml.Close)
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", MLServiceURL: ml.URL, MLCallbackSecret: "status-secret"}}
+
+	snap, build := h.collectMLSnapshot(context.Background())
+	got := systemstatus.MLStatusFromSnapshot(snap)
+
+	if build == nil || build.GitCommit != "abc123" || snap.MissingRoles == nil {
+		t.Fatalf("ML snapshot/build incomplete: snap=%+v build=%+v", snap, build)
+	}
+	if got.State != "degraded" || got.ReasonCode != "ml_roles_unavailable" {
+		t.Fatalf("ML status = %+v, want degraded ml_roles_unavailable", got)
+	}
+}
+
+func TestCollectMLSnapshotDegradesWhenInternalStatusAuthUnavailable(t *testing.T) {
+	ml := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/livez", "/readyz":
+			w.WriteHeader(http.StatusOK)
+		case "/status":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ml.Close)
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", MLServiceURL: ml.URL, MLCallbackSecret: "status-secret"}}
+
+	snap, build := h.collectMLSnapshot(context.Background())
+	got := systemstatus.MLStatusFromSnapshot(snap)
+
+	if build != nil {
+		t.Fatalf("build = %+v, want nil when /status is unavailable", build)
+	}
+	if got.State != "degraded" || got.ReasonCode != "ml_status_unavailable" {
+		t.Fatalf("ML status = %+v, want degraded ml_status_unavailable", got)
+	}
+}
+
+func TestShadowFSSystemStatusProbeChecksDistinctS3Buckets(t *testing.T) {
+	backend := &recordingStatusBackend{}
+	probe := newShadowFSSystemStatusProbe(backend, func(fileType string) string {
+		switch fileType {
+		case "activity":
+			return "activity-bucket"
+		case "media", "document":
+			return "media-bucket"
+		default:
+			return "default-bucket"
+		}
+	})
+
+	if err := probe.HeadBucket(context.Background()); err != nil {
+		t.Fatalf("HeadBucket: %v", err)
+	}
+	if err := probe.PutGetDelete(context.Background()); err != nil {
+		t.Fatalf("PutGetDelete: %v", err)
+	}
+	if err := probe.ListPrefix(context.Background()); err != nil {
+		t.Fatalf("ListPrefix: %v", err)
+	}
+	if err := probe.MultipartAbortDryRun(context.Background()); err != nil {
+		t.Fatalf("MultipartAbortDryRun: %v", err)
+	}
+
+	for _, bucket := range []string{"activity-bucket", "media-bucket"} {
+		if backend.pinged[bucket] == 0 || backend.written[bucket] == 0 || backend.listed[bucket] == 0 || backend.multipart[bucket] == 0 {
+			t.Fatalf("bucket %q was not fully probed: %+v", bucket, backend)
+		}
+	}
+	if backend.pinged["default-bucket"] != 0 || backend.written["default-bucket"] != 0 {
+		t.Fatalf("unexpected default bucket probe: %+v", backend)
+	}
+}
+
 type fakeAdminStatusStorageProbe struct {
 	head, write, list, multipart bool
 }
@@ -234,4 +337,69 @@ func (f fakeAdminStatusStorageProbe) MultipartAbortDryRun(context.Context) error
 		return nil
 	}
 	return errors.New("multipart failed")
+}
+
+type recordingStatusBackend struct {
+	pinged    map[string]int
+	written   map[string]int
+	listed    map[string]int
+	multipart map[string]int
+}
+
+func (r *recordingStatusBackend) ensure() {
+	if r.pinged == nil {
+		r.pinged = map[string]int{}
+		r.written = map[string]int{}
+		r.listed = map[string]int{}
+		r.multipart = map[string]int{}
+	}
+}
+
+func (r *recordingStatusBackend) Read(context.Context, string, *shadowfs.BackendOpts) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("ok")), nil
+}
+
+func (r *recordingStatusBackend) Write(_ context.Context, _ string, data io.Reader, _ string, _ bool, opts *shadowfs.BackendOpts) (int64, string, error) {
+	r.ensure()
+	bucket := bucketFromOpts(opts)
+	r.written[bucket]++
+	n, _ := io.Copy(io.Discard, data)
+	return n, "hash", nil
+}
+
+func (r *recordingStatusBackend) Delete(context.Context, string, *shadowfs.BackendOpts) error {
+	return nil
+}
+
+func (r *recordingStatusBackend) Exists(context.Context, string, *shadowfs.BackendOpts) (bool, error) {
+	return true, nil
+}
+
+func (r *recordingStatusBackend) DeletePrefix(context.Context, string, *shadowfs.BackendOpts) error {
+	return nil
+}
+
+func (r *recordingStatusBackend) ListFunc(_ context.Context, _ string, opts *shadowfs.BackendOpts, fn func(string) error) error {
+	r.ensure()
+	r.listed[bucketFromOpts(opts)]++
+	return fn(".skadia/status-probe/test")
+}
+
+func (r *recordingStatusBackend) PingBucket(_ context.Context, bucket string) error {
+	r.ensure()
+	r.pinged[bucket]++
+	return nil
+}
+
+func (r *recordingStatusBackend) ListMultipartUploads(_ context.Context, bucket, _ string) error {
+	r.ensure()
+	r.multipart[bucket]++
+	return nil
+}
+
+func bucketFromOpts(opts *shadowfs.BackendOpts) string {
+	if opts == nil {
+		return ""
+	}
+	return opts.Bucket
 }

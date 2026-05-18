@@ -8,7 +8,7 @@ import (
 var (
 	dsnRE        = regexp.MustCompile(`(?i)\b(?:postgres|postgresql|mysql|redis|nats|s3)://[^\s"']+`)
 	signedURLRE  = regexp.MustCompile(`(?i)\bhttps?://[^\s"']*(?:signature|credential|token|secret|access[_-]?key|api[_-]?key)[^\s"']*`)
-	pathRE       = regexp.MustCompile(`(?i)(/home|/var/home|/Users|/srv|/mnt|/media|[A-Z]:\\)[^\s"']+`)
+	pathRE       = regexp.MustCompile(`(?i)(/home|/var/home|/Users|/srv|/mnt|/media|/data|[A-Z]:\\)[^\s"']+`)
 	secretRE     = regexp.MustCompile(`(?i)([a-z0-9_-]*(password|passwd|secret|token|signature|credential|access[_-]?key|api[_-]?key)[a-z0-9_-]*)=([^\s&]+)`)
 	uuidRE       = regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
 	coordinateRE = regexp.MustCompile(`(?i)\b(lat|latitude|lon|lng|longitude)=(-?\d{1,3}(?:\.\d+)?)`)
@@ -28,6 +28,9 @@ var SafeDetailKeys = map[string]struct{}{
 	"configured":                 {},
 	"available":                  {},
 	"state":                      {},
+	"status_accessible":          {},
+	"metrics_available":          {},
+	"llm_broker_status":          {},
 	"oldest_pending_age_seconds": {},
 	"running_count":              {},
 	"stuck_jobs_count":           {},

@@ -30,6 +30,9 @@ type jetStreamProvider interface {
 
 func (h *Handler) collectNATSComponent(ctx context.Context) systemstatus.ComponentStatus {
 	snap := systemstatus.NATSSnapshot{CheckedAt: time.Now().UTC()}
+	if h != nil && h.Config != nil && strings.TrimSpace(h.Config.NatsURL) != "" {
+		snap.Configured = true
+	}
 	if h.EventConn == nil {
 		return systemstatus.NATSStatusFromSnapshot(snap)
 	}
@@ -71,9 +74,14 @@ func (h *Handler) collectNATSComponent(ctx context.Context) systemstatus.Compone
 }
 
 func (h *Handler) collectMLComponent(ctx context.Context) systemstatus.ComponentStatus {
+	snap, _ := h.collectMLSnapshot(ctx)
+	return systemstatus.MLStatusFromSnapshot(snap)
+}
+
+func (h *Handler) collectMLSnapshot(ctx context.Context) (systemstatus.MLSnapshot, *systemstatus.BuildInfo) {
 	snap := systemstatus.MLSnapshot{CheckedAt: time.Now().UTC()}
 	if h == nil || h.Config == nil || h.Config.MLServiceURL == "" || h.coreProfile() {
-		return systemstatus.MLStatusFromSnapshot(snap)
+		return snap, nil
 	}
 	snap.Configured = true
 	client := h.AIBrokerHTTPClient
@@ -83,15 +91,52 @@ func (h *Handler) collectMLComponent(ctx context.Context) systemstatus.Component
 	base := strings.TrimRight(h.Config.MLServiceURL, "/")
 	snap.Live = probeHTTPStatusOK(ctx, client, base+"/livez", "")
 	snap.Ready = probeHTTPStatusOK(ctx, client, base+"/readyz", "")
-	if snap.Live && h.Config.MLCallbackSecret != "" {
+	if snap.Live {
+		snap.StatusChecked = true
+		if h.Config.MLCallbackSecret == "" {
+			return snap, nil
+		}
 		var payload struct {
-			GitCommit string `json:"git_commit"`
+			Service       string `json:"service"`
+			GitCommit     string `json:"git_commit"`
+			CommitTime    string `json:"commit_time"`
+			BuildTime     string `json:"build_time"`
+			ImageDigest   string `json:"image_digest"`
+			ConfigVersion string `json:"config_version"`
+			Metrics       any    `json:"metrics"`
+			LLMBroker     struct {
+				Status string            `json:"status"`
+				Roles  map[string]string `json:"roles"`
+			} `json:"llm_broker"`
 		}
 		if getJSONWithInternalSecret(ctx, client, base+"/status", h.Config.MLCallbackSecret, &payload) == nil {
+			snap.StatusAccessible = true
 			snap.Version = payload.GitCommit
+			snap.Build = systemstatus.BuildInfo{
+				Service:       payload.Service,
+				GitCommit:     payload.GitCommit,
+				CommitTime:    payload.CommitTime,
+				BuildTime:     payload.BuildTime,
+				ImageDigest:   payload.ImageDigest,
+				ConfigVersion: payload.ConfigVersion,
+			}
+			if snap.Build.Service == "" {
+				snap.Build.Service = "ml"
+			}
+			snap.MetricsAvailable = payload.Metrics != nil
+			snap.LLMBrokerStatus = payload.LLMBroker.Status
+			snap.RoleStatuses = payload.LLMBroker.Roles
+			for role, state := range payload.LLMBroker.Roles {
+				if state != "configured" {
+					snap.MissingRoles = append(snap.MissingRoles, role)
+				}
+			}
 		}
 	}
-	return systemstatus.MLStatusFromSnapshot(snap)
+	if snap.StatusAccessible {
+		return snap, &snap.Build
+	}
+	return snap, nil
 }
 
 func (h *Handler) collectBRouterComponent(ctx context.Context) systemstatus.ComponentStatus {
