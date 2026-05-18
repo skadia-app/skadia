@@ -49,6 +49,43 @@ interface LogEntry {
 
 type WizardPhase = 'scan' | 'config' | 'import'
 
+export interface KomootImportSelection {
+  importRecorded: boolean
+  importPlanned: boolean
+  importPhotos: boolean
+}
+
+function komootSelectionUnit(selection: KomootImportSelection): { singular: string; plural: string } {
+  if (selection.importPlanned && !selection.importRecorded && !selection.importPhotos) {
+    return { singular: 'Route', plural: 'Routen' }
+  }
+  if (selection.importRecorded && !selection.importPlanned && !selection.importPhotos) {
+    return { singular: 'Aktivität', plural: 'Aktivitäten' }
+  }
+  return { singular: 'Eintrag', plural: 'Einträge' }
+}
+
+export function komootProgressLabel(current: number, total: number, selection: KomootImportSelection): string {
+  const unit = komootSelectionUnit(selection)
+  return `${unit.singular} ${current} / ${total}`
+}
+
+export function komootCompletionLog(importedCount: number, selection: KomootImportSelection): string {
+  if (importedCount <= 0) return 'Abgeschlossen — fertig'
+  const unit = komootSelectionUnit(selection)
+  return `Abgeschlossen — ${importedCount} ${unit.plural} importiert`
+}
+
+export function komootAvailabilityText(selection: KomootImportSelection): string {
+  if (selection.importPlanned && !selection.importRecorded && !selection.importPhotos) {
+    return 'Die importierten Routen sind nun verfügbar.'
+  }
+  if (selection.importRecorded && !selection.importPlanned && !selection.importPhotos) {
+    return 'Die importierten Aktivitäten sind nun verfügbar.'
+  }
+  return 'Die importierten Aktivitäten und Routen sind nun verfügbar.'
+}
+
 // ---------------------------------------------------------------------------
 // API helpers — Garmin
 // ---------------------------------------------------------------------------
@@ -1045,6 +1082,7 @@ function KomootImportPanel() {
   const [importPlanned, setImportPlanned] = useState(true)
   const [importPhotos, setImportPhotos] = useState(true)
   const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('enrich_missing')
+  const selectionRef = useRef<KomootImportSelection>({ importRecorded: true, importPlanned: true, importPhotos: true })
 
   // Import state
   const [jobId, setJobId] = useState<string | null>(null)
@@ -1082,12 +1120,12 @@ function KomootImportPanel() {
         const total = j.progress_total ?? 0
         if (j.phase === 'import' && total > 0 && cur !== lastProgressRef.current) {
           lastProgressRef.current = cur
-          appendLog(`Tour ${cur} / ${total}`)
+          appendLog(komootProgressLabel(cur, total, selectionRef.current))
         }
 
         if (j.status === 'completed' && lastPhaseRef.current !== '__completed__') {
           lastPhaseRef.current = '__completed__'
-          appendLog(`Abgeschlossen — ${lastProgressRef.current > 0 ? `${lastProgressRef.current} Touren importiert` : 'fertig'}`)
+          appendLog(komootCompletionLog(lastProgressRef.current, selectionRef.current))
         }
         if (j.status === 'failed' && lastPhaseRef.current !== '__failed__') {
           lastPhaseRef.current = '__failed__'
@@ -1101,6 +1139,9 @@ function KomootImportPanel() {
 
   // Keep refs in sync for cleanup effect
   useEffect(() => { saveCredentialsRef.current = saveCredentials }, [saveCredentials])
+  useEffect(() => {
+    selectionRef.current = { importRecorded, importPlanned, importPhotos }
+  }, [importRecorded, importPlanned, importPhotos])
 
   // Check if stored credentials exist
   useEffect(() => {
@@ -1125,8 +1166,14 @@ function KomootImportPanel() {
     if (!saved) return
     ;(async () => {
       try {
-        const { jobId: savedId } = JSON.parse(saved) as { jobId: string }
+        const { jobId: savedId, selection } = JSON.parse(saved) as { jobId: string; selection?: KomootImportSelection }
         if (!savedId) { localStorage.removeItem(STORAGE_KEY); return }
+        if (selection) {
+          selectionRef.current = selection
+          setImportRecorded(selection.importRecorded)
+          setImportPlanned(selection.importPlanned)
+          setImportPhotos(selection.importPhotos)
+        }
         const j = await getKomootImportJob(savedId)
         if (j.status === 'completed' || j.status === 'failed') {
           localStorage.removeItem(STORAGE_KEY)
@@ -1244,7 +1291,7 @@ function KomootImportPanel() {
         delete_credentials_after: !saveCredentials,
       })
       setJobId(id)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: id, selection: selectionRef.current }))
       appendLog(`Job gestartet (${id.slice(0, 8)})`)
       queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
       startPolling(id)
@@ -1258,6 +1305,8 @@ function KomootImportPanel() {
     job && job.progress_total && job.progress_total > 0 && job.progress_current != null
       ? Math.round((job.progress_current / job.progress_total) * 100)
       : 0
+  const currentKomootSelection = { importRecorded, importPlanned, importPhotos }
+  const komootUnit = komootSelectionUnit(currentKomootSelection)
 
   return (
     <div className="space-y-6">
@@ -1487,7 +1536,7 @@ function KomootImportPanel() {
                   </span>
                   <span className="text-xs text-neutral-500 tabular-nums font-mono">
                     Job {jobId.slice(0, 8)}
-                    {job?.progress_total && job.progress_total > 0 && ` · ${job.progress_current ?? 0}/${job.progress_total} Touren (${progress} %)`}
+                    {job?.progress_total && job.progress_total > 0 && ` · ${job.progress_current ?? 0}/${job.progress_total} ${komootUnit.plural} (${progress} %)`}
                   </span>
                 </div>
 
@@ -1528,7 +1577,7 @@ function KomootImportPanel() {
                       Komoot-Import abgeschlossen.
                     </p>
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                      Die importierten Aktivitäten und Routen sind nun verfügbar.
+                      {komootAvailabilityText(currentKomootSelection)}
                     </p>
                     {!saveCredentials && (
                       <p className="text-xs text-green-700 dark:text-green-400 mt-1">
