@@ -1930,6 +1930,50 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     expect(result.current.scalePin).toBeNull()
   })
 
+  it('loadRoute leitet heutige Defaults fuer Legacy-Profil outdoor aus der Sportart ab', async () => {
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockImplementation((profile: string) => (
+      profile === 'hiking' ? { profile: 'hiking', uphill_cost: 7 } as any : null
+    ))
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({ profile: 'mtb', uphill_cost: 5 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    vi.mocked(fetchProfileDefaults).mockClear()
+    vi.mocked(cacheServerDefaults).mockClear()
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+
+    act(() => {
+      result.current.loadRoute({
+        id: 'legacy-outdoor-route',
+        profile: 'outdoor',
+        sport_type: 'cycling',
+        sub_type: 'mountain',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Legacy Outdoor Route',
+        route_schema_version: 1,
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+
+    await waitFor(() => {
+      expect(fetchProfileDefaults).toHaveBeenCalledWith('mtb')
+    })
+    expect(fetchProfileDefaults).not.toHaveBeenCalledWith('outdoor')
+    expect(cacheServerDefaults).toHaveBeenCalledWith('mtb', expect.objectContaining({ profile: 'mtb' }))
+    expect(addToastMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Profil-Defaults konnten nicht geladen werden',
+    }))
+  })
+
   it('forceMigrateAndSave saves a loaded pre-T0 route with schema version 1', async () => {
     const { getProfileDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)

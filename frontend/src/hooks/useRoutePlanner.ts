@@ -32,6 +32,7 @@ import { featureAvailable, featureReason } from '@/lib/deploymentCapabilities'
 import { storeETagForPath } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
+import { normalizeSportTuple } from '@/lib/sportTaxonomy'
 
 // ─── Exported types ──────────────────────────────────────────────────────────
 
@@ -149,11 +150,33 @@ const INITIAL_STATE: RoutePlannerState = {
 // pages/MapPage.tsx).
 const ROUTING_PROFILE_STORAGE_KEY = 'skadia-routing-profile'
 const DEFAULT_ROUTING_PROFILE = 'hiking'
+const LEGACY_PROFILE_DEFAULT_ALIASES: Record<string, string> = {
+  outdoor: DEFAULT_ROUTING_PROFILE,
+}
+
+function profileDefaultsName(profile: string | null | undefined): string {
+  if (!profile) return DEFAULT_ROUTING_PROFILE
+  return LEGACY_PROFILE_DEFAULT_ALIASES[profile] ?? profile
+}
+
+function profileDefaultsNameForRoute(route: Pick<PlannedRoute, 'profile' | 'sport_type' | 'sub_type'>): string {
+  const storedProfile = route.profile?.trim()
+  if (storedProfile && storedProfile !== 'outdoor') return profileDefaultsName(storedProfile)
+
+  const tuple = normalizeSportTuple(route.sport_type ?? '', route.sub_type ?? null)
+  if (tuple.sportType === 'cycling') {
+    if (tuple.subType === 'mountain' || tuple.subType === 'mountain_biking') return 'mtb'
+    if (tuple.subType === 'gravel_cycling') return 'gravel'
+    if (tuple.subType === 'road' || tuple.subType === 'road_cycling') return 'road'
+    return 'trekking'
+  }
+  return DEFAULT_ROUTING_PROFILE
+}
 
 function readStoredProfile(): string {
   try {
     const stored = localStorage.getItem(ROUTING_PROFILE_STORAGE_KEY)
-    if (stored && stored.length > 0) return stored
+    if (stored && stored.length > 0) return profileDefaultsName(stored)
   } catch {
     // localStorage unavailable (SSR / private mode / quota) — fall through.
   }
@@ -1298,7 +1321,8 @@ export function useRoutePlanner() {
     loadedRouteRef.current = route
 
     // route.profile is a string — try cache first, then fetch async
-    const cached = getProfileDefaults(route.profile)
+    const defaultsProfile = profileDefaultsNameForRoute(route)
+    const cached = getProfileDefaults(defaultsProfile)
 
     // Critic #3 (BLOCKER): deserializeRouteStats sets coordinates: [].
     // MapPage memo-guard (routeStats.coordinates.length >= 2) gates the
@@ -1351,14 +1375,14 @@ export function useRoutePlanner() {
     if (!cached) {
       // Profile defaults were not in cache — fetch them (does NOT trigger
       // recalculateAll; Spec §7.4 forbids it on load).
-      fetchProfileDefaults(route.profile)
+      fetchProfileDefaults(defaultsProfile)
         .then(resp => {
-          cacheServerDefaults(route.profile, resp)
+          cacheServerDefaults(defaultsProfile, resp)
           setState(s => {
             // Race-guard: another loadRoute may have been called while this
             // fetch was in-flight. Only apply if we're still editing THIS route.
             if (s.editingRouteId !== route.id) return s
-            const fresh = getProfileDefaults(route.profile)
+            const fresh = getProfileDefaults(defaultsProfile)
             if (!fresh) return s
             return { ...s, profileConfig: fresh }
           })
@@ -1367,7 +1391,7 @@ export function useRoutePlanner() {
           addToast({
             type: 'error',
             title: 'Profil-Defaults konnten nicht geladen werden',
-            message: `Profil "${route.profile}" konnte nicht geladen werden.`,
+            message: `Profil "${defaultsProfile}" konnte nicht geladen werden.`,
             duration: 0,
           })
         })
@@ -1437,7 +1461,8 @@ export function useRoutePlanner() {
     resetScalePin()
     loadedRouteRef.current = null
 
-    const cached = getProfileDefaults(route.profile)
+    const defaultsProfile = profileDefaultsNameForRoute(route)
+    const cached = getProfileDefaults(defaultsProfile)
     const routeStats = routeStatsForLoadedRoute(route)
     const segmentsSnapshot = route.segments
 
@@ -1471,12 +1496,12 @@ export function useRoutePlanner() {
     }))
 
     if (!cached) {
-      fetchProfileDefaults(route.profile)
+      fetchProfileDefaults(defaultsProfile)
         .then(resp => {
-          cacheServerDefaults(route.profile, resp)
+          cacheServerDefaults(defaultsProfile, resp)
           setState(s => {
             if (s.editingRouteId !== null || s.segments !== segmentsSnapshot) return s
-            const fresh = getProfileDefaults(route.profile)
+            const fresh = getProfileDefaults(defaultsProfile)
             if (!fresh) return s
             return { ...s, profileConfig: fresh }
           })
@@ -1485,7 +1510,7 @@ export function useRoutePlanner() {
           addToast({
             type: 'error',
             title: 'Profil-Defaults konnten nicht geladen werden',
-            message: `Profil "${route.profile}" konnte nicht geladen werden.`,
+            message: `Profil "${defaultsProfile}" konnte nicht geladen werden.`,
             duration: 0,
           })
         })
