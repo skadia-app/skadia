@@ -532,6 +532,28 @@ export function deserializeRouteStats(
   }
 }
 
+function routeStatsForLoadedRoute(route: PlannedRoute): RouteStats | null {
+  const baseStats = deserializeRouteStats(route.enrichment ?? null)
+  if (!baseStats) return null
+
+  const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
+  const sortedSegs = [...route.segments].sort(
+    (a, b) =>
+      (wpOrder.get(a.from_waypoint) ?? Infinity) -
+      (wpOrder.get(b.from_waypoint) ?? Infinity),
+  )
+  const coords: number[][] = []
+  for (let i = 0; i < sortedSegs.length; i++) {
+    const segCoords = (sortedSegs[i].geometry?.coordinates ?? []) as number[][]
+    if (i === 0) {
+      for (const c of segCoords) coords.push(c)
+    } else {
+      for (let j = 1; j < segCoords.length; j++) coords.push(segCoords[j])
+    }
+  }
+  return { ...baseStats, coordinates: coords }
+}
+
 // ─── Offroad DEM fill helper ──────────────────────────────────────────────────
 
 /** Haversine distance in meters between two [lon, lat] points. */
@@ -1284,26 +1306,7 @@ export function useRoutePlanner() {
     // coordinates from segment geometry here, those overlays never render
     // for loaded routes. Mirrors the merge logic in mergeSegmentStatsForState
     // (junction-dedup: skip first coord of each segment after the first).
-    const baseStats = deserializeRouteStats(route.enrichment ?? null)
-    let routeStats = baseStats
-    if (baseStats) {
-      const wpOrder = new Map(route.waypoints.map((wp, i) => [wp.id, i]))
-      const sortedSegs = [...route.segments].sort(
-        (a, b) =>
-          (wpOrder.get(a.from_waypoint) ?? Infinity) -
-          (wpOrder.get(b.from_waypoint) ?? Infinity),
-      )
-      const coords: number[][] = []
-      for (let i = 0; i < sortedSegs.length; i++) {
-        const segCoords = (sortedSegs[i].geometry?.coordinates ?? []) as number[][]
-        if (i === 0) {
-          for (const c of segCoords) coords.push(c)
-        } else {
-          for (let j = 1; j < segCoords.length; j++) coords.push(segCoords[j])
-        }
-      }
-      routeStats = { ...baseStats, coordinates: coords }
-    }
+    const routeStats = routeStatsForLoadedRoute(route)
 
     // Bug B (2026-04-25): mark the deserialized profile as "segments"-grade
     // so the effectiveProfile-sync useEffect's truncation-guard knows the
@@ -1428,6 +1431,65 @@ export function useRoutePlanner() {
         }
       })
     })()
+  }, [addToast])
+
+  const loadRouteDraft = useCallback((route: PlannedRoute) => {
+    resetScalePin()
+    loadedRouteRef.current = null
+
+    const cached = getProfileDefaults(route.profile)
+    const routeStats = routeStatsForLoadedRoute(route)
+    const segmentsSnapshot = route.segments
+
+    if (route.elevation_profile != null && route.elevation_profile.length > 0) {
+      _prevSourceRef.current = 'segments'
+    }
+
+    setState(s => ({
+      ...s,
+      waypoints: route.waypoints,
+      segments: route.segments,
+      profileConfig: cached ?? s.profileConfig,
+      sportType: route.sport_type,
+      subType: route.sub_type ?? null,
+      isElectric: route.is_electric ?? false,
+      isIndoor: route.is_indoor ?? false,
+      isVirtual: route.is_virtual ?? false,
+      isCommute: route.is_commute ?? false,
+      isCalculating: false,
+      calculationError: null,
+      editingRouteId: null,
+      effectiveProfile: route.elevation_profile ?? null,
+      routeSchemaVersion: null,
+      routeStats,
+      _statsCache: {},
+      lazyFillInProgress: false,
+      lazyFillPendingSave: false,
+      routingEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
+      lastRenderedEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
+      dirtyEngines: { badrouter: false, brouter: false },
+    }))
+
+    if (!cached) {
+      fetchProfileDefaults(route.profile)
+        .then(resp => {
+          cacheServerDefaults(route.profile, resp)
+          setState(s => {
+            if (s.editingRouteId !== null || s.segments !== segmentsSnapshot) return s
+            const fresh = getProfileDefaults(route.profile)
+            if (!fresh) return s
+            return { ...s, profileConfig: fresh }
+          })
+        })
+        .catch(() => {
+          addToast({
+            type: 'error',
+            title: 'Profil-Defaults konnten nicht geladen werden',
+            message: `Profil "${route.profile}" konnte nicht geladen werden.`,
+            duration: 0,
+          })
+        })
+    }
   }, [addToast])
 
   // Load waypoints into the planner without creating/linking a saved route.
@@ -2116,6 +2178,7 @@ export function useRoutePlanner() {
 
     // ── Route lifecycle ───────────────────────────────────────────────────
     loadRoute,
+    loadRouteDraft,
     loadWaypoints,
     loadSuggestion,
     clear,

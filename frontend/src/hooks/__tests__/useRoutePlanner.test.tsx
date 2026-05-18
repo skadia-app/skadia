@@ -1741,6 +1741,55 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     expect(result.current.segments[0].geometry?.coordinates).toHaveLength(4)
   })
 
+  it('loadRouteDraft uebernimmt volle Segment-Geometrie ohne gespeicherte Route zu binden', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const coords = [
+      [12.0, 49.0, 500],
+      [12.01, 49.01, 510],
+      [12.02, 49.0, 505],
+      [12.0, 49.0, 500],
+    ]
+    const draft = makeTestRoute({
+      id: 'activity-draft',
+      waypoints: [
+        { id: 'start', latlng: [49.0, 12.0], type: 'start' },
+        { id: 'end', latlng: [49.0, 12.0], type: 'end' },
+      ],
+      segments: [{
+        from_waypoint: 'start',
+        to_waypoint: 'end',
+        mode: 'routed',
+        geometry: { type: 'LineString', coordinates: coords },
+        control_points: [],
+        smooth: false,
+        distance_m: 1234,
+        elevation_gain: 56,
+        elevation_loss: 34,
+      }],
+      total_distance_m: 1234,
+      total_elevation_gain: 56,
+      total_elevation_loss: 34,
+    })
+
+    act(() => {
+      result.current.loadRouteDraft(draft)
+    })
+
+    expect(result.current.editingRouteId).toBeNull()
+    expect(result.current.waypoints).toHaveLength(2)
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].geometry?.coordinates).toEqual(coords)
+    expect(result.current.totals.distance_m).toBe(1234)
+  })
+
   it('mount-fetch does not overwrite profileConfig set by loadRoute', async () => {
     let resolveMountFetch!: (v: any) => void
     const mountFetchPromise = new Promise<any>(r => { resolveMountFetch = r })

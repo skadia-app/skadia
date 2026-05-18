@@ -352,6 +352,13 @@ export async function createRouteFromActivity(
   return apiClient(`/routes/from-activity/${activityId}`, { method: 'POST' })
 }
 
+// Returns a full unsaved route draft derived from an activity GPS track.
+export async function getRouteDraftFromActivity(
+  activityId: string | number,
+): Promise<PlannedRoute> {
+  return apiClient(`/routes/from-activity/${activityId}/draft`)
+}
+
 // Returns waypoints derived from an activity GPS track WITHOUT saving a route to DB.
 export async function getWaypointsFromActivity(
   activityId: string | number,
