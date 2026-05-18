@@ -209,22 +209,52 @@ func TestDetectRuntimeFindsCoverageBinArtifacts(t *testing.T) {
 func TestDetectRuntimeBRouterProbeRequiresUsableStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		status    int
+		handler   http.HandlerFunc
 		available bool
 	}{
-		{name: "ok", status: http.StatusOK, available: true},
-		{name: "root not found", status: http.StatusNotFound, available: true},
-		{name: "server error", status: http.StatusInternalServerError, available: false},
+		{
+			name: "route probe ok",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/brouter" {
+					t.Fatalf("probe path = %q, want /brouter", r.URL.Path)
+				}
+				w.WriteHeader(http.StatusOK)
+			},
+			available: true,
+		},
+		{
+			name: "brouter missing rd5 response still identifies service",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/brouter" {
+					t.Fatalf("probe path = %q, want /brouter", r.URL.Path)
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte("datafile E0_N0.rd5 not found"))
+			},
+			available: true,
+		},
+		{
+			name: "plain root not found is not a brouter service proof",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			available: false,
+		},
+		{
+			name: "server error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			available: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tc.status)
-			}))
+			server := httptest.NewServer(tc.handler)
 			defer server.Close()
 
 			runtime := probeRuntime(t.Context(), nil, DetectInput{BRouterURL: server.URL})
 			if runtime.BRouter != tc.available {
-				t.Fatalf("runtime.BRouter = %v, want %v for status %d", runtime.BRouter, tc.available, tc.status)
+				t.Fatalf("runtime.BRouter = %v, want %v", runtime.BRouter, tc.available)
 			}
 		})
 	}

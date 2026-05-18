@@ -2,8 +2,10 @@ package capabilities
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -345,16 +347,8 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 
 	if input.BRouterURL != "" {
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get(input.BRouterURL)
-		if err == nil {
-			resp.Body.Close()
-			if brouterProbeStatusUsable(resp.StatusCode) {
-				runtime.BRouter = true
-			} else {
-				slog.Warn("BRouter probe returned unusable status", "status", resp.StatusCode)
-			}
-		} else {
-			slog.Warn("BRouter not reachable", "error", err)
+		if brouterServiceAvailable(ctx, client, input.BRouterURL) {
+			runtime.BRouter = true
 		}
 	}
 	if hasFileWithSuffix(input.PMTilesDir, ".pmtiles") {
@@ -379,8 +373,51 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 	return runtime
 }
 
-func brouterProbeStatusUsable(status int) bool {
-	return (status >= http.StatusOK && status < http.StatusMultipleChoices) || status == http.StatusNotFound
+func brouterServiceAvailable(ctx context.Context, client *http.Client, baseURL string) bool {
+	probeURL, err := brouterProbeURL(baseURL)
+	if err != nil {
+		slog.Warn("BRouter probe URL invalid", "url", baseURL, "error", err)
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		slog.Warn("BRouter probe request invalid", "url", probeURL, "error", err)
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Warn("BRouter not reachable", "error", err)
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return true
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if resp.StatusCode == http.StatusBadRequest && brouterMissingDatafileResponse(string(body)) {
+		return true
+	}
+	slog.Warn("BRouter probe returned unusable status", "status", resp.StatusCode)
+	return false
+}
+
+func brouterProbeURL(baseURL string) (string, error) {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/brouter")
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("lonlats", "0,0|0.001,0.001")
+	q.Set("profile", "hiking-mountain")
+	q.Set("alternativeidx", "0")
+	q.Set("format", "geojson")
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func brouterMissingDatafileResponse(body string) bool {
+	body = strings.ToLower(body)
+	return strings.Contains(body, "datafile ") && strings.Contains(body, ".rd5 not found")
 }
 
 func hasFileWithSuffix(dir, suffix string) bool {
