@@ -34,10 +34,13 @@ type BadRouterSnapshot struct {
 }
 
 type OSMSnapshot struct {
-	RegionCount      int
-	LastImportStatus string
-	SourceDate       string
-	CheckedAt        time.Time
+	RegionCount          int
+	ImportedCount        int
+	FailedCount          int
+	ImportingCount       int
+	NeedsRedownloadCount int
+	SourceDate           string
+	CheckedAt            time.Time
 }
 
 type DEMSnapshot struct {
@@ -117,11 +120,12 @@ func OSMStatusFromSnapshot(s OSMSnapshot) ComponentStatus {
 		State:     StatusOK,
 		CheckedAt: checkedAtOrNow(s.CheckedAt),
 		Details: map[string]string{
-			"region_count": strconv.Itoa(s.RegionCount),
+			"region_count":           strconv.Itoa(s.RegionCount),
+			"imported_region_count":  strconv.Itoa(s.ImportedCount),
+			"failed_region_count":    strconv.Itoa(s.FailedCount),
+			"importing_region_count": strconv.Itoa(s.ImportingCount),
+			"stale_region_count":     strconv.Itoa(s.NeedsRedownloadCount),
 		},
-	}
-	if s.LastImportStatus != "" {
-		st.Details["state"] = s.LastImportStatus
 	}
 	if s.SourceDate != "" {
 		st.Details["source_date"] = s.SourceDate
@@ -129,6 +133,20 @@ func OSMStatusFromSnapshot(s OSMSnapshot) ComponentStatus {
 	if s.RegionCount == 0 {
 		st.State = StatusMissingArtifacts
 		st.ReasonCode = "missing_artifacts"
+	}
+	if s.FailedCount > 0 {
+		st.State = StatusDegraded
+		st.ReasonCode = "osm_regions_failed"
+		return st
+	}
+	if s.ImportingCount > 0 {
+		st.State = StatusDegraded
+		st.ReasonCode = "osm_regions_importing"
+		return st
+	}
+	if s.NeedsRedownloadCount > 0 {
+		st.State = StatusDegraded
+		st.ReasonCode = "osm_regions_need_redownload"
 	}
 	return st
 }

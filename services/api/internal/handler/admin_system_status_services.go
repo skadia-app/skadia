@@ -217,8 +217,18 @@ func (h *Handler) collectOSMComponent(ctx context.Context, caps capabilities.Cap
 	snap := systemstatus.OSMSnapshot{CheckedAt: time.Now().UTC()}
 	if h.DB != nil && h.DB.Pool != nil {
 		_ = h.DB.Pool.QueryRow(ctx, `
-			SELECT COUNT(*), COALESCE(MAX(status), '')
-			FROM osm_import_regions`).Scan(&snap.RegionCount, &snap.LastImportStatus)
+			SELECT COUNT(*),
+			       COUNT(*) FILTER (WHERE status = 'imported'),
+			       COUNT(*) FILTER (WHERE status = 'failed'),
+			       COUNT(*) FILTER (WHERE status = 'importing'),
+			       COUNT(*) FILTER (WHERE status = 'needs_redownload')
+			FROM osm_import_regions`).Scan(
+			&snap.RegionCount,
+			&snap.ImportedCount,
+			&snap.FailedCount,
+			&snap.ImportingCount,
+			&snap.NeedsRedownloadCount,
+		)
 	}
 	return systemstatus.OSMStatusFromSnapshot(snap)
 }

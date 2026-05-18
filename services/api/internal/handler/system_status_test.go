@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -253,6 +254,30 @@ func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
 	}
 }
 
+func TestCollectOSMComponentDegradesOnFailedRegion(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	h.Config = &HandlerConfig{DeploymentProfile: "full"}
+	_, err := h.DB.Pool.Exec(context.Background(), `
+		INSERT INTO osm_import_regions (region_id, label, continent, status)
+		VALUES ('ok-region', 'OK Region', 'Test', 'imported'),
+		       ('failed-region', 'Failed Region', 'Test', 'failed')`)
+	if err != nil {
+		t.Fatalf("insert osm_import_regions: %v", err)
+	}
+	caps := capabilities.Capabilities{Features: map[string]capabilities.FeatureState{
+		capabilities.KeyOSMImport: {Configured: true, Available: true},
+	}}
+
+	got := h.collectOSMComponent(context.Background(), caps)
+
+	if got.State != systemstatus.StatusDegraded || got.ReasonCode != "osm_regions_failed" {
+		t.Fatalf("OSM status = %+v, want degraded osm_regions_failed", got)
+	}
+	if got.Details["failed_region_count"] != "1" || got.Details["imported_region_count"] != "1" {
+		t.Fatalf("OSM status details = %+v, want imported=1 failed=1", got.Details)
+	}
+}
+
 func TestCollectMLSnapshotUsesInternalStatusForBuildAndRoles(t *testing.T) {
 	ml := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -281,6 +306,31 @@ func TestCollectMLSnapshotUsesInternalStatusForBuildAndRoles(t *testing.T) {
 	}
 	if got.State != "degraded" || got.ReasonCode != "ml_roles_unavailable" {
 		t.Fatalf("ML status = %+v, want degraded ml_roles_unavailable", got)
+	}
+}
+
+func TestAdminSystemStatusKeepsMLBuildRowWhenInternalStatusUnavailable(t *testing.T) {
+	ml := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/livez", "/readyz":
+			w.WriteHeader(http.StatusOK)
+		case "/status":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ml.Close)
+	h := newTestHandler(t, fusionTestPool(t))
+	h.Config = &HandlerConfig{DeploymentProfile: "full", MLServiceURL: ml.URL, MLCallbackSecret: "status-secret"}
+
+	got := h.collectAdminSystemStatus(context.Background())
+
+	if got.Build["ml"].Service != "ml" {
+		t.Fatalf("ML build row = %+v, want placeholder service=ml", got.Build["ml"])
+	}
+	if got.Components["ml"].State != systemstatus.StatusDegraded || got.Components["ml"].ReasonCode != "ml_status_unavailable" {
+		t.Fatalf("ML component = %+v, want degraded ml_status_unavailable", got.Components["ml"])
 	}
 }
 
