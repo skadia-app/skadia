@@ -21,6 +21,24 @@ func TestValidateBRouterProfileParamsAllowsKnownSurface(t *testing.T) {
 	}
 }
 
+func TestValidateBRouterProfileParamsRejectsInvalidProcessUnusedTagsValue(t *testing.T) {
+	for _, value := range []string{"maybe", "2"} {
+		params := map[string]string{"processUnusedTags": value}
+		if err := ValidateBRouterProfileParams("hiking-mountain", params); err == nil {
+			t.Fatalf("processUnusedTags=%q accepted, want rejection", value)
+		}
+	}
+}
+
+func TestValidateBRouterProfileParamsAllowsNumericProcessUnusedTagsValues(t *testing.T) {
+	for _, value := range []string{"0", "1"} {
+		params := map[string]string{"processUnusedTags": value}
+		if err := ValidateBRouterProfileParams("hiking-mountain", params); err != nil {
+			t.Fatalf("processUnusedTags=%q rejected: %v", value, err)
+		}
+	}
+}
+
 func TestBRouterProfileParamSurfaceCoversDocumentedProfileVars(t *testing.T) {
 	root := findProjectRoot()
 	if root == "" {

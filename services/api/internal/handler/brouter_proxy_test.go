@@ -139,6 +139,198 @@ func newBRouterProxyTestRequest(body string) *http.Request {
 	return req.WithContext(contextWithTestUserID(req.Context(), "00000000-0000-0000-0000-000000000001"))
 }
 
+func TestInjectBRouterWayTagEnrichmentBuildsSegmentsAndRanges(t *testing.T) {
+	raw := `{
+	  "type":"FeatureCollection",
+	  "features":[{
+	    "type":"Feature",
+	    "properties":{
+	      "messages":[
+	        ["Longitude","Latitude","Elevation","Distance","CostPerKm","ElevCost","TurnCost","NodeCost","InitialCost","WayTags","NodeTags","Time","Energy"],
+	        ["11576298","48137118","523","14","5050","0","0","0","0","highway=footway surface=paving_stones sac_scale=mountain_hiking","","2","221"],
+	        ["11576413","48137263","523","19","7050","0","72","0","0","highway=path surface=ground mtb:scale=2 mtb:scale:uphill=1 trail_visibility=good","","5","523"]
+	      ]
+	    },
+	    "geometry":{"type":"LineString","coordinates":[
+	      [11.576124,48.137154,523],
+	      [11.576298,48.137118,523],
+	      [11.576413,48.137263,523]
+	    ]}
+	  }]
+	}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	injectBRouterWayTagEnrichment(gj)
+
+	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	segments, ok := props["segments"].([]map[string]any)
+	if !ok {
+		t.Fatalf("segments type = %T, want []map[string]any", props["segments"])
+	}
+	if len(segments) != 2 {
+		t.Fatalf("segments len = %d, want 2", len(segments))
+	}
+	if segments[0]["from_idx"] != 0 || segments[0]["to_idx"] != 1 {
+		t.Fatalf("first segment indexes = %v..%v, want 0..1", segments[0]["from_idx"], segments[0]["to_idx"])
+	}
+	if segments[0]["highway"] != "footway" || segments[0]["surface"] != "paving_stones" || segments[0]["sac_scale"] != "T2" {
+		t.Fatalf("first segment tags = %#v", segments[0])
+	}
+	if segments[1]["from_idx"] != 1 || segments[1]["to_idx"] != 2 {
+		t.Fatalf("second segment indexes = %v..%v, want 1..2", segments[1]["from_idx"], segments[1]["to_idx"])
+	}
+	if segments[1]["highway"] != "path" || segments[1]["surface"] != "ground" || segments[1]["mtb_scale"] != "S2" {
+		t.Fatalf("second segment tags = %#v", segments[1])
+	}
+	if segments[1]["mtb_scale_uphill"] != "S1" || segments[1]["trail_visibility"] != "good" {
+		t.Fatalf("second segment extended tags = %#v", segments[1])
+	}
+	if segments[1]["from_dist_m"] != 14.0 || segments[1]["to_dist_m"] != 33.0 {
+		t.Fatalf("second segment distances = %v..%v, want 14..33", segments[1]["from_dist_m"], segments[1]["to_dist_m"])
+	}
+
+	sacRanges := props["sac_ranges"].(map[string][]CoordRange)
+	if got := sacRanges["T2"]; len(got) != 1 || got[0] != (CoordRange{From: 0, To: 2}) {
+		t.Fatalf("sac_ranges[T2] = %#v, want [{0 2}]", got)
+	}
+	mtbRanges := props["mtb_ranges"].(map[string][]CoordRange)
+	if got := mtbRanges["S2"]; len(got) != 1 || got[0] != (CoordRange{From: 1, To: 3}) {
+		t.Fatalf("mtb_ranges[S2] = %#v, want [{1 3}]", got)
+	}
+	if _, has := props["forest_pct"]; has {
+		t.Fatal("BRouter enrichment must not emit forest_pct")
+	}
+	if _, has := props["protected_pct"]; has {
+		t.Fatal("BRouter enrichment must not emit protected_pct")
+	}
+}
+
+func TestInjectBRouterWayTagEnrichmentKeepsSafePrefixOnUnmatchedTail(t *testing.T) {
+	raw := `{
+	  "type":"FeatureCollection",
+	  "features":[{
+	    "type":"Feature",
+	    "properties":{"messages":[
+	      ["Longitude","Latitude","Elevation","Distance","WayTags"],
+	      ["11576298","48137118","523","14","highway=footway surface=paving_stones"],
+	      ["99999999","99999999","523","19","highway=path surface=ground"]
+	    ]},
+	    "geometry":{"type":"LineString","coordinates":[[11.576124,48.137154,523],[11.576298,48.137118,523]]}
+	  }]
+	}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	injectBRouterWayTagEnrichment(gj)
+
+	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	segments := props["segments"].([]map[string]any)
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want safe prefix len 1", len(segments))
+	}
+	if segments[0]["highway"] != "footway" {
+		t.Fatalf("safe prefix segment = %#v", segments[0])
+	}
+}
+
+func TestInjectBRouterWayTagEnrichmentNoOpsOnMissingHeader(t *testing.T) {
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature",
+	  "properties":{"messages":[["Longitude","Latitude","Distance"],["11576298","48137118","14"]]},
+	  "geometry":{"type":"LineString","coordinates":[[11.576124,48.137154,523],[11.576298,48.137118,523]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	injectBRouterWayTagEnrichment(gj)
+
+	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	if _, has := props["segments"]; has {
+		t.Fatalf("segments must be absent for incomplete messages header, got %#v", props["segments"])
+	}
+}
+
+func TestRouteViabrouterAddsProcessUnusedTagsDefaultAndEnrichesResponse(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	var gotProcessUnusedTags string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/brouter" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		gotProcessUnusedTags = r.URL.Query().Get("profile:processUnusedTags")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "type":"FeatureCollection",
+		  "features":[{
+		    "type":"Feature",
+		    "properties":{
+		      "creator":"BRouter-1.7.8",
+		      "track-length":"14",
+		      "messages":[
+		        ["Longitude","Latitude","Elevation","Distance","WayTags"],
+		        ["11576298","48137118","523","14","highway=footway surface=paving_stones"]
+		      ]
+		    },
+		    "geometry":{"type":"LineString","coordinates":[[11.576124,48.137154,523],[11.576298,48.137118,523]]}
+		  }]
+		}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[48.137154,11.576124],[48.137118,11.576298]],
+		"profile": "trekking"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if gotProcessUnusedTags != "1" {
+		t.Fatalf("profile:processUnusedTags = %q, want 1", gotProcessUnusedTags)
+	}
+	var gj map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &gj); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	if props["elevation_profile"] == nil {
+		t.Fatal("elevation_profile must still be injected")
+	}
+	if _, has := props["segments"]; !has {
+		t.Fatalf("segments missing from enriched response properties: %#v", props)
+	}
+}
+
+func TestEnsureBRouterWayTagProfileParamsNormalizesBooleanProcessUnusedTags(t *testing.T) {
+	params := ensureBRouterWayTagProfileParams(map[string]string{"processUnusedTags": "true"})
+	if params["processUnusedTags"] != "1" {
+		t.Fatalf("true processUnusedTags normalized to %q, want 1", params["processUnusedTags"])
+	}
+
+	params = ensureBRouterWayTagProfileParams(map[string]string{"processUnusedTags": "false"})
+	if params["processUnusedTags"] != "0" {
+		t.Fatalf("false processUnusedTags normalized to %q, want 0", params["processUnusedTags"])
+	}
+
+	params = ensureBRouterWayTagProfileParams(map[string]string{"processUnusedTags": "0"})
+	if params["processUnusedTags"] != "0" {
+		t.Fatalf("explicit numeric processUnusedTags overwritten to %q, want 0", params["processUnusedTags"])
+	}
+}
+
 func TestBuildProfileFromInlineZ_NoZ_ReturnsNil(t *testing.T) {
 	coords := []brouterCoord{bcNoZ(11.404, 47.270), bcNoZ(11.405, 47.271)}
 	if got := buildProfileFromInlineZ(coords); got != nil {

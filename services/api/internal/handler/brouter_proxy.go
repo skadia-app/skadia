@@ -67,6 +67,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	if !validBRouterProfiles[req.Profile] {
 		req.Profile = "hiking-mountain"
 	}
+	req.ProfileParams = ensureBRouterWayTagProfileParams(req.ProfileParams)
 	if err := routing.ValidateBRouterProfileParams(req.Profile, req.ProfileParams); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
@@ -174,10 +175,27 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	injectElevationProfileFromInlineZ(gj, h.DEMSvc)
+	injectBRouterWayTagEnrichment(gj)
 
 	if err := json.NewEncoder(w).Encode(gj); err != nil {
 		slog.Warn("BRouter proxy: failed to encode modified response", "error", err)
 	}
+}
+
+func ensureBRouterWayTagProfileParams(params map[string]string) map[string]string {
+	if params == nil {
+		params = map[string]string{}
+	}
+	if _, exists := params["processUnusedTags"]; !exists {
+		params["processUnusedTags"] = "1"
+	}
+	switch strings.ToLower(params["processUnusedTags"]) {
+	case "true":
+		params["processUnusedTags"] = "1"
+	case "false":
+		params["processUnusedTags"] = "0"
+	}
+	return params
 }
 
 // brouterCoord captures one BRouter coordinate with explicit per-point
