@@ -10,6 +10,8 @@ import { triggerBlobDownload } from '@/lib/utils'
 export default function AdminSystemStatusTab() {
   const { addToast } = useToast()
   const [exporting, setExporting] = useState(false)
+  const [featureSearch, setFeatureSearch] = useState('')
+  const [featureFilter, setFeatureFilter] = useState<'all' | 'attention' | 'disabled'>('all')
   const { data, isLoading, isError } = useQuery({
     queryKey: ['admin-system-status'],
     queryFn: fetchSystemStatus,
@@ -23,6 +25,12 @@ export default function AdminSystemStatusTab() {
     ...data.build,
     frontend: data.build.frontend ?? frontendBuildInfo(),
   }
+  const featureRows = data.feature_matrix
+    ? Object.values(data.feature_matrix)
+      .filter((component) => matchesFeatureSearch(component, featureSearch))
+      .filter((component) => matchesFeatureFilter(component, featureFilter))
+      .sort((a, b) => featureLabel(a.key, a.label).localeCompare(featureLabel(b.key, b.label), 'de'))
+    : []
 
   async function handleExport() {
     if (exporting) return
@@ -48,7 +56,10 @@ export default function AdminSystemStatusTab() {
       <SettingsSection title="Systemstatus" description="Laufzeitstatus, Build-Herkunft und Diagnosehinweise.">
         <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
-            <div>Gesamtstatus: {stateLabel(data.overall)}</div>
+            <div className="flex items-center gap-2">
+              <span className="text-neutral-600 dark:text-neutral-400">Gesamtstatus</span>
+              <StatusBadge state={data.overall} />
+            </div>
             <BuildTable build={build} />
           </div>
           <button type="button" onClick={handleExport} disabled={exporting} className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900">
@@ -57,36 +68,54 @@ export default function AdminSystemStatusTab() {
         </div>
       </SettingsSection>
       <SettingsSection title="Datenebene" description="Datenbank, Speicher, Jobverarbeitung und DSGVO-Artefakte.">
-        <div>
-          <StatusRow title="Datenbank" component={data.components.db} />
-          <StatusRow title="TimescaleDB-Kompression" component={data.components.timescale_compression} />
-          <StatusRow title="Speicher" component={data.components.storage} />
-          <StatusRow title="Jobs" component={data.components.jobs} />
-          <StatusRow title="DSGVO-Artefakte" component={data.components.gdpr_artifacts} />
-        </div>
+        <StatusGrid items={[
+          ['Datenbank', data.components.db],
+          ['TimescaleDB-Kompression', data.components.timescale_compression],
+          ['Speicher', data.components.storage],
+          ['Jobs', data.components.jobs],
+          ['DSGVO-Artefakte', data.components.gdpr_artifacts],
+        ]} />
       </SettingsSection>
       <SettingsSection title="Dienste und Nachrichten" description="API-nahe Dienste, ML und Queue-Verarbeitung.">
-        <div>
-          <StatusRow title="API" component={data.components.api} />
-          <StatusRow title="ML-Dienst" component={data.components.ml} />
-          <StatusRow title="NATS / JetStream" component={data.components.nats} />
-        </div>
+        <StatusGrid items={[
+          ['API', data.components.api],
+          ['ML-Dienst', data.components.ml],
+          ['NATS / JetStream', data.components.nats],
+        ]} />
       </SettingsSection>
       <SettingsSection title="Routing und Geodaten" description="Routing-Engines, lokale Geodaten, Höhenmodell, Coverage und Kartendateien.">
-        <div>
-          <StatusRow title="BRouter" component={data.components.brouter} />
-          <StatusRow title="Skadia-Routinggraph" component={data.components.badrouter} />
-          <StatusRow title="OSM-Geodaten" component={data.components.osm} />
-          <StatusRow title="Höhendaten" component={data.components.dem} />
-          <StatusRow title="Coverage" component={data.components.coverage} />
-          <StatusRow title="Kartendateien" component={data.components.tiles} />
-        </div>
+        <StatusGrid items={[
+          ['BRouter', data.components.brouter],
+          ['BadRouter-Routinggraph', data.components.badrouter],
+          ['OSM-Geodaten', data.components.osm],
+          ['Höhendaten', data.components.dem],
+          ['Coverage', data.components.coverage],
+          ['Kartendateien', data.components.tiles],
+        ]} />
       </SettingsSection>
       {data.feature_matrix && (
         <SettingsSection title="Feature-Matrix" description="Konfigurierte und aktuell verfügbare Funktionsbereiche.">
-          <div>
-            {Object.values(data.feature_matrix).map((component) => (
-              <StatusRow key={component.key} title={component.label || component.key} component={component} />
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/40 lg:flex-row lg:items-center">
+            <input
+              type="search"
+              value={featureSearch}
+              onChange={(event) => setFeatureSearch(event.target.value)}
+              placeholder="Feature suchen..."
+              className="min-h-10 flex-1 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-accent-DEFAULT dark:border-neutral-700 dark:bg-neutral-950"
+            />
+            <select
+              value={featureFilter}
+              onChange={(event) => setFeatureFilter(event.target.value as 'all' | 'attention' | 'disabled')}
+              className="min-h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-accent-DEFAULT dark:border-neutral-700 dark:bg-neutral-950"
+            >
+              <option value="all">Alle Status</option>
+              <option value="attention">Aufmerksamkeit</option>
+              <option value="disabled">Deaktiviert</option>
+            </select>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {featureRows.map((component) => (
+              <StatusCard key={component.key} title={featureLabel(component.key, component.label)} component={component} compact />
             ))}
           </div>
         </SettingsSection>
@@ -95,17 +124,50 @@ export default function AdminSystemStatusTab() {
   )
 }
 
-function StatusRow({ title, component }: { title: string; component?: ComponentStatus }) {
+function StatusGrid({ items }: { items: Array<[string, ComponentStatus | undefined]> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {items.map(([title, component]) => (
+        <StatusCard key={title} title={title} component={component} />
+      ))}
+    </div>
+  )
+}
+
+function StatusCard({ title, component, compact = false }: { title: string; component?: ComponentStatus; compact?: boolean }) {
   const state = component?.state ?? 'unknown'
   const reason = component?.reason_code
+  const details = component?.details ? Object.entries(component.details).slice(0, compact ? 2 : 3) : []
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-neutral-200 py-3 last:border-b-0 dark:border-neutral-800">
-      <div className="min-w-0">
-        <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{title}</h3>
-        {reason && <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{reasonLabel(reason)}</p>}
+    <div className={`rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950/40 ${compact ? 'min-h-[7.25rem]' : 'min-h-[8.5rem]'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
+          {reason && <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">{reasonLabel(reason)}</p>}
+        </div>
+        <StatusBadge state={state} />
       </div>
-      <span className="shrink-0 text-xs tabular-nums">{stateLabel(state)}</span>
+      {details.length > 0 && (
+        <dl className="mt-4 grid gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+          {details.map(([key, value]) => (
+            <div key={key} className="flex min-w-0 justify-between gap-3">
+              <dt className="truncate">{detailLabel(key)}</dt>
+              <dd className="truncate text-right font-mono text-neutral-700 dark:text-neutral-300">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
+  )
+}
+
+function StatusBadge({ state }: { state: SystemStatusState }) {
+  const color = stateTone(state)
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${color.container}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
+      {stateLabel(state)}
+    </span>
   )
 }
 
@@ -153,9 +215,55 @@ const STATE_LABELS: Record<SystemStatusState, string> = {
   unknown: 'Unbekannt',
 }
 
+const FEATURE_LABELS: Record<string, string> = {
+  activity_track_summary_geo: 'Geodaten in Aktivitäten',
+  activity_track_summary_surface: 'Wege und Oberflächen',
+  ai_agent: 'KI-Assistent',
+  badrouter: 'BadRouter-Routinggraph',
+  brouter: 'BRouter',
+  brouter_segment_build: 'BRouter-Segmente erzeugen',
+  brouter_segment_download: 'BRouter-Segmente herunterladen',
+  coverage: 'Coverage',
+  coverage_tiles: 'Coverage-Kacheln',
+  dem_correction: 'Höhenkorrektur',
+  deployment_profile: 'Installationsprofil',
+  direct_upload_lifecycle: 'Direkter Upload',
+  document_ml: 'Dokumentverarbeitung',
+  gdpr_artifacts: 'DSGVO-Transferdateien',
+  geo_poi_enrichment: 'Geo-/POI-Anreicherung',
+  import_path_enabled: 'Import aus Serverpfaden',
+  isochrone: 'Isochronen',
+  library_paths: 'Dateipfade in der Bibliothek',
+  library_schemas: 'Dateischemata',
+  library_sync: 'Bibliotheks-Synchronisierung',
+  local_poi_search: 'Lokale Ortssuche',
+  ml_service: 'ML-Dienst',
+  offline_map: 'Offline-Karte',
+  osm_enrichment: 'OSM-Anreicherung',
+  osm_import: 'OSM-Import',
+  osm_lift_snap: 'Lift-Snap über OSM',
+  photo_embedding_storage_access: 'Foto-Speicherzugriff',
+  photo_embeddings: 'Foto-Indexierung',
+  route_photo_media: 'Routenfotos',
+  route_suggestion: 'Routenvorschläge',
+  routing: 'Lokales Routing',
+  routing_tiles: 'Routing-Kacheln',
+  segment_enrichment_suggest: 'Segmentvorschläge',
+  segment_osm_lift_import: 'Lift-Segmente aus OSM',
+  segment_publish: 'Segment-Veröffentlichung',
+  segment_recompute: 'Segment-Neuberechnung',
+  segments: 'Segmente',
+  storage_backend: 'Speicher-Backend',
+  storage_mode: 'Speichermodus',
+  surface_enrichment: 'Oberflächen-Anreicherung',
+  system_layers_coverage: 'Coverage-Systemlayer',
+  system_layers_vector: 'Vektor-Systemlayer',
+}
+
 const REASON_LABELS: Record<string, string> = {
   artifact_store_probe_failed: 'Artefakt-Speicher konnte nicht geprüft werden.',
   brouter_segments_missing: 'BRouter-Segmente fehlen.',
+  brouter_unreachable: 'BRouter ist nicht erreichbar.',
   consumer_lag: 'Queue-Verarbeitung hängt zurück.',
   core_profile: 'Im Core-Profil deaktiviert.',
   coverage_corrupt_cells: 'Coverage-Daten enthalten beschädigte Zellen.',
@@ -174,6 +282,8 @@ const REASON_LABELS: Record<string, string> = {
   migration_dirty: 'Datenbankmigration ist als dirty markiert.',
   migration_status_unreadable: 'Migrationsstatus konnte nicht gelesen werden.',
   missing_artifacts: 'Erforderliche lokale Daten fehlen.',
+  missing_profiles: 'Erforderliche Profile sind nicht aktiv.',
+  missing_service: 'Erforderlicher Dienst läuft nicht.',
   ml_disabled: 'ML-Dienst ist deaktiviert.',
   ml_not_ready: 'ML-Dienst ist noch nicht bereit.',
   ml_roles_unavailable: 'ML-Rollen sind nicht vollständig verfügbar.',
@@ -186,16 +296,76 @@ const REASON_LABELS: Record<string, string> = {
   postgis_missing: 'PostGIS ist nicht verfügbar.',
   replica_count_unknown: 'Replikationssicherheit konnte nicht bewertet werden.',
   routing_tiles_missing: 'Routing-Kacheln fehlen.',
+  s3_storage: 'Bei S3-Speicher nicht verfügbar.',
   s3_bucket_unreachable: 'S3-Bucket ist nicht erreichbar.',
   s3_list_prefix_probe_failed: 'S3-Listenprüfung ist fehlgeschlagen.',
   s3_multipart_abort_probe_failed: 'S3-Multipart-Prüfung ist fehlgeschlagen.',
   s3_write_delete_probe_failed: 'S3-Schreib-/Löschprüfung ist fehlgeschlagen.',
   stuck_jobs: 'Jobs hängen fest.',
+  storage_unavailable: 'Speicher ist nicht verfügbar.',
   timescale_compression_disabled: 'TimescaleDB-Kompression ist deaktiviert.',
   timescale_compression_option_drift: 'TimescaleDB-Kompression weicht von der Soll-Konfiguration ab.',
   timescale_compression_policy_missing: 'TimescaleDB-Kompressionsrichtlinie fehlt.',
   timescale_compression_setting_drift: 'TimescaleDB-Kompression und Einstellung widersprechen sich.',
   timescale_compression_toggle_failed: 'Letzte Kompressionsumschaltung ist fehlgeschlagen.',
+}
+
+function featureLabel(key: string, backendLabel?: string): string {
+  if (FEATURE_LABELS[key]) return FEATURE_LABELS[key]
+  if (backendLabel && backendLabel !== key && !backendLabel.includes('_')) return backendLabel
+  return key
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function matchesFeatureSearch(component: ComponentStatus, query: string): boolean {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+  return [
+    featureLabel(component.key, component.label),
+    reasonLabel(component.reason_code ?? ''),
+  ].some((value) => value.toLowerCase().includes(normalized))
+}
+
+function matchesFeatureFilter(component: ComponentStatus, filter: 'all' | 'attention' | 'disabled'): boolean {
+  if (filter === 'all') return true
+  if (filter === 'disabled') return component.state === 'disabled' || component.state === 'not_configured'
+  return component.state !== 'ok' && component.state !== 'disabled' && component.state !== 'not_configured'
+}
+
+function stateTone(state: SystemStatusState): { container: string; dot: string } {
+  switch (state) {
+    case 'ok':
+      return {
+        container: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+        dot: 'bg-emerald-500',
+      }
+    case 'degraded':
+    case 'missing_artifacts':
+      return {
+        container: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+        dot: 'bg-amber-500',
+      }
+    case 'unavailable':
+    case 'blocked':
+      return {
+        container: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+        dot: 'bg-red-500',
+      }
+    case 'disabled':
+    case 'not_configured':
+      return {
+        container: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
+        dot: 'bg-neutral-400',
+      }
+    default:
+      return {
+        container: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+        dot: 'bg-sky-500',
+      }
+  }
 }
 
 function stateLabel(state: SystemStatusState): string {
@@ -204,6 +374,14 @@ function stateLabel(state: SystemStatusState): string {
 
 function reasonLabel(reason: string): string {
   return REASON_LABELS[reason] ?? reason
+}
+
+function detailLabel(key: string): string {
+  return key
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 function serviceLabel(service: string): string {

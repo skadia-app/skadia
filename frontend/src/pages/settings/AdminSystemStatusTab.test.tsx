@@ -39,6 +39,7 @@ vi.mock('@/api/systemStatus', () => ({
     },
     feature_matrix: {
       routing: { key: 'routing', label: 'routing', state: 'degraded', reason_code: 'missing_artifacts', checked_at: '2026-05-17T10:00:00Z' },
+      document_ml: { key: 'document_ml', label: 'document_ml', state: 'disabled', reason_code: 'storage_unavailable', checked_at: '2026-05-17T10:00:00Z' },
     },
   })),
   downloadSystemStatusExport: mocks.downloadSystemStatusExport,
@@ -71,7 +72,8 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('AdminSystemStatusTab', () => {
   it('renders overall system status', async () => {
     render(<AdminSystemStatusTab />, { wrapper })
-    expect(await screen.findByText(/Gesamtstatus: Eingeschränkt/i)).toBeInTheDocument()
+    expect(await screen.findByText('Gesamtstatus')).toBeInTheDocument()
+    expect(screen.getAllByText('Eingeschränkt').length).toBeGreaterThan(0)
     expect(screen.getAllByText('API').length).toBeGreaterThan(0)
     expect(screen.getByText('Frontend')).toBeInTheDocument()
     expect(screen.getByText('ML')).toBeInTheDocument()
@@ -80,15 +82,20 @@ describe('AdminSystemStatusTab', () => {
     expect(screen.getByText('Datenbank')).toBeInTheDocument()
     expect(screen.getByText('DSGVO-Artefakte')).toBeInTheDocument()
     expect(screen.getByText('ML-Dienst')).toBeInTheDocument()
-    expect(screen.getByText('Skadia-Routinggraph')).toBeInTheDocument()
+    expect(screen.getByText('BadRouter-Routinggraph')).toBeInTheDocument()
     expect(screen.getByText('Feature-Matrix')).toBeInTheDocument()
+    expect(screen.getByText('Lokales Routing')).toBeInTheDocument()
+    expect(screen.getByText('Dokumentverarbeitung')).toBeInTheDocument()
+    expect(screen.queryByText('document_ml')).not.toBeInTheDocument()
+    expect(screen.queryByText('storage_unavailable')).not.toBeInTheDocument()
+    expect(screen.getByText('Speicher ist nicht verfügbar.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Diagnose exportieren' })).toBeInTheDocument()
   })
 
   it('shows feedback when export fails', async () => {
     mocks.downloadSystemStatusExport.mockRejectedValueOnce(new Error('network'))
     render(<AdminSystemStatusTab />, { wrapper })
-    await screen.findByText(/Gesamtstatus: Eingeschränkt/i)
+    await screen.findByText('Gesamtstatus')
 
     await userEvent.click(screen.getByRole('button', { name: 'Diagnose exportieren' }))
 
