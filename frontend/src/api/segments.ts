@@ -21,6 +21,7 @@ export interface Segment {
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
   /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
@@ -73,6 +74,7 @@ export interface CreateSegmentPayload {
   description?: string
   terrain_type?: string
   climb_type?: string
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
   visibility?: 'public' | 'private'
   /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
@@ -100,6 +102,7 @@ export interface FetchSegmentsOpts {
   sac_scale?: string
   mtb_scale?: string
   surface?: string
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
   /** comma-separated: "public", "private", or "public,private" */
   visibility?: string
   /** "any" = OR between SAC and MTB; "all" (default) = AND */
@@ -121,6 +124,7 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
   if (params.sac_scale) qs.set('sac_scale', params.sac_scale)
   if (params.mtb_scale) qs.set('mtb_scale', params.mtb_scale)
   if (params.surface) qs.set('surface', params.surface)
+  if (params.elevation_kind) qs.set('elevation_kind', params.elevation_kind)
   if (params.visibility) qs.set('visibility', params.visibility)
   if (params.difficulty_match) qs.set('difficulty_match', params.difficulty_match)
   
@@ -136,6 +140,7 @@ export interface UpdateSegmentPayload {
   new_version?: boolean
   terrain_type?: string
   climb_type?: string
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
   visibility?: 'public' | 'private'
   /** absent = unchanged; null = legacy match-all inside the stored sport group; [] = no sports; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
