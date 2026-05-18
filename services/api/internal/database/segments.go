@@ -953,18 +953,36 @@ func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) err
 		WITH boundary AS (
 			SELECT NOW() AS at
 		),
-		latest AS (
+		next_version AS (
+			SELECT COALESCE(MAX(version_number), 0) + 1 AS number
+			FROM segment_versions
+			WHERE segment_id = $1
+		),
+		active AS (
 			SELECT id, segment_id, version_number, track, start_point, end_point, created_by
 			FROM segment_versions
 			WHERE segment_id = $1
-			ORDER BY version_number DESC
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND (valid_from_at IS NULL OR valid_from_at <= (SELECT at FROM boundary))
+			  AND (valid_until_at IS NULL OR (SELECT at FROM boundary) < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
 			LIMIT 1
+		),
+		next_future AS (
+			SELECT MIN(valid_from_at) AS at
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND valid_from_at > (SELECT at FROM boundary)
 		),
 		closed AS (
 			UPDATE segment_versions sv
 			SET valid_until_at = boundary.at
-			FROM latest, boundary
-			WHERE sv.id = latest.id
+			FROM active, boundary
+			WHERE sv.id = active.id
 			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
 			RETURNING sv.id
 		)
@@ -973,19 +991,19 @@ func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) err
 			valid_from_at, valid_until_at, validity_basis, matching_contract_key, matching_contract_version, published_at
 		)
 		SELECT segment_id,
-		       version_number + 1,
+		       next_version.number,
 		       track,
 		       start_point,
 		       end_point,
 		       CURRENT_DATE,
 		       created_by,
 		       boundary.at,
-		       NULL,
+		       next_future.at,
 		       'editor_asserted',
 		       'course_gps_v1',
 		       1,
 		       boundary.at
-		FROM latest, boundary, closed`, segmentID)
+		FROM active, next_version, next_future, boundary, closed`, segmentID)
 	if err != nil {
 		return fmt.Errorf("create new segment version: %w", err)
 	}
