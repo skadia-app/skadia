@@ -63,6 +63,18 @@ const VISIBILITY_LABELS: Record<(typeof VISIBILITY_ALL)[number], string> = {
   private: 'Privat',
 }
 
+export function shouldFetchNextSegmentPage({
+  isIntersecting,
+  hasNextPage,
+  isFetchingNextPage,
+}: {
+  isIntersecting: boolean
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+}): boolean {
+  return isIntersecting && hasNextPage && !isFetchingNextPage
+}
+
 export default function SegmentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -259,12 +271,20 @@ export default function SegmentsPage() {
     const el = sentinelRef.current
     if (!el || !hasNextPage) return
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) fetchNextPage() },
-      { rootMargin: '200px' }
+      ([entry]) => {
+        if (shouldFetchNextSegmentPage({
+          isIntersecting: entry.isIntersecting,
+          hasNextPage: !!hasNextPage,
+          isFetchingNextPage,
+        })) {
+          fetchNextPage()
+        }
+      },
+      { rootMargin: '600px 0px' }
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [fetchNextPage, hasNextPage])
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   const deleteMut = useMutation({
     mutationFn: deleteSegment,

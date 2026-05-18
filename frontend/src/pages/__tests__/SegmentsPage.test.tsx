@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import SegmentsPage from '../SegmentsPage'
+import SegmentsPage, { shouldFetchNextSegmentPage } from '../SegmentsPage'
 
 const mocks = vi.hoisted(() => ({
   fetchSegments: vi.fn(),
@@ -237,5 +237,33 @@ describe('SegmentsPage filters', () => {
     expect(screen.queryByText('MTB-Skala')).not.toBeInTheDocument()
     expect(screen.queryByText('Oberfläche')).not.toBeInTheDocument()
     expect(screen.getByText('Sichtbarkeit')).toBeInTheDocument()
+  })
+})
+
+describe('shouldFetchNextSegmentPage', () => {
+  it('only fetches when the sentinel is visible, another page exists, and no page fetch is running', () => {
+    expect(shouldFetchNextSegmentPage({
+      isIntersecting: true,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+    })).toBe(true)
+
+    expect(shouldFetchNextSegmentPage({
+      isIntersecting: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+    })).toBe(false)
+
+    expect(shouldFetchNextSegmentPage({
+      isIntersecting: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    })).toBe(false)
+
+    expect(shouldFetchNextSegmentPage({
+      isIntersecting: true,
+      hasNextPage: true,
+      isFetchingNextPage: true,
+    })).toBe(false)
   })
 })
