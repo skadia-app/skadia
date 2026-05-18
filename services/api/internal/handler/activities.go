@@ -26,6 +26,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -183,6 +184,9 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.URL.Query().Get("exclude_devices"); v != "" {
 		filters.ExcludeDevices = strings.Split(v, ",")
+	}
+	if v := r.URL.Query().Get("country_codes"); v != "" {
+		filters.CountryCodes = strings.Split(v, ",")
 	}
 
 	list, err := h.DB.ListActivities(r.Context(), userID, cursor, limit, sortBy, sortDir, filters)
@@ -360,6 +364,30 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 		return
 	}
+	locationChanged := update.LocationLat != nil || update.LocationLng != nil
+	if locationChanged {
+		if err := h.DB.UpdateActivityLocationCountryFields(r.Context(), id, "", ""); err != nil {
+			slog.Warn("update activity: clear manual location country failed", "id", id, "error", err)
+		}
+		if activity.LocationLat != nil && activity.LocationLng != nil {
+			geo, err := h.reverseManualLocationCountry(r.Context(), userID, *activity.LocationLat, *activity.LocationLng)
+			if err != nil {
+				slog.Warn("update activity: reverse geocode manual location failed", "id", id, "error", err)
+			} else if geo != nil {
+				if err := h.DB.UpdateActivityLocationCountryFields(r.Context(), id, geo.Country, geo.CountryCode); err != nil {
+					slog.Warn("update activity: persist manual location country failed", "id", id, "error", err)
+				}
+			}
+		}
+	}
+	if locationChanged {
+		if err := h.DB.RefreshActivityVisitedCountries(r.Context(), id); err != nil {
+			slog.Warn("update activity: refresh visited countries failed", "id", id, "error", err)
+		}
+		if refreshed, err := h.DB.GetActivity(r.Context(), id); err == nil && refreshed != nil {
+			activity = refreshed
+		}
+	}
 
 	// Refresh .meta companion with updated user fields.
 	freshAct, _ := h.DB.GetActivity(r.Context(), id)
@@ -441,6 +469,13 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
+}
+
+func (h *Handler) reverseManualLocationCountry(ctx context.Context, userID string, lat, lng float64) (*enrichment.GeoResult, error) {
+	if h.Stage1Deps != nil && h.Stage1Deps.Geocoder != nil {
+		return h.Stage1Deps.Geocoder.Reverse(ctx, h.DB, userID, lat, lng)
+	}
+	return enrichment.ReverseGeocode(ctx, h.DB, userID, lat, lng)
 }
 
 func bestEffortGroupingInputChanged(update model.ActivityUpdate, existing model.Activity) bool {

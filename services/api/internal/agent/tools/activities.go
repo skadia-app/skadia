@@ -88,6 +88,7 @@ type queryActivitiesArgs struct {
 	IsIndoor      *bool    `json:"is_indoor,omitempty"`
 	IsVirtual     *bool    `json:"is_virtual,omitempty"`
 	IsCommute     *bool    `json:"is_commute,omitempty"`
+	CountryCodes  []string `json:"country_codes,omitempty"`
 }
 
 type aggregateStatsArgs struct {
@@ -109,21 +110,23 @@ type aggregateStatsArgs struct {
 	IsIndoor      *bool    `json:"is_indoor,omitempty"`
 	IsVirtual     *bool    `json:"is_virtual,omitempty"`
 	IsCommute     *bool    `json:"is_commute,omitempty"`
+	CountryCodes  []string `json:"country_codes,omitempty"`
 }
 
 type aggregateTimeSeriesArgs struct {
-	Metric     string  `json:"metric,omitempty"`
-	Bucket     string  `json:"bucket,omitempty"`
-	SportQuery string  `json:"sport_query,omitempty"`
-	SportType  string  `json:"sport_type,omitempty"`
-	SubType    *string `json:"sub_type,omitempty"`
-	Days       *int    `json:"days,omitempty"`
-	DateFrom   string  `json:"date_from,omitempty"`
-	DateTo     string  `json:"date_to,omitempty"`
-	IsElectric *bool   `json:"is_electric,omitempty"`
-	IsIndoor   *bool   `json:"is_indoor,omitempty"`
-	IsVirtual  *bool   `json:"is_virtual,omitempty"`
-	IsCommute  *bool   `json:"is_commute,omitempty"`
+	Metric       string   `json:"metric,omitempty"`
+	Bucket       string   `json:"bucket,omitempty"`
+	SportQuery   string   `json:"sport_query,omitempty"`
+	SportType    string   `json:"sport_type,omitempty"`
+	SubType      *string  `json:"sub_type,omitempty"`
+	Days         *int     `json:"days,omitempty"`
+	DateFrom     string   `json:"date_from,omitempty"`
+	DateTo       string   `json:"date_to,omitempty"`
+	IsElectric   *bool    `json:"is_electric,omitempty"`
+	IsIndoor     *bool    `json:"is_indoor,omitempty"`
+	IsVirtual    *bool    `json:"is_virtual,omitempty"`
+	IsCommute    *bool    `json:"is_commute,omitempty"`
+	CountryCodes []string `json:"country_codes,omitempty"`
 }
 
 type queryRecordsArgs struct {
@@ -145,20 +148,22 @@ type queryRecordsArgs struct {
 	IsIndoor      *bool    `json:"is_indoor,omitempty"`
 	IsVirtual     *bool    `json:"is_virtual,omitempty"`
 	IsCommute     *bool    `json:"is_commute,omitempty"`
+	CountryCodes  []string `json:"country_codes,omitempty"`
 }
 
 type comparePeriodsArgs struct {
-	Period1Start string  `json:"period1_start"`
-	Period1End   string  `json:"period1_end"`
-	Period2Start string  `json:"period2_start"`
-	Period2End   string  `json:"period2_end"`
-	SportQuery   string  `json:"sport_query,omitempty"`
-	SportType    string  `json:"sport_type,omitempty"`
-	SubType      *string `json:"sub_type,omitempty"`
-	IsElectric   *bool   `json:"is_electric,omitempty"`
-	IsIndoor     *bool   `json:"is_indoor,omitempty"`
-	IsVirtual    *bool   `json:"is_virtual,omitempty"`
-	IsCommute    *bool   `json:"is_commute,omitempty"`
+	Period1Start string   `json:"period1_start"`
+	Period1End   string   `json:"period1_end"`
+	Period2Start string   `json:"period2_start"`
+	Period2End   string   `json:"period2_end"`
+	SportQuery   string   `json:"sport_query,omitempty"`
+	SportType    string   `json:"sport_type,omitempty"`
+	SubType      *string  `json:"sub_type,omitempty"`
+	IsElectric   *bool    `json:"is_electric,omitempty"`
+	IsIndoor     *bool    `json:"is_indoor,omitempty"`
+	IsVirtual    *bool    `json:"is_virtual,omitempty"`
+	IsCommute    *bool    `json:"is_commute,omitempty"`
+	CountryCodes []string `json:"country_codes,omitempty"`
 }
 
 type getActivityDetailArgs struct {
@@ -176,7 +181,7 @@ func ActivityTools() []*Tool {
 		{
 			Name:        "query_activities",
 			Description: "List recent activities with optional date, sport, modifier, distance, title, gear, tag, and sort filters.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy, e.g. swim, Freiwasser, MTB, Gravel"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"limit":{"type":"integer","minimum":1,"maximum":50},"sort_by":{"type":"string","enum":["date","distance","duration","hr","elevation"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy, e.g. swim, Freiwasser, MTB, Gravel"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"limit":{"type":"integer","minimum":1,"maximum":50},"sort_by":{"type":"string","enum":["date","distance","duration","hr","elevation"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeQueryActivities,
@@ -185,7 +190,7 @@ func ActivityTools() []*Tool {
 		{
 			Name:        "aggregate_stats",
 			Description: "Aggregate activity metrics over a recent period, optionally grouped by time or sport.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"group_by":{"type":"string","enum":["none","week","month","sport","sport_tuple"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"group_by":{"type":"string","enum":["none","week","month","sport","sport_tuple"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeAggregateStats,
@@ -193,7 +198,7 @@ func ActivityTools() []*Tool {
 		{
 			Name:        "aggregate_time_series",
 			Description: "Aggregate user-owned activity metrics into day, week, month, or year buckets for trend questions.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"bucket":{"type":"string","enum":["day","week","month","year"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"bucket":{"type":"string","enum":["day","week","month","year"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeAggregateTimeSeries,
@@ -201,7 +206,7 @@ func ActivityTools() []*Tool {
 		{
 			Name:        "query_records",
 			Description: "Find top activities by distance, duration, elevation, speed, power, or heart rate with reusable sport/date/gear/tag filters.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"record_type":{"type":"string","enum":["longest_distance","longest_duration","most_elevation","highest_avg_speed","highest_avg_power","highest_hr"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":20},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"record_type":{"type":"string","enum":["longest_distance","longest_duration","most_elevation","highest_avg_speed","highest_avg_power","highest_hr"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":20},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeQueryRecords,
@@ -209,7 +214,7 @@ func ActivityTools() []*Tool {
 		{
 			Name:        "compare_periods",
 			Description: "Compare count, distance, duration, heart rate, and elevation between two date ranges.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["period1_start","period1_end","period2_start","period2_end"],"properties":{"period1_start":{"type":"string","format":"date"},"period1_end":{"type":"string","format":"date"},"period2_start":{"type":"string","format":"date"},"period2_end":{"type":"string","format":"date"},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","required":["period1_start","period1_end","period2_start","period2_end"],"properties":{"period1_start":{"type":"string","format":"date"},"period1_end":{"type":"string","format":"date"},"period2_start":{"type":"string","format":"date"},"period2_end":{"type":"string","format":"date"},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeComparePeriods,
@@ -392,6 +397,7 @@ func buildQueryActivitiesSQL(userID string, args queryActivitiesArgs, now time.T
 		IsIndoor:      args.IsIndoor,
 		IsVirtual:     args.IsVirtual,
 		IsCommute:     args.IsCommute,
+		CountryCodes:  args.CountryCodes,
 	}, now)
 	if err != nil {
 		return "", nil, err
@@ -422,6 +428,7 @@ func buildAggregateStatsSQL(userID string, args aggregateStatsArgs, now time.Tim
 		IsIndoor:      args.IsIndoor,
 		IsVirtual:     args.IsVirtual,
 		IsCommute:     args.IsCommute,
+		CountryCodes:  args.CountryCodes,
 	}, now)
 	if err != nil {
 		return "", nil, err
@@ -450,16 +457,17 @@ func buildAggregateTimeSeriesSQL(userID string, args aggregateTimeSeriesArgs, no
 		days = &defaultDays
 	}
 	plan, err := buildActivitySelectionPlan(userID, activitySelectionCriteria{
-		SportQuery: args.SportQuery,
-		SportType:  args.SportType,
-		SubType:    args.SubType,
-		Days:       days,
-		DateFrom:   args.DateFrom,
-		DateTo:     args.DateTo,
-		IsElectric: args.IsElectric,
-		IsIndoor:   args.IsIndoor,
-		IsVirtual:  args.IsVirtual,
-		IsCommute:  args.IsCommute,
+		SportQuery:   args.SportQuery,
+		SportType:    args.SportType,
+		SubType:      args.SubType,
+		Days:         days,
+		DateFrom:     args.DateFrom,
+		DateTo:       args.DateTo,
+		IsElectric:   args.IsElectric,
+		IsIndoor:     args.IsIndoor,
+		IsVirtual:    args.IsVirtual,
+		IsCommute:    args.IsCommute,
+		CountryCodes: args.CountryCodes,
 	}, now)
 	if err != nil {
 		return "", nil, nil, err
@@ -493,6 +501,7 @@ func buildQueryRecordsSQL(userID string, args queryRecordsArgs, now time.Time) (
 		IsIndoor:      args.IsIndoor,
 		IsVirtual:     args.IsVirtual,
 		IsCommute:     args.IsCommute,
+		CountryCodes:  args.CountryCodes,
 	}, now)
 	if err != nil {
 		return "", nil, nil, err
@@ -519,24 +528,26 @@ func buildComparePeriodSQL(userID, start, end string, args comparePeriodsArgs) (
 	conditions := []string{"user_id = $1", "started_at::date BETWEEN $2 AND $3"}
 	params := []any{userID, startDate, endDate}
 	criteria, err := normalizeActivitySelectionCriteria(activitySelectionCriteria{
-		SportQuery: args.SportQuery,
-		SportType:  args.SportType,
-		SubType:    args.SubType,
-		IsElectric: args.IsElectric,
-		IsIndoor:   args.IsIndoor,
-		IsVirtual:  args.IsVirtual,
-		IsCommute:  args.IsCommute,
+		SportQuery:   args.SportQuery,
+		SportType:    args.SportType,
+		SubType:      args.SubType,
+		IsElectric:   args.IsElectric,
+		IsIndoor:     args.IsIndoor,
+		IsVirtual:    args.IsVirtual,
+		IsCommute:    args.IsCommute,
+		CountryCodes: args.CountryCodes,
 	})
 	if err != nil {
 		return "", nil, err
 	}
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		SportType:  criteria.SportType,
-		SubType:    criteria.SubType,
-		IsElectric: criteria.IsElectric,
-		IsIndoor:   criteria.IsIndoor,
-		IsVirtual:  criteria.IsVirtual,
-		IsCommute:  criteria.IsCommute,
+		SportType:    criteria.SportType,
+		SubType:      criteria.SubType,
+		IsElectric:   criteria.IsElectric,
+		IsIndoor:     criteria.IsIndoor,
+		IsVirtual:    criteria.IsVirtual,
+		IsCommute:    criteria.IsCommute,
+		CountryCodes: criteria.CountryCodes,
 	})
 	sql := "SELECT COUNT(*) AS count, " +
 		"ROUND((COALESCE(SUM(distance_m), 0) / 1000.0)::numeric, 1)::float8 AS total_distance_km, " +
@@ -555,7 +566,7 @@ func buildActivityDetailSQL(userID string, args getActivityDetailArgs) (string, 
 	sql := "SELECT a.id, a.title, a.sport_type, a.sub_type, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.started_at, a.elapsed_time_s, " +
 		"a.distance_m, a.elevation_gain_m, " +
 		"a.avg_heart_rate, a.max_heart_rate, a.avg_speed_ms, a.avg_power_w, " +
-		"a.start_city, a.start_state, a.start_country, " +
+		"a.start_city, a.start_state, a.start_country, a.visited_country_codes, " +
 		"a.tss, a.description, a.weather_temp_c, a.weather_condition, " +
 		"g.name AS gear_name, " +
 		"(SELECT COUNT(*) FROM activity_photos ap WHERE ap.activity_id = a.id AND ap.user_id = a.user_id) AS photo_count, " +

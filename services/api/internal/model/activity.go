@@ -87,6 +87,11 @@ type Activity struct {
 	StartState              *string          `json:"start_state,omitempty"`
 	StartCountry            *string          `json:"start_country,omitempty"`
 	StartCountryCode        *string          `json:"start_country_code,omitempty"`
+	EndCountry              *string          `json:"end_country,omitempty"`
+	EndCountryCode          *string          `json:"end_country_code,omitempty"`
+	LocationCountry         *string          `json:"location_country,omitempty"`
+	LocationCountryCode     *string          `json:"location_country_code,omitempty"`
+	VisitedCountryCodes     []string         `json:"visited_country_codes,omitempty"`
 	WeatherReadings         []WeatherReading `json:"weather_readings,omitempty"`
 	IsRoundTrip             bool             `json:"is_round_trip"`
 	Intensity               *string          `json:"intensity,omitempty"`
@@ -413,6 +418,7 @@ type ActivityFilters struct {
 	ExcludeGear     []string
 	IncludeDevices  []string
 	ExcludeDevices  []string
+	CountryCodes    []string
 }
 
 // UploadResponse wraps the activity with optional warnings.

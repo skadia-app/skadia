@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { generateActivityFilterOptions, getAllSportKeys } from '@/lib/sportOptions'
 import { sportLabel } from '@/lib/sportTaxonomy'
@@ -28,6 +28,7 @@ export interface ActivityFilterState {
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
   deviceFilters: DeviceFilter[]
+  countryCodes: string[]
   search: string
 }
 
@@ -45,7 +46,15 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   tagFilters: [],
   gearFilters: [],
   deviceFilters: [],
+  countryCodes: [],
   search: '',
+}
+
+function parseCountryCodes(value: string): string[] {
+  return [...new Set(value
+    .split(',')
+    .map(v => v.trim().toUpperCase())
+    .filter(v => /^[A-Z]{2}$/.test(v)))]
 }
 
 /** Serialize filter state to URL search params */
@@ -76,6 +85,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   const excludeDevices = f.deviceFilters.filter(df => df.state === 'exclude').map(df => df.id)
   if (includeDevices.length) p.set('include_devices', includeDevices.join(','))
   if (excludeDevices.length) p.set('exclude_devices', excludeDevices.join(','))
+  if (f.countryCodes.length) p.set('countries', f.countryCodes.join(','))
   return p
 }
 
@@ -99,6 +109,7 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   f.liftReviewPending = p.get('lift_review') === 'pending'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
+  f.countryCodes = parseCountryCodes(p.get('countries') ?? '')
   // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
   f.tagFilters = []
   f.gearFilters = []
@@ -131,6 +142,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     excludeGear: excludeGear.length ? excludeGear : undefined,
     includeDevices: includeDevices.length ? includeDevices : undefined,
     excludeDevices: excludeDevices.length ? excludeDevices : undefined,
+    countryCodes: f.countryCodes.length ? f.countryCodes : undefined,
   }
   if (f.sportTypes === null || f.sportTypes.size === ALL_SPORT_KEYS.length) {
     return { sportTypes: undefined, ...base }
@@ -145,10 +157,20 @@ interface Props {
 
 export default function ActivityFilters({ filters, onChange }: Props) {
   const [open, setOpen] = useState(false)
+  const countryCodesValue = filters.countryCodes.join(', ')
+  const [countryInput, setCountryInput] = useState(countryCodesValue)
+  const previousCountryCodesValue = useRef(countryCodesValue)
   const popoverRef = useRef<HTMLDivElement>(null)
 
   // Close popover on outside click
   useClickOutside(popoverRef, () => setOpen(false), open)
+
+  useEffect(() => {
+    if (previousCountryCodesValue.current !== countryCodesValue) {
+      previousCountryCodesValue.current = countryCodesValue
+      setCountryInput(countryCodesValue)
+    }
+  }, [countryCodesValue])
 
   // Count active filters
   const activeCount = countActive(filters)
@@ -168,6 +190,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
     if (f.deviceFilters.length) n++
+    if (f.countryCodes.length) n++
     return n
   }
 
@@ -212,6 +235,12 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
+  }
+  if (filters.countryCodes.length) {
+    chips.push({
+      label: filters.countryCodes.length <= 3 ? filters.countryCodes.join(', ') : `${filters.countryCodes.length} Länder`,
+      onRemove: () => onChange({ ...filters, countryCodes: [] }),
+    })
   }
   // Tag and gear chips are rendered separately with tri-state cycling
 
@@ -291,6 +320,20 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   />
                 </div>
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2 block">Länder</label>
+              <input
+                value={countryInput}
+                onChange={e => {
+                  const value = e.target.value
+                  setCountryInput(value)
+                  onChange({ ...filters, countryCodes: parseCountryCodes(value) })
+                }}
+                placeholder="CH, IT"
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
+              />
             </div>
 
             {/* GPS */}

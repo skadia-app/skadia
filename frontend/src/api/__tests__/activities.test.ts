@@ -46,4 +46,14 @@ describe('activities API filters', () => {
 
     expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&lift_review=pending')
   })
+
+  it('serializes country codes to the activities endpoint', async () => {
+    apiClientMock.mockResolvedValueOnce({ activities: [], total: 0 })
+
+    await fetchActivities(undefined, 20, undefined, undefined, {
+      countryCodes: ['CH', 'IT'],
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&country_codes=CH%2CIT')
+  })
 })

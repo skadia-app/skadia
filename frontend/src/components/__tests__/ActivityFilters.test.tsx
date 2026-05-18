@@ -44,6 +44,29 @@ describe('ActivityFilters commute modifier', () => {
     expect(filtersToApiParams(filters)).toEqual(expect.objectContaining({ liftReview: 'pending' }))
   })
 
+  it('serializes country filters through URL and API params', () => {
+    const filters: ActivityFilterState = { ...EMPTY_FILTERS, countryCodes: ['CH', 'IT'] }
+
+    expect(filtersToParams(filters).get('countries')).toBe('CH,IT')
+    expect(paramsToFilters(new URLSearchParams('countries=ch,IT,bad')).countryCodes).toEqual(['CH', 'IT'])
+    expect(filtersToApiParams(filters)).toEqual(expect.objectContaining({ countryCodes: ['CH', 'IT'] }))
+  })
+
+  it('keeps partial country code input typeable while publishing valid codes', () => {
+    const onChange = renderFilters()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Filter/ })[0])
+    const input = screen.getByPlaceholderText('CH, IT')
+
+    fireEvent.change(input, { target: { value: 'C' } })
+    expect(input).toHaveValue('C')
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ countryCodes: [] }))
+
+    fireEvent.change(input, { target: { value: 'CH' } })
+    expect(input).toHaveValue('CH')
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ countryCodes: ['CH'] }))
+  })
+
   it('shows commute as a sport modifier in the filter popover', () => {
     renderFilters()
 

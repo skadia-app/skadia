@@ -187,6 +187,9 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 		if err := RunGeoEnrichment(ctx, db, activityID, geoSettings); err != nil {
 			slog.Warn("re-enrich: geo enrichment failed", "activity_id", activityID, "error", err)
 		}
+		if err := db.RefreshActivityVisitedCountries(ctx, activityID); err != nil {
+			slog.Warn("re-enrich: refresh visited countries failed", "activity_id", activityID, "error", err)
+		}
 	}
 
 	// Surfaces — separated from RunGeoEnrichment, has its own orchestration.

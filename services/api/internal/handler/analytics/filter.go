@@ -123,7 +123,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	f.PaceMinSecKm = parseOptFloat(q.Get("pace_min")) // sec/km
 	f.PaceMaxSecKm = parseOptFloat(q.Get("pace_max")) // sec/km
 	if v := q.Get("country"); v != "" {
-		f.Countries = strings.Split(v, ",")
+		f.Countries = normalizeCountryCodes(strings.Split(v, ","))
 	}
 	if v := q.Get("season"); v != "" {
 		f.Seasons = strings.Split(v, ",")
@@ -324,7 +324,7 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		idx++
 	}
 	if len(f.Countries) > 0 {
-		conditions = append(conditions, "a.start_country = ANY($"+strconv.Itoa(idx)+")")
+		conditions = append(conditions, "a.visited_country_codes && $"+strconv.Itoa(idx)+"::text[]")
 		args = append(args, f.Countries)
 		idx++
 	}
@@ -469,6 +469,23 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		return "", nil
 	}
 	return " AND " + strings.Join(conditions, " AND "), args
+}
+
+func normalizeCountryCodes(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		code := strings.ToUpper(strings.TrimSpace(value))
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		out = append(out, code)
+	}
+	return out
 }
 
 func parseOptFloat(s string) *float64 {

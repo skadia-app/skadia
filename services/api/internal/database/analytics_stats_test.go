@@ -53,6 +53,7 @@ type analyticsStatsActivity struct {
 	LiftDescentM           float64
 	ExcludeLiftSubtraction bool
 	IsGroupSecondary       bool
+	VisitedCountryCodes    []string
 }
 
 func insertAnalyticsStatsActivity(t *testing.T, pool *pgxpool.Pool, userID string, startedAt time.Time, act analyticsStatsActivity) {
@@ -62,13 +63,13 @@ func insertAnalyticsStatsActivity(t *testing.T, pool *pgxpool.Pool, userID strin
 			(id, user_id, sport_type, started_at, ended_at, file_hash,
 			 distance_m, elevation_gain_m, elevation_loss_m, moving_time_s, elapsed_time_s,
 			 total_calories, lift_count, lift_distance_m, lift_ascent_m,
-			 lift_descent_m, exclude_lift_subtraction, is_group_secondary)
+			 lift_descent_m, exclude_lift_subtraction, is_group_secondary, visited_country_codes)
 			VALUES ($1, $2, 'skiing', $3, $4, $5,
-			        $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			        $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		`, uuid.NewString(), userID, startedAt, startedAt.Add(time.Hour), uuid.NewString(),
 		act.DistanceM, act.ElevationGainM, act.ElevationLossM, act.MovingTimeS, act.ElapsedTimeS,
 		act.TotalCalories, act.LiftCount, act.LiftDistanceM, act.LiftAscentM,
-		act.LiftDescentM, act.ExcludeLiftSubtraction, act.IsGroupSecondary,
+		act.LiftDescentM, act.ExcludeLiftSubtraction, act.IsGroupSecondary, act.VisitedCountryCodes,
 	); err != nil {
 		t.Fatalf("insert activity: %v", err)
 	}
@@ -228,6 +229,49 @@ func TestGetEddingtonDataLiftNetAggregation(t *testing.T) {
 	assertFloatSlice(t, "km", km, []float64{8, 5})
 	assertFloatSlice(t, "elevation", elevation, []float64{1_200, 500})
 	assertFloatSlice(t, "descent", descent, []float64{900, 500})
+}
+
+func TestGetLifetimeStatsCountriesUseVisitedCountryCodesWithoutDuplicatingTotals(t *testing.T) {
+	pool := analyticsStatsPool(t)
+	userID := insertAnalyticsStatsUser(t, pool)
+
+	insertAnalyticsStatsActivity(t, pool, userID, time.Date(2026, 1, 6, 8, 0, 0, 0, time.UTC), analyticsStatsActivity{
+		DistanceM:           10_000,
+		ElevationGainM:      500,
+		ElevationLossM:      450,
+		MovingTimeS:         3_000,
+		ElapsedTimeS:        3_600,
+		TotalCalories:       700,
+		VisitedCountryCodes: []string{"CH", "IT"},
+	})
+	insertAnalyticsStatsActivity(t, pool, userID, time.Date(2026, 1, 7, 8, 0, 0, 0, time.UTC), analyticsStatsActivity{
+		DistanceM:           5_000,
+		ElevationGainM:      200,
+		ElevationLossM:      250,
+		MovingTimeS:         1_800,
+		ElapsedTimeS:        2_000,
+		TotalCalories:       300,
+		VisitedCountryCodes: []string{"IT"},
+	})
+	insertAnalyticsStatsActivity(t, pool, userID, time.Date(2026, 1, 8, 8, 0, 0, 0, time.UTC), analyticsStatsActivity{
+		DistanceM:           50_000,
+		VisitedCountryCodes: []string{"FR"},
+		IsGroupSecondary:    true,
+	})
+
+	got, err := (&database.DB{Pool: pool}).GetLifetimeStats(context.Background(), userID, "", nil)
+	if err != nil {
+		t.Fatalf("GetLifetimeStats: %v", err)
+	}
+
+	if got.Countries != 2 {
+		t.Fatalf("Countries = %d, want 2", got.Countries)
+	}
+	if got.TotalActivities != 2 {
+		t.Fatalf("TotalActivities = %d, want 2", got.TotalActivities)
+	}
+	assertFloat64(t, "TotalDistanceM", got.TotalDistanceM, 15_000)
+	assertFloat64(t, "TotalElevationM", got.TotalElevationM, 700)
 }
 
 func TestGetDistributionLiftNetAggregationAndGroupSecondaryExcluded(t *testing.T) {

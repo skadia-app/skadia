@@ -592,6 +592,17 @@ func TestBuildSearchRoutesSQLAppliesUserAndActivityFilters(t *testing.T) {
 	}
 }
 
+func TestBuildSearchRoutesSQLFiltersByVisitedCountryCodes(t *testing.T) {
+	args := searchRoutesArgs{CountryCodes: []string{"CH", "IT"}}
+	sql, _, _, err := buildSearchRoutesSQL("00000000-0000-0000-0000-000000000001", args, fixedAgentToolNow())
+	if err != nil {
+		t.Fatalf("buildSearchRoutesSQL returned error: %v", err)
+	}
+	if !strings.Contains(sql, "a.visited_country_codes &&") {
+		t.Fatalf("SQL missing visited-country filter:\n%s", sql)
+	}
+}
+
 func TestBuildSearchPOIsOnRouteSQLIsRouteScopedAndUserOwnedByMetadata(t *testing.T) {
 	buffer := 500
 	limitArg := 200

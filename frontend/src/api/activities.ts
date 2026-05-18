@@ -21,6 +21,7 @@ export interface ActivityFilterParams {
   excludeGear?: string[]
   includeDevices?: string[]
   excludeDevices?: string[]
+  countryCodes?: string[]
 }
 
 export async function fetchActivities(
@@ -53,6 +54,7 @@ export async function fetchActivities(
   if (filters?.excludeGear?.length) params.set('exclude_gear', filters.excludeGear.join(','))
   if (filters?.includeDevices?.length) params.set('include_devices', filters.includeDevices.join(','))
   if (filters?.excludeDevices?.length) params.set('exclude_devices', filters.excludeDevices.join(','))
+  if (filters?.countryCodes?.length) params.set('country_codes', filters.countryCodes.join(','))
 
   return apiClient<ActivitiesResponse>(`/activities?${params}`)
 }

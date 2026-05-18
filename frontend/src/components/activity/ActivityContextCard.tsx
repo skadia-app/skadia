@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { Activity } from '@/api/types'
 import type { BestEffortRanked, NearMiss } from '@/api/bestEfforts'
 import { updateActivity } from '@/api/activities'
+import { activityCountryCodes, countryCodeToFlag } from '@/lib/countryFlags'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { fmtActivityDate, fmtTime } from '@/lib/format'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
@@ -45,6 +46,7 @@ function bestEffortLabel(category: string): string {
 export default function ActivityContextCard({ activity, bestEfforts, nearMisses, weatherDisplayFields }: ActivityContextCardProps) {
   const queryClient = useQueryClient()
   const title = displayActivityTitle(activity, 'Kein Titel')
+  const flags = activityCountryCodes(activity).map(code => countryCodeToFlag(code)).filter(Boolean)
   const timeRange = activity.ended_at ? `${fmtTime(activity.started_at, activity.timezone)} - ${fmtTime(activity.ended_at, activity.timezone)}` : fmtTime(activity.started_at, activity.timezone)
   const hasPlatforms = activity.garmin_activity_id || activity.strava_activity_id || activity.komoot_tour_id
   const commuteContext = activity.has_gps && activity.start_lat != null && activity.start_lon != null && activity.end_lat != null && activity.end_lon != null ? {
@@ -72,6 +74,7 @@ export default function ActivityContextCard({ activity, bestEfforts, nearMisses,
         )}
         <div className="flex items-start justify-between gap-3">
           <h1 className="min-w-0 text-2xl font-semibold leading-tight">{title}</h1>
+          {flags.length > 0 && <div className="shrink-0 text-lg leading-none">{flags.join(' ')}</div>}
         </div>
         <div className="text-sm text-neutral-300">
           {sportDetailLabel(activity.sport_type, activity.sub_type)} · {fmtActivityDate(activity.started_at, activity.timezone)} · {fmtTime(activity.started_at, activity.timezone)} Uhr

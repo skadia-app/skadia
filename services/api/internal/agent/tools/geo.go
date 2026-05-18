@@ -42,6 +42,7 @@ type queryGeoFeaturesArgs struct {
 	IsIndoor     *bool    `json:"is_indoor,omitempty"`
 	IsVirtual    *bool    `json:"is_virtual,omitempty"`
 	IsCommute    *bool    `json:"is_commute,omitempty"`
+	CountryCodes []string `json:"country_codes,omitempty"`
 	ActivityIDs  []string `json:"activity_ids,omitempty"`
 	DateFrom     string   `json:"date_from,omitempty"`
 	DateTo       string   `json:"date_to,omitempty"`
@@ -123,7 +124,7 @@ func GeoTools() []*Tool {
 }
 
 func queryGeoFeaturesInputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"feature_type":{"type":"string","enum":["lake","river","summit","pass","forest","settlement","border","gastronomy"]},"min_elevation":{"type":"number"},"days":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":100},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"activity_ids":{"type":"array","items":{"type":"string","format":"uuid"}},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"group_by":{"type":"string","enum":["none","year","sport","feature"]},"order_by":{"type":"string","enum":["elevation","date","name"]}},"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"feature_type":{"type":"string","enum":["lake","river","summit","pass","forest","settlement","border","gastronomy"]},"min_elevation":{"type":"number"},"days":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":100},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}},"activity_ids":{"type":"array","items":{"type":"string","format":"uuid"}},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"group_by":{"type":"string","enum":["none","year","sport","feature"]},"order_by":{"type":"string","enum":["elevation","date","name"]}},"additionalProperties":false}`)
 }
 
 func executeQueryGeoFeatures(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
@@ -226,15 +227,16 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 	}
 	limit := clampIntPtr(args.Limit, 20, 1, 100)
 	criteria, err := normalizeActivitySelectionCriteria(activitySelectionCriteria{
-		SportQuery: args.SportQuery,
-		SportType:  args.SportType,
-		SubType:    args.SubType,
-		IsElectric: args.IsElectric,
-		IsIndoor:   args.IsIndoor,
-		IsVirtual:  args.IsVirtual,
-		IsCommute:  args.IsCommute,
-		DateFrom:   args.DateFrom,
-		DateTo:     args.DateTo,
+		SportQuery:   args.SportQuery,
+		SportType:    args.SportType,
+		SubType:      args.SubType,
+		IsElectric:   args.IsElectric,
+		IsIndoor:     args.IsIndoor,
+		IsVirtual:    args.IsVirtual,
+		IsCommute:    args.IsCommute,
+		CountryCodes: args.CountryCodes,
+		DateFrom:     args.DateFrom,
+		DateTo:       args.DateTo,
 	})
 	if err != nil {
 		return "", "", nil, 0, "", err
@@ -248,13 +250,14 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 			return "", "", nil, 0, "", err
 		}
 		conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-			TableAlias: "a",
-			SportType:  criteria.SportType,
-			SubType:    criteria.SubType,
-			IsElectric: criteria.IsElectric,
-			IsIndoor:   criteria.IsIndoor,
-			IsVirtual:  criteria.IsVirtual,
-			IsCommute:  criteria.IsCommute,
+			TableAlias:   "a",
+			SportType:    criteria.SportType,
+			SubType:      criteria.SubType,
+			IsElectric:   criteria.IsElectric,
+			IsIndoor:     criteria.IsIndoor,
+			IsVirtual:    criteria.IsVirtual,
+			IsCommute:    criteria.IsCommute,
+			CountryCodes: criteria.CountryCodes,
 		})
 		where := strings.Join(conditions, " AND ")
 		join := "FROM activity_stops s JOIN activities a ON a.id = s.activity_id WHERE " + where
@@ -277,13 +280,14 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 		conditions = append(conditions, fmt.Sprintf("COALESCE(gt.ele, gt.ele_m) >= $%d", len(params)))
 	}
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		TableAlias: "a",
-		SportType:  criteria.SportType,
-		SubType:    criteria.SubType,
-		IsElectric: criteria.IsElectric,
-		IsIndoor:   criteria.IsIndoor,
-		IsVirtual:  criteria.IsVirtual,
-		IsCommute:  criteria.IsCommute,
+		TableAlias:   "a",
+		SportType:    criteria.SportType,
+		SubType:      criteria.SubType,
+		IsElectric:   criteria.IsElectric,
+		IsIndoor:     criteria.IsIndoor,
+		IsVirtual:    criteria.IsVirtual,
+		IsCommute:    criteria.IsCommute,
+		CountryCodes: criteria.CountryCodes,
 	})
 	if len(args.ActivityIDs) > 0 {
 		ids := make([]uuid.UUID, 0, len(args.ActivityIDs))
@@ -356,13 +360,14 @@ func buildQueryGeoFeatureGroupsSQL(userID string, args queryGeoFeaturesArgs, now
 		conditions = append(conditions, fmt.Sprintf("COALESCE(gt.ele, gt.ele_m) >= $%d", len(params)))
 	}
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		TableAlias: "a",
-		SportType:  criteria.SportType,
-		SubType:    criteria.SubType,
-		IsElectric: criteria.IsElectric,
-		IsIndoor:   criteria.IsIndoor,
-		IsVirtual:  criteria.IsVirtual,
-		IsCommute:  criteria.IsCommute,
+		TableAlias:   "a",
+		SportType:    criteria.SportType,
+		SubType:      criteria.SubType,
+		IsElectric:   criteria.IsElectric,
+		IsIndoor:     criteria.IsIndoor,
+		IsVirtual:    criteria.IsVirtual,
+		IsCommute:    criteria.IsCommute,
+		CountryCodes: criteria.CountryCodes,
 	})
 	if len(args.ActivityIDs) > 0 {
 		ids := make([]uuid.UUID, 0, len(args.ActivityIDs))
