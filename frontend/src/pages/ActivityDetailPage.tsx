@@ -4,8 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
 import { fetchWorkout } from '@/api/workouts'
 import { fetchRecordingGroup } from '@/api/recordingGroups'
-import { getSourceColor } from '@/lib/comparisonColors'
-import { deviceLabel } from '@/lib/deviceUtils'
 import { getWeatherSettings } from '@/api/settings'
 import { fetchTags } from '@/api/tags'
 import ActivityLocationTagSection from '@/components/ActivityLocationTagSection'
@@ -18,7 +16,6 @@ import {
 } from '@/lib/utils'
 import { getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
-import WeatherBadge from '@/components/WeatherBadge'
 import GeoTagsList from '@/components/GeoTagsList'
 import GearSelector from '@/components/GearSelector'
 import ActivityPhotoSection from '@/components/ActivityPhotoSection'
@@ -43,20 +40,16 @@ import type { GeoTag, ActivityStop, LiftCandidate } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
 import type { TrackSummaryGeoTagItem, TrackSummaryWaterItem } from '@/api/trackSummary'
-import { BestEffortBadges } from '@/components/BestEffortBadges'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
 import { PiPMap } from '@/components/activity/PiPMap'
 import { ChartTabs } from '@/components/activity/ChartTabs'
-import { StatsGrid } from '@/components/activity/StatsGrid'
 import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats'
 import { DiveStats } from '@/components/activity/DiveStats'
 import { DiveGasTable } from '@/components/activity/DiveGasTable'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
 import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
-import { SunInfo } from '@/components/activity/SunInfo'
-import { LocationLine } from '@/components/activity/LocationLine'
 import { StrengthSetsTable } from '@/components/activity/StrengthSetsTable'
 import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
 import { BallSportStats } from '@/components/activity/BallSportStats'
@@ -64,11 +57,10 @@ import { JumpSection } from '@/components/activity/JumpSection'
 import { RadarSummary } from '@/components/activity/RadarSummary'
 import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
-import ActivityHeader from '@/components/activity/ActivityHeader'
+import ActivityOverview from '@/components/activity/ActivityOverview'
 import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind, type SurfaceHighlightKey } from '@/components/activity/TrackMap'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import type { HighlightKind } from '@/hooks/useStickyHighlight'
-import TagsBadges from '@/components/activity/TagsBadges'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
 import RouteSimilarityCard from '@/components/analytics/RouteSimilarityCard'
 import { HealthContextCards } from '@/components/activity/HealthContextCards'
@@ -654,25 +646,18 @@ export default function ActivityDetailPage() {
         )}
       </div>
 
-      {/* Header */}
-      <ActivityHeader activity={activity} childCount={childActivities?.length ?? 0} />
-
-      {/* Tags in one row */}
-      <div className="flex flex-wrap items-center gap-2">
-        <TagsBadges
-          tags={activity.tags}
-          activityId={activity.id}
-          isVirtual={activity.is_virtual}
-          commuteContext={activity.has_gps && activity.start_lat != null && activity.end_lat != null ? {
-            hasGps: true,
-            distanceM: activity.distance_m ?? 0,
-            startLat: activity.start_lat,
-            startLon: activity.start_lon!,
-            endLat: activity.end_lat,
-            endLon: activity.end_lon!,
-          } : undefined}
-        />
-      </div>
+      <ActivityOverview
+        activity={activity}
+        recordingGroup={recordingGroup}
+        activeActivityId={activeActivityId}
+        onActiveActivityChange={(nextId) => {
+          setActiveActivityId(nextId)
+          window.history.replaceState(null, '', `/activities/${nextId}`)
+        }}
+        bestEfforts={bestEffortsData?.best_efforts ?? []}
+        nearMisses={bestEffortsData?.near_misses ?? []}
+        weatherDisplayFields={weatherDisplayFields}
+      />
 
       {/* Description */}
       {activity.description && (
@@ -680,47 +665,6 @@ export default function ActivityDetailPage() {
           {activity.description}
         </p>
       )}
-
-      {/* Recording group device tabs */}
-      {recordingGroup && recordingGroup.members.length > 1 && (
-        <div className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-700 -mx-4 px-4">
-          {recordingGroup.members.map((member, i) => {
-            const isActive = member.activity_id === activeActivityId
-            const color = getSourceColor(i)
-            const label = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format) ?? `Quelle ${i + 1}`
-            return (
-              <button
-                key={member.activity_id}
-                type="button"
-                onClick={() => {
-                  setActiveActivityId(member.activity_id)
-                  window.history.replaceState(null, '', `/activities/${member.activity_id}`)
-                }}
-                className={`flex items-center gap-2 px-3 py-2 text-sm border-b-2 transition-colors ${
-                  isActive
-                    ? 'border-orange-500 text-orange-600 dark:text-orange-400 font-medium'
-                    : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:border-neutral-300 dark:hover:border-neutral-600'
-                }`}
-              >
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                {label}
-              </button>
-            )
-          })}
-          <Link
-            to={`/activities/group/${activity.recording_group_id}`}
-            className="ml-auto text-xs text-orange-600 dark:text-orange-400 hover:underline flex items-center gap-1 px-3 py-2 whitespace-nowrap"
-          >
-            Vergleichsansicht →
-          </Link>
-        </div>
-      )}
-
-      {/* Sunrise / Sunset */}
-      <SunInfo sunriseAt={activity.sunrise_at} sunsetAt={activity.sunset_at} timezone={activity.timezone} />
-
-      {/* Location */}
-      <LocationLine activity={activity} />
 
       {/* Radar Threats */}
       <RadarSummary events={events} />
@@ -730,20 +674,14 @@ export default function ActivityDetailPage() {
         <RadarDensityChart streams={streams} />
       )}
 
-      {/* Stats — hide the standard grid for multisport parents (we show custom stats below) */}
-      {activity.sport_type !== 'multisport' && (
-        <div className="space-y-2">
-          <StatsGrid activity={activity} />
-          {getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
-            <RunningDynamicsStats activity={activity} />
-          )}
-          {activity.sport_type === 'diving' && (
-            <DiveStats activity={activity} diveInfo={diveInfo} />
-          )}
-          {activity.sport_type === 'diving' && diveInfo && diveInfo.gases.length > 0 && (
-            <DiveGasTable gases={diveInfo.gases} />
-          )}
-        </div>
+      {activity.sport_type !== 'multisport' && getSegmentGroup(activity.sport_type) === 'foot' && activity.avg_vertical_oscillation_mm != null && (
+        <RunningDynamicsStats activity={activity} />
+      )}
+      {activity.sport_type === 'diving' && (
+        <DiveStats activity={activity} diveInfo={diveInfo} />
+      )}
+      {activity.sport_type === 'diving' && diveInfo && diveInfo.gases.length > 0 && (
+        <DiveGasTable gases={diveInfo.gases} />
       )}
 
       {/* Workout visualization */}
@@ -775,15 +713,6 @@ export default function ActivityDetailPage() {
             </div>
           )}
         </div>
-      )}
-
-      {/* PR badges and near-miss notifications */}
-      {bestEffortsData && (bestEffortsData.best_efforts.length > 0 || bestEffortsData.near_misses.length > 0) && (
-        <BestEffortBadges
-          bestEfforts={bestEffortsData.best_efforts}
-          nearMisses={bestEffortsData.near_misses}
-          activityId={activity.id}
-        />
       )}
 
       {/* Running Form Card — Duty Factor, Vertical Ratio, GCT Asymmetry, Fatigue */}
@@ -911,13 +840,6 @@ export default function ActivityDetailPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Weather */}
-      {activity.weather_readings && activity.weather_readings.length > 0 && (
-        <div className="mt-2">
-          <WeatherBadge readings={activity.weather_readings} displayFields={weatherDisplayFields} timezone={activity.timezone} />
         </div>
       )}
 

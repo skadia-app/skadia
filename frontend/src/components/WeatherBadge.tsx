@@ -17,9 +17,10 @@ interface WeatherBadgeCardProps {
   reading: WeatherReading
   displayFields?: string[]
   timezone?: string | null
+  variant?: 'inline' | 'context'
 }
 
-function WeatherBadgeCard({ reading, displayFields, timezone }: WeatherBadgeCardProps) {
+function WeatherBadgeCard({ reading, displayFields, timezone, variant = 'inline' }: WeatherBadgeCardProps) {
   const show = (field: string) => !displayFields || displayFields.includes(field)
   const icon = getConditionIcon(reading.condition)
   const tempDiff =
@@ -29,7 +30,7 @@ function WeatherBadgeCard({ reading, displayFields, timezone }: WeatherBadgeCard
 
   return (
     <div
-      className="inline-flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50"
+      className={`${variant === 'context' ? 'flex w-full' : 'inline-flex'} flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50`}
       title={reading.model ? `Datenquelle: ${reading.model}` : undefined}
     >
       {/* Label (Berg / Start etc.) + Uhrzeit */}
@@ -104,15 +105,16 @@ interface WeatherBadgeProps {
   displayFields?: string[]
   className?: string
   timezone?: string | null
+  variant?: 'inline' | 'context'
 }
 
-export default function WeatherBadge({ readings, displayFields, className, timezone }: WeatherBadgeProps) {
+export default function WeatherBadge({ readings, displayFields, className, timezone, variant = 'inline' }: WeatherBadgeProps) {
   if (!readings || readings.length === 0) return null
 
   return (
-    <div className={`flex flex-wrap gap-2${className ? ` ${className}` : ''}`}>
+    <div className={`${variant === 'context' ? 'flex flex-col' : 'flex flex-wrap'} gap-2${className ? ` ${className}` : ''}`}>
       {readings.map((r) => (
-        <WeatherBadgeCard key={r.id} reading={r} displayFields={displayFields} timezone={timezone} />
+        <WeatherBadgeCard key={r.id} reading={r} displayFields={displayFields} timezone={timezone} variant={variant} />
       ))}
     </div>
   )

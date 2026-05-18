@@ -7,6 +7,7 @@ import { getNetActivityTotals } from '@/lib/netActivityTotals'
 
 interface StatsGridProps {
   activity: Activity
+  variant?: 'default' | 'overview'
 }
 
 interface StatItem {
@@ -30,7 +31,7 @@ const TSS_METHOD_INFO: Record<string, { icon: string; label: string }> = {
 
 const STRENGTH_SPORT_TYPES = ['fitness_equipment', 'training', 'strength_training']
 
-export function StatsGrid({ activity }: StatsGridProps) {
+export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
   const sport = activity.sport_type
   const net = getNetActivityTotals(activity)
   const gain = formatElevationGain(net.elevationGainM)
@@ -228,7 +229,10 @@ export function StatsGrid({ activity }: StatsGridProps) {
   if (visible.length === 0) return null
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+    <div className={variant === 'overview'
+      ? 'grid grid-cols-2 xl:grid-cols-4 gap-3'
+      : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'}
+    >
       {visible.map(({ label, value, secondary, badge, title }) => (
         <div key={label} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
           <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1" title={title}>{label}</div>
