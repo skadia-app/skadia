@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -103,6 +104,65 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	}
 	if e2Direction != "forward" || !strings.Contains(e2Identity, ":direction:forward:") {
 		t.Fatalf("effort 2 metadata = %s/%s, want forward direction", e2Direction, e2Identity)
+	}
+}
+
+func TestReverseSegmentUsesActiveVersionBeforeFutureVersion_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track: "LINESTRING(0 0, 1 1, 2 2)",
+	})
+	futureAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions (
+			id, segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT gen_random_uuid(), $1, 2,
+		       ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326),
+		       ST_StartPoint(ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326)),
+		       ST_EndPoint(ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326)),
+		       CURRENT_DATE, $2, $3, 'editor_asserted', 'course_gps_v1', 1, NOW()`,
+		segmentID, userID, futureAt); err != nil {
+		t.Fatalf("insert future version: %v", err)
+	}
+
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/{id}/reverse", h.ReverseSegment)
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/"+segmentID+"/reverse", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Code = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var versionNumber int
+	var validUntil time.Time
+	var track string
+	err := pool.QueryRow(ctx, `
+		SELECT version_number, valid_until_at, ST_AsText(track)
+		FROM segment_versions
+		WHERE segment_id = $1
+		ORDER BY version_number DESC
+		LIMIT 1`, segmentID).Scan(&versionNumber, &validUntil, &track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versionNumber != 3 {
+		t.Fatalf("new version_number = %d, want 3", versionNumber)
+	}
+	if !validUntil.Equal(futureAt) {
+		t.Fatalf("new valid_until_at = %v, want future boundary %v", validUntil, futureAt)
+	}
+	if track != "LINESTRING(2 2,1 1,0 0)" {
+		t.Fatalf("new track = %q, want reversed currently active v1 track", track)
 	}
 }
 
