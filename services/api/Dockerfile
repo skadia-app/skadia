@@ -6,7 +6,18 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-RUN npm run build
+ARG SKADIA_GIT_COMMIT=unknown
+ARG SKADIA_GIT_COMMIT_TIME=unknown
+ARG SKADIA_BUILD_TIME=unknown
+ARG SKADIA_CONFIG_VERSION=1
+RUN VITE_SKADIA_GIT_COMMIT="$SKADIA_GIT_COMMIT" \
+    VITE_SKADIA_GIT_COMMIT_TIME="$SKADIA_GIT_COMMIT_TIME" \
+    VITE_SKADIA_BUILD_TIME="$SKADIA_BUILD_TIME" \
+    VITE_SKADIA_CONFIG_VERSION="$SKADIA_CONFIG_VERSION" \
+    npm run build
+RUN printf '{ "service": "frontend", "git_commit": "%s", "commit_time": "%s", "build_time": "%s", "config_version": "%s" }\n' \
+      "$SKADIA_GIT_COMMIT" "$SKADIA_GIT_COMMIT_TIME" "$SKADIA_BUILD_TIME" "$SKADIA_CONFIG_VERSION" \
+      > /frontend/dist/skadia-build.json
 
 FROM golang:1.26-alpine AS builder
 
@@ -22,8 +33,15 @@ COPY services/api/internal/osm/skadia-osm.lua internal/osm/skadia-osm.lua
 
 # Layer 3: All source code (rebuilt on any .go file change)
 COPY services/api/ .
+ARG SKADIA_GIT_COMMIT=unknown
+ARG SKADIA_GIT_COMMIT_TIME=unknown
+ARG SKADIA_BUILD_TIME=unknown
+ARG SKADIA_IMAGE_DIGEST=
+ARG SKADIA_CONFIG_VERSION=1
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -o /api ./cmd/api
+    CGO_ENABLED=0 go build \
+      -ldflags "-X github.com/skadia-app/skadia/services/api/internal/buildinfo.GitCommit=${SKADIA_GIT_COMMIT} -X github.com/skadia-app/skadia/services/api/internal/buildinfo.CommitTime=${SKADIA_GIT_COMMIT_TIME} -X github.com/skadia-app/skadia/services/api/internal/buildinfo.BuildTime=${SKADIA_BUILD_TIME} -X github.com/skadia-app/skadia/services/api/internal/buildinfo.ImageDigest=${SKADIA_IMAGE_DIGEST} -X github.com/skadia-app/skadia/services/api/internal/buildinfo.ConfigVersion=${SKADIA_CONFIG_VERSION}" \
+      -o /api ./cmd/api
 
 FROM debian:trixie-slim
 

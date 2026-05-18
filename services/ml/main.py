@@ -3,13 +3,14 @@ import os
 from contextlib import asynccontextmanager
 
 import nats
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pythonjsonlogger.json import JsonFormatter
 
 from db import get_pool, close_pool
 from nats_consumer import start_consumers, get_metrics
 from config import (
+    ML_CALLBACK_SECRET,
     get_llm_broker_readiness,
     get_local_shadowfs_readiness,
     get_storage_readiness_async,
@@ -149,6 +150,27 @@ async def readyz():
 @app.get("/metrics")
 async def metrics():
     return get_metrics()
+
+
+def require_internal_status_token(token: str | None) -> None:
+    if not ML_CALLBACK_SECRET:
+        raise HTTPException(status_code=503, detail="status token not configured")
+    if token != ML_CALLBACK_SECRET:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+@app.get("/status")
+async def status(x_ml_callback_secret: str | None = Header(default=None, alias="X-ML-Callback-Secret")):
+    require_internal_status_token(x_ml_callback_secret)
+    return {
+        "service": "ml",
+        "git_commit": os.getenv("SKADIA_GIT_COMMIT", "unknown") or "unknown",
+        "commit_time": os.getenv("SKADIA_GIT_COMMIT_TIME", "unknown") or "unknown",
+        "build_time": os.getenv("SKADIA_BUILD_TIME", "unknown") or "unknown",
+        "image_digest": os.getenv("SKADIA_IMAGE_DIGEST", ""),
+        "config_version": os.getenv("SKADIA_CONFIG_VERSION", "1") or "1",
+        "metrics": get_metrics(),
+    }
 
 
 from api.features import router as features_router
