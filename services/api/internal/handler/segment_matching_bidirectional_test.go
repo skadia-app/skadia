@@ -104,6 +104,28 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 	if fwdCount != 1 {
 		t.Errorf("forward direction: segment_efforts count = %d, want 1", fwdCount)
 	}
+	var contractKey, matchIdentity, lbSport, lbDirection string
+	var contractVersion int
+	if err := pool.QueryRow(ctx, `
+		SELECT matching_contract_key,
+		       matching_contract_version,
+		       match_identity_key,
+		       leaderboard_sport_type,
+		       leaderboard_direction
+		FROM segment_efforts
+		WHERE activity_id = $1 AND segment_id = $2`,
+		fwdActID, segmentID).Scan(&contractKey, &contractVersion, &matchIdentity, &lbSport, &lbDirection); err != nil {
+		t.Fatalf("query forward metadata: %v", err)
+	}
+	if contractKey != database.CourseGPSV1Key || contractVersion != database.CourseGPSV1Version {
+		t.Fatalf("contract = %s/%d", contractKey, contractVersion)
+	}
+	if matchIdentity == "" {
+		t.Fatal("match_identity_key is empty")
+	}
+	if lbSport != "cycling" || lbDirection != "forward" {
+		t.Fatalf("leaderboard tuple = %s/%s, want cycling/forward", lbSport, lbDirection)
+	}
 
 	// Reverse activity: GPS stream East→West, should NOT match non-bidirectional segment.
 	revPts := [][2]float64{

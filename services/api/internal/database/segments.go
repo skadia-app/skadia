@@ -99,6 +99,22 @@ func segmentTypeUsesDerivedDefaultPredicates(segmentType string) bool {
 	}
 }
 
+func activeCourseGPSV1VersionLateral(joinKind, segmentIDExpr, atExpr, selectList string) string {
+	return fmt.Sprintf(`
+		%s LATERAL (
+			SELECT %s
+			FROM segment_versions
+			WHERE segment_id = %s
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND (valid_from_at IS NULL OR valid_from_at <= %s)
+			  AND (valid_until_at IS NULL OR %s < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true`, joinKind, selectList, segmentIDExpr, atExpr, atExpr)
+}
+
 func defaultSegmentPredicatesForType(segmentType string) ([]sport.Predicate, error) {
 	if !segmentTypeUsesDerivedDefaultPredicates(segmentType) {
 		return nil, nil
@@ -904,14 +920,42 @@ func segmentPredicatesForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, use
 // createNewSegmentVersion copies the latest segment_version into a new version row.
 func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
+		WITH boundary AS (
+			SELECT NOW() AS at
+		),
+		latest AS (
+			SELECT id, segment_id, version_number, track, start_point, end_point, created_by
+			FROM segment_versions
+			WHERE segment_id = $1
+			ORDER BY version_number DESC
+			LIMIT 1
+		),
+		closed AS (
+			UPDATE segment_versions sv
+			SET valid_until_at = boundary.at
+			FROM latest, boundary
+			WHERE sv.id = latest.id
+			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
+			RETURNING sv.id
+		)
+		INSERT INTO segment_versions (
+			segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, valid_until_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
 		SELECT segment_id,
-		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
-		       track, start_point, end_point, CURRENT_DATE, created_by
-		FROM segment_versions
-		WHERE segment_id = $1
-		ORDER BY version_number DESC
-		LIMIT 1`, segmentID)
+		       version_number + 1,
+		       track,
+		       start_point,
+		       end_point,
+		       CURRENT_DATE,
+		       created_by,
+		       boundary.at,
+		       NULL,
+		       'editor_asserted',
+		       'course_gps_v1',
+		       1,
+		       boundary.at
+		FROM latest, boundary, closed`, segmentID)
 	if err != nil {
 		return fmt.Errorf("create new segment version: %w", err)
 	}
@@ -1370,22 +1414,12 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	// $5/$6 form the canonical activity tuple for allowed_predicates.
 	// allowed_predicates NULL means all tuples inside the segment's stored prefilter group.
 	// allowed_predicates = '[]' means "none" — matched never.
-	rows, err := db.Pool.Query(ctx, `
+	query := `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
 		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
 		       ST_AsBinary(sv.track), s.bidirectional
 		FROM segments s
-		JOIN LATERAL (
-			SELECT id, track FROM (
-				(SELECT id, track FROM segment_versions
-				 WHERE segment_id = s.id AND valid_from <= $4
-				 ORDER BY valid_from DESC, version_number DESC LIMIT 1)
-				UNION ALL
-				(SELECT id, track FROM segment_versions
-				 WHERE segment_id = s.id
-				 ORDER BY version_number ASC LIMIT 1)
-			) versioned LIMIT 1
-		) sv ON true
+		` + activeCourseGPSV1VersionLateral("JOIN", "s.id", "$4", "id, track") + `
 		JOIN activity_tracks at ON at.activity_id = $1
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
@@ -1404,8 +1438,8 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 			  )
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activityID, userID, sportGroup, activityDate, sportType, subType)
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`
+	rows, err := db.Pool.Query(ctx, query, activityID, userID, sportGroup, activityDate, sportType, subType)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
@@ -1426,6 +1460,20 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
+	}
+	return result, nil
+}
+
+func (db *DB) GetSegmentMatchActivityContext(ctx context.Context, activityID string) (SegmentMatchActivityContext, error) {
+	var result SegmentMatchActivityContext
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(is_indoor, false),
+		       COALESCE(is_virtual, false),
+		       COALESCE(is_electric, false)
+		FROM activities
+		WHERE id = $1`, activityID).Scan(&result.IsIndoor, &result.IsVirtual, &result.IsElectric)
+	if err != nil {
+		return result, fmt.Errorf("get segment match activity context: %w", err)
 	}
 	return result, nil
 }

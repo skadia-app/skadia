@@ -88,6 +88,11 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 		return nil, matchedSegmentIDs, 0, nil
 	}
 
+	activityContext, err := db.GetSegmentMatchActivityContext(ctx, activityID)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
+	}
+
 	// 3. Batch-load endpoints for all non-lap candidates
 	var nonLapVersionIDs []string
 	for _, cand := range candidates {
@@ -215,6 +220,20 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 				"elapsed_s", elapsedS,
 				"is_reverse", trav.isReverse)
 		}
+	}
+
+	occurrenceCounters := make(map[string]int)
+	for _, effort := range allEfforts {
+		occurrenceBase := database.BuildCourseGPSV1OccurrenceBase(
+			effort.ActivityID,
+			effort.SegmentID,
+			effort.SegmentVersionID,
+			effort.StartedAt,
+			effort.IsReverse,
+		)
+		effort.OccurrenceIndex = occurrenceCounters[occurrenceBase]
+		occurrenceCounters[occurrenceBase]++
+		database.PrepareCourseGPSV1EffortMetadata(effort, activityContext)
 	}
 
 	return allEfforts, matchedSegmentIDs, matchCount, nil
