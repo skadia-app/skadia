@@ -101,6 +101,21 @@ func TestBuildCandidatePool_PoolSizeCapAt7(t *testing.T) {
 	}
 }
 
+func TestBuildCandidatePool_DenseReachableDoesNotCollapseToSingleCandidate(t *testing.T) {
+	nodes := []routing.ReachableNode{
+		{NodeID: 1, Lat: 48.42100, Lon: 10.98000, States: []routing.NodePareto{{DistanceM: 10000}}},
+		{NodeID: 2, Lat: 48.42105, Lon: 10.98005, States: []routing.NodePareto{{DistanceM: 10020}}},
+		{NodeID: 3, Lat: 48.42110, Lon: 10.98010, States: []routing.NodePareto{{DistanceM: 9980}}},
+		{NodeID: 4, Lat: 48.42115, Lon: 10.98015, States: []routing.NodePareto{{DistanceM: 10040}}},
+	}
+
+	_, pool := buildCandidatePool(nodes, 48.421, 10.980, 20000, 3)
+
+	if len(pool) < 3 {
+		t.Fatalf("dense reachable pool collapsed to %d candidates, want at least 3", len(pool))
+	}
+}
+
 // TestBuildCandidatePool_DeterministicSort checks that two calls with identical
 // input produce identical filtered and pool slices.
 func TestBuildCandidatePool_DeterministicSort(t *testing.T) {

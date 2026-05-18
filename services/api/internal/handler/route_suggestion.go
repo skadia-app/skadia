@@ -804,7 +804,28 @@ func buildCandidatePool(
 
 	minDist := routing.MinVariantDistanceM(targetDistanceM)
 	pool = routing.BuildCandidatePool(filtered, startLat, startLon, targetDistanceM, poolSize, minDist)
+	if len(pool) < poolSize && minDist > 0 {
+		relaxed := routing.BuildCandidatePool(filtered, startLat, startLon, targetDistanceM, poolSize, 0)
+		for _, sel := range relaxed {
+			if candidateSelectionInPool(pool, sel) {
+				continue
+			}
+			pool = append(pool, sel)
+			if len(pool) >= poolSize {
+				break
+			}
+		}
+	}
 	return filtered, pool
+}
+
+func candidateSelectionInPool(pool []routing.CandidateSelection, want routing.CandidateSelection) bool {
+	for _, sel := range pool {
+		if sel.NodeIdx == want.NodeIdx && sel.StateIdx == want.StateIdx {
+			return true
+		}
+	}
+	return false
 }
 
 // deriveCandidateMetrics converts built RouteCandidates into CandidateMetrics,
