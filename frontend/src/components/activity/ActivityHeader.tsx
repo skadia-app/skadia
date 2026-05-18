@@ -8,7 +8,7 @@ import { useToast } from '@/lib/toast'
 import { updateActivity, reprocessActivity, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
-import { getWaypointsFromActivity } from '@/api/routes'
+import { getRouteDraftFromActivity } from '@/api/routes'
 import { apiDownload } from '@/api/client'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
@@ -513,8 +513,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           onClick={async () => {
             setOpenInPlannerLoading(true)
             try {
-              const result = await getWaypointsFromActivity(activity.id)
-              navigate('/map', { state: { plannerWaypoints: result.waypoints } })
+              const route = await getRouteDraftFromActivity(activity.id)
+              navigate('/map', { state: { plannerRouteDraft: route } })
             } catch (err) {
               addToast({
                 type: 'error',

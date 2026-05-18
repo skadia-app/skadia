@@ -5,11 +5,23 @@ import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { Activity } from '@/api/types'
+import type { PlannedRoute } from '@/api/routes'
 import { ToastProvider } from '@/lib/toast'
 import ActivityHeader from './ActivityHeader'
 import { reprocessActivity } from '@/api/activities'
+import { getRouteDraftFromActivity } from '@/api/routes'
 
 const mockReprocessActivity = reprocessActivity as ReturnType<typeof vi.fn>
+const mockGetRouteDraftFromActivity = getRouteDraftFromActivity as ReturnType<typeof vi.fn>
+const navigateMock = vi.hoisted(() => vi.fn())
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  }
+})
 
 vi.mock('@/hooks/useCapabilities', () => ({
   useCapabilities: () => ({
@@ -23,7 +35,7 @@ vi.mock('@/hooks/useCapabilities', () => ({
 }))
 
 vi.mock('@/api/routes', () => ({
-  getWaypointsFromActivity: vi.fn(),
+  getRouteDraftFromActivity: vi.fn(),
 }))
 
 vi.mock('@/api/activities', () => ({
@@ -88,6 +100,47 @@ describe('ActivityHeader capability gates', () => {
     render(<ActivityHeader activity={activity()} childCount={0} />, { wrapper })
 
     expect(await screen.findByRole('button', { name: /Im Routenplaner öffnen/i })).toBeInTheDocument()
+  })
+
+  it('opens activity in route planner as a full route draft', async () => {
+    navigateMock.mockClear()
+    const routeDraft = {
+      id: '',
+      name: 'Route: Route source',
+      sport_type: 'cycling',
+      profile: 'trekking',
+      waypoints: [
+        { id: 'start', latlng: [49, 12], type: 'start' },
+        { id: 'end', latlng: [49, 12], type: 'end' },
+      ],
+      segments: [{
+        from_waypoint: 'start',
+        to_waypoint: 'end',
+        mode: 'routed',
+        geometry: { type: 'LineString', coordinates: [[12, 49], [12.01, 49.01], [12, 49]] },
+        control_points: [],
+        smooth: false,
+        distance_m: 1234,
+        elevation_gain: 56,
+        elevation_loss: 34,
+      }],
+      time_override: false,
+      auto_tag: false,
+      photos: [],
+      tags: [],
+      created_at: '2026-05-17T00:00:00Z',
+      updated_at: '2026-05-17T00:00:00Z',
+    } satisfies PlannedRoute
+    mockGetRouteDraftFromActivity.mockResolvedValue(routeDraft)
+
+    render(<ActivityHeader activity={activity()} childCount={0} />, { wrapper })
+
+    fireEvent.click(await screen.findByRole('button', { name: /Im Routenplaner öffnen/i }))
+
+    await waitFor(() => {
+      expect(mockGetRouteDraftFromActivity).toHaveBeenCalledWith('act-1')
+    })
+    expect(navigateMock).toHaveBeenCalledWith('/map', { state: { plannerRouteDraft: routeDraft } })
   })
 
   it('maps Alles to core-safe scopes when full-only capabilities are unavailable', async () => {

@@ -16,7 +16,7 @@ import RouteSurfacesBar from '@/components/route-planner/RouteSurfacesBar'
 import ScaleLegend from '@/components/route-planner/ScaleLegend'
 import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-planner/RouteComparisonPanel'
 import { getRoute } from '@/api/routes'
-import type { RouteSuggestion } from '@/api/routes'
+import type { PlannedRoute, RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
@@ -406,6 +406,7 @@ export default function MapPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[] | null>(null)
   const [suggestionPartialSearch, setSuggestionPartialSearch] = useState(false)
+  const [plannerDraftFitKey, setPlannerDraftFitKey] = useState<string | null>(null)
   const suggestionCountRef = useRef(0)
   const [hoveredSuggestion, setHoveredSuggestion] = useState<number | null>(null)
   const [bottomBarCollapsed, setBottomBarCollapsed] = useState(false)
@@ -456,10 +457,10 @@ export default function MapPage() {
   }, [baseStylesCollapsed])
 
   // Load route planner state from navigation state (mount-only: reads initial location.state, then clears it)
-  // Handles both editRouteId (from RoutesPage edit button) and plannerWaypoints (from ActivityDetailPage).
+  // Handles both editRouteId (from RoutesPage edit button) and plannerRouteDraft (from ActivityDetailPage).
   // Both paths are independent — if somehow both are present, both run before the single navigate clears state.
   useEffect(() => {
-    const state = location.state as { editRouteId?: string; plannerWaypoints?: import('@/api/routes').RouteWaypoint[] } | null
+    const state = location.state as { editRouteId?: string; plannerRouteDraft?: PlannedRoute } | null
     let didActivate = false
 
     if (state?.editRouteId) {
@@ -470,11 +471,12 @@ export default function MapPage() {
         .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
     }
 
-    const waypoints = state?.plannerWaypoints
-    if (waypoints && waypoints.length >= 2) {
+    const draft = state?.plannerRouteDraft
+    if (draft && draft.waypoints.length >= 2 && draft.segments.length > 0) {
       setPlannerActive(true)
       didActivate = true
-      planner.loadWaypoints(waypoints)
+      planner.loadRouteDraft(draft)
+      setPlannerDraftFitKey(draft.id || draft.name || 'activity-draft')
     }
 
     if (didActivate) {
@@ -596,6 +598,14 @@ export default function MapPage() {
     routePlannerMapRef.current.fitBoundsToFullRoute()
     lastFittedRouteIdRef.current = planner.editingRouteId
   }, [planner.editingRouteId, plannerCombinedCoords.length, styleVersion])
+
+  useEffect(() => {
+    if (!plannerDraftFitKey) return
+    if (!routePlannerMapRef.current) return
+    if (plannerCombinedCoords.length === 0) return
+    routePlannerMapRef.current.fitBoundsToFullRoute()
+    setPlannerDraftFitKey(null)
+  }, [plannerDraftFitKey, plannerCombinedCoords.length, styleVersion])
 
   // ── Route Suggestion map layers ──────────────────────────────────────────
   const SUGGESTION_OFFSETS: [number, number][] = useMemo(() => [[0, 0], [-3, 0], [3, 0]], [])

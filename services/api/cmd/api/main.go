@@ -1941,6 +1941,7 @@ func main() {
 			r.Get("/routes/{id}/photos/{photoId}/preview", h.StreamRoutePhotoPreview)
 			r.Get("/routes/{id}/photos/{photoId}/full", h.StreamRoutePhotoFull)
 			r.Post("/routes/from-activity/{activityId}", h.RouteFromActivity)
+			r.Get("/routes/from-activity/{activityId}/draft", h.RouteDraftFromActivity)
 			r.Get("/routes/from-activity/{activityId}/waypoints", h.RouteFromActivityWaypoints)
 
 			// POI search

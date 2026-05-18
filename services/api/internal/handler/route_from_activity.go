@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -13,6 +14,52 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// RouteDraftFromActivity returns a planned-route payload derived from an
+// activity's GPS track without saving it to the database.
+// GET /api/v1/routes/from-activity/{activityId}/draft
+func (h *Handler) RouteDraftFromActivity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	activityID := chi.URLParam(r, "activityId")
+
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("route draft from activity: get activity failed", "id", activityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+	if !activity.HasGPS {
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "No GPS", "activity has no GPS track", r.URL.Path)
+		return
+	}
+
+	gpsPoints, err := h.DB.GetActivityGPSStream(r.Context(), activityID)
+	if err != nil {
+		slog.Error("route draft from activity: load GPS stream failed", "id", activityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load GPS track", r.URL.Path)
+		return
+	}
+	if len(gpsPoints) < 2 {
+		httputil.WriteError(w, http.StatusUnprocessableEntity, "Insufficient Data", "activity has too few GPS points", r.URL.Path)
+		return
+	}
+
+	route, err := buildRouteDraftFromActivity(activity, userID, gpsPoints)
+	if err != nil {
+		slog.Error("route draft from activity: build route failed", "id", activityID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build route", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, route)
+}
 
 // RouteFromActivityWaypoints returns waypoints derived from an activity's GPS track
 // WITHOUT saving a route to the database. Used by "Open in Route Planner" button.
@@ -106,69 +153,14 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build GeoJSON LineString from all GPS points.
-	ls := gpsStreamToLineString(gpsPoints)
-	gjBytes, err := geo.MarshalGeoJSON(ls)
+	route, err := buildRouteDraftFromActivity(activity, userID, gpsPoints)
 	if err != nil {
-		slog.Error("route from activity: marshal GeoJSON failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build geometry", r.URL.Path)
+		slog.Error("route from activity: build route failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build route", r.URL.Path)
 		return
 	}
-	geojsonStr := string(gjBytes)
 
-	// Simplify to ~50 waypoints using Ramer-Douglas-Peucker.
-	simplified := simplifyToTarget(gpsPoints, 50)
-	waypoints := make([]model.RouteWaypoint, len(simplified))
-	for i, p := range simplified {
-		wpType := "via"
-		if i == 0 {
-			wpType = "start"
-		} else if i == len(simplified)-1 {
-			wpType = "end"
-		}
-		waypoints[i] = model.RouteWaypoint{
-			ID:     uuid.New().String(),
-			LatLng: [2]float64{p[1], p[0]}, // orb.Point is [lng, lat]
-			Type:   wpType,
-		}
-	}
-
-	// Build a single segment from start to end.
-	var segments []model.RouteSegment
-	if len(waypoints) >= 2 {
-		segments = append(segments, model.RouteSegment{
-			FromWaypoint:  waypoints[0].ID,
-			ToWaypoint:    waypoints[len(waypoints)-1].ID,
-			Mode:          "offroad",
-			DistanceM:     derefFloat64(activity.DistanceM),
-			ElevationGain: derefFloat64(activity.ElevationGainM),
-			ElevationLoss: derefFloat64(activity.ElevationLossM),
-		})
-	}
-
-	routeName := "Route"
-	if activity.Title != nil && *activity.Title != "" {
-		routeName = "Route: " + *activity.Title
-	}
-
-	route := model.PlannedRoute{
-		UserID:             userID,
-		Name:               routeName,
-		SportType:          activity.SportType,
-		SubType:            activity.SubType,
-		IsElectric:         activity.IsElectric,
-		IsIndoor:           activity.IsIndoor,
-		IsVirtual:          activity.IsVirtual,
-		Profile:            sportTypeToProfile(activity.SportType, activity.SubType),
-		GeometryGeoJSON:    geojsonStr,
-		Waypoints:          waypoints,
-		Segments:           segments,
-		TotalDistanceM:     activity.DistanceM,
-		TotalElevationGain: activity.ElevationGainM,
-		TotalElevationLoss: activity.ElevationLossM,
-	}
-
-	id, err := h.DB.CreateRoute(r.Context(), &route)
+	id, err := h.DB.CreateRoute(r.Context(), route)
 	if err != nil {
 		slog.Error("route from activity: create route failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create route", r.URL.Path)
@@ -177,6 +169,68 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 
 	route.ID = id
 	httputil.WriteJSON(w, http.StatusCreated, route)
+}
+
+func buildRouteDraftFromActivity(activity *model.Activity, userID string, gpsPoints []database.GPSStreamPoint) (*model.PlannedRoute, error) {
+	if activity == nil {
+		return nil, fmt.Errorf("activity is nil")
+	}
+	if len(gpsPoints) < 2 {
+		return nil, fmt.Errorf("activity has too few GPS points")
+	}
+
+	ls := gpsStreamToLineString(gpsPoints)
+	gjBytes, err := geo.MarshalGeoJSON(ls)
+	if err != nil {
+		return nil, fmt.Errorf("marshal GeoJSON: %w", err)
+	}
+
+	startID := uuid.New().String()
+	endID := uuid.New().String()
+	first := gpsPoints[0]
+	last := gpsPoints[len(gpsPoints)-1]
+	waypoints := []model.RouteWaypoint{
+		{ID: startID, LatLng: [2]float64{first.Lat, first.Lng}, Type: "start"},
+		{ID: endID, LatLng: [2]float64{last.Lat, last.Lng}, Type: "end"},
+	}
+
+	coords := make([][]float64, 0, len(ls))
+	for _, p := range ls {
+		coords = append(coords, []float64{p[0], p[1]})
+	}
+
+	segments := []model.RouteSegment{{
+		FromWaypoint:  startID,
+		ToWaypoint:    endID,
+		Mode:          "routed",
+		Geometry:      &model.GeoJSONLineString{Type: "LineString", Coordinates: coords},
+		DistanceM:     derefFloat64(activity.DistanceM),
+		ElevationGain: derefFloat64(activity.ElevationGainM),
+		ElevationLoss: derefFloat64(activity.ElevationLossM),
+	}}
+
+	routeName := "Route"
+	if activity.Title != nil && *activity.Title != "" {
+		routeName = "Route: " + *activity.Title
+	}
+
+	return &model.PlannedRoute{
+		UserID:             userID,
+		Name:               routeName,
+		SportType:          activity.SportType,
+		SubType:            activity.SubType,
+		IsElectric:         activity.IsElectric,
+		IsIndoor:           activity.IsIndoor,
+		IsVirtual:          activity.IsVirtual,
+		IsCommute:          activity.IsCommute,
+		Profile:            sportTypeToProfile(activity.SportType, activity.SubType),
+		GeometryGeoJSON:    string(gjBytes),
+		Waypoints:          waypoints,
+		Segments:           segments,
+		TotalDistanceM:     activity.DistanceM,
+		TotalElevationGain: activity.ElevationGainM,
+		TotalElevationLoss: activity.ElevationLossM,
+	}, nil
 }
 
 // gpsStreamToLineString converts GPS stream points to an orb.LineString.
