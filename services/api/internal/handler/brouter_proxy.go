@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -50,7 +53,7 @@ type RouteRequest struct {
 //
 // POST /api/v1/routing/route
 func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
-	_, ok := httputil.RequireUserID(w, r)
+	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
@@ -176,6 +179,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 
 	injectElevationProfileFromInlineZ(gj, h.DEMSvc)
 	injectBRouterWayTagEnrichment(gj)
+	h.injectBRouterSummitsFromDB(r.Context(), gj, userID)
 
 	if err := json.NewEncoder(w).Encode(gj); err != nil {
 		slog.Warn("BRouter proxy: failed to encode modified response", "error", err)
@@ -197,6 +201,8 @@ func ensureBRouterWayTagProfileParams(params map[string]string) map[string]strin
 	}
 	return params
 }
+
+type brouterSummitFinder func(context.Context, []byte, float64) ([]database.PassedSummit, error)
 
 // brouterCoord captures one BRouter coordinate with explicit per-point
 // Z-availability. Used by extractCoordinates so that a single null/missing
@@ -241,6 +247,80 @@ func extractCoordinates(feat map[string]any) []brouterCoord {
 		out = append(out, bc)
 	}
 	return out
+}
+
+func brouterCoordsToRoutingCoords(coords []brouterCoord) []routing.LatLonEle {
+	if len(coords) == 0 {
+		return nil
+	}
+	out := make([]routing.LatLonEle, 0, len(coords))
+	for _, c := range coords {
+		out = append(out, routing.LatLonEle{Lat: c.Lat, Lon: c.Lon})
+	}
+	return out
+}
+
+func (h *Handler) injectBRouterSummitsFromDB(ctx context.Context, gj map[string]any, userID string) {
+	if h.DB == nil || h.DB.Pool == nil {
+		return
+	}
+	radiusM := 80.0
+	if settings, err := h.DB.GetEnrichmentSettings(ctx, userID); err == nil && settings != nil {
+		radiusM = settings.SummitDetectionRadiusM
+	} else if err != nil {
+		slog.Warn("BRouter proxy: get enrichment settings failed; falling back to default summit radius",
+			"user_id", userID, "error", err)
+	}
+
+	injectBRouterSummits(ctx, gj, radiusM, func(ctx context.Context, geomWKB []byte, radiusM float64) ([]database.PassedSummit, error) {
+		return database.FindSummitsAlongGeom(ctx, h.DB.Pool, geomWKB, radiusM)
+	})
+}
+
+func injectBRouterSummits(ctx context.Context, gj map[string]any, radiusM float64, findSummits brouterSummitFinder) {
+	if radiusM <= 0 || findSummits == nil {
+		return
+	}
+	features, ok := gj["features"].([]any)
+	if !ok {
+		return
+	}
+	for _, f := range features {
+		feat, ok := f.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawProps, hasProps := feat["properties"]
+		props, propsOK := rawProps.(map[string]any)
+		if hasProps && rawProps != nil && !propsOK {
+			continue
+		}
+
+		wkb, err := coordsToLineStringWKB(brouterCoordsToRoutingCoords(extractCoordinates(feat)))
+		if err != nil {
+			if !errors.Is(err, errTooFewCoords) {
+				slog.Warn("BRouter proxy: summit geometry WKB build failed", "error", err)
+			}
+			continue
+		}
+		summits, err := findSummits(ctx, wkb, radiusM)
+		if err != nil {
+			slog.Warn("BRouter proxy: summits along route failed", "error", err)
+			continue
+		}
+		if len(summits) == 0 {
+			continue
+		}
+		if props == nil {
+			props = map[string]any{}
+			feat["properties"] = props
+		}
+		resp := make([]ResponsePassedSummit, 0, len(summits))
+		for _, s := range summits {
+			resp = append(resp, toResponseSummit(s))
+		}
+		props["summits_passed"] = resp
+	}
 }
 
 // isPlausibleSrtmEle filters obvious sentinel/garbage values:

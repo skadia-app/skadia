@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
@@ -254,6 +256,52 @@ func TestInjectBRouterWayTagEnrichmentNoOpsOnMissingHeader(t *testing.T) {
 	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
 	if _, has := props["segments"]; has {
 		t.Fatalf("segments must be absent for incomplete messages header, got %#v", props["segments"])
+	}
+}
+
+func TestInjectBRouterSummitsAddsSummitsPassedFromGeometry(t *testing.T) {
+	raw := `{"type":"FeatureCollection","features":[{
+	  "type":"Feature",
+	  "properties":{"creator":"BRouter-1.7.8"},
+	  "geometry":{"type":"LineString","coordinates":[[11.576124,48.137154,523],[11.576298,48.137118,523]]}
+	}]}`
+	var gj map[string]any
+	if err := json.Unmarshal([]byte(raw), &gj); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	called := false
+	injectBRouterSummits(context.Background(), gj, 80, func(ctx context.Context, geomWKB []byte, radiusM float64) ([]database.PassedSummit, error) {
+		called = true
+		if len(geomWKB) == 0 {
+			t.Fatal("summit lookup received empty WKB")
+		}
+		if radiusM != 80 {
+			t.Fatalf("radiusM = %v, want 80", radiusM)
+		}
+		return []database.PassedSummit{{
+			OsmID:    42,
+			Name:     "Test Summit",
+			Category: "summit",
+			DistM:    12,
+			Lat:      48.137154,
+			Lng:      11.576124,
+		}}, nil
+	})
+
+	if !called {
+		t.Fatal("summit lookup was not called")
+	}
+	props := gj["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	summits, ok := props["summits_passed"].([]ResponsePassedSummit)
+	if !ok {
+		t.Fatalf("summits_passed missing or wrong type: %#v", props["summits_passed"])
+	}
+	if len(summits) != 1 {
+		t.Fatalf("len(summits_passed) = %d, want 1", len(summits))
+	}
+	if summits[0].Name != "Test Summit" || summits[0].DistM != 12 {
+		t.Fatalf("unexpected summit DTO: %#v", summits[0])
 	}
 }
 
