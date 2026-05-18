@@ -199,6 +199,8 @@ export interface ListRoutesResponse {
 }
 
 export interface ListRoutesParams {
+  limit?: number
+  offset?: number
   sort?: string
   sport_type?: string
   sub_type?: string

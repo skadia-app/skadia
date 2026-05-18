@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listRoutes,
   deleteRoute,
   duplicateRoute,
   exportRouteGPX,
+  type ListRoutesResponse,
   type PlannedRoute,
 } from '@/api/routes'
 import { useModal } from '@/lib/modal'
@@ -37,6 +38,7 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
 type ModifierFilter = 'any' | 'true' | 'false'
 const ROUTE_MODIFIER_KEYS = [...RoutingApplicableModifierKeys] as RouteModifierKey[]
+const ROUTES_PAGE_LIMIT = 50
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',
@@ -47,6 +49,12 @@ const SORT_LABELS: Record<SortOption, string> = {
 
 function emptyRouteModifierFilters(): Record<RouteModifierKey, ModifierFilter> {
   return Object.fromEntries(ROUTE_MODIFIER_KEYS.map((key) => [key, 'any'])) as Record<RouteModifierKey, ModifierFilter>
+}
+
+export function nextRoutesOffset(page: Pick<ListRoutesResponse, 'routes' | 'total' | 'limit' | 'offset'>): number | undefined {
+  const nextOffset = page.offset + page.routes.length
+  if (page.routes.length === 0 || nextOffset >= page.total) return undefined
+  return nextOffset
 }
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
@@ -357,6 +365,7 @@ export default function RoutesPage() {
 
   // Debounced search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
@@ -389,13 +398,36 @@ export default function RoutesPage() {
     [sortBy, sportPredicates, modifierFilters, search],
   )
 
-  const { data: routesResponse, isLoading, isError } = useQuery({
+  const {
+    data: routesResponse,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isError,
+  } = useInfiniteQuery({
     queryKey: ['routes', queryParams],
-    queryFn: () => listRoutes(queryParams),
+    queryFn: ({ pageParam }) => listRoutes({ ...queryParams, limit: ROUTES_PAGE_LIMIT, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: nextRoutesOffset,
     staleTime: 30_000,
   })
 
-  const routes = routesResponse?.routes ?? []
+  const routes = useMemo(() => routesResponse?.pages.flatMap(page => page.routes) ?? [], [routesResponse])
+  const totalRoutes = routesResponse?.pages[0]?.total ?? 0
+
+  useEffect(() => {
+    if (!hasNextPage) return
+    const node = loadMoreRef.current
+    if (!node) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting) && !isFetchingNextPage) {
+        fetchNextPage()
+      }
+    }, { rootMargin: '600px 0px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   // Client-side filtering when backend doesn't support search
   const filteredRoutes = useMemo(() => {
@@ -619,7 +651,7 @@ export default function RoutesPage() {
         {/* Result count */}
         {filteredRoutes.length > 0 && (
           <span className="text-xs text-neutral-400 dark:text-neutral-500 ml-auto">
-            {filteredRoutes.length} {filteredRoutes.length === 1 ? 'Route' : 'Routen'}
+            {filteredRoutes.length} von {totalRoutes} {totalRoutes === 1 ? 'Route' : 'Routen'}
           </span>
         )}
       </div>
@@ -661,20 +693,25 @@ export default function RoutesPage() {
         </div>
       ) : (
         /* Route grid */
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredRoutes.map((route) => (
-            <RouteCard
-              key={route.id}
-              route={route}
-              onEdit={() => navigate('/map', { state: { editRouteId: route.id } })}
-              onDuplicate={() => duplicateMut.mutate(route.id)}
-              onDelete={() => handleDelete(route)}
-              onExportGPX={() => handleExportGPX(route)}
-              isDuplicating={duplicateMut.isPending && duplicateMut.variables === route.id}
-              isDeleting={deleteMut.isPending && deleteMut.variables === route.id}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredRoutes.map((route) => (
+              <RouteCard
+                key={route.id}
+                route={route}
+                onEdit={() => navigate('/map', { state: { editRouteId: route.id } })}
+                onDuplicate={() => duplicateMut.mutate(route.id)}
+                onDelete={() => handleDelete(route)}
+                onExportGPX={() => handleExportGPX(route)}
+                isDuplicating={duplicateMut.isPending && duplicateMut.variables === route.id}
+                isDeleting={deleteMut.isPending && deleteMut.variables === route.id}
+              />
+            ))}
+          </div>
+          <div ref={loadMoreRef} className="h-12 flex items-center justify-center text-xs text-neutral-400">
+            {isFetchingNextPage ? 'Lade weitere Routen...' : hasNextPage ? '' : filteredRoutes.length > ROUTES_PAGE_LIMIT ? 'Alle Routen geladen' : ''}
+          </div>
+        </>
       )}
 
       {/* FAB — visible on mobile (sm and below), otherwise "Neue Route" button in header is enough) */}
