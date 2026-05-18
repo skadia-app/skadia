@@ -17,6 +17,11 @@ def test_status_returns_build_metadata(monkeypatch):
     monkeypatch.setenv("SKADIA_GIT_COMMIT_TIME", "2026-05-17T09:58:00Z")
     monkeypatch.setenv("SKADIA_BUILD_TIME", "2026-05-17T10:00:00Z")
     app_main = reload_main_with_env()
+
+    async def fake_llm_broker_readiness():
+        return {"status": "ready", "roles": {"document_extract": "configured"}}
+
+    monkeypatch.setattr(app_main, "get_llm_broker_readiness", fake_llm_broker_readiness)
     client = TestClient(app_main.app)
 
     resp = client.get("/status", headers={"X-ML-Callback-Secret": "status-secret"})
@@ -27,6 +32,7 @@ def test_status_returns_build_metadata(monkeypatch):
     assert body["git_commit"] == "abc123"
     assert body["commit_time"] == "2026-05-17T09:58:00Z"
     assert body["build_time"] == "2026-05-17T10:00:00Z"
+    assert body["llm_broker"]["status"] == "ready"
 
 
 def test_status_requires_internal_token(monkeypatch):

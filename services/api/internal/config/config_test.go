@@ -46,14 +46,27 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("GDPR_IMPORT_STAGING_QUOTA_BYTES", "")
 }
 
-func TestLoadReplicaStorageSafetyDefaultsForCompose(t *testing.T) {
+func TestLoadReplicaStorageSafetyDefaultsToUnknownWithoutDeploymentInputs(t *testing.T) {
 	withBaseEnv(t)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cfg.APIReplicaCount != 0 || cfg.SharedStorage != "unknown" {
+		t.Fatalf("replica/shared defaults = %d/%q, want 0/unknown", cfg.APIReplicaCount, cfg.SharedStorage)
+	}
+}
+
+func TestLoadReplicaStorageSafetyUsesExplicitComposeInputs(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_REPLICA_COUNT", "1")
+	t.Setenv("SKADIA_SHARED_STORAGE", "false")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.APIReplicaCount != 1 || cfg.SharedStorage != "false" {
-		t.Fatalf("replica/shared defaults = %d/%q, want 1/false", cfg.APIReplicaCount, cfg.SharedStorage)
+		t.Fatalf("replica/shared inputs = %d/%q, want 1/false", cfg.APIReplicaCount, cfg.SharedStorage)
 	}
 }
 

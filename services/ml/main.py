@@ -162,6 +162,10 @@ def require_internal_status_token(token: str | None) -> None:
 @app.get("/status")
 async def status(x_ml_callback_secret: str | None = Header(default=None, alias="X-ML-Callback-Secret")):
     require_internal_status_token(x_ml_callback_secret)
+    try:
+        llm_broker = await get_llm_broker_readiness()
+    except Exception as e:
+        llm_broker = {"status": "unavailable", "roles": {}, "error": str(e)}
     return {
         "service": "ml",
         "git_commit": os.getenv("SKADIA_GIT_COMMIT", "unknown") or "unknown",
@@ -170,6 +174,7 @@ async def status(x_ml_callback_secret: str | None = Header(default=None, alias="
         "image_digest": os.getenv("SKADIA_IMAGE_DIGEST", ""),
         "config_version": os.getenv("SKADIA_CONFIG_VERSION", "1") or "1",
         "metrics": get_metrics(),
+        "llm_broker": llm_broker,
     }
 
 

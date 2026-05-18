@@ -35,9 +35,23 @@ func TestNATSStatusUnknownWhenJetStreamIntrospectionUnavailable(t *testing.T) {
 	}
 }
 
+func TestNATSStatusUnavailableWhenConfiguredButDisconnected(t *testing.T) {
+	got := NATSStatusFromSnapshot(NATSSnapshot{Configured: true, Connected: false})
+	if got.State != StatusUnavailable || got.ReasonCode != "nats_unavailable" {
+		t.Fatalf("status = %+v, want unavailable nats_unavailable", got)
+	}
+}
+
 func TestMLStatusSeparatesLiveFromRoleReadiness(t *testing.T) {
-	got := MLStatusFromSnapshot(MLSnapshot{Live: true, Ready: false, MissingRoles: []string{"document_extract"}})
+	got := MLStatusFromSnapshot(MLSnapshot{Configured: true, Live: true, Ready: true, StatusChecked: true, StatusAccessible: true, MissingRoles: []string{"document_extract"}})
 	if got.State != StatusDegraded || got.ReasonCode != "ml_roles_unavailable" {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestMLStatusDegradesWhenInternalStatusUnavailable(t *testing.T) {
+	got := MLStatusFromSnapshot(MLSnapshot{Configured: true, Live: true, Ready: true, StatusChecked: true, StatusAccessible: false})
+	if got.State != StatusDegraded || got.ReasonCode != "ml_status_unavailable" {
 		t.Fatalf("status = %+v", got)
 	}
 }

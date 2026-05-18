@@ -164,8 +164,8 @@ func Load() (*Config, error) {
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
 		DeploymentProfile:     strings.TrimSpace(os.Getenv("SKADIA_DEPLOYMENT_PROFILE")),
-		APIReplicaCount:       parseIntDefault(os.Getenv("SKADIA_REPLICA_COUNT"), 1),
-		SharedStorage:         strings.TrimSpace(getEnvDefault("SKADIA_SHARED_STORAGE", "false")),
+		APIReplicaCount:       parseIntDefault(os.Getenv("SKADIA_REPLICA_COUNT"), 0),
+		SharedStorage:         strings.TrimSpace(os.Getenv("SKADIA_SHARED_STORAGE")),
 		StorageMode:           strings.TrimSpace(os.Getenv("SKADIA_STORAGE_MODE")),
 		StorageBackend:        getEnvDefault("STORAGE_BACKEND", "local"),
 		LibraryBasePath:       getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
@@ -323,12 +323,15 @@ func Load() (*Config, error) {
 	if err := normalizeStorageMode(cfg); err != nil {
 		return nil, err
 	}
+	if cfg.SharedStorage == "" {
+		cfg.SharedStorage = "unknown"
+	}
 	switch cfg.SharedStorage {
 	case "true", "false", "unknown":
 	default:
 		return nil, fmt.Errorf("SKADIA_SHARED_STORAGE must be 'true', 'false', or 'unknown', got %q", cfg.SharedStorage)
 	}
-	if cfg.APIReplicaCount < 1 {
+	if strings.TrimSpace(os.Getenv("SKADIA_REPLICA_COUNT")) != "" && cfg.APIReplicaCount < 1 {
 		return nil, fmt.Errorf("SKADIA_REPLICA_COUNT must be >= 1, got %d", cfg.APIReplicaCount)
 	}
 	applyLocalGarageS3Fallbacks(cfg)
