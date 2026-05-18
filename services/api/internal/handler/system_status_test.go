@@ -155,6 +155,25 @@ func TestAdminSystemStatusUsesInjectedS3StorageProbeResults(t *testing.T) {
 	}
 }
 
+func TestAdminSystemStatusIncludesServiceAndGeodataComponents(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	h.Config = &HandlerConfig{DeploymentProfile: "full", StorageBackend: "local", StorageMode: "local"}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
+	rec := httptest.NewRecorder()
+
+	h.GetAdminSystemStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, key := range []string{`"nats"`, `"ml"`, `"brouter"`, `"badrouter"`, `"osm"`, `"dem"`, `"coverage"`, `"tiles"`} {
+		if !strings.Contains(rec.Body.String(), key) {
+			t.Fatalf("response missing component %s: %s", key, rec.Body.String())
+		}
+	}
+}
+
 type fakeAdminStatusStorageProbe struct {
 	head, write, list, multipart bool
 }
