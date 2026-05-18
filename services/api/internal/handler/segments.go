@@ -783,7 +783,7 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 	// collectSegmentEfforts applies the same spatial pre-filter as the full
 	// recompute path (GetSpatialCandidateSegments) so only the relevant segment
 	// will produce efforts for this (activity_id, segment_id) pair.
-	allEfforts, matchedSegmentIDs, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	allEfforts, matchedSegmentIDs, _, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 	if err != nil {
 		return fmt.Errorf("collect new efforts for segment rematch: %w", err)
 	}
@@ -877,7 +877,7 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 	}
 
 	// 2. Collect all efforts for this activity in one pass (GPS stream loaded once).
-	allEfforts, _, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	allEfforts, _, candidateSegmentIDs, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 	if err != nil {
 		return fmt.Errorf("collect efforts for activity rematch: %w", err)
 	}
@@ -888,31 +888,45 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 		effortsBySegment[e.SegmentID] = append(effortsBySegment[e.SegmentID], e)
 	}
 
-	// 4. Collect all overlapping segment IDs upfront (rows closed before TX loop).
-	queryRows, err := h.DB.Pool.Query(ctx, `
-		SELECT DISTINCT sv.segment_id
-		FROM segment_versions sv
-		JOIN activity_tracks t ON t.activity_id = $1
-		WHERE t.bbox IS NOT NULL
-		  AND ST_Intersects(sv.track, t.bbox)
-	`, activityID)
+	// 4. Recompute only segments that passed the same active-version candidate
+	// selector as matching, plus existing platform efforts whose version was
+	// valid for this activity time. Raw segment_versions overlap would delete
+	// efforts for expired or future versions that are not valid for the activity.
+	existingRows, err := h.DB.Pool.Query(ctx, `
+		SELECT DISTINCT se.segment_id
+		FROM segment_efforts se
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
+		WHERE se.activity_id = $1
+		  AND se.user_id = $2
+		  AND se.match_source_type = 'platform_activity'
+		  AND se.matching_contract_key = 'course_gps_v1'
+		  AND se.matching_contract_version = 1
+		  AND sv.matching_contract_key = 'course_gps_v1'
+		  AND sv.matching_contract_version = 1
+		  AND (sv.valid_from_at IS NULL OR sv.valid_from_at <= $3)
+		  AND (sv.valid_until_at IS NULL OR $3 < sv.valid_until_at)
+	`, activityID, userID, act.StartedAt)
 	if err != nil {
-		return fmt.Errorf("query overlapping segments: %w", err)
+		return fmt.Errorf("query existing active segment efforts: %w", err)
 	}
-	var segmentIDs []string
-	for queryRows.Next() {
+	for existingRows.Next() {
 		var segID string
-		if err := queryRows.Scan(&segID); err != nil {
-			queryRows.Close()
-			return fmt.Errorf("scan segment_id: %w", err)
+		if err := existingRows.Scan(&segID); err != nil {
+			existingRows.Close()
+			return fmt.Errorf("scan existing active segment effort: %w", err)
 		}
+		candidateSegmentIDs[segID] = struct{}{}
+	}
+	if err := existingRows.Err(); err != nil {
+		existingRows.Close()
+		return fmt.Errorf("iterate existing active segment efforts: %w", err)
+	}
+	existingRows.Close()
+
+	segmentIDs := make([]string, 0, len(candidateSegmentIDs))
+	for segID := range candidateSegmentIDs {
 		segmentIDs = append(segmentIDs, segID)
 	}
-	if err := queryRows.Err(); err != nil {
-		queryRows.Close()
-		return fmt.Errorf("iterate overlapping segments: %w", err)
-	}
-	queryRows.Close()
 
 	// 5. Per segment: transactional DELETE + batch-INSERT of only that segment's efforts.
 	// Rank updates happen outside the transaction (non-critical, idempotent).
