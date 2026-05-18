@@ -104,6 +104,10 @@ type IncompleteMultipartAborter interface {
 	AbortIncompleteUploads(context.Context, ArtifactPrefix) error
 }
 
+type IncompleteMultipartCounter interface {
+	CountIncompleteUploads(context.Context, ArtifactPrefix) (int, error)
+}
+
 type CapacityRequest struct {
 	Kind          string
 	UserID        string

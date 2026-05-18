@@ -352,5 +352,22 @@ func (b *S3Backend) PingBucket(ctx context.Context, bucket string) error {
 	return nil
 }
 
+// ListMultipartUploads checks whether the bucket accepts scoped multipart-list
+// requests. It is intentionally read-only and is used by admin diagnostics.
+func (b *S3Backend) ListMultipartUploads(ctx context.Context, bucket, prefix string) error {
+	if bucket == "" {
+		bucket = b.defaultBucket
+	}
+	_, err := b.client.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
+		Bucket:     aws.String(bucket),
+		Prefix:     aws.String(prefix),
+		MaxUploads: aws.Int32(1),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 list multipart uploads: %w", err)
+	}
+	return nil
+}
+
 var _ StorageBackend = (*S3Backend)(nil)
 var _ StreamingBackend = (*S3Backend)(nil)

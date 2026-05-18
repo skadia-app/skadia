@@ -971,7 +971,7 @@ func (j *ReconcileJob) allBuckets() []string {
 	}
 	seen := map[string]bool{}
 	var buckets []string
-	for _, ft := range []string{"activity", "media", "document"} {
+	for _, ft := range UserFacingFileTypes {
 		b := j.bucketFn(ft)
 		if b != "" && !seen[b] {
 			seen[b] = true
