@@ -80,7 +80,8 @@ function isMtbProfile(profile: RoutingProfileEntry): boolean {
   return false
 }
 
-function specificCyclingSubType(profile: RoutingProfileEntry): string | null {
+export function requiredCyclingSubTypeForBroadSelection(profile: RoutingProfileEntry): string | null {
+  if (profile.predicates?.some(p => p.sport === 'cycling' && p.sub_type === '')) return null
   const pred = profile.predicates?.find(p => p.sport === 'cycling' && p.sub_type && p.sub_type !== '')
   return pred?.sub_type ?? null
 }
@@ -173,7 +174,7 @@ export default function RouteSuggestionDialog({
   const advisoryProfiles: RoutingProfileEntry[] = sportType === 'cycling' && !subType
     ? allProfiles.filter(p =>
         !strictProfiles.some(strict => strict.name === p.name) &&
-        specificCyclingSubType(p) !== null &&
+        requiredCyclingSubTypeForBroadSelection(p) !== null &&
         modifiersMatch(p.modifier_filters, modifierState),
       )
     : []
@@ -188,7 +189,7 @@ export default function RouteSuggestionDialog({
 
   // Determine base_profile for current selection (for SAC/MTB scale display)
   const selectedProfileEntry = filteredProfiles.find(p => p.name === effectiveProfile)
-  const selectedProfileRequiresCyclingSubType = selectedProfileEntry ? specificCyclingSubType(selectedProfileEntry) : null
+  const selectedProfileRequiresCyclingSubType = selectedProfileEntry ? requiredCyclingSubTypeForBroadSelection(selectedProfileEntry) : null
   const profileNeedsBroadCyclingDecision = sportType === 'cycling' && !subType && selectedProfileRequiresCyclingSubType !== null
   const broadCyclingDecisionIsMountain = selectedProfileRequiresCyclingSubType === 'mountain'
   const baseProfile = selectedProfileEntry?.base_profile ?? ''
@@ -383,7 +384,7 @@ export default function RouteSuggestionDialog({
         {profileNeedsBroadCyclingDecision && (
           <div className="rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
             <p className="text-sm text-amber-900 dark:text-amber-200">
-              Diese Aktivität hat keinen spezifischen Cycling-Subtyp.<br />
+              Diese Routenauswahl hat keinen spezifischen Cycling-Subtyp.<br />
               {broadCyclingDecisionIsMountain
                 ? "MTB-Profil setzt 'mountain' voraus. Möchtest du:"
                 : `Dieses Profil setzt '${selectedProfileRequiresCyclingSubType}' voraus. Möchtest du:`}
@@ -397,7 +398,7 @@ export default function RouteSuggestionDialog({
                 }}
                 className="text-left rounded-md border border-amber-300 dark:border-amber-800 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"
               >
-                (a) Subtyp dieser Activity auf '{selectedProfileRequiresCyclingSubType}' setzen
+                (a) Cycling-Subtyp für diesen Vorschlag auf '{selectedProfileRequiresCyclingSubType}' setzen
               </button>
               <button
                 type="button"
