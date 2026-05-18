@@ -15,18 +15,30 @@ import (
 	natsgo "github.com/nats-io/nats.go"
 )
 
-var expectedNATSCoreStreams = []string{"SKADIA"}
-var expectedNATSMLStreams = []string{"stage2", "document", "analytics"}
+type expectedNATSQueue struct {
+	stream    string
+	subject   string
+	consumers []string
+}
 
-var expectedNATSConsumers = map[string][]string{
-	"stage2":    {"ml-stage2-high", "ml-stage2-normal", "ml-stage2-low"},
-	"document":  {"ml-document-processor"},
-	"analytics": {"ml-analytics-invalidate"},
-	"SKADIA":   {"ml-photo-embed"},
+var expectedNATSCoreQueues = []expectedNATSQueue{
+	{stream: "SKADIA", subject: "skadia.photo.embed", consumers: []string{"ml-photo-embed"}},
+}
+
+var expectedNATSMLQueues = []expectedNATSQueue{
+	{stream: "stage2", subject: "skadia.stage2.high", consumers: []string{"ml-stage2-high", "ml-stage2-normal", "ml-stage2-low"}},
+	{stream: "document", subject: "skadia.document.uploaded", consumers: []string{"ml-document-processor"}},
+	{stream: "analytics", subject: "skadia.analytics.invalidate", consumers: []string{"ml-analytics-invalidate"}},
 }
 
 type jetStreamProvider interface {
 	JetStream() natsgo.JetStreamContext
+}
+
+type natsStreamInspector interface {
+	StreamInfo(stream string, opts ...natsgo.JSOpt) (*natsgo.StreamInfo, error)
+	StreamNameBySubject(subject string, opts ...natsgo.JSOpt) (string, error)
+	ConsumerInfo(stream, consumer string, opts ...natsgo.JSOpt) (*natsgo.ConsumerInfo, error)
 }
 
 func (h *Handler) collectNATSComponent(ctx context.Context, expectMLConsumers bool) systemstatus.ComponentStatus {
@@ -52,23 +64,29 @@ func (h *Handler) collectNATSComponent(ctx context.Context, expectMLConsumers bo
 	if js == nil {
 		return systemstatus.NATSStatusFromSnapshot(snap)
 	}
+	collectNATSJetStreamSnapshot(&snap, js, expectMLConsumers)
+	return systemstatus.NATSStatusFromSnapshot(snap)
+}
+
+func collectNATSJetStreamSnapshot(snap *systemstatus.NATSSnapshot, js natsStreamInspector, expectMLConsumers bool) {
 	snap.JetStreamOK = true
 	snap.IntrospectionAvailable = true
 	snap.StreamPresent = true
 	snap.ConsumersPresent = true
-	streams := append([]string{}, expectedNATSCoreStreams...)
+	queues := append([]expectedNATSQueue{}, expectedNATSCoreQueues...)
 	if expectMLConsumers {
-		streams = append(streams, expectedNATSMLStreams...)
+		queues = append(queues, expectedNATSMLQueues...)
 	}
-	for _, stream := range streams {
-		if _, err := js.StreamInfo(stream); err != nil {
+	for _, queue := range queues {
+		stream, ok := resolveNATSStream(js, queue)
+		if !ok {
 			snap.StreamPresent = false
 			continue
 		}
 		if !expectMLConsumers {
 			continue
 		}
-		for _, consumer := range expectedNATSConsumers[stream] {
+		for _, consumer := range queue.consumers {
 			info, err := js.ConsumerInfo(stream, consumer)
 			if err != nil {
 				snap.ConsumersPresent = false
@@ -78,7 +96,18 @@ func (h *Handler) collectNATSComponent(ctx context.Context, expectMLConsumers bo
 			snap.Redelivered += int(info.NumRedelivered)
 		}
 	}
-	return systemstatus.NATSStatusFromSnapshot(snap)
+}
+
+func resolveNATSStream(js natsStreamInspector, queue expectedNATSQueue) (string, bool) {
+	if stream, err := js.StreamNameBySubject(queue.subject); err == nil && stream != "" {
+		if _, infoErr := js.StreamInfo(stream); infoErr == nil {
+			return stream, true
+		}
+	}
+	if _, err := js.StreamInfo(queue.stream); err == nil {
+		return queue.stream, true
+	}
+	return "", false
 }
 
 func (h *Handler) collectMLComponent(ctx context.Context) systemstatus.ComponentStatus {
@@ -226,6 +255,9 @@ func (h *Handler) collectTilesComponent(ctx context.Context, caps capabilities.C
 	}
 	snap := systemstatus.PMTilesSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil && h.Config != nil {
+		if info, err := os.Stat(h.Config.TilesDir); err == nil && info.IsDir() {
+			snap.DirPresent = true
+		}
 		snap.FileCount = countFilesWithSuffix(h.Config.TilesDir, ".pmtiles", false)
 	}
 	return systemstatus.PMTilesStatusFromSnapshot(snap)

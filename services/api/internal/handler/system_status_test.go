@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
 	"github.com/go-chi/chi/v5"
+	natsgo "github.com/nats-io/nats.go"
 )
 
 func TestAdminSystemStatusHandlerReturnsSchemaVersion(t *testing.T) {
@@ -219,6 +220,39 @@ func TestCollectNATSComponentTreatsConfiguredMissingConnectionAsUnavailable(t *t
 	}
 }
 
+func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
+	js := fakeNATSInspector{
+		subjectStreams: map[string]string{
+			"skadia.photo.embed":          "SKADIA",
+			"skadia.stage2.high":          "SKADIA",
+			"skadia.document.uploaded":    "SKADIA",
+			"skadia.analytics.invalidate": "SKADIA",
+		},
+		streams: map[string]bool{"SKADIA": true},
+		consumers: map[string]map[string]natsgo.ConsumerInfo{
+			"SKADIA": {
+				"ml-stage2-high":          {NumPending: 2},
+				"ml-stage2-normal":        {},
+				"ml-stage2-low":           {},
+				"ml-document-processor":   {},
+				"ml-analytics-invalidate": {NumPending: 3},
+				"ml-photo-embed":          {},
+			},
+		},
+	}
+	snap := systemstatus.NATSSnapshot{Configured: true, Connected: true}
+
+	collectNATSJetStreamSnapshot(&snap, js, true)
+	got := systemstatus.NATSStatusFromSnapshot(snap)
+
+	if got.State != systemstatus.StatusOK {
+		t.Fatalf("NATS status = %+v, want ok for consumers on wildcard SKADIA stream", got)
+	}
+	if got.Details["pending_message_count"] != "5" {
+		t.Fatalf("pending_message_count = %q, want 5", got.Details["pending_message_count"])
+	}
+}
+
 func TestCollectMLSnapshotUsesInternalStatusForBuildAndRoles(t *testing.T) {
 	ml := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -248,6 +282,38 @@ func TestCollectMLSnapshotUsesInternalStatusForBuildAndRoles(t *testing.T) {
 	if got.State != "degraded" || got.ReasonCode != "ml_roles_unavailable" {
 		t.Fatalf("ML status = %+v, want degraded ml_roles_unavailable", got)
 	}
+}
+
+type fakeNATSInspector struct {
+	subjectStreams map[string]string
+	streams        map[string]bool
+	consumers      map[string]map[string]natsgo.ConsumerInfo
+}
+
+func (f fakeNATSInspector) StreamInfo(stream string, opts ...natsgo.JSOpt) (*natsgo.StreamInfo, error) {
+	if f.streams[stream] {
+		return &natsgo.StreamInfo{Config: natsgo.StreamConfig{Name: stream}}, nil
+	}
+	return nil, errors.New("stream not found")
+}
+
+func (f fakeNATSInspector) StreamNameBySubject(subject string, opts ...natsgo.JSOpt) (string, error) {
+	if stream := f.subjectStreams[subject]; stream != "" {
+		return stream, nil
+	}
+	return "", errors.New("stream not found")
+}
+
+func (f fakeNATSInspector) ConsumerInfo(stream, consumer string, opts ...natsgo.JSOpt) (*natsgo.ConsumerInfo, error) {
+	byConsumer := f.consumers[stream]
+	if byConsumer == nil {
+		return nil, errors.New("consumer not found")
+	}
+	info, ok := byConsumer[consumer]
+	if !ok {
+		return nil, errors.New("consumer not found")
+	}
+	return &info, nil
 }
 
 func TestCollectMLSnapshotDegradesWhenInternalStatusAuthUnavailable(t *testing.T) {

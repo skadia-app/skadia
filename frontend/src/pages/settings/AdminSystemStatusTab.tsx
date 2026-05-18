@@ -90,7 +90,7 @@ export default function AdminSystemStatusTab() {
           ['OSM-Geodaten', data.components.osm],
           ['Höhendaten', data.components.dem],
           ['Coverage', data.components.coverage],
-          ['Kartendateien', data.components.tiles],
+          ['Offline-Karte (PMTiles)', data.components.tiles],
         ]} />
       </SettingsSection>
       {data.feature_matrix && (
@@ -152,7 +152,7 @@ function StatusCard({ title, component, compact = false }: { title: string; comp
           {details.map(([key, value]) => (
             <div key={key} className="flex min-w-0 justify-between gap-3">
               <dt className="truncate">{detailLabel(key)}</dt>
-              <dd className="truncate text-right font-mono text-neutral-700 dark:text-neutral-300">{value}</dd>
+              <dd className="truncate text-right font-mono text-neutral-700 dark:text-neutral-300">{detailValue(value)}</dd>
             </div>
           ))}
         </dl>
@@ -293,6 +293,7 @@ const REASON_LABELS: Record<string, string> = {
   nats_unavailable: 'NATS ist nicht erreichbar.',
   not_configured: 'Nicht konfiguriert.',
   pmtiles_missing: 'Kartendateien fehlen.',
+  pmtiles_dir_missing: 'PMTiles-Verzeichnis ist nicht eingebunden.',
   postgis_missing: 'PostGIS ist nicht verfügbar.',
   replica_count_unknown: 'Replikationssicherheit konnte nicht bewertet werden.',
   routing_tiles_missing: 'Routing-Kacheln fehlen.',
@@ -376,12 +377,55 @@ function reasonLabel(reason: string): string {
   return REASON_LABELS[reason] ?? reason
 }
 
+const DETAIL_LABELS: Record<string, string> = {
+  active_exports_count: 'Aktive Exporte',
+  active_imports_count: 'Aktive Importe',
+  artifact_counter_error_count: 'Artefakt-Zählfehler',
+  available: 'Verfügbar',
+  backend: 'Backend',
+  compressed_chunks_count: 'Komprimierte Chunks',
+  configured: 'Konfiguriert',
+  corrupt_cell_count: 'Beschädigte Zellen',
+  directory_present: 'Verzeichnis eingebunden',
+  disabled_consumer_count: 'Deaktivierte Consumer',
+  extension_fuzzystrmatch: 'Erweiterung fuzzystrmatch',
+  extension_pg_trgm: 'Erweiterung pg_trgm',
+  extension_pgcrypto: 'Erweiterung pgcrypto',
+  failed_last_24h_count: 'Fehler letzte 24 h',
+  layer_count: 'Layer',
+  llm_broker_status: 'LLM-Broker',
+  metrics_available: 'Metriken verfügbar',
+  missing_role_count: 'Fehlende Rollen',
+  mode: 'Modus',
+  oldest_pending_age_seconds: 'Ältester Rückstand (s)',
+  pending_message_count: 'Offene Nachrichten',
+  pmtiles_file_count: 'PMTiles-Dateien',
+  profile_count: 'Profile',
+  redelivered_count: 'Erneute Zustellungen',
+  region_count: 'Regionen',
+  replica_count: 'Replikas',
+  running_count: 'Offene Jobs',
+  segment_count: 'Segmente',
+  state: 'Status',
+  status_accessible: 'Status erreichbar',
+  tile_count: 'Tiles',
+  uncompressed_chunks_count: 'Unkomprimierte Chunks',
+  version: 'Version',
+}
+
 function detailLabel(key: string): string {
+  if (DETAIL_LABELS[key]) return DETAIL_LABELS[key]
   return key
     .split('_')
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function detailValue(value: string): string {
+  if (value === 'true') return 'Ja'
+  if (value === 'false') return 'Nein'
+  return value
 }
 
 function serviceLabel(service: string): string {

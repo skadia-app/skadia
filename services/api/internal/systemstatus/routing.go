@@ -55,6 +55,7 @@ type CoverageSnapshot struct {
 
 type PMTilesSnapshot struct {
 	FileCount       int
+	DirPresent      bool
 	LastBuildStatus string
 	CheckedAt       time.Time
 }
@@ -181,15 +182,21 @@ func CoverageStatusFromSnapshot(s CoverageSnapshot) ComponentStatus {
 func PMTilesStatusFromSnapshot(s PMTilesSnapshot) ComponentStatus {
 	st := ComponentStatus{
 		Key:       "tiles",
-		Label:     "Map tiles",
+		Label:     "Offline map tiles",
 		State:     StatusOK,
 		CheckedAt: checkedAtOrNow(s.CheckedAt),
 		Details: map[string]string{
-			"file_count": strconv.Itoa(s.FileCount),
+			"pmtiles_file_count": strconv.Itoa(s.FileCount),
+			"directory_present":  strconv.FormatBool(s.DirPresent),
 		},
 	}
 	if s.LastBuildStatus != "" {
 		st.Details["state"] = s.LastBuildStatus
+	}
+	if !s.DirPresent {
+		st.State = StatusMissingArtifacts
+		st.ReasonCode = "pmtiles_dir_missing"
+		return st
 	}
 	if s.FileCount == 0 {
 		st.State = StatusMissingArtifacts
