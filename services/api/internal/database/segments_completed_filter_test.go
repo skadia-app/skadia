@@ -202,7 +202,7 @@ func TestListSegmentsElevationKindDoesNotIncludeLiftsByAccident(t *testing.T) {
 	ctx := context.Background()
 	prefix := fmt.Sprintf("elevation-lift-gate-%d", time.Now().UnixNano())
 
-	standard := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-standard", "standard", "standard", nil)
+	standard := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-standard", "standard", "bergauf", nil)
 	lift := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-lift", "lift", "standard", nil)
 	t.Cleanup(func() {
 		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM segments WHERE id = ANY($1::uuid[])`, []string{standard.ID, lift.ID})
@@ -211,7 +211,7 @@ func TestListSegmentsElevationKindDoesNotIncludeLiftsByAccident(t *testing.T) {
 	result, err := db.ListSegments(ctx, model.ListSegmentsParams{
 		UserID:        userID,
 		Name:          prefix,
-		ElevationKind: "flat",
+		ElevationKind: "uphill",
 		Limit:         -1,
 	})
 	if err != nil {
@@ -225,7 +225,7 @@ func TestListSegmentsElevationKindDoesNotIncludeLiftsByAccident(t *testing.T) {
 		UserID:        userID,
 		Name:          prefix,
 		SegmentTypes:  "standard,lift",
-		ElevationKind: "flat",
+		ElevationKind: "uphill",
 		Limit:         -1,
 	})
 	if err != nil {

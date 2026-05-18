@@ -104,4 +104,17 @@ func assertImportedLiftShape(t *testing.T, db *DB, osmID int64, wantSegments, wa
 	if segments != wantSegments || versions != wantVersions {
 		t.Fatalf("lift import shape = segments:%d versions:%d, want %d/%d", segments, versions, wantSegments, wantVersions)
 	}
+	var terrainType, climbType, elevationKind string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT terrain_type, climb_type, elevation_kind
+		FROM segments
+		WHERE osm_lift_id = $1 AND segment_type = 'lift'
+		LIMIT 1
+	`, osmID).Scan(&terrainType, &climbType, &elevationKind); err != nil {
+		t.Fatalf("query lift classification: %v", err)
+	}
+	if terrainType != "lift" || climbType != "bergfahrt" || elevationKind != "uphill" {
+		t.Fatalf("lift classification = terrain:%s climb:%s elevation:%s, want lift/bergfahrt/uphill",
+			terrainType, climbType, elevationKind)
+	}
 }

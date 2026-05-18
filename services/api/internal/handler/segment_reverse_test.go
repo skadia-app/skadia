@@ -63,8 +63,8 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.EffortsUpdated != 2 {
-		t.Errorf("EffortsUpdated = %d, want 2", resp.EffortsUpdated)
+	if resp.EffortsUpdated != 0 {
+		t.Errorf("EffortsUpdated = %d, want 0", resp.EffortsUpdated)
 	}
 
 	// Verify track is reversed
@@ -80,15 +80,17 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 		t.Errorf("track = %q, want LINESTRING(2 2,1 1,0 0)", track)
 	}
 
-	// Verify efforts are flipped
+	// Historical efforts stay attached to the version that matched them. Reversing
+	// a segment creates a new current version, but it must not rewrite frozen
+	// effort direction metadata from older versions.
 	var e1Rev, e2Rev bool
 	pool.QueryRow(context.Background(), "SELECT is_reverse FROM segment_efforts WHERE id = $1", effort1ID).Scan(&e1Rev)
 	pool.QueryRow(context.Background(), "SELECT is_reverse FROM segment_efforts WHERE id = $1", effort2ID).Scan(&e2Rev)
-	if !e1Rev {
-		t.Error("effort 1 should be reversed")
+	if e1Rev {
+		t.Error("effort 1 should remain forward")
 	}
-	if e2Rev {
-		t.Error("effort 2 should NOT be reversed")
+	if !e2Rev {
+		t.Error("effort 2 should remain reverse")
 	}
 	var e1Direction, e1Identity, e2Direction, e2Identity string
 	if err := pool.QueryRow(context.Background(),
@@ -99,11 +101,54 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 		`SELECT leaderboard_direction, match_identity_key FROM segment_efforts WHERE id = $1`, effort2ID).Scan(&e2Direction, &e2Identity); err != nil {
 		t.Fatalf("query effort 2 metadata: %v", err)
 	}
-	if e1Direction != "reverse" || !strings.Contains(e1Identity, ":direction:reverse:") {
-		t.Fatalf("effort 1 metadata = %s/%s, want reverse direction", e1Direction, e1Identity)
+	if e1Direction != "forward" || !strings.Contains(e1Identity, ":direction:forward:") {
+		t.Fatalf("effort 1 metadata = %s/%s, want frozen forward direction", e1Direction, e1Identity)
 	}
-	if e2Direction != "forward" || !strings.Contains(e2Identity, ":direction:forward:") {
-		t.Fatalf("effort 2 metadata = %s/%s, want forward direction", e2Direction, e2Identity)
+	if e2Direction != "reverse" || !strings.Contains(e2Identity, ":direction:reverse:") {
+		t.Fatalf("effort 2 metadata = %s/%s, want frozen reverse direction", e2Direction, e2Identity)
+	}
+}
+
+func TestReverseSegmentPreservesSameActivityOppositeDirectionEfforts_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track: "LINESTRING(0 0, 1 1, 2 2)",
+	})
+	versionID := lookupLatestTestSegmentVersion(t, pool, segmentID)
+	activityID := insertTestActivityAt(t, pool, userID, time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC))
+
+	for _, isReverse := range []bool{false, true} {
+		insertTestEffortForActivity(t, pool, segmentID, versionID, activityID, userID, isReverse)
+	}
+
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/{id}/reverse", h.ReverseSegment)
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/"+segmentID+"/reverse", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Code = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var forward, reverse int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE leaderboard_direction = 'forward'),
+			COUNT(*) FILTER (WHERE leaderboard_direction = 'reverse')
+		FROM segment_efforts
+		WHERE segment_id = $1 AND activity_id = $2 AND segment_version_id = $3`,
+		segmentID, activityID, versionID).Scan(&forward, &reverse); err != nil {
+		t.Fatalf("count directions: %v", err)
+	}
+	if forward != 1 || reverse != 1 {
+		t.Fatalf("directions after reverse = forward:%d reverse:%d, want 1/1", forward, reverse)
 	}
 }
 

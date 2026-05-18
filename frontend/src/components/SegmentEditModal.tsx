@@ -159,11 +159,11 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
 
   const reverseMutation = useMutation({
     mutationFn: () => reverseSegment(initialSegment.id),
-    onSuccess: (resp) => {
+    onSuccess: () => {
       addToast({
         type: 'success',
         title: 'Segment umgekehrt',
-        message: resp.efforts_updated === 1 ? '1 Effort aktualisiert' : `${resp.efforts_updated} Efforts aktualisiert`,
+        message: 'Bestehende Efforts bleiben ihrer ursprünglichen Version zugeordnet.',
       })
       qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       qc.invalidateQueries({ queryKey: ['segments'] })
@@ -176,8 +176,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
 
   function handleReverse() {
     const effortMsg = segment.effort_count > 0
-      ? `${segment.effort_count} öffentliche Efforts + eigene private Efforts werden mit invertiertem is_reverse-Flag aktualisiert und die Segment-Ranks neu berechnet. Diese Aktion kann nicht rückgängig gemacht werden.`
-      : 'Keine öffentlichen Efforts betroffen. Richtung des Segments umkehren?'
+      ? `Die Richtung wird als neue Segmentversion gespeichert. Bestehende Efforts bleiben ihrer ursprünglichen Version zugeordnet. Diese Aktion kann nicht rückgängig gemacht werden.`
+      : 'Richtung des Segments als neue Version speichern?'
     openModal({
       title: 'Richtung umkehren?',
       message: effortMsg,

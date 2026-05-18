@@ -33,8 +33,18 @@ ALTER TABLE segment_efforts
     ADD COLUMN IF NOT EXISTS leaderboard_contract_version INTEGER NOT NULL DEFAULT 1;
 
 UPDATE segments
+SET terrain_type = 'lift',
+    climb_type = 'bergfahrt'
+WHERE segment_type = 'lift'
+  AND (
+      terrain_type IS DISTINCT FROM 'lift'
+      OR climb_type IS DISTINCT FROM 'bergfahrt'
+  );
+
+UPDATE segments
 SET elevation_kind = CASE
     WHEN segment_type = 'lap' THEN 'flat'
+    WHEN segment_type = 'lift' THEN 'uphill'
     WHEN climb_type IN ('bergauf', 'bergfahrt') THEN 'uphill'
     WHEN climb_type IN ('bergab', 'talfahrt') THEN 'downhill'
     ELSE 'flat'
@@ -60,10 +70,24 @@ CREATE OR REPLACE FUNCTION normalize_segment_elevation_kind()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
-BEGIN
-    IF NEW.segment_type = 'lap' THEN
-        NEW.elevation_kind := 'flat';
-        NEW.climb_type := 'standard';
+	BEGIN
+	    IF NEW.segment_type = 'lift' THEN
+	        NEW.terrain_type := 'lift';
+	        IF NEW.climb_type IS NULL OR NEW.climb_type = '' OR NEW.climb_type = 'standard' THEN
+	            NEW.climb_type := 'bergfahrt';
+	        END IF;
+	        IF NEW.elevation_kind IS NULL THEN
+	            NEW.elevation_kind := CASE
+	                WHEN NEW.climb_type IN ('bergab', 'talfahrt') THEN 'downhill'
+	                ELSE 'uphill'
+	            END;
+	        END IF;
+	        RETURN NEW;
+	    END IF;
+
+	    IF NEW.segment_type = 'lap' THEN
+	        NEW.elevation_kind := 'flat';
+	        NEW.climb_type := 'standard';
         RETURN NEW;
     END IF;
 

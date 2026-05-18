@@ -108,3 +108,117 @@ func TestCreateNewSegmentVersionUsesActiveVersionBeforeFutureVersion(t *testing.
 		t.Fatalf("new track = %q, want copy of currently active v1 track", track)
 	}
 }
+
+func TestListActivityIDsForSegmentBackfillUsesActivityTimeVersion(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID := uuid.NewString()
+	insertCandidateSegment(t, db, userID, segmentID, "Historical Backfill Version", "bike", "standard", "")
+
+	historicalAt := time.Date(2024, 1, 2, 8, 0, 0, 0, time.UTC)
+	futureAt := historicalAt.Add(24 * time.Hour)
+	var v1ID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM segment_versions
+		WHERE segment_id = $1 AND version_number = 1`, segmentID).Scan(&v1ID); err != nil {
+		t.Fatalf("lookup v1: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE segment_versions
+		SET valid_from_at = NULL,
+		    valid_until_at = $2,
+		    validity_basis = 'unknown_start'
+		WHERE id = $1`, v1ID, futureAt); err != nil {
+		t.Fatalf("bound v1: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_versions (
+			id, segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT gen_random_uuid(), $1, 2,
+		       ST_GeomFromText('LINESTRING(9 49, 9.01 49.01)', 4326),
+		       ST_StartPoint(ST_GeomFromText('LINESTRING(9 49, 9.01 49.01)', 4326)),
+		       ST_EndPoint(ST_GeomFromText('LINESTRING(9 49, 9.01 49.01)', 4326)),
+		       CURRENT_DATE, $2, $3, 'editor_asserted', 'course_gps_v1', 1, $3`,
+		segmentID, userID, futureAt); err != nil {
+		t.Fatalf("insert v2: %v", err)
+	}
+
+	activityID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at)
+		VALUES ($1, $2, 'cycling', $3)`, activityID, userID, historicalAt); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM activities WHERE id = $1`, activityID)
+	})
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
+		VALUES (
+			$1,
+			ST_GeomFromText('LINESTRING(8 49,8.01 49.01)', 4326),
+			ST_GeomFromText('LINESTRING(8 49,8.01 49.01)', 4326),
+			ST_Envelope(ST_GeomFromText('LINESTRING(8 49,8.01 49.01)', 4326)),
+			2
+		)`, activityID); err != nil {
+		t.Fatalf("insert activity track: %v", err)
+	}
+
+	ids, err := db.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
+	if err != nil {
+		t.Fatalf("ListActivityIDsForSegmentBackfill: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != activityID {
+		t.Fatalf("backfill ids = %v, want historical activity %s", ids, activityID)
+	}
+}
+
+func TestDeleteSegmentEffortsBySegmentForActivitiesPreservesOutsideActivities(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID := uuid.NewString()
+	insertCandidateSegment(t, db, userID, segmentID, "Scoped Delete Segment", "bike", "standard", "")
+	var versionID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM segment_versions
+		WHERE segment_id = $1 AND version_number = 1`, segmentID).Scan(&versionID); err != nil {
+		t.Fatalf("lookup version: %v", err)
+	}
+
+	activityIDs := []string{uuid.NewString(), uuid.NewString()}
+	for _, activityID := range activityIDs {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO activities (id, user_id, sport_type, started_at)
+			VALUES ($1, $2, 'cycling', '2024-01-02T08:00:00Z')`, activityID, userID); err != nil {
+			t.Fatalf("insert activity %s: %v", activityID, err)
+		}
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO segment_efforts (
+				segment_id, segment_version_id, activity_id, user_id,
+				started_at, elapsed_time_s, sport_type, sub_type
+			)
+			VALUES ($1, $2, $3, $4, '2024-01-02T08:00:00Z', 120, 'cycling', 'generic')`,
+			segmentID, versionID, activityID, userID); err != nil {
+			t.Fatalf("insert effort %s: %v", activityID, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM activities WHERE id = ANY($1::uuid[])`, activityIDs)
+	})
+
+	if err := db.DeleteSegmentEffortsBySegmentForActivities(ctx, segmentID, userID, []string{activityIDs[0]}); err != nil {
+		t.Fatalf("DeleteSegmentEffortsBySegmentForActivities: %v", err)
+	}
+
+	var remaining int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM segment_efforts
+		WHERE segment_id = $1 AND activity_id = $2`, segmentID, activityIDs[1]).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("outside activity effort count = %d, want preserved", remaining)
+	}
+}

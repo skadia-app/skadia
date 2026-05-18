@@ -180,7 +180,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_type", r.URL.Path)
 		return
 	}
-	if create.TerrainType == "" {
+	if create.TerrainType == "" && create.SegmentType == "lift" {
+		create.TerrainType = "lift"
+	} else if create.TerrainType == "" {
 		create.TerrainType = "standard"
 	}
 	if create.ClimbType == "" {
@@ -720,17 +722,21 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
-// recomputeSegmentEfforts deletes all existing segment_efforts for the given
-// segment/user pair and re-matches every eligible activity against it.
+// recomputeSegmentEfforts deletes segment_efforts for the activity set that can
+// be rebuilt, then re-matches every eligible activity against the version active
+// at that activity's start time.
 // It is the library-level core used by both RecomputeSegment (HTTP-triggered,
 // with job tracking) and RecomputeEffortsForActivity (post-fusion, non-fatal).
 //
 // The caller is responsible for running this inside a shutdown.Go goroutine
 // or other long-running context when appropriate.
 func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID string) error {
-	ids, err := h.DB.ListActivityIDsForSegmentRecompute(ctx, userID, segmentID)
+	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
 	if err != nil {
-		return fmt.Errorf("list activities for recompute: %w", err)
+		return fmt.Errorf("list activities for backfill: %w", err)
+	}
+	if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, segmentID, userID, ids); err != nil {
+		return fmt.Errorf("delete existing efforts: %w", err)
 	}
 
 	slog.Info("segment recompute: starting", "segment_id", segmentID, "activity_count", len(ids))
@@ -1029,6 +1035,11 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-recompute-"+id, func(ctx context.Context) {
 		failed := false
 
+		if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, id, userID, ids); err != nil {
+			slog.Error("segment recompute: delete existing efforts failed", "segment_id", id, "error", err)
+			failed = true
+		}
+
 		if !failed {
 			slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
 			for i, actID := range ids {
@@ -1132,6 +1143,11 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 
 	shutdown.Go("segment-publish-"+id, func(ctx context.Context) {
 		failed := false
+
+		if err := h.DB.DeleteAllSegmentEffortsBySegmentForActivities(ctx, id, ids); err != nil {
+			slog.Error("publish recompute: delete efforts failed", "segment_id", id, "error", err)
+			failed = true
+		}
 
 		if !failed {
 			for i, actID := range ids {
