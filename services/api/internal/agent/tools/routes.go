@@ -277,6 +277,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	result["preview"] = true
 	result["profile_key"] = resolved.Key
 	result["routing_profile"] = resolved.Label
+	result["routing_engine"] = "brouter"
 	attachRoutePreviewToken(userID, result, resolved.Key, resolved.BaseProfile, resolved.ProfileVersion)
 	return result, nil
 }
@@ -687,7 +688,7 @@ func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) 
 			Engine:              "brouter",
 			BaseProfile:         name,
 			Constraints:         map[string]any{"profile_params": routing.BRouterProfileParamKeys(name)},
-			Supports:            routingProfileSupports("brouter", routing.SourceFilesystem, deps != nil && deps.RouteGoalSuggester != nil, name),
+			Supports:            routingProfileSupports("brouter", routing.SourceFilesystem, deps != nil && deps.RouteGoalSuggester != nil, name, true),
 			SemanticPreferences: routingProfileSemanticPreferences(),
 			ElevationSemantics:  routingProfileElevationSemantics(),
 			ProfileVersion:      "filesystem:" + name,
@@ -723,7 +724,7 @@ func routingProfileToolItemFromDB(p database.RoutingProfile, routeSuggesterAvail
 			"route_preview_no_save":   true,
 			"route_preview_read_only": true,
 		},
-		Supports:            routingProfileSupports("badrouter", p.Source, routeSuggesterAvailable, p.BaseProfile),
+		Supports:            routingProfileSupports("badrouter", p.Source, routeSuggesterAvailable, p.BaseProfile, previewProfile != ""),
 		SemanticPreferences: routingProfileSemanticPreferences(),
 		ElevationSemantics:  routingProfileElevationSemantics(),
 		ProfileVersion:      routingProfileVersion(p),
@@ -731,15 +732,15 @@ func routingProfileToolItemFromDB(p database.RoutingProfile, routeSuggesterAvail
 	}
 }
 
-func routingProfileSupports(engine, source string, routeSuggesterAvailable bool, profileKey string) map[string]bool {
+func routingProfileSupports(engine, source string, routeSuggesterAvailable bool, profileKey string, directPreview bool) map[string]bool {
 	routeSuggestion := routeSuggesterAvailable && routeSuggestionProfileSupported(profileKey)
 	return map[string]bool{
-		"direct_route_preview":                  true,
+		"direct_route_preview":                  directPreview,
 		"route_suggestion":                      routeSuggestion,
 		"round_trip":                            routeSuggestion,
-		"direct_preview_way_type_metadata":      true,
-		"direct_preview_surface_metadata":       true,
-		"direct_preview_sac_mtb_ranges":         true,
+		"direct_preview_way_type_metadata":      directPreview,
+		"direct_preview_surface_metadata":       directPreview,
+		"direct_preview_sac_mtb_ranges":         directPreview,
 		"direct_preview_coverage_percentages":   false,
 		"route_suggestion_coverage_percentages": engine == "badrouter" && routeSuggestion,
 		"imported_custom":                       source != routing.SourceFilesystem && source != "system",

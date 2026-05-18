@@ -1636,6 +1636,9 @@ export function useRoutePlanner() {
       routeSchemaVersion: null,
       calculationError: null,
       isCalculating: false,
+      routingEngine: 'badrouter',
+      lastRenderedEngine: 'badrouter',
+      dirtyEngines: { ...st.dirtyEngines, badrouter: false },
       // Critic #4 (MAJOR): hydrate effectiveProfile from suggestion top-level.
       // Top-level is authoritative (Spec §6.4), per-feature is for per-segment
       // wiring (already done via segElevationProfile above).

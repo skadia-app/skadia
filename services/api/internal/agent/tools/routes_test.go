@@ -141,6 +141,12 @@ func TestExecutePlanRouteAddsWayTagMetadata(t *testing.T) {
 	}
 
 	got := result.(map[string]any)
+	if got["routing_engine"] != "brouter" {
+		t.Fatalf("routing_engine = %#v, want brouter", got["routing_engine"])
+	}
+	if got["route_preview_token"] == "" || got["geometry_geojson"] == "" {
+		t.Fatalf("route preview token/geometry missing from %#v", got)
+	}
 	props := got["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
 	segments, ok := props["segments"].([]map[string]any)
 	if !ok {
@@ -382,6 +388,32 @@ func TestExecuteListRoutingProfilesVisibleToUser(t *testing.T) {
 		if profile.ProfileVersion == "" {
 			t.Fatalf("profile %q missing profile version/fingerprint metadata: %#v", profile.Label, profile)
 		}
+	}
+}
+
+func TestRoutingProfileToolItemFromDBDoesNotAdvertiseUnsupportedPreview(t *testing.T) {
+	item := routingProfileToolItemFromDB(database.RoutingProfile{
+		ID:          uuid.NewString(),
+		Name:        "Unsupported Preview",
+		BaseProfile: "ski",
+		Source:      "custom",
+		Config:      []byte(`{"profile":"ski"}`),
+	}, true)
+
+	if item.Supports["direct_route_preview"] {
+		t.Fatalf("direct_route_preview = true for unsupported preview profile: %#v", item)
+	}
+	for _, key := range []string{
+		"direct_preview_way_type_metadata",
+		"direct_preview_surface_metadata",
+		"direct_preview_sac_mtb_ranges",
+	} {
+		if item.Supports[key] {
+			t.Fatalf("%s = true for unsupported preview profile: %#v", key, item)
+		}
+	}
+	if got := item.Constraints["route_preview_profile"]; got != "" {
+		t.Fatalf("route_preview_profile = %#v, want empty", got)
 	}
 }
 
