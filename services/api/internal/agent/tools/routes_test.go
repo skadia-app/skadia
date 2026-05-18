@@ -101,6 +101,68 @@ func TestExecutePlanRouteHTTP(t *testing.T) {
 	}
 }
 
+func TestExecutePlanRouteAddsWayTagMetadata(t *testing.T) {
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"type": "FeatureCollection",
+			"features": []any{map[string]any{
+				"type": "Feature",
+				"properties": map[string]any{
+					"messages": []any{
+						[]any{"Longitude", "Latitude", "Elevation", "Distance", "WayTags"},
+						[]any{"11576298", "48137118", "523", "14", "highway=footway surface=paving_stones sac_scale=mountain_hiking"},
+						[]any{"11576413", "48137263", "523", "19", "highway=path surface=ground mtb:scale=2 mtb:scale:uphill=1 trail_visibility=good"},
+					},
+				},
+				"geometry": map[string]any{
+					"type": "LineString",
+					"coordinates": []any{
+						[]any{11.576124, 48.137154, 523},
+						[]any{11.576298, 48.137118, 523},
+						[]any{11.576413, 48.137263, 523},
+					},
+				},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.576124,48.137154],[11.576413,48.137263]],
+		"profile": "hiking-mountain"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	if !strings.Contains(gotQuery, "profile%3AprocessUnusedTags=1") {
+		t.Fatalf("query missing processUnusedTags=1 in %q", gotQuery)
+	}
+
+	got := result.(map[string]any)
+	props := got["features"].([]any)[0].(map[string]any)["properties"].(map[string]any)
+	segments, ok := props["segments"].([]map[string]any)
+	if !ok {
+		t.Fatalf("segments type = %T, want []map[string]any", props["segments"])
+	}
+	if len(segments) != 2 {
+		t.Fatalf("segments len = %d, want 2", len(segments))
+	}
+	if segments[0]["highway"] != "footway" || segments[0]["surface"] != "paving_stones" || segments[0]["sac_scale"] != "T2" {
+		t.Fatalf("first segment tags = %#v", segments[0])
+	}
+	if segments[1]["highway"] != "path" || segments[1]["surface"] != "ground" || segments[1]["mtb_scale"] != "S2" || segments[1]["trail_visibility"] != "good" {
+		t.Fatalf("second segment tags = %#v", segments[1])
+	}
+	if _, ok := props["sac_ranges"]; !ok {
+		t.Fatalf("sac_ranges missing from %#v", props)
+	}
+	if _, ok := props["mtb_ranges"]; !ok {
+		t.Fatalf("mtb_ranges missing from %#v", props)
+	}
+}
+
 func TestExecutePlanRouteRejectsUnknownProfileBeforeHTTP(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

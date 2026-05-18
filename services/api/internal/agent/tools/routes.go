@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/routing/brouterenrich"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
@@ -129,7 +130,7 @@ func RouteTools() []*Tool {
 		},
 		{
 			Name:        "plan_route",
-			Description: "Preview a route between [lng,lat] waypoints via the configured routing service. The profile must be a key from list_routing_profiles. This is read-only and never saves a route.",
+			Description: "Preview a route between [lng,lat] waypoints via the configured routing service. The profile must be a key from list_routing_profiles. This is read-only and never saves a route. BRouter previews may include segments, way types, surfaces, SAC/MTB ranges, and trail visibility when the segment response contains those tags; coverage percentages remain unavailable on this path.",
 			InputSchema: json.RawMessage(`{"type":"object","required":["waypoints","profile"],"properties":{"waypoints":{"type":"array","minItems":2,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}}},"profile":{"type":"string"},"profile_params":{"type":"object","additionalProperties":{"type":["string","number","boolean"]}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: false,
@@ -237,6 +238,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
 	}
+	params = brouterenrich.NormalizeWayTagProfileParams(params)
 	if err := routing.ValidateBRouterProfileParams(resolved.BaseProfile, params); err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
 	}
@@ -271,6 +273,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode BRouter response: %w", err)
 	}
+	brouterenrich.InjectWayTagEnrichment(result)
 	result["preview"] = true
 	result["profile_key"] = resolved.Key
 	result["routing_profile"] = resolved.Label
@@ -731,10 +734,15 @@ func routingProfileToolItemFromDB(p database.RoutingProfile, routeSuggesterAvail
 func routingProfileSupports(engine, source string, routeSuggesterAvailable bool, profileKey string) map[string]bool {
 	routeSuggestion := routeSuggesterAvailable && routeSuggestionProfileSupported(profileKey)
 	return map[string]bool{
-		"direct_route_preview": true,
-		"route_suggestion":     routeSuggestion,
-		"round_trip":           routeSuggestion,
-		"imported_custom":      source != routing.SourceFilesystem && source != "system",
+		"direct_route_preview":                  true,
+		"route_suggestion":                      routeSuggestion,
+		"round_trip":                            routeSuggestion,
+		"direct_preview_way_type_metadata":      true,
+		"direct_preview_surface_metadata":       true,
+		"direct_preview_sac_mtb_ranges":         true,
+		"direct_preview_coverage_percentages":   false,
+		"route_suggestion_coverage_percentages": engine == "badrouter" && routeSuggestion,
+		"imported_custom":                       source != routing.SourceFilesystem && source != "system",
 	}
 }
 

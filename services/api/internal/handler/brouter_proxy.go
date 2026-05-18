@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/routing/brouterenrich"
 )
 
 // validBRouterProfiles is the allowlist of BRouter routing profiles.
@@ -187,19 +188,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 }
 
 func ensureBRouterWayTagProfileParams(params map[string]string) map[string]string {
-	if params == nil {
-		params = map[string]string{}
-	}
-	if _, exists := params["processUnusedTags"]; !exists {
-		params["processUnusedTags"] = "1"
-	}
-	switch strings.ToLower(params["processUnusedTags"]) {
-	case "true":
-		params["processUnusedTags"] = "1"
-	case "false":
-		params["processUnusedTags"] = "0"
-	}
-	return params
+	return brouterenrich.NormalizeWayTagProfileParams(params)
 }
 
 type brouterSummitFinder func(context.Context, []byte, float64) ([]database.PassedSummit, error)
@@ -207,46 +196,14 @@ type brouterSummitFinder func(context.Context, []byte, float64) ([]database.Pass
 // brouterCoord captures one BRouter coordinate with explicit per-point
 // Z-availability. Used by extractCoordinates so that a single null/missing
 // Z-value does NOT discard the whole coord-list.
-type brouterCoord struct {
-	Lon, Lat float64
-	Ele      float64 // valid only when EleOK == true
-	EleOK    bool
-}
+type brouterCoord = brouterenrich.Coord
 
 // extractCoordinates parses feat.geometry.coordinates into []brouterCoord with
 // per-point Z-availability flag. Returns nil only if the geometry is structurally
 // missing (no `coordinates` array) — individual point-level issues (null Z,
 // wrong-length point) are recorded as EleOK=false rather than discarding everything.
 func extractCoordinates(feat map[string]any) []brouterCoord {
-	geomRaw, ok := feat["geometry"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	coordsRaw, ok := geomRaw["coordinates"].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]brouterCoord, 0, len(coordsRaw))
-	for _, c := range coordsRaw {
-		arr, ok := c.([]any)
-		if !ok || len(arr) < 2 {
-			continue
-		}
-		lon, lonOK := arr[0].(float64)
-		lat, latOK := arr[1].(float64)
-		if !lonOK || !latOK {
-			continue
-		}
-		bc := brouterCoord{Lon: lon, Lat: lat}
-		if len(arr) >= 3 {
-			if z, ok := arr[2].(float64); ok {
-				bc.Ele = z
-				bc.EleOK = true
-			}
-		}
-		out = append(out, bc)
-	}
-	return out
+	return brouterenrich.ExtractCoordinates(feat)
 }
 
 func brouterCoordsToRoutingCoords(coords []brouterCoord) []routing.LatLonEle {
