@@ -21,12 +21,14 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"allow_steps":              true,
 		"hiking_routes_preference": true,
 		"iswet":                    true,
+		"processUnusedTags":        true,
 		"turnInstructionMode":      true,
 	},
 	"hiking-sac2": {
 		"consider_elevation": true,
 		"downhillcost":       true,
 		"downhillcutoff":     true,
+		"processUnusedTags":  true,
 		"uphillcost":         true,
 		"uphillcutoff":       true,
 		"turncost":           true,
@@ -44,6 +46,7 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"allow_steps":              true,
 		"hiking_routes_preference": true,
 		"iswet":                    true,
+		"processUnusedTags":        true,
 		"turnInstructionMode":      true,
 	},
 	"walking": {
@@ -59,6 +62,7 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"allow_steps":              true,
 		"hiking_routes_preference": true,
 		"iswet":                    true,
+		"processUnusedTags":        true,
 		"turnInstructionMode":      true,
 	},
 	"trekking": {
@@ -122,6 +126,7 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"correctMisplacedViaPoints":         true,
 		"correctMisplacedViaPointsDistance": true,
 		"add_beeline":                       true,
+		"processUnusedTags":                 true,
 	},
 	"cycling-gravel": {
 		"turnInstructionMode":               true,
@@ -145,6 +150,7 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"prefer_forests":                    true,
 		"prefer_rivers":                     true,
 		"prefer_unpaved_paths":              true,
+		"processUnusedTags":                 true,
 	},
 }
 
@@ -181,6 +187,9 @@ func ValidateBRouterProfileParams(profile string, params map[string]string) erro
 	for key, value := range params {
 		if !isSafeProfileParamToken(key) || !isSafeProfileParamToken(value) {
 			return fmt.Errorf("profile_params.%s contains unsafe characters", key)
+		}
+		if key == "processUnusedTags" && value != "0" && value != "1" {
+			return fmt.Errorf("profile_params.%s must be 0 or 1", key)
 		}
 		if !surface[key] {
 			return fmt.Errorf("profile_params.%s is not supported by profile %q", key, profile)
