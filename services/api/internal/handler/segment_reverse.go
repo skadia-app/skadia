@@ -129,82 +129,76 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 	// start_point / end_point. Segment metadata lives on segments, so the
 	// parent row's effort_count/athlete_count and metadata are untouched.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point,
-		                              valid_from, created_by)
-		SELECT sv.segment_id,
-		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
-		       ST_Reverse(sv.track),
-		       sv.end_point,
-		       sv.start_point,
+		WITH boundary AS (
+			SELECT NOW() AS at
+		),
+		latest AS (
+			SELECT id, segment_id, version_number, track, start_point, end_point
+			FROM segment_versions
+			WHERE segment_id = $1
+			ORDER BY version_number DESC
+			LIMIT 1
+		),
+		closed AS (
+			UPDATE segment_versions sv
+			SET valid_until_at = boundary.at
+			FROM latest, boundary
+			WHERE sv.id = latest.id
+			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
+			RETURNING sv.id
+		)
+		INSERT INTO segment_versions (
+			segment_id, version_number, track, start_point, end_point,
+			valid_from, created_by, valid_from_at, valid_until_at, validity_basis,
+			matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT latest.segment_id,
+		       latest.version_number + 1,
+		       ST_Reverse(latest.track),
+		       latest.end_point,
+		       latest.start_point,
 		       CURRENT_DATE,
-		       $2
-		FROM segment_versions sv
-		WHERE sv.segment_id = $1
-		ORDER BY sv.version_number DESC
-		LIMIT 1`, segID, userID); err != nil {
+		       $2,
+		       boundary.at,
+		       NULL,
+		       'editor_asserted',
+		       'course_gps_v1',
+		       1,
+		       boundary.at
+		FROM latest, boundary, closed`, segID, userID); err != nil {
 		return 0, fmt.Errorf("insert reversed version: %w", err)
 	}
 
-	// Flip is_reverse on all efforts for this segment.
-	ct, err := tx.Exec(ctx, `UPDATE segment_efforts SET is_reverse = NOT is_reverse WHERE segment_id = $1`, segID)
+	// Flip active efforts and keep frozen match metadata coherent with the new direction.
+	ct, err := tx.Exec(ctx, `
+		UPDATE segment_efforts
+		SET is_reverse = NOT is_reverse,
+		    leaderboard_direction = CASE WHEN NOT is_reverse THEN 'reverse' ELSE 'forward' END,
+		    match_identity_key = concat_ws(':',
+		        match_source_type,
+		        match_source_id,
+		        'segment',
+		        segment_id::text,
+		        'version',
+		        segment_version_id::text,
+		        'contract',
+		        matching_contract_key,
+		        matching_contract_version::text,
+		        'direction',
+		        CASE WHEN NOT is_reverse THEN 'reverse' ELSE 'forward' END,
+		        'start',
+		        to_char(date_trunc('microseconds', started_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+		        'occurrence',
+		        occurrence_index::text
+		    )
+		WHERE segment_id = $1
+		  AND superseded_by_effort_id IS NULL`, segID)
 	if err != nil {
 		return 0, fmt.Errorf("update efforts: %w", err)
 	}
 
-	// Rank-recompute — literal copy of the two queries from
-	// database/segments.go:678 (UpdateSegmentEffortRanks). Copied inline because
-	// that method uses db.Pool.Exec directly and has no Tx-variant. A future
-	// refactor could introduce an Execer parameter so it accepts either pool
-	// or tx; for now we duplicate to keep the change surface small and make the
-	// reverse atomic (geometry + is_reverse + ranks either all commit or all roll back).
-	//
-	// IF YOU CHANGE EITHER QUERY HERE, mirror it in
-	// database/segments.go:UpdateSegmentEffortRanks (and vice-versa).
-	if _, err := tx.Exec(ctx, `
-		WITH
-		global_ranked AS (
-			SELECT se.id, se.started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
-			       ) AS rk,
-			       (ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
-			       ) = 1) AS is_record
-			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-			WHERE se.segment_id = $1 AND se.in_leaderboard = true
-		),
-		personal_ranked AS (
-			SELECT id, started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY sport_type, is_reverse, user_id
-			           ORDER BY elapsed_time_s ASC
-			       ) AS user_rk
-			FROM segment_efforts
-			WHERE segment_id = $1 AND in_leaderboard = true
-		)
-		UPDATE segment_efforts se
-		SET rank_overall      = gr.rk,
-		    is_personal_best  = (pr.user_rk = 1),
-		    personal_rank     = CASE WHEN pr.user_rk <= 3 THEN pr.user_rk::smallint ELSE NULL END,
-		    is_segment_record = COALESCE(gr.is_record, false)
-		FROM personal_ranked pr
-		LEFT JOIN global_ranked gr ON gr.id = pr.id AND gr.started_at = pr.started_at
-		WHERE se.id = pr.id AND se.started_at = pr.started_at`, segID); err != nil {
+	if err := database.UpdateSegmentEffortRanksTx(ctx, tx, segID); err != nil {
 		return 0, fmt.Errorf("recompute ranks: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE segments SET
-		    effort_count  = (SELECT COUNT(*) FROM segment_efforts se
-		                     JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-		                     WHERE se.segment_id = $1),
-		    athlete_count = (SELECT COUNT(DISTINCT se.user_id) FROM segment_efforts se
-		                     JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-		                     WHERE se.segment_id = $1)
-		WHERE id = $1`, segID); err != nil {
-		return 0, fmt.Errorf("update segment counts: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

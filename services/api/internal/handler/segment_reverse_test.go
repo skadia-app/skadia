@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -87,6 +88,21 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	}
 	if e2Rev {
 		t.Error("effort 2 should NOT be reversed")
+	}
+	var e1Direction, e1Identity, e2Direction, e2Identity string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT leaderboard_direction, match_identity_key FROM segment_efforts WHERE id = $1`, effort1ID).Scan(&e1Direction, &e1Identity); err != nil {
+		t.Fatalf("query effort 1 metadata: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT leaderboard_direction, match_identity_key FROM segment_efforts WHERE id = $1`, effort2ID).Scan(&e2Direction, &e2Identity); err != nil {
+		t.Fatalf("query effort 2 metadata: %v", err)
+	}
+	if e1Direction != "reverse" || !strings.Contains(e1Identity, ":direction:reverse:") {
+		t.Fatalf("effort 1 metadata = %s/%s, want reverse direction", e1Direction, e1Identity)
+	}
+	if e2Direction != "forward" || !strings.Contains(e2Identity, ":direction:forward:") {
+		t.Fatalf("effort 2 metadata = %s/%s, want forward direction", e2Direction, e2Identity)
 	}
 }
 
