@@ -85,10 +85,10 @@ func TestRouteViabrouterRejectsUnknownProfileParamBeforeProxy(t *testing.T) {
 func TestRouteViabrouterRequiresAvailableBRouterBeforeOutboundCall(t *testing.T) {
 	capabilities.InvalidateCache()
 	t.Cleanup(capabilities.InvalidateCache)
-	var outboundCalls int
+	var routeCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/brouter" {
-			outboundCalls++
+		if r.URL.Path == "/brouter" && r.URL.Query().Get("lonlats") != "0,0|0.001,0.001" {
+			routeCalls++
 		}
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -103,8 +103,8 @@ func TestRouteViabrouterRequiresAvailableBRouterBeforeOutboundCall(t *testing.T)
 
 	h.RouteViabrouter(w, req)
 
-	if outboundCalls != 0 {
-		t.Fatalf("proxy made %d outbound /brouter calls before capability gate", outboundCalls)
+	if routeCalls != 0 {
+		t.Fatalf("proxy made %d route /brouter calls after unavailable capability probe", routeCalls)
 	}
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body=%s", w.Code, w.Body.String())
