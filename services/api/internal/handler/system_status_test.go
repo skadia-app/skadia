@@ -1,0 +1,107 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/go-chi/chi/v5"
+)
+
+func TestAdminSystemStatusHandlerReturnsSchemaVersion(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
+	rec := httptest.NewRecorder()
+
+	h.GetAdminSystemStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"schema_version":1`) {
+		t.Fatalf("response missing schema_version: %s", rec.Body.String())
+	}
+}
+
+func TestAdminSystemStatusRouteRequiresAdmin(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	r := chi.NewRouter()
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(middleware.RequireAdmin())
+			r.Get("/system-status", h.GetAdminSystemStatus)
+		})
+	})
+
+	nonAdminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	nonAdminReq = nonAdminReq.WithContext(context.WithValue(nonAdminReq.Context(), middleware.IsAdminKey, false))
+	nonAdminRec := httptest.NewRecorder()
+	r.ServeHTTP(nonAdminRec, nonAdminReq)
+	if nonAdminRec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin status = %d, want 403", nonAdminRec.Code)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	adminReq = adminReq.WithContext(context.WithValue(adminReq.Context(), middleware.IsAdminKey, true))
+	adminRec := httptest.NewRecorder()
+	r.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d, want 200; body=%s", adminRec.Code, adminRec.Body.String())
+	}
+}
+
+func TestPublicProbeDependencyFailureIsGeneric(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		err  error
+		want string
+	}{
+		{name: "db", key: "db", err: errors.New("postgres://skadia:secret@db:5432/skadia path=/srv/skadia/data"), want: "unreachable"},
+		{name: "s3", key: "s3", err: errors.New("bucket=private-bucket X-Amz-Signature=abc"), want: "unreachable"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := publicProbeDependencyValue(tt.key, tt.err)
+			if got != tt.want {
+				t.Fatalf("publicProbeDependencyValue = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(got, "secret") || strings.Contains(got, "private-bucket") || strings.Contains(got, "/srv/") {
+				t.Fatalf("public probe value leaked raw dependency detail: %q", got)
+			}
+		})
+	}
+}
+
+func TestReadyzAndHealthzDoNotExposeRawProbeErrors(t *testing.T) {
+	oldDBPing, oldS3Ping := probeDBPing, probeS3Ping
+	t.Cleanup(func() { probeDBPing, probeS3Ping = oldDBPing, oldS3Ping })
+	probeDBPing = func(context.Context, *Handler) error {
+		return errors.New("postgres://skadia:secret@db:5432/skadia path=/srv/skadia/data")
+	}
+	probeS3Ping = func(context.Context, *Handler) error {
+		return errors.New("bucket=private-bucket X-Amz-Signature=abc")
+	}
+
+	h := &Handler{}
+	for _, path := range []string{"/readyz", "/healthz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		if path == "/readyz" {
+			h.Readyz(rec, req)
+		} else {
+			h.Healthz(rec, req)
+		}
+		body := rec.Body.String()
+		for _, forbidden := range []string{"secret", "/srv/skadia", "private-bucket", "X-Amz-Signature"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s leaked %q: %s", path, forbidden, body)
+			}
+		}
+	}
+}

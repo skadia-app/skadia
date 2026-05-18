@@ -4,11 +4,13 @@ import AdminStorageDashboard from '@/components/AdminStorageDashboard'
 import { AdminLibrarySettingsTab } from '@/components/AdminLibrarySettingsTab'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
 import AdminSystemTab from '@/pages/settings/AdminSystemTab'
+import AdminSystemStatusTab from '@/pages/settings/AdminSystemStatusTab'
 import AdminMapTilesSubTab from '@/pages/settings/AdminMapTilesSubTab'
 import { LIB_LABELS } from '@/lib/libraryLabels'
 
 const SUB_TABS = [
   { id: 'users' as const, label: 'Benutzer' },
+  { id: 'status' as const, label: 'Status' },
   { id: 'storage' as const, label: 'Speicher' },
   { id: 'system' as const, label: 'System' },
   { id: 'library' as const, label: LIB_LABELS.adminTabTitle },
@@ -17,7 +19,7 @@ const SUB_TABS = [
 
 type SubTab = (typeof SUB_TABS)[number]['id']
 
-const VALID_SUBS = new Set<SubTab>(['users', 'storage', 'system', 'library', 'maps'])
+const VALID_SUBS = new Set<SubTab>(['users', 'status', 'storage', 'system', 'library', 'maps'])
 
 export default function AdminSettingsTab() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -52,6 +54,7 @@ export default function AdminSettingsTab() {
       </div>
 
       {activeSubTab === 'users' && <AdminUsersPage />}
+      {activeSubTab === 'status' && <AdminSystemStatusTab />}
       {activeSubTab === 'storage' && <AdminStorageDashboard />}
       {activeSubTab === 'system' && <AdminSystemTab />}
       {activeSubTab === 'library' && <AdminLibrarySettingsTab />}

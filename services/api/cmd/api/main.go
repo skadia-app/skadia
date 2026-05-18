@@ -846,6 +846,7 @@ func main() {
 			LocalBE:                     localBE,
 			S3BE:                        s3BE,
 			BucketFn:                    store.BucketFor,
+			FrontendStaticDir:           cfg.FrontendStaticDir,
 		},
 	}
 	toolDeps.RouteGoalSuggester = func(ctx context.Context, userID string, req agenttools.RouteGoalSuggestionRequest) (agenttools.RouteGoalSuggestionResponse, error) {
@@ -1406,6 +1407,9 @@ func main() {
 
 				// Best efforts batch operations
 				r.Post("/best-efforts/recalc-all", h.RecalcAllUsersBestEfforts)
+
+				// System diagnostics
+				r.Get("/system-status", h.GetAdminSystemStatus)
 
 				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)
