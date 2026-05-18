@@ -1670,6 +1670,25 @@ func (db *DB) DeleteSegmentEffortsBySegment(ctx context.Context, segmentID, user
 	return nil
 }
 
+// DeleteSegmentEffortsBySegmentForActivities removes efforts only for the
+// activity set that will be recomputed. Historical efforts outside the current
+// backfill candidate set remain attached to their original segment version.
+func (db *DB) DeleteSegmentEffortsBySegmentForActivities(ctx context.Context, segmentID, userID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts
+		 WHERE segment_id = $1
+		   AND user_id = $2
+		   AND activity_id = ANY($3::uuid[])`,
+		segmentID, userID, activityIDs)
+	if err != nil {
+		return fmt.Errorf("delete segment efforts by segment activities: %w", err)
+	}
+	return nil
+}
+
 // GetAffectedSegmentIDs returns all segment IDs that have efforts for a given activity.
 func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -1884,31 +1903,34 @@ func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID stri
 		segName = *c.name
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, sport_group, segment_type,
-		                      segment_type_meta, osm_lift_id, visibility)
-		VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
-		RETURNING id
-	`, userID, segName, c.osmID).Scan(&segID); err != nil {
+			INSERT INTO segments (created_by, name, sport_group, segment_type,
+			                      terrain_type, climb_type, elevation_kind,
+			                      segment_type_meta, osm_lift_id, visibility)
+			VALUES ($1, $2, 'generic', 'lift', 'lift', 'bergfahrt', 'uphill', '{}', $3, 'public')
+			RETURNING id
+		`, userID, segName, c.osmID).Scan(&segID); err != nil {
 		return "", false, fmt.Errorf("insert lift segment osm_id=%d: %w", c.osmID, err)
 	}
 	return segID, true, nil
 }
 
 // ListActivityIDsForSegmentBackfill returns IDs of all GPS activities belonging
-// to userID whose track passes within 50 m of the given segment's latest version track.
-// This mirrors GetSpatialCandidateSegments but in the opposite direction:
-// given a new segment, find which activities may traverse it.
+// to userID whose track passes near the segment version active at the activity
+// start time. This mirrors GetSpatialCandidateSegments in the opposite direction:
+// given a segment, find activities that may traverse the version they would have
+// matched historically.
 func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, segmentID string) ([]string, error) {
 	query := fmt.Sprintf(`
-		SELECT at.activity_id
-		FROM activity_tracks at
-		JOIN activities a ON a.id = at.activity_id
-		%s
-		WHERE a.user_id = $1
-		  AND at.track_full IS NOT NULL
-		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activeCourseGPSV1VersionLateral("JOIN", "$2", "NOW()", "track"),
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN activities a ON a.id = at.activity_id
+			%s
+			WHERE a.user_id = $1
+			  AND at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+			ORDER BY a.started_at, at.activity_id`,
+		activeCourseGPSV1VersionLateral("JOIN", "$2", "a.started_at", "track"),
 	)
 	rows, err := db.Pool.Query(ctx, query,
 		userID, segmentID)
@@ -1969,17 +1991,19 @@ func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, se
 }
 
 // ListAllActivityIDsForSegmentBackfill returns activity IDs from ALL users
-// whose track passes within 100m of the given segment. Used when publishing
-// a previously private segment (full recompute across all users).
+// whose track passes near the segment version active at each activity's start.
+// Used when publishing a previously private segment.
 func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentID string) ([]string, error) {
 	query := fmt.Sprintf(`
-		SELECT at.activity_id
-		FROM activity_tracks at
-		%s
-		WHERE at.track_full IS NOT NULL
-		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activeCourseGPSV1VersionLateral("JOIN", "$1", "NOW()", "track"),
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN activities a ON a.id = at.activity_id
+			%s
+			WHERE at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+			ORDER BY a.started_at, at.activity_id`,
+		activeCourseGPSV1VersionLateral("JOIN", "$1", "a.started_at", "track"),
 	)
 	rows, err := db.Pool.Query(ctx, query,
 		segmentID)
@@ -2055,6 +2079,23 @@ func (db *DB) DeleteAllSegmentEffortsBySegment(ctx context.Context, segmentID st
 		`DELETE FROM segment_efforts WHERE segment_id = $1`, segmentID)
 	if err != nil {
 		return fmt.Errorf("delete all segment efforts by segment: %w", err)
+	}
+	return nil
+}
+
+// DeleteAllSegmentEffortsBySegmentForActivities removes efforts for a segment
+// only inside the activity set scheduled for publish recompute.
+func (db *DB) DeleteAllSegmentEffortsBySegmentForActivities(ctx context.Context, segmentID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts
+		 WHERE segment_id = $1
+		   AND activity_id = ANY($2::uuid[])`,
+		segmentID, activityIDs)
+	if err != nil {
+		return fmt.Errorf("delete all segment efforts by segment activities: %w", err)
 	}
 	return nil
 }

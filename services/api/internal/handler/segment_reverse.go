@@ -22,11 +22,11 @@ import (
 // reversing them would corrupt leaderboard is_reverse-partitioned rankings.
 var errLapSegmentCannotBeReversed = errors.New("lap segments cannot be reversed")
 
-// ReverseSegment flips a segment's active version geometry and all effort
-// is_reverse flags atomically (including leaderboard rank-recompute inside
-// the same tx). Owner OR admin may reverse.
+// ReverseSegment creates a reversed active segment version atomically. Existing
+// efforts remain frozen on the version and direction that originally matched.
+// Owner OR admin may reverse.
 //
-// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": N} | 400 | 403 | 404 | 500
+// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": 0} | 400 | 403 | 404 | 500
 func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	segID := chi.URLParam(r, "id")
@@ -73,12 +73,12 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"efforts_updated": effortsUpdated})
 }
 
-// reverseSegmentTx performs the atomic flip inside a single transaction.
+// reverseSegmentTx performs the atomic geometry flip inside a single transaction.
 // Owner-or-admin check is done TOCTOU-safely inside the same tx via a
 // SELECT ... FOR UPDATE, so a concurrent DeleteSegment / UpdateSegment cannot
 // win the race. Guarded by pg_advisory_xact_lock to serialize concurrent
-// reverse-calls on the same segment. Returns number of segment_efforts rows
-// updated.
+// reverse-calls on the same segment. Existing segment_efforts are not updated;
+// the return value remains part of the HTTP contract and is currently always 0.
 //
 // Schema reality (verified 2026-04-20 against migrate/migrations/000032):
 // segments has no geometry columns — geometry lives in segment_versions.track
@@ -187,34 +187,6 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 		return 0, fmt.Errorf("insert reversed version: %w", err)
 	}
 
-	// Flip active efforts and keep frozen match metadata coherent with the new direction.
-	ct, err := tx.Exec(ctx, `
-		UPDATE segment_efforts
-		SET is_reverse = NOT is_reverse,
-		    leaderboard_direction = CASE WHEN NOT is_reverse THEN 'reverse' ELSE 'forward' END,
-		    match_identity_key = concat_ws(':',
-		        match_source_type,
-		        match_source_id,
-		        'segment',
-		        segment_id::text,
-		        'version',
-		        segment_version_id::text,
-		        'contract',
-		        matching_contract_key,
-		        matching_contract_version::text,
-		        'direction',
-		        CASE WHEN NOT is_reverse THEN 'reverse' ELSE 'forward' END,
-		        'start',
-		        to_char(date_trunc('microseconds', started_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-		        'occurrence',
-		        occurrence_index::text
-		    )
-		WHERE segment_id = $1
-		  AND superseded_by_effort_id IS NULL`, segID)
-	if err != nil {
-		return 0, fmt.Errorf("update efforts: %w", err)
-	}
-
 	if err := database.UpdateSegmentEffortRanksTx(ctx, tx, segID); err != nil {
 		return 0, fmt.Errorf("recompute ranks: %w", err)
 	}
@@ -222,7 +194,7 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
 	}
-	return int(ct.RowsAffected()), nil
+	return 0, nil
 }
 
 // advisoryLockKeyForSegmentReverse derives a stable int64 from the segment UUID,

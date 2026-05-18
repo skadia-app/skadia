@@ -237,6 +237,11 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 			slog.Warn("resume segment_publish: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
+		if err := h.DB.DeleteAllSegmentEffortsBySegmentForActivities(ctx, segmentID, ids); err != nil {
+			slog.Error("resume segment_publish: delete efforts failed", "job_id", job.ID, "error", err)
+			failed = true
+		}
+
 		if !failed {
 			for i, actID := range ids {
 				act, err := h.DB.GetActivity(ctx, actID)
@@ -267,7 +272,7 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 }
 
 // resumeSegmentRecompute restarts a segment recompute job from scratch.
-// The matching is fully idempotent: existing efforts are deleted first.
+// The matching is idempotent for the activity set selected for recompute.
 func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 	segmentID := ""
 	if job.EntityID != nil {
@@ -295,6 +300,12 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 
 		if err := h.DB.ResetBackgroundJobProgress(ctx, job.ID, int64(len(ids))); err != nil {
 			slog.Warn("resume: reset progress failed", "job_id", job.ID, "error", err)
+		}
+
+		// Delete existing efforts (idempotent restart).
+		if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, segmentID, job.UserID, ids); err != nil {
+			slog.Error("resume: delete efforts failed", "job_id", job.ID, "error", err)
+			failed = true
 		}
 
 		if !failed {
