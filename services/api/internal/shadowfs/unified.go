@@ -245,7 +245,7 @@ func (u *UnifiedShadowFS) getUserDirOrFallback(ctx context.Context, userID strin
 func (u *UnifiedShadowFS) allBuckets() []string {
 	seen := map[string]bool{}
 	var buckets []string
-	for _, ft := range []string{"activity", "media", "document"} {
+	for _, ft := range UserFacingFileTypes {
 		b := u.bucketFor(ft)
 		if b != "" && !seen[b] {
 			seen[b] = true

@@ -15,7 +15,8 @@ import (
 	natsgo "github.com/nats-io/nats.go"
 )
 
-var expectedNATSStreams = []string{"SKADIA", "stage2", "document", "analytics"}
+var expectedNATSCoreStreams = []string{"SKADIA"}
+var expectedNATSMLStreams = []string{"stage2", "document", "analytics"}
 
 var expectedNATSConsumers = map[string][]string{
 	"stage2":    {"ml-stage2-high", "ml-stage2-normal", "ml-stage2-low"},
@@ -28,7 +29,7 @@ type jetStreamProvider interface {
 	JetStream() natsgo.JetStreamContext
 }
 
-func (h *Handler) collectNATSComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectNATSComponent(ctx context.Context, expectMLConsumers bool) systemstatus.ComponentStatus {
 	snap := systemstatus.NATSSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil && h.Config != nil && strings.TrimSpace(h.Config.NatsURL) != "" {
 		snap.Configured = true
@@ -55,9 +56,16 @@ func (h *Handler) collectNATSComponent(ctx context.Context) systemstatus.Compone
 	snap.IntrospectionAvailable = true
 	snap.StreamPresent = true
 	snap.ConsumersPresent = true
-	for _, stream := range expectedNATSStreams {
+	streams := append([]string{}, expectedNATSCoreStreams...)
+	if expectMLConsumers {
+		streams = append(streams, expectedNATSMLStreams...)
+	}
+	for _, stream := range streams {
 		if _, err := js.StreamInfo(stream); err != nil {
 			snap.StreamPresent = false
+			continue
+		}
+		if !expectMLConsumers {
 			continue
 		}
 		for _, consumer := range expectedNATSConsumers[stream] {
@@ -139,7 +147,7 @@ func (h *Handler) collectMLSnapshot(ctx context.Context) (systemstatus.MLSnapsho
 	return snap, nil
 }
 
-func (h *Handler) collectBRouterComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectBRouterComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
 	snap := systemstatus.BRouterSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil && h.Config != nil {
 		caps := capabilities.Detect(ctx, nil, h.detectInputForGate())
@@ -152,7 +160,10 @@ func (h *Handler) collectBRouterComponent(ctx context.Context) systemstatus.Comp
 	return systemstatus.BRouterStatusFromSnapshot(snap)
 }
 
-func (h *Handler) collectBadRouterComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectBadRouterComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
+	if disabled, ok := disabledComponentFromCapability(caps, capabilities.KeyBadRouter, "badrouter", "Skadia routing graph"); ok {
+		return disabled
+	}
 	snap := systemstatus.BadRouterSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil && h.Config != nil {
 		tileDir := filepath.Join(filepath.Dir(h.Config.RoutingGraphPath), "tiles")
@@ -170,7 +181,10 @@ func (h *Handler) collectBadRouterComponent(ctx context.Context) systemstatus.Co
 	return systemstatus.BadRouterStatusFromSnapshot(snap)
 }
 
-func (h *Handler) collectOSMComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectOSMComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
+	if disabled, ok := disabledComponentFromCapability(caps, capabilities.KeyOSMImport, "osm", "OSM geodata"); ok {
+		return disabled
+	}
 	snap := systemstatus.OSMSnapshot{CheckedAt: time.Now().UTC()}
 	if h.DB != nil && h.DB.Pool != nil {
 		_ = h.DB.Pool.QueryRow(ctx, `
@@ -180,7 +194,10 @@ func (h *Handler) collectOSMComponent(ctx context.Context) systemstatus.Componen
 	return systemstatus.OSMStatusFromSnapshot(snap)
 }
 
-func (h *Handler) collectDEMComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectDEMComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
+	if disabled, ok := disabledComponentFromCapability(caps, capabilities.KeyDEMCorrection, "dem", "DEM"); ok {
+		return disabled
+	}
 	snap := systemstatus.DEMSnapshot{CheckedAt: time.Now().UTC()}
 	if h.DB != nil && h.DB.Pool != nil {
 		_ = h.DB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM dem.raster_tiles`).Scan(&snap.TileCount)
@@ -188,7 +205,10 @@ func (h *Handler) collectDEMComponent(ctx context.Context) systemstatus.Componen
 	return systemstatus.DEMStatusFromSnapshot(snap)
 }
 
-func (h *Handler) collectCoverageComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectCoverageComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
+	if disabled, ok := disabledComponentFromCapability(caps, capabilities.KeyCoverage, "coverage", "Coverage"); ok {
+		return disabled
+	}
 	snap := systemstatus.CoverageSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil {
 		snap.LayerCount = countFilesWithSuffix(h.CoverageBaseDir, ".bin", true)
@@ -200,12 +220,27 @@ func (h *Handler) collectCoverageComponent(ctx context.Context) systemstatus.Com
 	return systemstatus.CoverageStatusFromSnapshot(snap)
 }
 
-func (h *Handler) collectTilesComponent(ctx context.Context) systemstatus.ComponentStatus {
+func (h *Handler) collectTilesComponent(ctx context.Context, caps capabilities.Capabilities) systemstatus.ComponentStatus {
+	if disabled, ok := disabledComponentFromCapability(caps, capabilities.KeyOfflineMap, "tiles", "Map tiles"); ok {
+		return disabled
+	}
 	snap := systemstatus.PMTilesSnapshot{CheckedAt: time.Now().UTC()}
 	if h != nil && h.Config != nil {
 		snap.FileCount = countFilesWithSuffix(h.Config.TilesDir, ".pmtiles", false)
 	}
 	return systemstatus.PMTilesStatusFromSnapshot(snap)
+}
+
+func disabledComponentFromCapability(caps capabilities.Capabilities, featureKey, componentKey, label string) (systemstatus.ComponentStatus, bool) {
+	feature, ok := caps.Features[featureKey]
+	if !ok || feature.Configured {
+		return systemstatus.ComponentStatus{}, false
+	}
+	reason := feature.Reason
+	if reason == "" {
+		reason = capabilities.ReasonNotConfigured
+	}
+	return systemstatus.DisabledComponent(componentKey, label, reason), true
 }
 
 func probeHTTPStatusOK(ctx context.Context, client *http.Client, url, token string) bool {

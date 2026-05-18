@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+func DisabledComponent(key, label, reason string) ComponentStatus {
+	return ComponentStatus{
+		Key:        key,
+		Label:      label,
+		State:      StatusDisabled,
+		ReasonCode: reason,
+		CheckedAt:  time.Now().UTC(),
+	}
+}
+
 type BRouterSnapshot struct {
 	Reachable     bool
 	Version       string

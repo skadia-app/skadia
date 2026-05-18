@@ -7,6 +7,7 @@ import (
 
 type DBSnapshot struct {
 	PingOK             bool
+	MigrationReadError bool
 	MigrationVersion   int
 	MigrationDirty     bool
 	PostGISVersion     string
@@ -52,6 +53,10 @@ func DBStatusFromSnapshot(s DBSnapshot) ComponentStatus {
 		st.State = StatusUnavailable
 		st.ReasonCode = "db_unreachable"
 		return st
+	}
+	if s.MigrationReadError {
+		st.State = StatusDegraded
+		st.ReasonCode = "migration_status_unreadable"
 	}
 	if s.MigrationDirty {
 		st.State = StatusDegraded

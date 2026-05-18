@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
@@ -28,6 +29,9 @@ func TestAdminSystemStatusHandlerReturnsSchemaVersion(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"schema_version":1`) {
 		t.Fatalf("response missing schema_version: %s", rec.Body.String())
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", rec.Header().Get("Cache-Control"))
 	}
 }
 
@@ -209,7 +213,7 @@ func TestAdminSystemStatusIncludesServiceAndGeodataComponents(t *testing.T) {
 
 func TestCollectNATSComponentTreatsConfiguredMissingConnectionAsUnavailable(t *testing.T) {
 	h := &Handler{Config: &HandlerConfig{NatsURL: "nats://nats:4222"}}
-	got := h.collectNATSComponent(context.Background())
+	got := h.collectNATSComponent(context.Background(), false)
 	if got.State != "unavailable" || got.ReasonCode != "nats_unavailable" {
 		t.Fatalf("NATS status = %+v, want unavailable nats_unavailable", got)
 	}
@@ -297,18 +301,45 @@ func TestShadowFSSystemStatusProbeChecksDistinctS3Buckets(t *testing.T) {
 		t.Fatalf("MultipartAbortDryRun: %v", err)
 	}
 
-	for _, bucket := range []string{"activity-bucket", "media-bucket"} {
+	for _, bucket := range []string{"activity-bucket", "media-bucket", "default-bucket"} {
 		if backend.pinged[bucket] == 0 || backend.written[bucket] == 0 || backend.listed[bucket] == 0 || backend.multipart[bucket] == 0 {
 			t.Fatalf("bucket %q was not fully probed: %+v", bucket, backend)
 		}
 	}
-	if backend.pinged["default-bucket"] != 0 || backend.written["default-bucket"] != 0 {
-		t.Fatalf("unexpected default bucket probe: %+v", backend)
+}
+
+func TestCollectGDPRArtifactsDegradesOnCounterError(t *testing.T) {
+	h := &Handler{GDPRArtifactCounter: failingArtifactCounter{}}
+	got := h.collectGDPRArtifactComponent(context.Background())
+	if got.State != systemstatus.StatusDegraded || got.ReasonCode != "artifact_store_probe_failed" {
+		t.Fatalf("GDPR artifact status = %+v, want degraded artifact_store_probe_failed", got)
+	}
+}
+
+func TestCoreProfileMarksFullOnlyGeodataComponentsDisabled(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core", DeploymentProfileSource: "env"}}
+	caps := h.capabilitiesForStatus(context.Background())
+	for name, got := range map[string]systemstatus.ComponentStatus{
+		"badrouter": h.collectBadRouterComponent(context.Background(), caps),
+		"osm":       h.collectOSMComponent(context.Background(), caps),
+		"dem":       h.collectDEMComponent(context.Background(), caps),
+		"coverage":  h.collectCoverageComponent(context.Background(), caps),
+		"tiles":     h.collectTilesComponent(context.Background(), caps),
+	} {
+		if got.State != systemstatus.StatusDisabled || got.ReasonCode != "core_profile" {
+			t.Fatalf("%s status = %+v, want disabled core_profile", name, got)
+		}
 	}
 }
 
 type fakeAdminStatusStorageProbe struct {
 	head, write, list, multipart bool
+}
+
+type failingArtifactCounter struct{}
+
+func (failingArtifactCounter) CountIncompleteUploads(context.Context, gdprartifacts.ArtifactPrefix) (int, error) {
+	return 0, errors.New("bucket=private-artifacts permission denied")
 }
 
 func (f fakeAdminStatusStorageProbe) HeadBucket(context.Context) error {
