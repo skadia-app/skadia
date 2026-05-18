@@ -1570,6 +1570,10 @@ export function useRoutePlanner() {
     // /elevation/profile fallback (the data is already in this response).
     // Mirrors buildSegmentFromFeature parsing logic.
     const featureProps = (firstFeature?.properties ?? {}) as Record<string, unknown>
+    const rawSubSegments = featureProps['segments']
+    const subSegments = Array.isArray(rawSubSegments)
+      ? (rawSubSegments as RouteSubSegment[])
+      : undefined
     const rawSegProfile = featureProps['elevation_profile']
     let segElevationProfile: RouteElevationPoint[] | undefined
     if (Array.isArray(rawSegProfile) && rawSegProfile.length > 0) {
@@ -1601,6 +1605,7 @@ export function useRoutePlanner() {
       distance_m: s.distance_m,
       elevation_gain: s.ascent_m,
       elevation_loss: s.descent_m,
+      sub_segments: subSegments,
       elevation_profile: segElevationProfile,
     }
 
