@@ -29,6 +29,7 @@ type Segment struct {
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 	TerrainType       *string           `json:"terrain_type,omitempty" db:"terrain_type"`
 	ClimbType         *string           `json:"climb_type,omitempty" db:"climb_type"`
+	ElevationKind     string            `json:"elevation_kind" db:"elevation_kind"`
 	Bidirectional     bool              `json:"bidirectional" db:"bidirectional"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
@@ -44,6 +45,7 @@ type SegmentCreate struct {
 	Description       *string           `json:"description,omitempty"`
 	TerrainType       string            `json:"terrain_type"`
 	ClimbType         string            `json:"climb_type"`
+	ElevationKind     *string           `json:"elevation_kind,omitempty"`
 	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private"; default "public"
 	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"` // nil = legacy match-all inside stored sport_group; [] = none; entries = tuple predicates
 	Bidirectional     *bool             `json:"bidirectional,omitempty"`      // nil = use sport-group default
@@ -57,6 +59,7 @@ type SegmentUpdate struct {
 	NewVersion        bool             `json:"new_version,omitempty"`
 	TerrainType       *string          `json:"terrain_type,omitempty"`
 	ClimbType         *string          `json:"climb_type,omitempty"`
+	ElevationKind     *string          `json:"elevation_kind,omitempty"`
 	Visibility        *string          `json:"visibility,omitempty"`         // "public" | "private"
 	AllowedPredicates json.RawMessage  `json:"allowed_predicates,omitempty"` // absent = unchanged; null = legacy match-all inside stored sport_group; [] = no sports; entries = tuple predicates
 	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
@@ -181,6 +184,7 @@ type ListSegmentsParams struct {
 	SacScale         string // komma-separiert, z.B. "T2,T3"
 	MtbScale         string // komma-separiert
 	Surface          string // komma-separiert
+	ElevationKind    string // "flat" | "hilly" | "uphill" | "downhill"
 	VisibilityFilter string // komma-separiert: "public", "private", "public,private", "" (= Default: beides)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }

@@ -78,6 +78,7 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		SacScale:         r.URL.Query().Get("sac_scale"),
 		MtbScale:         r.URL.Query().Get("mtb_scale"),
 		Surface:          r.URL.Query().Get("surface"),
+		ElevationKind:    r.URL.Query().Get("elevation_kind"),
 		VisibilityFilter: r.URL.Query().Get("visibility"),
 		DifficultyMatch:  r.URL.Query().Get("difficulty_match"),
 	}
@@ -103,6 +104,12 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	if params.Surface != "" && !database.IsValidSurfaceList(params.Surface) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid surface parameter", r.URL.Path)
 		return
+	}
+	if params.ElevationKind != "" {
+		if err := validateRequestedSegmentElevationKind(&params.ElevationKind); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind parameter", r.URL.Path)
+			return
+		}
 	}
 	if params.VisibilityFilter != "" {
 		// Dedup + clamp: build a set of whitelisted tokens, drop empties/whitespace,
@@ -182,6 +189,15 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	// Lift segments always get bergfahrt as default climb_type
 	if create.TerrainType == "lift" && create.ClimbType == "standard" {
 		create.ClimbType = "bergfahrt"
+	}
+	elevationKind, err := normalizeSegmentElevationKindForCreate(create.SegmentType, create.ClimbType, create.ElevationKind)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind", r.URL.Path)
+		return
+	}
+	create.ElevationKind = &elevationKind
+	if create.SegmentType == "lap" {
+		create.ClimbType = "standard"
 	}
 
 	if create.Visibility == "" {
@@ -357,6 +373,65 @@ func isEnrichableSegmentType(segType string) bool {
 	return ok
 }
 
+func validateRequestedSegmentElevationKind(requested *string) error {
+	if requested == nil {
+		return nil
+	}
+	switch *requested {
+	case "flat", "hilly", "uphill", "downhill":
+		return nil
+	default:
+		return fmt.Errorf("invalid elevation_kind")
+	}
+}
+
+func legacySegmentElevationKind(climbType string) string {
+	switch climbType {
+	case "bergauf", "bergfahrt":
+		return "uphill"
+	case "bergab", "talfahrt":
+		return "downhill"
+	default:
+		return "flat"
+	}
+}
+
+func normalizeSegmentElevationKindForCreate(segmentType, climbType string, requested *string) (string, error) {
+	if err := validateRequestedSegmentElevationKind(requested); err != nil {
+		return "", err
+	}
+	if segmentType == "lap" {
+		return "flat", nil
+	}
+	if requested != nil {
+		return *requested, nil
+	}
+	return legacySegmentElevationKind(climbType), nil
+}
+
+func normalizeSegmentElevationKindForUpdate(
+	stored string,
+	segmentType string,
+	climbType string,
+	requested *string,
+	climbTypeChanged bool,
+	segmentTypeChanged bool,
+) (string, error) {
+	if err := validateRequestedSegmentElevationKind(requested); err != nil {
+		return "", err
+	}
+	if segmentType == "lap" {
+		return "flat", nil
+	}
+	if requested != nil {
+		return *requested, nil
+	}
+	if climbTypeChanged || segmentTypeChanged {
+		return legacySegmentElevationKind(climbType), nil
+	}
+	return stored, nil
+}
+
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -415,6 +490,32 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	effectiveSegType := existing.SegmentType
 	if update.SegmentType != nil {
 		effectiveSegType = *update.SegmentType
+	}
+	effectiveClimbType := "standard"
+	if existing.ClimbType != nil && *existing.ClimbType != "" {
+		effectiveClimbType = *existing.ClimbType
+	}
+	if update.ClimbType != nil {
+		effectiveClimbType = *update.ClimbType
+	}
+	elevationKind, err := normalizeSegmentElevationKindForUpdate(
+		existing.ElevationKind,
+		effectiveSegType,
+		effectiveClimbType,
+		update.ElevationKind,
+		update.ClimbType != nil,
+		update.SegmentType != nil,
+	)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind", r.URL.Path)
+		return
+	}
+	if update.ElevationKind != nil || update.ClimbType != nil || update.SegmentType != nil || effectiveSegType == "lap" {
+		update.ElevationKind = &elevationKind
+	}
+	if effectiveSegType == "lap" {
+		standardClimb := "standard"
+		update.ClimbType = &standardClimb
 	}
 
 	// Normalize historic German labels in segment_type_meta before DB write.

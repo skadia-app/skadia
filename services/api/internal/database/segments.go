@@ -99,6 +99,18 @@ func segmentTypeUsesDerivedDefaultPredicates(segmentType string) bool {
 	}
 }
 
+func segmentTypeFilterIncludesLift(segmentType, segmentTypes string) bool {
+	if segmentType == "lift" {
+		return true
+	}
+	for _, t := range strings.Split(segmentTypes, ",") {
+		if strings.TrimSpace(t) == "lift" {
+			return true
+		}
+	}
+	return false
+}
+
 func activeCourseGPSV1VersionLateral(joinKind, segmentIDExpr, atExpr, selectList string) string {
 	return fmt.Sprintf(`
 		%s LATERAL (
@@ -223,7 +235,7 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
        NULL::text AS track_geojson,`
 	}
 	selectCols += `
-       s.terrain_type, s.climb_type`
+       s.terrain_type, s.climb_type, s.elevation_kind`
 
 	// --- FROM + JOINs ---
 	from := `
@@ -256,13 +268,7 @@ LEFT JOIN LATERAL (
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 
 	if p.IncludeGeoJSON {
-		from += `
-LEFT JOIN LATERAL (
-    SELECT track FROM segment_versions
-    WHERE segment_id = s.id
-    ORDER BY version_number DESC
-    LIMIT 1
-) sv ON true`
+		from += activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track")
 	}
 
 	// --- WHERE ---
@@ -343,9 +349,15 @@ LEFT JOIN LATERAL (
 				bboxTable = "sv_bbox"
 				from += `
 	LEFT JOIN LATERAL (
-		SELECT track FROM segment_versions
+		SELECT track
+		FROM segment_versions
 		WHERE segment_id = s.id
-		ORDER BY version_number DESC
+		  AND matching_contract_key = 'course_gps_v1'
+		  AND matching_contract_version = 1
+		  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+		  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+		ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+		         version_number DESC
 		LIMIT 1
 	) sv_bbox ON true`
 			}
@@ -413,6 +425,14 @@ LEFT JOIN LATERAL (
 		args = append(args, p.Surface)
 		argIdx++
 	}
+	if p.ElevationKind != "" {
+		where += fmt.Sprintf(" AND s.elevation_kind = $%d", argIdx)
+		args = append(args, p.ElevationKind)
+		argIdx++
+		if !segmentTypeFilterIncludesLift(p.SegmentType, p.SegmentTypes) {
+			where += " AND s.segment_type <> 'lift'"
+		}
+	}
 
 	// --- Cursor ---
 	if p.Cursor != "" {
@@ -457,7 +477,7 @@ LEFT JOIN LATERAL (
 			&s.RiddenCount, &s.IsFavorite,
 			&s.Visibility, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
-			&s.TerrainType, &s.ClimbType,
+			&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan segment: %w", err)
@@ -524,13 +544,17 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if allowedPredicates != nil {
 		segmentSportGroup = segmentSportGroupFromPredicates(allowedPredicates)
 	}
+	var elevationKind any
+	if create.ElevationKind != nil {
+		elevationKind = *create.ElevationKind
+	}
 
 	// Insert segment
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_predicates, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, elevation_kind, visibility, allowed_predicates, bidirectional)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_predicates,
 		          segment_type, segment_type_meta,
@@ -538,10 +562,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
 		          visibility, route_hash, created_at,
-		          terrain_type, climb_type`,
+		          terrain_type, climb_type, elevation_kind`,
 		userID, create.Name, create.Description, segmentSportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
-		create.TerrainType, create.ClimbType, create.Visibility,
+		create.TerrainType, create.ClimbType, elevationKind, create.Visibility,
 		allowedPredicatesJSON, bidirectional,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
@@ -551,7 +575,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
-		&s.TerrainType, &s.ClimbType,
+		&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment: %w", err)
@@ -693,16 +717,14 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                        ) AS is_favorite,
                        s.visibility, s.route_hash, s.created_at,
                        %s AS track_geojson,
-                       s.terrain_type, s.climb_type, s.bidirectional
+                       s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional
                 FROM segments s
-                LEFT JOIN LATERAL (
-                        SELECT track FROM segment_versions
-                        WHERE segment_id = s.id
-                        ORDER BY version_number DESC
-                        LIMIT 1
-                ) sv ON true
+                %s
                 WHERE s.id = $1
-                  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`, trackSelect)
+                  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`,
+		trackSelect,
+		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
+	)
 
 	var allowedPredicatesJSON []byte
 	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
@@ -715,7 +737,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.RiddenCount, &s.IsFavorite,
 		&s.Visibility, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
-		&s.TerrainType, &s.ClimbType, &s.Bidirectional,
+		&s.TerrainType, &s.ClimbType, &s.ElevationKind, &s.Bidirectional,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -776,6 +798,11 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	if update.ClimbType != nil {
 		setClauses = append(setClauses, fmt.Sprintf("climb_type = $%d", argIdx))
 		args = append(args, *update.ClimbType)
+		argIdx++
+	}
+	if update.ElevationKind != nil {
+		setClauses = append(setClauses, fmt.Sprintf("elevation_kind = $%d", argIdx))
+		args = append(args, *update.ElevationKind)
 		argIdx++
 	}
 	// Note: private→public MUST go through PublishSegment (handler blocks it via 400).
@@ -1854,20 +1881,18 @@ func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID stri
 // This mirrors GetSpatialCandidateSegments but in the opposite direction:
 // given a new segment, find which activities may traverse it.
 func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT at.activity_id
 		FROM activity_tracks at
 		JOIN activities a ON a.id = at.activity_id
-		JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = $2
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
+		%s
 		WHERE a.user_id = $1
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
+		activeCourseGPSV1VersionLateral("JOIN", "$2", "NOW()", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		userID, segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
@@ -1929,18 +1954,16 @@ func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, se
 // whose track passes within 100m of the given segment. Used when publishing
 // a previously private segment (full recompute across all users).
 func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT at.activity_id
 		FROM activity_tracks at
-		JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = $1
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
+		%s
 		WHERE at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
+		activeCourseGPSV1VersionLateral("JOIN", "$1", "NOW()", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list all activity ids for segment backfill: %w", err)
@@ -2382,18 +2405,17 @@ func encodeCursor(t time.Time, id string) string {
 // GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
 // Only returns segments the user can access (own or public).
 func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string) ([]model.Segment, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT s.id, s.name, s.distance_m, s.elevation_gain_m,
 		       ST_AsGeoJSON(sv.track) AS track_geojson
 		FROM segments s
-		LEFT JOIN LATERAL (
-		    SELECT track FROM segment_versions
-		    WHERE segment_id = s.id
-		    ORDER BY version_number DESC LIMIT 1
-		) sv ON true
+		%s
 		WHERE s.id = ANY($1)
 		  AND (s.visibility = 'public' OR s.created_by = $2)
-		  AND sv.track IS NOT NULL`, ids, userID)
+		  AND sv.track IS NOT NULL`,
+		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query, ids, userID)
 	if err != nil {
 		return nil, err
 	}

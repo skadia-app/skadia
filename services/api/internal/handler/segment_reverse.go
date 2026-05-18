@@ -84,8 +84,8 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 // segments has no geometry columns — geometry lives in segment_versions.track
 // with start_point / end_point. A reverse inserts a NEW segment_versions row
 // with ST_Reverse(track) and ST_EndPoint(old.track) as the new start_point
-// (and vice versa). All subsequent lookups that pick the active version via
-// ORDER BY version_number DESC LIMIT 1 automatically see the reversed track.
+// (and vice versa). Subsequent current-display lookups see the reversed track
+// through the course_gps_v1 validity selector.
 //
 // NOTE: segments has no updated_at column (verified against migration 000032 and
 // all subsequent ALTER TABLE segments migrations). No timestamp bump on the parent
@@ -134,9 +134,14 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 		),
 		latest AS (
 			SELECT id, segment_id, version_number, track, start_point, end_point
-			FROM segment_versions
+			FROM segment_versions, boundary
 			WHERE segment_id = $1
-			ORDER BY version_number DESC
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND (valid_from_at IS NULL OR valid_from_at <= boundary.at)
+			  AND (valid_until_at IS NULL OR boundary.at < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
 			LIMIT 1
 		),
 		closed AS (
