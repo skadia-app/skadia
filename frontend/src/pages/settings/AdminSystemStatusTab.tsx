@@ -38,6 +38,32 @@ export default function AdminSystemStatusTab() {
           <StatusRow title="DSGVO-Artefakte" component={data.components.gdpr_artifacts} />
         </div>
       </SettingsSection>
+      <SettingsSection title="Dienste und Nachrichten" description="API-nahe Dienste, ML und Queue-Verarbeitung.">
+        <div>
+          <StatusRow title="API" component={data.components.api} />
+          <StatusRow title="ML-Dienst" component={data.components.ml} />
+          <StatusRow title="NATS / JetStream" component={data.components.nats} />
+        </div>
+      </SettingsSection>
+      <SettingsSection title="Routing und Geodaten" description="Routing-Engines, lokale Geodaten, Höhenmodell, Coverage und Kartendateien.">
+        <div>
+          <StatusRow title="BRouter" component={data.components.brouter} />
+          <StatusRow title="Skadia-Routinggraph" component={data.components.badrouter} />
+          <StatusRow title="OSM-Geodaten" component={data.components.osm} />
+          <StatusRow title="Höhendaten" component={data.components.dem} />
+          <StatusRow title="Coverage" component={data.components.coverage} />
+          <StatusRow title="Kartendateien" component={data.components.tiles} />
+        </div>
+      </SettingsSection>
+      {data.feature_matrix && (
+        <SettingsSection title="Feature-Matrix" description="Konfigurierte und aktuell verfügbare Funktionsbereiche.">
+          <div>
+            {Object.values(data.feature_matrix).map((component) => (
+              <StatusRow key={component.key} title={component.label || component.key} component={component} />
+            ))}
+          </div>
+        </SettingsSection>
+      )}
     </div>
   )
 }
