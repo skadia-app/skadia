@@ -87,6 +87,8 @@ func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.Sys
 	mlSnap, mlBuild := h.collectMLSnapshot(ctx)
 	if mlBuild != nil {
 		buildMap["ml"] = *mlBuild
+	} else if mlSnap.Configured {
+		buildMap["ml"] = systemstatus.BuildInfo{Service: "ml"}
 	}
 	caps := h.capabilitiesForStatus(ctx)
 	featureMatrix := systemstatus.FeatureMatrixFromCapabilities(caps)

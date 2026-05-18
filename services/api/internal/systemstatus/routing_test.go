@@ -38,6 +38,16 @@ func TestOSMStatusMissingWithoutRegions(t *testing.T) {
 	}
 }
 
+func TestOSMStatusDegradesWhenAnyRegionFailed(t *testing.T) {
+	got := OSMStatusFromSnapshot(OSMSnapshot{RegionCount: 10, ImportedCount: 9, FailedCount: 1})
+	if got.State != StatusDegraded || got.ReasonCode != "osm_regions_failed" {
+		t.Fatalf("status = %+v", got)
+	}
+	if got.Details["failed_region_count"] != "1" {
+		t.Fatalf("failed_region_count = %q, want 1", got.Details["failed_region_count"])
+	}
+}
+
 func TestDEMStatusMissingWithoutTiles(t *testing.T) {
 	got := DEMStatusFromSnapshot(DEMSnapshot{TileCount: 0})
 	if got.State != StatusMissingArtifacts || got.ReasonCode != "dem_tiles_missing" {
