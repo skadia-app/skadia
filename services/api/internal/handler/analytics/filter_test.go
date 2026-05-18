@@ -3,6 +3,7 @@ package analytics
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -137,6 +138,24 @@ func TestBuildWhereClause_WithSubTypeFilter(t *testing.T) {
 	}
 	if len(args) < 2 {
 		t.Fatalf("expected sport and subtype args, got %d", len(args))
+	}
+}
+
+func TestBuildWhereClause_CountryUsesVisitedCountryCodes(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?country=ch,IT,ch,bad", nil)
+	f := ParseFilters(r)
+	clause, args := f.BuildWhereClause(1)
+
+	if !strings.Contains(clause, "a.visited_country_codes && $2::text[]") {
+		t.Fatalf("expected visited country predicate in %q", clause)
+	}
+	want := []string{"CH", "IT"}
+	got, ok := args[1].([]string)
+	if !ok {
+		t.Fatalf("country arg = %#v, want []string", args[1])
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("country arg = %#v, want %#v", got, want)
 	}
 }
 

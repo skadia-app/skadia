@@ -53,14 +53,14 @@ func TestBuildQueryActivitiesSQLFiltersByUserFirst(t *testing.T) {
 	gearID := uuid.New().String()
 	sql, params, err := buildQueryActivitiesSQL("user-1", queryActivitiesArgs{
 		SportType:     "running",
-		Days:          activityIntPtr(14),
-		Limit:         activityIntPtr(99),
+		Days:          new(14),
+		Limit:         new(99),
 		SortBy:        "distance",
-		MinDistanceKM: activityFloatPtr(5.5),
+		MinDistanceKM: new(5.5),
 		TitleSearch:   "trail",
 		GearID:        gearID,
-		IsVirtual:     activityBoolPtr(false),
-		IsCommute:     activityBoolPtr(true),
+		IsVirtual:     new(false),
+		IsCommute:     new(true),
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
@@ -93,11 +93,26 @@ func TestBuildQueryActivitiesSQLFiltersByUserFirst(t *testing.T) {
 	}
 }
 
+func TestBuildQueryActivitiesSQLFiltersByVisitedCountryCodes(t *testing.T) {
+	sql, params, err := buildQueryActivitiesSQL("user-1", queryActivitiesArgs{
+		CountryCodes: []string{"ch", "IT", "bad"},
+	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "a.visited_country_codes && $3::text[]") {
+		t.Fatalf("query SQL missing visited-country filter:\n%s", sql)
+	}
+	if !reflect.DeepEqual(params[2], []string{"CH", "IT"}) {
+		t.Fatalf("country params = %#v, want CH/IT", params[2])
+	}
+}
+
 func TestBuildQueryActivitiesSQLSupportsDateMaxDistanceAndTag(t *testing.T) {
 	sql, params, err := buildQueryActivitiesSQL("user-1", queryActivitiesArgs{
 		DateFrom:      "2026-01-01",
 		DateTo:        "2026-01-31",
-		MaxDistanceKM: activityFloatPtr(12.5),
+		MaxDistanceKM: new(12.5),
 		TagName:       "Intervalle",
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -152,7 +167,7 @@ func TestBuildAggregateStatsSQLUsesUserOwnedWhereForEachGrouping(t *testing.T) {
 	for _, groupBy := range []string{"none", "week", "month", "sport", "sport_tuple"} {
 		sql, params, err := buildAggregateStatsSQL("user-1", aggregateStatsArgs{
 			Metric:  "total_distance",
-			Days:    activityIntPtr(30),
+			Days:    new(30),
 			GroupBy: groupBy,
 		}, now)
 		if err != nil {
@@ -170,7 +185,7 @@ func TestBuildAggregateStatsSQLUsesUserOwnedWhereForEachGrouping(t *testing.T) {
 func TestActivitySelectionResolvesNaturalSportQuery(t *testing.T) {
 	plan, err := buildActivitySelectionPlan("user-1", activitySelectionCriteria{
 		SportQuery: "last swim",
-		Days:       activityIntPtr(365),
+		Days:       new(365),
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +206,7 @@ func TestAggregateStatsResolvesNaturalSportQuery(t *testing.T) {
 	sql, params, err := buildAggregateStatsSQL("user-1", aggregateStatsArgs{
 		Metric:     "count",
 		SportQuery: "Freiwasserschwimmen",
-		Days:       activityIntPtr(365),
+		Days:       new(365),
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +225,7 @@ func TestActivitySelectionRejectsConflictingNaturalSportQuery(t *testing.T) {
 	_, err := buildActivitySelectionPlan("user-1", activitySelectionCriteria{
 		SportQuery: "last swim",
 		SportType:  "running",
-		Days:       activityIntPtr(365),
+		Days:       new(365),
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err == nil || !strings.Contains(err.Error(), "resolves to sport_type") {
 		t.Fatalf("err = %v, want sport_query conflict", err)
@@ -251,7 +266,7 @@ func TestBuildQueryRecordsSQLUsesSelectionPlanAndCapsLimit(t *testing.T) {
 		RecordType:    "most_elevation",
 		SportQuery:    "MTB",
 		AllHistory:    true,
-		Limit:         activityIntPtr(99),
+		Limit:         new(99),
 		MinDistanceKM: activityFloatPtr(10),
 	}, time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -280,8 +295,8 @@ func TestBuildQueryRecordsSQLUsesSelectionPlanAndCapsLimit(t *testing.T) {
 func TestBuildComparePeriodsSQLFiltersUserFirst(t *testing.T) {
 	sql, params, err := buildComparePeriodSQL("user-1", "2026-05-01", "2026-05-12", comparePeriodsArgs{
 		SportType: "cycling",
-		SubType:   activityStringPtr("road"),
-		IsIndoor:  activityBoolPtr(false),
+		SubType:   new("road"),
+		IsIndoor:  new(false),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -582,10 +597,14 @@ func activityWriteEnvelope(t *testing.T, pool *pgxpool.Pool, userID string, allo
 	})
 }
 
-func activityIntPtr(v int) *int { return &v }
+//go:fix inline
+func activityIntPtr(v int) *int { return new(v) }
 
-func activityFloatPtr(v float64) *float64 { return &v }
+//go:fix inline
+func activityFloatPtr(v float64) *float64 { return new(v) }
 
-func activityBoolPtr(v bool) *bool { return &v }
+//go:fix inline
+func activityBoolPtr(v bool) *bool { return new(v) }
 
-func activityStringPtr(v string) *string { return &v }
+//go:fix inline
+func activityStringPtr(v string) *string { return new(v) }

@@ -1,15 +1,19 @@
 package tools
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type ActivityFilters struct {
-	TableAlias string
-	SportType  string
-	SubType    *string
-	IsElectric *bool
-	IsIndoor   *bool
-	IsVirtual  *bool
-	IsCommute  *bool
+	TableAlias   string
+	SportType    string
+	SubType      *string
+	IsElectric   *bool
+	IsIndoor     *bool
+	IsVirtual    *bool
+	IsCommute    *bool
+	CountryCodes []string
 }
 
 type SegmentEffortFilters struct {
@@ -54,7 +58,25 @@ func applyActivityFilters(conditions []string, params []any, filters ActivityFil
 		params = append(params, *item.value)
 		conditions = append(conditions, fmt.Sprintf("%s%s = $%d", prefix, item.field, len(params)))
 	}
+	if codes := normalizeAgentCountryCodes(filters.CountryCodes); len(codes) > 0 {
+		params = append(params, codes)
+		conditions = append(conditions, fmt.Sprintf("%svisited_country_codes && $%d::text[]", prefix, len(params)))
+	}
 	return conditions, params
+}
+
+func normalizeAgentCountryCodes(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		if len(code) != 2 || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	return out
 }
 
 func applySegmentEffortFilters(conditions []string, params []any, filters SegmentEffortFilters) ([]string, []any) {

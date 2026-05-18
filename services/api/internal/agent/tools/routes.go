@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,16 +41,17 @@ const (
 )
 
 type searchRoutesArgs struct {
-	LocationName string  `json:"location_name,omitempty"`
-	ActivityID   string  `json:"activity_id,omitempty"`
-	SportType    string  `json:"sport_type,omitempty"`
-	SubType      *string `json:"sub_type,omitempty"`
-	IsElectric   *bool   `json:"is_electric,omitempty"`
-	IsIndoor     *bool   `json:"is_indoor,omitempty"`
-	IsVirtual    *bool   `json:"is_virtual,omitempty"`
-	IsCommute    *bool   `json:"is_commute,omitempty"`
-	Days         *int    `json:"days,omitempty"`
-	Limit        *int    `json:"limit,omitempty"`
+	LocationName string   `json:"location_name,omitempty"`
+	ActivityID   string   `json:"activity_id,omitempty"`
+	SportType    string   `json:"sport_type,omitempty"`
+	SubType      *string  `json:"sub_type,omitempty"`
+	IsElectric   *bool    `json:"is_electric,omitempty"`
+	IsIndoor     *bool    `json:"is_indoor,omitempty"`
+	IsVirtual    *bool    `json:"is_virtual,omitempty"`
+	IsCommute    *bool    `json:"is_commute,omitempty"`
+	CountryCodes []string `json:"country_codes,omitempty"`
+	Days         *int     `json:"days,omitempty"`
+	Limit        *int     `json:"limit,omitempty"`
 }
 
 type planRouteArgs struct {
@@ -112,7 +115,7 @@ func RouteTools() []*Tool {
 		{
 			Name:        "search_routes",
 			Description: "Search the user's historical routes by place, sport, modifiers, and date range.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"location_name":{"type":"string"},"activity_id":{"type":"string","format":"uuid"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"days":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"location_name":{"type":"string"},"activity_id":{"type":"string","format":"uuid"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"},"country_codes":{"type":"array","items":{"type":"string","pattern":"^[A-Za-z]{2}$"}},"days":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeSearchRoutes,
@@ -231,9 +234,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
 	}
 	mergedParams := routingProfileDefaultParams(resolved)
-	for key, value := range args.ProfileParams {
-		mergedParams[key] = value
-	}
+	maps.Copy(mergedParams, args.ProfileParams)
 	params, err := stringifyProfileParams(mergedParams)
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
@@ -403,13 +404,14 @@ func buildSearchRoutesSQL(userID string, args searchRoutesArgs, now time.Time) (
 		conditions = append(conditions, fmt.Sprintf("(a.start_city ILIKE $%d OR a.start_state ILIKE $%d)", len(params), len(params)))
 	}
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		TableAlias: "a",
-		SportType:  args.SportType,
-		SubType:    args.SubType,
-		IsElectric: args.IsElectric,
-		IsIndoor:   args.IsIndoor,
-		IsVirtual:  args.IsVirtual,
-		IsCommute:  args.IsCommute,
+		TableAlias:   "a",
+		SportType:    args.SportType,
+		SubType:      args.SubType,
+		IsElectric:   args.IsElectric,
+		IsIndoor:     args.IsIndoor,
+		IsVirtual:    args.IsVirtual,
+		IsCommute:    args.IsCommute,
+		CountryCodes: args.CountryCodes,
 	})
 	if strings.TrimSpace(args.ActivityID) != "" {
 		activityID, err := uuid.Parse(args.ActivityID)
@@ -508,7 +510,7 @@ func parseCoverageLayers(raw string) ([]string, error) {
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0)
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		layer := strings.TrimSpace(part)
 		if layer == "" {
 			continue
@@ -817,12 +819,7 @@ func filterRoutingProfilesForTool(profiles []routingProfileToolItem, args listRo
 }
 
 func routingProfileSupportsSport(profile routingProfileToolItem, sportType string) bool {
-	for _, value := range profile.SportTypes {
-		if value == sportType {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(profile.SportTypes, sportType)
 }
 
 func resolveRoutingProfileForPreview(ctx context.Context, deps *Deps, userID, key string) (routingProfileToolItem, error) {
@@ -853,9 +850,7 @@ func resolveRoutingProfileForPreview(ctx context.Context, deps *Deps, userID, ke
 func routingProfileDefaultParams(profile routingProfileToolItem) map[string]any {
 	out := map[string]any{}
 	if nested, ok := profile.DefaultParams["profile_params"].(map[string]any); ok {
-		for key, value := range nested {
-			out[key] = value
-		}
+		maps.Copy(out, nested)
 		return out
 	}
 	allowed := map[string]bool{}

@@ -716,6 +716,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
+			a.end_country, a.end_country_code, a.location_country, a.location_country_code, a.visited_country_codes,
 			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at,
 			(SELECT aga.gear_id FROM activity_gear_assignments aga
 			 WHERE aga.activity_id = a.id AND aga.role_key = 'primary' LIMIT 1) AS gear_id,
@@ -822,6 +823,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
 		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
+		&a.EndCountry, &a.EndCountryCode, &a.LocationCountry, &a.LocationCountryCode, &a.VisitedCountryCodes,
 		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.SunriseAt, &a.SunsetAt, &a.GearID,
 		&a.CreatedAt, &a.UpdatedAt,
 		&a.HasGPS,
@@ -1029,6 +1031,13 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 			conds = append(conds, "location_lat IS NULL OR location_lng IS NULL")
 		}
 	}
+	if len(filters.CountryCodes) > 0 {
+		if codes := normalizeCountryCodes(filters.CountryCodes); len(codes) > 0 {
+			idx++
+			conds = append(conds, fmt.Sprintf("visited_country_codes && $%d::text[]", idx))
+			args = append(args, codes)
+		}
+	}
 	if filters.GearID != "" {
 		idx++
 		conds = append(conds, fmt.Sprintf(
@@ -1192,7 +1201,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		COALESCE(activities.title_is_manual, false),
 		started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_electric, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
-		created_at, updated_at, sport_conflict_pending, timezone, rgm.group_id`
+		created_at, updated_at, sport_conflict_pending, timezone, rgm.group_id, visited_country_codes`
 
 	// Build ORDER BY: primary sort column + tiebreaker id (same direction)
 	orderClause := fmt.Sprintf("%s %s, id %s", sqlCol, strings.ToUpper(sortDir), strings.ToUpper(sortDir))
@@ -1320,7 +1329,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		if err := rows.Scan(
 			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.TitleIsManual, &a.StartedAt, &a.DistanceM,
 			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
-			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone, &a.RecordingGroupID,
+			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone, &a.RecordingGroupID, &a.VisitedCountryCodes,
 		); err != nil {
 			return nil, fmt.Errorf("scan activity: %w", err)
 		}

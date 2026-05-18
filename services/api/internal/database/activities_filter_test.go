@@ -1,6 +1,7 @@
 package database
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -66,5 +67,15 @@ func TestBuildFilterSQLIncludesPendingLiftReview(t *testing.T) {
 	}
 	if len(args) != 0 {
 		t.Fatalf("args = %#v, want none", args)
+	}
+}
+
+func TestBuildFilterSQLCountryCodesUsesVisitedCountries(t *testing.T) {
+	clause, args := buildFilterSQL(model.ActivityFilters{CountryCodes: []string{"CH", "IT"}}, 1)
+	if !strings.Contains(clause, "visited_country_codes && $2::text[]") {
+		t.Fatalf("country filter clause = %s", clause)
+	}
+	if want := []any{[]string{"CH", "IT"}}; !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }

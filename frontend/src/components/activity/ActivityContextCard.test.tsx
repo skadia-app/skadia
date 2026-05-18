@@ -50,6 +50,8 @@ function activity(): Activity {
     start_city: 'Monte Ceneri',
     start_state: 'Ticino',
     start_country: 'Schweiz',
+    start_country_code: 'CH',
+    visited_country_codes: ['CH', 'IT'],
     garmin_activity_id: '123',
     strava_activity_id: '456',
     komoot_tour_id: '789',
@@ -82,6 +84,7 @@ describe('ActivityContextCard', () => {
 
     expect(screen.getByText('Autogruppierung')).toBeInTheDocument()
     expect(screen.getByText('Monte Tamaro')).toBeInTheDocument()
+    expect(screen.getByText('🇨🇭 🇮🇹')).toBeInTheDocument()
     expect(screen.getByText('Gerät')).toBeInTheDocument()
     expect(screen.getByText('Garmin Instinct 2X')).toBeInTheDocument()
     expect(screen.getByText('Aufzeichnung')).toBeInTheDocument()

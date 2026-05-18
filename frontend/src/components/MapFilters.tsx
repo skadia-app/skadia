@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { DayPicker } from 'react-day-picker'
@@ -42,6 +42,13 @@ function optionLeaves(opt: SportOption): SportOption[] {
   return opt.children ?? [opt]
 }
 
+function parseCountryCodes(value: string): string[] {
+  return [...new Set(value
+    .split(',')
+    .map(v => v.trim().toUpperCase())
+    .filter(v => /^[A-Z]{2}$/.test(v)))]
+}
+
 interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
@@ -60,6 +67,9 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
   const [collapsed, setCollapsed] = useState(false)
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
   const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const countryCodesValue = filters.countryCodes.join(', ')
+  const [countryInput, setCountryInput] = useState(countryCodesValue)
+  const previousCountryCodesValue = useRef(countryCodesValue)
   const datePickerRef = useRef<HTMLDivElement>(null)
   const { getSportColor, setSportColor, resetSportColor, hideUnused } = useGlobalSportSettings()
   const { data: statsData } = useQuery({
@@ -112,6 +122,13 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 
   // Close date picker on click outside
   useClickOutside(datePickerRef, () => setDatePickerOpen(false), datePickerOpen)
+
+  useEffect(() => {
+    if (previousCountryCodesValue.current !== countryCodesValue) {
+      previousCountryCodesValue.current = countryCodesValue
+      setCountryInput(countryCodesValue)
+    }
+  }, [countryCodesValue])
 
   return (
     <div className={docked ? `h-full w-full${forceDark ? ' dark' : ''}` : `absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
@@ -219,6 +236,20 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   >&#x2715;</span>
                 )}
               </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Länder</label>
+              <input
+                value={countryInput}
+                onChange={e => {
+                  const value = e.target.value
+                  setCountryInput(value)
+                  onChange({ ...filters, countryCodes: parseCountryCodes(value) })
+                }}
+                placeholder="CH, IT"
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 text-xs text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-1 focus:ring-accent-400"
+              />
             </div>
 
             {/* Tag & Gear filter — combined chips + compact search fields */}
@@ -561,7 +592,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 
             {/* Reset */}
 
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isElectric !== null || filters.isCommute !== null) && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.countryCodes.length > 0 || filters.isElectric !== null || filters.isCommute !== null) && (
               <button
                 onClick={() => onChange({
                   sportTypes: null,
@@ -573,6 +604,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   heatmapColor: '#F97316',
                   tagFilters: [],
                   gearFilters: [],
+                  countryCodes: [],
                   isElectric: null,
                   isCommute: null,
                 })}

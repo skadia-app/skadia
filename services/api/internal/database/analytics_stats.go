@@ -48,7 +48,7 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 			COALESCE(SUM(elapsed_time_s), 0)                           AS total_elapsed_time_s,
 			COALESCE(SUM(total_calories), 0)                           AS total_calories,
 			COUNT(DISTINCT (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date) AS active_days,
-			COUNT(DISTINCT start_country)                              AS countries,
+			0::bigint                                                  AS countries,
 			COALESCE(SUM(COALESCE(lift_count, 0)), 0)                  AS lift_ride_count,
 			COALESCE(SUM(COALESCE(lift_ascent_m, 0)), 0)               AS lift_ascent_m,
 			COALESCE(SUM(COALESCE(lift_descent_m, 0)), 0)              AS lift_descent_m,
@@ -76,6 +76,21 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get lifetime stats: %w", err)
+	}
+
+	countryQuery := `
+		SELECT COUNT(DISTINCT vc.country_code)
+		FROM activities a
+		LEFT JOIN LATERAL unnest(
+			CASE
+				WHEN a.visited_country_codes <> '{}'::text[] THEN a.visited_country_codes
+				ELSE ARRAY[NULL::text]
+			END
+		) AS vc(country_code) ON true
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause
+	if err := db.Pool.QueryRow(ctx, countryQuery, allArgs...).Scan(&s.Countries); err != nil {
+		return nil, fmt.Errorf("get lifetime countries: %w", err)
 	}
 	return &s, nil
 }
@@ -184,8 +199,14 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 	var labelExpr, groupBy, joinClause string
 	switch distType {
 	case "country":
-		labelExpr = "COALESCE(a.start_country, 'Unknown')"
-		groupBy = "COALESCE(a.start_country, 'Unknown')"
+		labelExpr = "COALESCE(vc.country_code, 'Unknown')"
+		groupBy = "COALESCE(vc.country_code, 'Unknown')"
+		joinClause = `LEFT JOIN LATERAL unnest(
+			CASE
+				WHEN a.visited_country_codes <> '{}'::text[] THEN a.visited_country_codes
+				ELSE ARRAY[NULL::text]
+			END
+		) AS vc(country_code) ON true`
 	case "gear":
 		labelExpr = "COALESCE(g.name, 'No Gear')"
 		groupBy = "COALESCE(g.name, 'No Gear')"

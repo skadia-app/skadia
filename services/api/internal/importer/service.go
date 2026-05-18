@@ -502,6 +502,9 @@ func (s *Service) PostProcess(
 	// all geo queries read from activity_tracks.track_full.
 	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
 	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Stage2ReadyPublisher, s.GraphReader)
+	if err := s.DB.RefreshActivityVisitedCountries(ctx, activityID); err != nil {
+		slog.Warn("postprocess: refresh visited countries failed", "activity_id", activityID, "error", err)
+	}
 
 	if err := enrichment.RunAutoTitle(ctx, s.DB, userID, activityID); err != nil {
 		slog.Warn("postprocess: auto title failed (non-fatal)", "activity_id", activityID, "error", err)

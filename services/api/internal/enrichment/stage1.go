@@ -395,6 +395,12 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			if geo.City != "" {
 				fields["end_city"] = geo.City
 			}
+			if geo.Country != "" {
+				fields["end_country"] = geo.Country
+			}
+			if geo.CountryCode != "" {
+				fields["end_country_code"] = geo.CountryCode
+			}
 		}
 	}
 
@@ -430,10 +436,8 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// to add and merge them atomically in SQL below via array || + unnest DISTINCT.
 	var autoTagsToAdd []string
 	addAutoTag := func(name string) {
-		for _, existing := range autoTagsToAdd {
-			if existing == name {
-				return
-			}
+		if slices.Contains(autoTagsToAdd, name) {
+			return
 		}
 		autoTagsToAdd = append(autoTagsToAdd, name)
 	}

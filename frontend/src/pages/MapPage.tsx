@@ -105,6 +105,7 @@ export interface MapFilterState {
   heatmapColor: string
   tagFilters: import('@/components/TagFilterInput').TagFilter[]
   gearFilters: import('@/components/GearFilterInput').GearFilter[]
+  countryCodes: string[]
   isElectric: boolean | null  // null=neutral, true=only electric drive, false=exclude electric drive
   isCommute: boolean | null   // null=neutral, true=only commute, false=exclude commute
 }
@@ -154,6 +155,7 @@ const defaultFilters: MapFilterState = {
   heatmapColor: '#F97316',
   tagFilters: [],
   gearFilters: [],
+  countryCodes: [],
   isElectric: null,
   isCommute: null,
 }
@@ -248,10 +250,11 @@ function buildTileUrl(
   if (effectiveExcludeTags.size) params.set('exclude_tags', Array.from(effectiveExcludeTags).join(','))
   if (includeGear.length) params.set('include_gear', includeGear.join(','))
   if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
+  if (filters.countryCodes.length) params.set('country_codes', filters.countryCodes.join(','))
 
   // Cache-buster: erzwingt frische Tiles nach MVT-Funktionsänderungen.
   // Bump nach jeder heatmap_lines_mvt / heatmap_points_mvt Migration.
-  params.set('_v', '000372')
+  params.set('_v', '000374')
 
   const qs = params.toString()
   return qs ? `${base}?${qs}` : base
@@ -1622,7 +1625,7 @@ export default function MapPage() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, globalSportColors])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.countryCodes, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, globalSportColors])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,

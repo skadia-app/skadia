@@ -45,6 +45,25 @@ func TestApplyActivityFiltersEmptySubtypeMeansNull(t *testing.T) {
 	}
 }
 
+func TestApplyActivityFiltersCountryCodes(t *testing.T) {
+	conditions, params := applyActivityFilters([]string{"a.user_id = $1"}, []any{"user-1"}, ActivityFilters{
+		TableAlias:   "a",
+		CountryCodes: []string{"ch", "IT", "ch", "bad"},
+	})
+
+	wantConditions := []string{
+		"a.user_id = $1",
+		"a.visited_country_codes && $2::text[]",
+	}
+	wantParams := []any{"user-1", []string{"CH", "IT"}}
+	if !reflect.DeepEqual(conditions, wantConditions) {
+		t.Fatalf("conditions mismatch:\nwant %#v\ngot  %#v", wantConditions, conditions)
+	}
+	if !reflect.DeepEqual(params, wantParams) {
+		t.Fatalf("params mismatch:\nwant %#v\ngot  %#v", wantParams, params)
+	}
+}
+
 func TestApplySegmentEffortFilters(t *testing.T) {
 	subType := ""
 	inLeaderboard := true

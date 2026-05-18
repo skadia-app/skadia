@@ -129,6 +129,11 @@ export interface Activity {
   start_state?: string | null
   start_country?: string | null
   start_country_code?: string | null
+  end_country?: string | null
+  end_country_code?: string | null
+  location_country?: string | null
+  location_country_code?: string | null
+  visited_country_codes?: string[]
   weather_readings?: WeatherReading[]
   is_round_trip?: boolean
   intensity?: string | null

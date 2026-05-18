@@ -50,6 +50,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -198,6 +199,60 @@ func TestFusionMerge_FullColumnCopy(t *testing.T) {
 	}
 }
 
+func TestCreateMergedActivityCopiesCountryMetadata(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	targetID := insertMinimalActivity(t, db, userID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE activities
+		SET start_country = 'Schweiz',
+		    start_country_code = 'CH',
+		    end_country = 'Italien',
+		    end_country_code = 'IT',
+		    location_country = 'Schweiz',
+		    location_country_code = 'CH',
+		    visited_country_codes = ARRAY['CH','IT']::text[]
+		WHERE id = $1
+	`, targetID); err != nil {
+		t.Fatalf("seed country metadata: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	targetAct, err := db.GetActivity(ctx, targetID)
+	if err != nil {
+		t.Fatalf("GetActivity target: %v", err)
+	}
+	mergedAct, err := createMergedActivity(ctx, tx, targetAct)
+	if err != nil {
+		t.Fatalf("createMergedActivity: %v", err)
+	}
+
+	var startCountry, startCode, endCountry, endCode, locationCountry, locationCode string
+	var visited []string
+	if err := tx.QueryRow(ctx, `
+		SELECT start_country, start_country_code, end_country, end_country_code,
+		       location_country, location_country_code, visited_country_codes
+		FROM activities
+		WHERE id = $1
+	`, mergedAct.ID).Scan(&startCountry, &startCode, &endCountry, &endCode, &locationCountry, &locationCode, &visited); err != nil {
+		t.Fatalf("load merged country metadata: %v", err)
+	}
+	if startCountry != "Schweiz" || startCode != "CH" || endCountry != "Italien" || endCode != "IT" || locationCountry != "Schweiz" || locationCode != "CH" {
+		t.Fatalf("country metadata not copied: start=%s/%s end=%s/%s location=%s/%s", startCountry, startCode, endCountry, endCode, locationCountry, locationCode)
+	}
+	if !reflect.DeepEqual(visited, []string{"CH", "IT"}) {
+		t.Fatalf("visited_country_codes = %#v, want %#v", visited, []string{"CH", "IT"})
+	}
+}
+
 // ─── Test 2: Unified Timeline — all sources contribute timestamps ──────────
 
 // TestFusionMerge_UnifiedTimeline_IncludesAllSources verifies that
@@ -205,7 +260,8 @@ func TestFusionMerge_FullColumnCopy(t *testing.T) {
 // referenced in fieldMap.
 //
 // Setup:  source A (t1,t2,t3), source B (t4,t5), source C (t6,t7).
-//         fieldMap = {hr: A, power: B}  — C is NOT in fieldMap.
+//
+//	fieldMap = {hr: A, power: B}  — C is NOT in fieldMap.
 //
 // Bug state:  merged timeline has 5 rows (t1–t5), C's t6/t7 are absent.
 // Fixed state: merged timeline has 7 rows (t1–t7).
@@ -383,7 +439,7 @@ func TestFusionMerge_GPSOverlayCOALESCEAltitude(t *testing.T) {
 	// Bug state:  altitude_m = NULL (source NULL overwrites target value).
 	// Fixed state: altitude_m = 500.0 (COALESCE preserves target).
 	if gotAlt == nil {
-		t.Errorf("altitude_m: got NULL — bug state: source NULL overwrote target value 500."+
+		t.Errorf("altitude_m: got NULL — bug state: source NULL overwrote target value 500." +
 			"\n  Fixed state: COALESCE(s.altitude_m, t.altitude_m) should keep 500")
 	} else if *gotAlt != targetAlt {
 		t.Errorf("altitude_m: want %v (target), got %v", targetAlt, *gotAlt)
@@ -397,19 +453,21 @@ func TestFusionMerge_GPSOverlayCOALESCEAltitude(t *testing.T) {
 //
 // There is a COMPOUND bug here that the fix-agent must address in BOTH files:
 //
-//   Bug 5a (fusion_merge.go):   fuseGPSTracks is called with req.Sources only,
-//                               missing targetID.  Fix: pass allSourceIDs.
+//	Bug 5a (fusion_merge.go):   fuseGPSTracks is called with req.Sources only,
+//	                            missing targetID.  Fix: pass allSourceIDs.
 //
-//   Bug 5b (fusion/stitcher.go): StitchGPSTracks uses ON CONFLICT (time) but the
-//                               TEMP TABLE has a UNIQUE INDEX on (activity_id, time).
-//                               Fix: change to ON CONFLICT (activity_id, time).
+//	Bug 5b (fusion/stitcher.go): StitchGPSTracks uses ON CONFLICT (time) but the
+//	                            TEMP TABLE has a UNIQUE INDEX on (activity_id, time).
+//	                            Fix: change to ON CONFLICT (activity_id, time).
 //
 // This test validates Bug 5a by inspecting the source-list logic directly, and
 // validates Bug 5b by checking that fuseGPSTracks works without the conflict error.
 //
 // Bug state:  fuseGPSTracks returns "no unique constraint matching ON CONFLICT"
-//             because the stitcher uses ON CONFLICT (time) but the TEMP TABLE
-//             unique index is (activity_id, time).
+//
+//	because the stitcher uses ON CONFLICT (time) but the TEMP TABLE
+//	unique index is (activity_id, time).
+//
 // Fixed state: fuseGPSTracks succeeds and GPS rows from targetID appear in TEMP.
 func TestFusionMerge_FuseGPSIncludesTarget(t *testing.T) {
 	pool := fusionTestPool(t)
@@ -477,8 +535,8 @@ func TestFusionMerge_FuseGPSIncludesTarget(t *testing.T) {
 				" unique index is (activity_id, time)."+
 				"\n  Fix needed: change stitcher.go ON CONFLICT (time) → ON CONFLICT (activity_id, time)"+
 				"\n  Error: %v", fuseErr)
-			t.Errorf("fuseGPSTracks failed due to ON CONFLICT mismatch (Bug 5b — stitcher.go fix needed)"+
-				"\n  Bug state:   ON CONFLICT (time) — index does not exist"+
+			t.Errorf("fuseGPSTracks failed due to ON CONFLICT mismatch (Bug 5b — stitcher.go fix needed)" +
+				"\n  Bug state:   ON CONFLICT (time) — index does not exist" +
 				"\n  Fixed state: ON CONFLICT (activity_id, time) — matches TEMP TABLE unique index")
 			return
 		}
@@ -524,7 +582,9 @@ func contains(s, substr string) bool {
 // so that NULL rows and 0°C glitch rows do not corrupt min_temperature_c.
 //
 // Bug state:  MIN(temperature_c) without FILTER returns NULL if any row is NULL,
-//             or returns 0 if a sensor glitch produces a 0°C row.
+//
+//	or returns 0 if a sensor glitch produces a 0°C row.
+//
 // Fixed state: MIN(temperature_c) FILTER (WHERE temperature_c IS NOT NULL) = 18.5
 //
 // Note: The actual recompute SQL lives in applyFusionTxExtras which is called
@@ -545,9 +605,9 @@ func TestFusionMerge_AggregateMinTemperatureFilter(t *testing.T) {
 	// which mirrors what the fix should produce.
 	glitchTemp := int16(0) // simulated 0°C sensor glitch
 	insertStreams(t, db, actID, []model.StreamPoint{
-		{Time: base, TemperatureC: nil},                     // NULL — should be ignored
-		{Time: base.Add(1 * time.Second), TemperatureC: nil}, // NULL — should be ignored
-		{Time: base.Add(2 * time.Second), TemperatureC: &glitchTemp},    // 0°C glitch — should be ignored by fix
+		{Time: base, TemperatureC: nil},                              // NULL — should be ignored
+		{Time: base.Add(1 * time.Second), TemperatureC: nil},         // NULL — should be ignored
+		{Time: base.Add(2 * time.Second), TemperatureC: &glitchTemp}, // 0°C glitch — should be ignored by fix
 		{Time: base.Add(3 * time.Second), TemperatureC: fusionPtrI16(19)},
 		{Time: base.Add(4 * time.Second), TemperatureC: fusionPtrI16(22)},
 		{Time: base.Add(5 * time.Second), TemperatureC: fusionPtrI16(25)},
@@ -2858,7 +2918,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 	}
 
 	if paSource2ID == nil {
-		t.Errorf("after fuse(M1,C): P_A.source_activity_id is NULL — COALESCE did not preserve A; "+
+		t.Errorf("after fuse(M1,C): P_A.source_activity_id is NULL — COALESCE did not preserve A; " +
 			"this breaks RevertFusion(M2) which would have nowhere to restore P_A")
 	} else if *paSource2ID == m1ID {
 		// This is what would happen if COALESCE were removed: the second fusion overwrites
@@ -2963,7 +3023,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 		t.Logf("FINDING #8 NOTE: expected A.parent_id = M1 after revert(M2) (A is hidden under M1), "+
 			"but got parent_id = %v — state may differ from expected inconsistency", aParentID)
 	} else {
-		t.Logf("FINDING #8 DOCUMENTED: A.parent_id = M1 after revert(M2); "+
+		t.Logf("FINDING #8 DOCUMENTED: A.parent_id = M1 after revert(M2); " +
 			"P_A is restored to A but A remains hidden — inconsistency documented, not a crash")
 	}
 
@@ -3452,9 +3512,9 @@ func TestFusionMerge_ElevationSkipsNullGapsAndComputesOverNonNull(t *testing.T) 
 	// NULL gaps: index 1 and 3 have no AltitudeM.
 	streamsA := []model.StreamPoint{
 		{Time: now, AltitudeM: &alt0},
-		{Time: now.Add(1 * time.Second)},               // NULL altitude
+		{Time: now.Add(1 * time.Second)}, // NULL altitude
 		{Time: now.Add(2 * time.Second), AltitudeM: &alt100},
-		{Time: now.Add(3 * time.Second)},               // NULL altitude
+		{Time: now.Add(3 * time.Second)}, // NULL altitude
 		{Time: now.Add(4 * time.Second), AltitudeM: &alt50},
 	}
 	insertStreams(t, db, actA, streamsA)

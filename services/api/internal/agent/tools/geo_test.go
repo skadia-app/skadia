@@ -103,6 +103,17 @@ func TestBuildQueryGeoFeaturesSQLMapsWaterAndFiltersActivities(t *testing.T) {
 	}
 }
 
+func TestBuildQueryGeoFeaturesSQLFiltersByVisitedCountryCodes(t *testing.T) {
+	args := queryGeoFeaturesArgs{FeatureType: "summit", CountryCodes: []string{"CH", "IT"}}
+	_, dataSQL, _, _, _, err := buildQueryGeoFeaturesSQL("00000000-0000-0000-0000-000000000001", args, fixedAgentToolNow())
+	if err != nil {
+		t.Fatalf("buildQueryGeoFeaturesSQL returned error: %v", err)
+	}
+	if !strings.Contains(dataSQL, "a.visited_country_codes &&") {
+		t.Fatalf("SQL missing visited-country filter:\n%s", dataSQL)
+	}
+}
+
 func TestBuildQueryGeoFeatureGroupsUsesFullFilteredSet(t *testing.T) {
 	limitArg := 1
 	args := queryGeoFeaturesArgs{

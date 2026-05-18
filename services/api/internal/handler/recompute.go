@@ -1018,6 +1018,12 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		// handled by the Stage-1 publisher path, not this per-submodule block.
 	}
 
+	if doStage1 || doGeo {
+		if err := h.DB.RefreshActivityVisitedCountries(ctx, activityID); err != nil {
+			slog.Warn("reprocess: refresh visited countries failed (non-fatal)", "id", activityID, "error", err)
+		}
+	}
+
 	if scopeFlags.doAutoTitle {
 		if err := enrichment.RunAutoTitle(ctx, h.DB, userID, activityID); err != nil {
 			slog.Warn("reprocess: auto title failed", "activity_id", activityID, "error", err)

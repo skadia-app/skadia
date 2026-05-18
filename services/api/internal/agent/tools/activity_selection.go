@@ -38,6 +38,7 @@ var previewActivitySelectionInputSchema = json.RawMessage(`{
     "is_indoor": {"type": "boolean"},
     "is_virtual": {"type": "boolean"},
     "is_commute": {"type": "boolean"},
+    "country_codes": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z]{2}$"}, "description": "ISO-3166-1 alpha-2 country codes matched against all countries detected for an activity"},
     "all_history": {"type": "boolean"},
     "sample_size": {"type": "integer", "minimum": 1, "maximum": 50}
   },
@@ -61,6 +62,7 @@ type activitySelectionCriteria struct {
 	IsIndoor      *bool    `json:"is_indoor,omitempty"`
 	IsVirtual     *bool    `json:"is_virtual,omitempty"`
 	IsCommute     *bool    `json:"is_commute,omitempty"`
+	CountryCodes  []string `json:"country_codes,omitempty"`
 	AllHistory    bool     `json:"all_history,omitempty"`
 }
 
@@ -238,13 +240,14 @@ func buildActivitySelectionPlan(userID string, criteria activitySelectionCriteri
 	}
 
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		TableAlias: "a",
-		SportType:  normalized.SportType,
-		SubType:    normalized.SubType,
-		IsElectric: normalized.IsElectric,
-		IsIndoor:   normalized.IsIndoor,
-		IsVirtual:  normalized.IsVirtual,
-		IsCommute:  normalized.IsCommute,
+		TableAlias:   "a",
+		SportType:    normalized.SportType,
+		SubType:      normalized.SubType,
+		IsElectric:   normalized.IsElectric,
+		IsIndoor:     normalized.IsIndoor,
+		IsVirtual:    normalized.IsVirtual,
+		IsCommute:    normalized.IsCommute,
+		CountryCodes: normalized.CountryCodes,
 	})
 	if normalized.MinDistanceKM != nil {
 		params = append(params, *normalized.MinDistanceKM*1000)
@@ -288,6 +291,7 @@ func normalizeActivitySelectionCriteria(criteria activitySelectionCriteria) (act
 	criteria.TitleSearch = strings.TrimSpace(criteria.TitleSearch)
 	criteria.GearID = strings.TrimSpace(criteria.GearID)
 	criteria.TagName = strings.TrimSpace(criteria.TagName)
+	criteria.CountryCodes = normalizeAgentCountryCodes(criteria.CountryCodes)
 
 	if criteria.Days != nil && *criteria.Days <= 0 {
 		return criteria, fmt.Errorf("days must be positive")
@@ -423,6 +427,9 @@ func activitySelectionCriteriaResponse(criteria activitySelectionCriteria, defau
 	}
 	if criteria.IsCommute != nil {
 		out["is_commute"] = *criteria.IsCommute
+	}
+	if len(criteria.CountryCodes) > 0 {
+		out["country_codes"] = criteria.CountryCodes
 	}
 	if criteria.AllHistory {
 		out["all_history"] = true
