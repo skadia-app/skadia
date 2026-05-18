@@ -105,3 +105,84 @@ func TestReadyzAndHealthzDoNotExposeRawProbeErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminSystemStatusIncludesDataPlaneComponents(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	h.Config = &HandlerConfig{
+		DeploymentProfile: "full",
+		StorageBackend:    "local",
+		StorageMode:       "local",
+		APIReplicaCount:   1,
+		SharedStorage:     "false",
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
+	rec := httptest.NewRecorder()
+
+	h.GetAdminSystemStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for _, key := range []string{`"db"`, `"timescale_compression"`, `"storage"`, `"jobs"`, `"gdpr_artifacts"`} {
+		if !strings.Contains(rec.Body.String(), key) {
+			t.Fatalf("response missing component %s: %s", key, rec.Body.String())
+		}
+	}
+}
+
+func TestAdminSystemStatusUsesInjectedS3StorageProbeResults(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	h.Config = &HandlerConfig{
+		DeploymentProfile: "full",
+		StorageBackend:    "s3",
+		StorageMode:       "s3-local-garage",
+		APIReplicaCount:   1,
+		SharedStorage:     "true",
+	}
+	h.StorageProbe = fakeAdminStatusStorageProbe{head: true, write: true, list: false, multipart: true}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
+	rec := httptest.NewRecorder()
+
+	h.GetAdminSystemStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"reason_code":"s3_list_prefix_probe_failed"`) {
+		t.Fatalf("response missing S3 list-prefix probe failure: %s", rec.Body.String())
+	}
+}
+
+type fakeAdminStatusStorageProbe struct {
+	head, write, list, multipart bool
+}
+
+func (f fakeAdminStatusStorageProbe) HeadBucket(context.Context) error {
+	if f.head {
+		return nil
+	}
+	return errors.New("head failed")
+}
+
+func (f fakeAdminStatusStorageProbe) PutGetDelete(context.Context) error {
+	if f.write {
+		return nil
+	}
+	return errors.New("write failed")
+}
+
+func (f fakeAdminStatusStorageProbe) ListPrefix(context.Context) error {
+	if f.list {
+		return nil
+	}
+	return errors.New("list failed")
+}
+
+func (f fakeAdminStatusStorageProbe) MultipartAbortDryRun(context.Context) error {
+	if f.multipart {
+		return nil
+	}
+	return errors.New("multipart failed")
+}

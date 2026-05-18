@@ -11,7 +11,13 @@ vi.mock('@/api/systemStatus', () => ({
     generated_at: '2026-05-17T10:00:00Z',
     overall: 'degraded',
     build: { api: { service: 'api', git_commit: 'abc123', commit_time: '2026-05-17T09:58:00Z', build_time: '2026-05-17T10:00:00Z' } },
-    components: { db: { key: 'db', label: 'Database', state: 'degraded', reason_code: 'migration_dirty', checked_at: '2026-05-17T10:00:00Z' } },
+    components: {
+      db: { key: 'db', label: 'Database', state: 'degraded', reason_code: 'migration_dirty', checked_at: '2026-05-17T10:00:00Z' },
+      timescale_compression: { key: 'timescale_compression', label: 'TimescaleDB compression', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
+      storage: { key: 'storage', label: 'Storage', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
+      jobs: { key: 'jobs', label: 'Jobs', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
+      gdpr_artifacts: { key: 'gdpr_artifacts', label: 'GDPR artifacts', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
+    },
   })),
   downloadSystemStatusExport: vi.fn(),
 }))
@@ -36,5 +42,7 @@ describe('AdminSystemStatusTab', () => {
     render(<AdminSystemStatusTab />, { wrapper })
     expect(await screen.findByText(/Gesamtstatus: degraded/i)).toBeInTheDocument()
     expect(screen.getByText(/Frontend-Build: front123.*Commit-Zeit: 2026-05-17T09:59:00Z/i)).toBeInTheDocument()
+    expect(screen.getByText('Datenbank')).toBeInTheDocument()
+    expect(screen.getByText('DSGVO-Artefakte')).toBeInTheDocument()
   })
 })

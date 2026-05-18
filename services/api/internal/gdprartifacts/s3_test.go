@@ -483,3 +483,46 @@ func TestS3StoreDeletePrefixAndAbortIncompleteUploadsUseConfiguredPrefix(t *test
 		t.Fatalf("abort calls = %d, want 1", fake.abortCalls)
 	}
 }
+
+func TestS3StoreCountIncompleteUploadsUsesConfiguredPrefixWithoutAbort(t *testing.T) {
+	fake := newFakeS3Client()
+	fake.multipart["upload-1"] = &fakeMultipartUpload{bucket: "skadia-exports", key: "gdpr/exports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/export.zip", parts: make(map[int32][]byte)}
+	fake.multipart["upload-2"] = &fakeMultipartUpload{bucket: "skadia-exports", key: "gdpr/exports/other-user/other-job/export.zip", parts: make(map[int32][]byte)}
+	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ImportBucket: "skadia-imports", ExportPrefix: "gdpr/exports", ImportPrefix: "gdpr/imports"})
+
+	prefix := ArtifactPrefix{Kind: "export", UserID: "11111111-1111-1111-1111-111111111111", JobID: "22222222-2222-2222-2222-222222222222"}
+	got, err := store.CountIncompleteUploads(context.Background(), prefix)
+	if err != nil {
+		t.Fatalf("CountIncompleteUploads: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("incomplete uploads = %d, want 1", got)
+	}
+	want := "gdpr/exports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/"
+	if fake.listMultipartPrefixes[len(fake.listMultipartPrefixes)-1] != want {
+		t.Fatalf("list prefix = %#v, want %q", fake.listMultipartPrefixes, want)
+	}
+	if fake.abortCalls != 0 {
+		t.Fatalf("abort calls = %d, want 0", fake.abortCalls)
+	}
+}
+
+func TestS3StoreCountIncompleteUploadsAllowsDedicatedBucketWithoutPrefix(t *testing.T) {
+	fake := newFakeS3Client()
+	fake.multipart["upload-1"] = &fakeMultipartUpload{bucket: "skadia-exports", key: "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/export.zip", parts: make(map[int32][]byte)}
+	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ImportBucket: "skadia-imports"})
+
+	got, err := store.CountIncompleteUploads(context.Background(), ArtifactPrefix{Kind: "export"})
+	if err != nil {
+		t.Fatalf("CountIncompleteUploads: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("incomplete uploads = %d, want 1", got)
+	}
+	if fake.listMultipartPrefixes[len(fake.listMultipartPrefixes)-1] != "" {
+		t.Fatalf("list prefix = %#v, want empty dedicated-bucket prefix", fake.listMultipartPrefixes)
+	}
+	if fake.abortCalls != 0 {
+		t.Fatalf("abort calls = %d, want 0", fake.abortCalls)
+	}
+}

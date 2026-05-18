@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { ComponentStatus } from '@/api/systemStatus'
 import { fetchSystemStatus } from '@/api/systemStatus'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { frontendBuildInfo } from '@/lib/buildInfo'
@@ -28,6 +29,29 @@ export default function AdminSystemStatusTab() {
           </div>
         </div>
       </SettingsSection>
+      <SettingsSection title="Datenebene" description="Datenbank, Speicher, Jobverarbeitung und DSGVO-Artefakte.">
+        <div>
+          <StatusRow title="Datenbank" component={data.components.db} />
+          <StatusRow title="TimescaleDB-Kompression" component={data.components.timescale_compression} />
+          <StatusRow title="Speicher" component={data.components.storage} />
+          <StatusRow title="Jobs" component={data.components.jobs} />
+          <StatusRow title="DSGVO-Artefakte" component={data.components.gdpr_artifacts} />
+        </div>
+      </SettingsSection>
+    </div>
+  )
+}
+
+function StatusRow({ title, component }: { title: string; component?: ComponentStatus }) {
+  const state = component?.state ?? 'unknown'
+  const reason = component?.reason_code
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-neutral-200 py-3 last:border-b-0 dark:border-neutral-800">
+      <div className="min-w-0">
+        <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{title}</h3>
+        {reason && <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{reason}</p>}
+      </div>
+      <span className="shrink-0 text-xs tabular-nums">{state}</span>
     </div>
   )
 }

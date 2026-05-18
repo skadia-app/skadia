@@ -27,6 +27,11 @@ type schemaVersionQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+type SchemaVersionStatus struct {
+	Version int64
+	Dirty   bool
+}
+
 func ensureSchemaMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -86,25 +91,37 @@ func CurrentVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 // ReadSchemaVersion returns the effective schema version visible to q. It does
 // not mutate state, so it is safe inside read-only transactions.
 func ReadSchemaVersion(ctx context.Context, q schemaVersionQuerier) (int64, error) {
+	status, err := ReadSchemaVersionStatus(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	if status.Dirty {
+		return 0, fmt.Errorf("migration version %d is dirty; manual intervention required", status.Version)
+	}
+	return status.Version, nil
+}
+
+func ReadSchemaVersionStatus(ctx context.Context, q schemaVersionQuerier) (SchemaVersionStatus, error) {
 	var current int64
 	if err := q.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current); err != nil {
-		return 0, fmt.Errorf("read current migration version: %w", err)
+		return SchemaVersionStatus{}, fmt.Errorf("read current migration version: %w", err)
 	}
 
 	var dirty bool
 	if err := q.QueryRow(ctx, `SELECT dirty FROM schema_migrations WHERE version = $1`, current).Scan(&dirty); err != nil {
 		if current != 0 {
-			return 0, fmt.Errorf("check dirty state for version %d: %w", current, err)
+			return SchemaVersionStatus{}, fmt.Errorf("check dirty state for version %d: %w", current, err)
 		}
-	} else if dirty {
-		return 0, fmt.Errorf("migration version %d is dirty; manual intervention required", current)
+	}
+	if dirty {
+		return SchemaVersionStatus{Version: current, Dirty: true}, nil
 	}
 
 	current = normalizeFinalizedMigrationAlias(current)
 	if current >= provisionalMigrationFloor {
-		return 0, fmt.Errorf("schema_migrations contains unfinalized provisional version %d; finalize or repair migration numbering before continuing", current)
+		return SchemaVersionStatus{}, fmt.Errorf("schema_migrations contains unfinalized provisional version %d; finalize or repair migration numbering before continuing", current)
 	}
-	return current, nil
+	return SchemaVersionStatus{Version: current, Dirty: dirty}, nil
 }
 
 // Run reads the current schema version from schema_migrations and applies

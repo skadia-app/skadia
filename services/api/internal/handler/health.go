@@ -13,6 +13,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
@@ -93,12 +94,16 @@ type Handler struct {
 	// ReverseGeocoder) used by RunStage1 in CreateManualActivity. When nil,
 	// production defaults are used (real HTTP weather + PostGIS geocoder).
 	// Set only in integration tests to avoid network calls.
-	Stage1Deps *enrichment.Stage1Deps
+	Stage1Deps          *enrichment.Stage1Deps
+	StorageProbe        systemStatusStorageProbe
+	GDPRArtifactCounter gdprartifacts.IncompleteMultipartCounter
 }
 
 type HandlerConfig struct {
 	DeploymentProfile           string
 	DeploymentProfileSource     string
+	APIReplicaCount             int
+	SharedStorage               string
 	StorageMode                 string
 	LiteLLMConfigPath           string
 	LiteLLMInternalURL          string
