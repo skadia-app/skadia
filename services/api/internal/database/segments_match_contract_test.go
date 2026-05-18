@@ -1,10 +1,12 @@
 package database
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/google/uuid"
 )
 
 func TestFormatCourseGPSV1InstantUsesCanonicalMicroseconds(t *testing.T) {
@@ -84,4 +86,191 @@ func TestPrepareCourseGPSV1EffortMetadataFreezesPartition(t *testing.T) {
 	if effort.LeaderboardVersionPolicyKey != "legacy_segment_wide" {
 		t.Fatalf("version policy = %s, want legacy_segment_wide", effort.LeaderboardVersionPolicyKey)
 	}
+}
+
+func TestInsertSegmentEffortsBatchIsIdempotentByMatchIdentity(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     60,
+		SportType:        "cycling",
+		SubType:          "mountain",
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+
+	if err := db.InsertSegmentEffortsBatch(ctx, []*model.SegmentEffort{effort}); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := db.InsertSegmentEffortsBatch(ctx, []*model.SegmentEffort{effort}); err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+
+	var count int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM segment_efforts WHERE match_identity_key = $1`,
+		effort.MatchIdentityKey).Scan(&count); err != nil {
+		t.Fatalf("count efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("effort count = %d, want 1", count)
+	}
+}
+
+func TestInsertSegmentEffortIsIdempotentByMatchIdentity(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     60,
+		SportType:        "cycling",
+		SubType:          "mountain",
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+
+	var count int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM segment_efforts WHERE match_identity_key = $1`,
+		effort.MatchIdentityKey).Scan(&count); err != nil {
+		t.Fatalf("count efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("effort count = %d, want 1", count)
+	}
+}
+
+func TestSegmentEffortCurrentReadsIgnoreSupersededRows(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     60,
+		SportType:        "cycling",
+		SubType:          "mountain",
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("insert active effort: %v", err)
+	}
+
+	var activeID string
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM segment_efforts WHERE match_identity_key = $1`,
+		effort.MatchIdentityKey).Scan(&activeID); err != nil {
+		t.Fatalf("query active effort id: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_efforts (
+			id, segment_id, segment_version_id, activity_id, user_id,
+			started_at, elapsed_time_s, is_reverse, sport_type, sub_type,
+			match_identity_key, superseded_by_effort_id, in_leaderboard
+		)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 60, false, 'cycling', 'mountain', $6, $7, false)
+	`, segmentID, versionID, activityID, userID, startedAt, effort.MatchIdentityKey, activeID); err != nil {
+		t.Fatalf("insert superseded effort: %v", err)
+	}
+
+	activityEfforts, err := db.GetActivitySegmentEfforts(ctx, activityID)
+	if err != nil {
+		t.Fatalf("GetActivitySegmentEfforts: %v", err)
+	}
+	if len(activityEfforts) != 1 {
+		t.Fatalf("activity efforts = %d, want 1", len(activityEfforts))
+	}
+	leaderboard, err := db.GetSegmentLeaderboard(ctx, segmentID, "cycling", nil, "", "")
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboard: %v", err)
+	}
+	if len(leaderboard) != 1 {
+		t.Fatalf("leaderboard efforts = %d, want 1", len(leaderboard))
+	}
+	performances, err := db.GetSegmentPerformances(ctx, segmentID, userID, nil)
+	if err != nil {
+		t.Fatalf("GetSegmentPerformances: %v", err)
+	}
+	if len(performances) != 1 {
+		t.Fatalf("performances = %d, want 1", len(performances))
+	}
+	if err := db.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+		t.Fatalf("UpdateSegmentEffortRanks: %v", err)
+	}
+	var effortCount, athleteCount int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT effort_count, athlete_count FROM segments WHERE id = $1`,
+		segmentID).Scan(&effortCount, &athleteCount); err != nil {
+		t.Fatalf("query segment counts: %v", err)
+	}
+	if effortCount != 1 || athleteCount != 1 {
+		t.Fatalf("segment counts = %d/%d, want 1/1", effortCount, athleteCount)
+	}
+	result, err := db.ListSegments(ctx, model.ListSegmentsParams{
+		UserID:       userID,
+		Name:         "Match Contract Segment " + segmentID,
+		SegmentTypes: "standard",
+		Limit:        -1,
+	})
+	if err != nil {
+		t.Fatalf("ListSegments: %v", err)
+	}
+	if len(result.Segments) != 1 || result.Segments[0].RiddenCount != 1 {
+		t.Fatalf("list segments = %#v, want one row with ridden_count=1", result.Segments)
+	}
+}
+
+func insertMatchContractFixture(t *testing.T, db *DB, userID string) (activityID, segmentID, versionID string, startedAt time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	activityID = uuid.NewString()
+	startedAt = time.Date(2026, 5, 14, 9, 30, 0, 0, time.UTC)
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO activities (
+			id, user_id, sport_type, sub_type, is_electric, is_indoor, is_virtual,
+			title, started_at, moving_time_s, elapsed_time_s, file_hash, visibility, enrichment_status
+		)
+		 VALUES ($1, $2, 'cycling', 'mountain', true, false, false,
+		         'Idempotent Segment Effort Test', $3, 60, 60, $4, 'public', 'complete')`,
+		activityID, userID, startedAt, "idempotent-effort-"+activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	segmentID = uuid.NewString()
+	versionID = uuid.NewString()
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO segments (id, created_by, name, sport_group, segment_type)
+		 VALUES ($1, $2, $3, 'bike', 'standard')`,
+		segmentID, userID, "Match Contract Segment "+segmentID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, valid_from_at, created_by)
+		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, NULL, $3)`,
+		versionID, segmentID, userID); err != nil {
+		t.Fatalf("insert version: %v", err)
+	}
+	return activityID, segmentID, versionID, startedAt
 }

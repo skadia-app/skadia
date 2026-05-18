@@ -148,3 +148,40 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 		t.Errorf("reverse direction: segment_efforts count = %d, want 0 (non-bidirectional)", revCount)
 	}
 }
+
+func TestMatcherAllowsReverseTraversalWhenBidirectional(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track:         "LINESTRING(0 0, 1 0)",
+		Bidirectional: boolPtr(true),
+		SegmentType:   "standard",
+	})
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	reversePts := [][2]float64{
+		{0, 1.00},
+		{0, 0.75},
+		{0, 0.50},
+		{0, 0.25},
+		{0, 0.00},
+	}
+	reverseTrack := "LINESTRING(1 0, 0.75 0, 0.5 0, 0.25 0, 0 0)"
+	activityID := insertActivityWithTrack(t, db, userID, "cycling", reverseTrack, reversePts)
+
+	MatchActivitySegments(ctx, db, activityID, userID, "cycling", "", nil, now)
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM segment_efforts
+		WHERE activity_id = $1 AND segment_id = $2 AND is_reverse = true`,
+		activityID, segmentID).Scan(&count); err != nil {
+		t.Fatalf("count reverse efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("reverse effort count = %d, want 1", count)
+	}
+}
