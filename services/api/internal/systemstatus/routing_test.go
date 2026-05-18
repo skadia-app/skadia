@@ -53,8 +53,15 @@ func TestCoverageStatusReportsCorruptCells(t *testing.T) {
 }
 
 func TestPMTilesStatusMissingWithoutFiles(t *testing.T) {
-	got := PMTilesStatusFromSnapshot(PMTilesSnapshot{FileCount: 0})
+	got := PMTilesStatusFromSnapshot(PMTilesSnapshot{DirPresent: true, FileCount: 0})
 	if got.State != StatusMissingArtifacts || got.ReasonCode != "pmtiles_missing" {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestPMTilesStatusDistinguishesMissingDirectory(t *testing.T) {
+	got := PMTilesStatusFromSnapshot(PMTilesSnapshot{DirPresent: false})
+	if got.State != StatusMissingArtifacts || got.ReasonCode != "pmtiles_dir_missing" {
 		t.Fatalf("status = %+v", got)
 	}
 }
