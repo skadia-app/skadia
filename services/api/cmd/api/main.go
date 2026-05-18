@@ -1416,6 +1416,7 @@ func main() {
 
 				// System diagnostics
 				r.Get("/system-status", h.GetAdminSystemStatus)
+				r.Get("/system-status/export", h.GetAdminSystemStatusExport)
 
 				// ShadowFS dashboard & reconciliation
 				r.Get("/storage", h.StorageDashboard)

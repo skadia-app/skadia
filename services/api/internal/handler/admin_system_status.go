@@ -40,6 +40,23 @@ func (h *Handler) GetAdminSystemStatus(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, systemstatus.SanitizeSystemStatusForUI(status))
 }
 
+func (h *Handler) GetAdminSystemStatusExport(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	status := h.collectAdminSystemStatus(ctx)
+	payload, err := systemstatus.BuildSupportExport(status)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build diagnostic export", r.URL.Path)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="skadia-system-status.json"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
+}
+
 func (h *Handler) collectAdminSystemStatus(ctx context.Context) systemstatus.SystemStatus {
 	build := buildinfo.Snapshot()
 	buildMap := map[string]systemstatus.BuildInfo{

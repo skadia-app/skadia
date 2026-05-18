@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ComponentStatus } from '@/api/systemStatus'
-import { fetchSystemStatus } from '@/api/systemStatus'
+import { downloadSystemStatusExport, fetchSystemStatus } from '@/api/systemStatus'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { frontendBuildInfo } from '@/lib/buildInfo'
+import { triggerBlobDownload } from '@/lib/utils'
 
 export default function AdminSystemStatusTab() {
   const { data, isLoading, isError } = useQuery({
@@ -19,14 +20,24 @@ export default function AdminSystemStatusTab() {
     frontend: data.build.frontend ?? frontendBuildInfo(),
   }
 
+  async function handleExport() {
+    const { blob, filename } = await downloadSystemStatusExport()
+    triggerBlobDownload(blob, filename || 'skadia-system-status.json')
+  }
+
   return (
     <div className="space-y-6">
       <SettingsSection title="Systemstatus" description="Laufzeitstatus, Build-Herkunft und Diagnosehinweise.">
-        <div className="space-y-2 text-sm">
-          <div>Gesamtstatus: {data.overall}</div>
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            Frontend-Build: {build.frontend.git_commit} · Commit-Zeit: {build.frontend.commit_time}
+        <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <div>Gesamtstatus: {data.overall}</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">
+              Frontend-Build: {build.frontend.git_commit} · Commit-Zeit: {build.frontend.commit_time}
+            </div>
           </div>
+          <button type="button" onClick={handleExport} className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900">
+            Diagnose exportieren
+          </button>
         </div>
       </SettingsSection>
       <SettingsSection title="Datenebene" description="Datenbank, Speicher, Jobverarbeitung und DSGVO-Artefakte.">
