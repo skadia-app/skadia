@@ -30,7 +30,7 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 	matchCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	allEfforts, matchedSegmentIDs, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
+	allEfforts, matchedSegmentIDs, _, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
 	if err != nil {
 		slog.Error("segment matching: collect efforts failed", "error", err)
 		return
@@ -65,32 +65,36 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 // It returns the computed efforts and matched segment IDs without writing to the database.
 // This separation allows callers such as recomputeSegmentEffortsForActivity to wrap
 // the subsequent INSERT inside an existing transaction.
-func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) (allEfforts []*model.SegmentEffort, matchedSegmentIDs map[string]struct{}, matchCount int, err error) {
+func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) (allEfforts []*model.SegmentEffort, matchedSegmentIDs map[string]struct{}, candidateSegmentIDs map[string]struct{}, matchCount int, err error) {
 	matchedSegmentIDs = make(map[string]struct{})
+	candidateSegmentIDs = make(map[string]struct{})
 
 	// 1. Spatial pre-filter: only segments within 50m of activity track
 	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate, subType)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
+		return nil, nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
 	}
 	if len(candidates) == 0 {
 		slog.Debug("segment matching: no spatial candidates", "activity_id", activityID)
-		return nil, matchedSegmentIDs, 0, nil
+		return nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
+	}
+	for _, cand := range candidates {
+		candidateSegmentIDs[cand.SegmentID] = struct{}{}
 	}
 
 	// 2. Load GPS stream once (shared with lap detection later)
 	gpsStream, err := db.GetActivityGPSStream(ctx, activityID)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("get GPS stream: %w", err)
+		return nil, nil, nil, 0, fmt.Errorf("get GPS stream: %w", err)
 	}
 	if len(gpsStream) < 5 {
 		slog.Debug("segment matching: GPS stream too short", "activity_id", activityID, "points", len(gpsStream))
-		return nil, matchedSegmentIDs, 0, nil
+		return nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
 	}
 
 	activityContext, err := db.GetSegmentMatchActivityContext(ctx, activityID)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
+		return nil, nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
 	}
 
 	// 3. Batch-load endpoints for all non-lap candidates
@@ -102,7 +106,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 	}
 	endpointMap, err := db.GetSegmentEndpointsBatch(ctx, nonLapVersionIDs)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("batch endpoint load: %w", err)
+		return nil, nil, nil, 0, fmt.Errorf("batch endpoint load: %w", err)
 	}
 
 	for _, cand := range candidates {
@@ -236,7 +240,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 		database.PrepareCourseGPSV1EffortMetadata(effort, activityContext)
 	}
 
-	return allEfforts, matchedSegmentIDs, matchCount, nil
+	return allEfforts, matchedSegmentIDs, candidateSegmentIDs, matchCount, nil
 }
 
 // traversal represents a detected pass through a segment.

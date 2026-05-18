@@ -2313,6 +2313,7 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 		WHERE se.user_id = $1
 		  AND se.personal_rank IS NOT NULL
 		  AND se.personal_rank <= 3
+		  AND se.superseded_by_effort_id IS NULL
 		ORDER BY s.name ASC, se.personal_rank ASC`,
 		userID)
 	if err != nil {
@@ -2379,6 +2380,7 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 		  AND se.rank_overall IS NOT NULL
 		  AND se.rank_overall <= 10
 		  AND se.in_leaderboard = true
+		  AND se.superseded_by_effort_id IS NULL
 		ORDER BY se.rank_overall ASC, s.name ASC`,
 		userID)
 	if err != nil {
