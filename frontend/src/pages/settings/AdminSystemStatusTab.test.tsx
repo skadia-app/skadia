@@ -59,5 +59,6 @@ describe('AdminSystemStatusTab', () => {
     expect(screen.getByText('ML-Dienst')).toBeInTheDocument()
     expect(screen.getByText('Skadia-Routinggraph')).toBeInTheDocument()
     expect(screen.getByText('Feature-Matrix')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Diagnose exportieren' })).toBeInTheDocument()
   })
 })

@@ -55,6 +55,36 @@ func TestAdminSystemStatusRouteRequiresAdmin(t *testing.T) {
 	}
 }
 
+func TestAdminSystemStatusExportRouteRequiresAdmin(t *testing.T) {
+	h := newTestHandler(t, fusionTestPool(t))
+	r := chi.NewRouter()
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(middleware.RequireAdmin())
+			r.Get("/system-status/export", h.GetAdminSystemStatusExport)
+		})
+	})
+
+	nonAdminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status/export", nil)
+	nonAdminReq = nonAdminReq.WithContext(context.WithValue(nonAdminReq.Context(), middleware.IsAdminKey, false))
+	nonAdminRec := httptest.NewRecorder()
+	r.ServeHTTP(nonAdminRec, nonAdminReq)
+	if nonAdminRec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin status = %d, want 403", nonAdminRec.Code)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/system-status/export", nil)
+	adminReq = adminReq.WithContext(context.WithValue(adminReq.Context(), middleware.IsAdminKey, true))
+	adminRec := httptest.NewRecorder()
+	r.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d, want 200; body=%s", adminRec.Code, adminRec.Body.String())
+	}
+	if adminRec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", adminRec.Header().Get("Cache-Control"))
+	}
+}
+
 func TestPublicProbeDependencyFailureIsGeneric(t *testing.T) {
 	cases := []struct {
 		name string
