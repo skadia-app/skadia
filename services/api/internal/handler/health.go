@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -19,6 +20,26 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+)
+
+var errProbeNotConfigured = errors.New("not configured")
+
+var (
+	probeDBPing = func(ctx context.Context, h *Handler) error {
+		if h == nil || h.DB == nil || h.DB.Pool == nil {
+			return errProbeNotConfigured
+		}
+		return h.DB.Ping(ctx)
+	}
+	probeS3Ping = func(ctx context.Context, h *Handler) error {
+		if h == nil {
+			return nil
+		}
+		if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
+			return usfs.PingS3(ctx)
+		}
+		return nil
+	}
 )
 
 type Handler struct {
@@ -110,13 +131,14 @@ type HandlerConfig struct {
 	ImportAllowedDirs []string
 
 	// ShadowFS — used by rename handlers and admin dashboard
-	LibraryBasePath string // e.g. /data/library (local backend only)
-	StorageBackend  string // "local" or "s3"
-	KeepVersions    int    // 0=delete, 1=keep last, -1=keep all
-	SyncEnabled     bool
-	LocalBE         shadowfs.StorageBackend // nil when no local backend
-	S3BE            shadowfs.StorageBackend // nil when no S3 backend
-	BucketFn        func(string) string     // fileType → S3 bucket
+	LibraryBasePath   string // e.g. /data/library (local backend only)
+	StorageBackend    string // "local" or "s3"
+	KeepVersions      int    // 0=delete, 1=keep last, -1=keep all
+	SyncEnabled       bool
+	LocalBE           shadowfs.StorageBackend // nil when no local backend
+	S3BE              shadowfs.StorageBackend // nil when no S3 backend
+	BucketFn          func(string) string     // fileType → S3 bucket
+	FrontendStaticDir string                  // directory serving production frontend assets
 }
 
 // Livez returns 200 if the process is alive. Does NOT check external dependencies.
@@ -131,19 +153,14 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	// DB check — nil DB means not wired (tests) OR configuration error.
-	// Either way, service is not ready to serve traffic.
-	if h.DB == nil || h.DB.Pool == nil {
+	if err := probeDBPing(ctx, h); err != nil {
+		dbState := publicProbeDependencyValue("db", err)
+		if errors.Is(err, errProbeNotConfigured) {
+			dbState = "not configured"
+		}
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
-			"db":     "not configured",
-		})
-		return
-	}
-	if err := h.DB.Ping(ctx); err != nil {
-		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"status": "not ready",
-			"db":     err.Error(),
+			"db":     dbState,
 		})
 		return
 	}
@@ -157,15 +174,12 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// S3 check: when ShadowFS is configured with S3, verify the bucket is reachable.
-	if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
-		if err := usfs.PingS3(ctx); err != nil {
-			httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"status": "not ready",
-				"s3":     err.Error(),
-			})
-			return
-		}
+	if err := probeS3Ping(ctx, h); err != nil {
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not ready",
+			"s3":     publicProbeDependencyValue("s3", err),
+		})
+		return
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
@@ -178,12 +192,12 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 
 	status := map[string]string{"status": "ok", "db": "ok", "nats": "ok"}
 
-	if h.DB == nil || h.DB.Pool == nil {
+	if err := probeDBPing(ctx, h); errors.Is(err, errProbeNotConfigured) {
 		status["status"] = "degraded"
 		status["db"] = "not configured"
-	} else if err := h.DB.Ping(ctx); err != nil {
+	} else if err != nil {
 		status["status"] = "degraded"
-		status["db"] = err.Error()
+		status["db"] = publicProbeDependencyValue("db", err)
 	}
 	if h.EventConn == nil {
 		status["nats"] = "not configured"
@@ -192,13 +206,11 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 		status["nats"] = "disconnected"
 	}
 
-	if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
-		if err := usfs.PingS3(ctx); err != nil {
-			status["status"] = "degraded"
-			status["s3"] = err.Error()
-		} else {
-			status["s3"] = "ok"
-		}
+	if err := probeS3Ping(ctx, h); err != nil {
+		status["status"] = "degraded"
+		status["s3"] = publicProbeDependencyValue("s3", err)
+	} else if usfs, ok := h.ShadowFS.(*shadowfs.UnifiedShadowFS); ok && usfs.S3Configured() {
+		status["s3"] = "ok"
 	} else {
 		status["s3"] = "not configured"
 	}
@@ -227,6 +239,10 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 		"s3":     status["s3"],
 		"dem":    demHealth,
 	})
+}
+
+func publicProbeDependencyValue(_ string, _ error) string {
+	return "unreachable"
 }
 
 // importAllowedDirs returns the configured import allowed directories,
