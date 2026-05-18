@@ -74,31 +74,51 @@ type SegmentVersion struct {
 }
 
 type SegmentEffort struct {
-	ID               string    `json:"id"`
-	SegmentID        string    `json:"segment_id"`
-	SegmentVersionID string    `json:"segment_version_id"`
-	ActivityID       string    `json:"activity_id"`
-	UserID           string    `json:"user_id"`
-	StartedAt        time.Time `json:"started_at"`
-	ElapsedTimeS     int       `json:"elapsed_time_s"`
-	IsReverse        bool      `json:"is_reverse"`
-	SportType        string    `json:"sport_type"`
-	SubType          string    `json:"sub_type"`
-	IsIndoor         bool      `json:"is_indoor"`
-	IsVirtual        bool      `json:"is_virtual"`
-	IsElectric       bool      `json:"is_electric"`
-	GearID           *string   `json:"gear_id,omitempty"`
-	AvgPowerW        *float64  `json:"avg_power_w,omitempty"`
-	AvgHeartRate     *float64  `json:"avg_heart_rate,omitempty"`
-	AvgSpeedMs       *float64  `json:"avg_speed_ms,omitempty"`
-	DistanceM        *float64  `json:"distance_m,omitempty"`
-	ElevationGainM   *float64  `json:"elevation_gain_m,omitempty"`
-	RankOverall      *int      `json:"rank_overall,omitempty"`
-	IsPersonalBest   bool      `json:"is_personal_best"`
-	PersonalRank     *int      `json:"personal_rank,omitempty"`
-	IsSegmentRecord  bool      `json:"is_segment_record"`
-	InLeaderboard    bool      `json:"in_leaderboard"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID                      string    `json:"id"`
+	SegmentID               string    `json:"segment_id"`
+	SegmentVersionID        string    `json:"segment_version_id"`
+	ActivityID              string    `json:"activity_id"`
+	UserID                  string    `json:"user_id"`
+	StartedAt               time.Time `json:"started_at"`
+	ElapsedTimeS            int       `json:"elapsed_time_s"`
+	IsReverse               bool      `json:"is_reverse"`
+	SportType               string    `json:"sport_type"`
+	SubType                 string    `json:"sub_type"`
+	IsIndoor                bool      `json:"is_indoor"`
+	IsVirtual               bool      `json:"is_virtual"`
+	IsElectric              bool      `json:"is_electric"`
+	GearID                  *string   `json:"gear_id,omitempty"`
+	AvgPowerW               *float64  `json:"avg_power_w,omitempty"`
+	AvgHeartRate            *float64  `json:"avg_heart_rate,omitempty"`
+	AvgSpeedMs              *float64  `json:"avg_speed_ms,omitempty"`
+	DistanceM               *float64  `json:"distance_m,omitempty"`
+	ElevationGainM          *float64  `json:"elevation_gain_m,omitempty"`
+	MatchingContractKey     string    `json:"matching_contract_key,omitempty"`
+	MatchingContractVersion int       `json:"matching_contract_version,omitempty"`
+	MatchSourceType         string    `json:"match_source_type,omitempty"`
+	MatchSourceID           string    `json:"match_source_id,omitempty"`
+	MatchIdentityKey        string    `json:"match_identity_key,omitempty"`
+	OccurrenceIndex         int       `json:"occurrence_index,omitempty"`
+	OccurrenceHash          *string   `json:"occurrence_hash,omitempty"`
+	SupersededByEffortID    *string   `json:"superseded_by_effort_id,omitempty"`
+
+	LeaderboardSportType           string    `json:"leaderboard_sport_type,omitempty"`
+	LeaderboardSubType             string    `json:"leaderboard_sub_type,omitempty"`
+	LeaderboardEquipmentClass      string    `json:"leaderboard_equipment_class,omitempty"`
+	LeaderboardAssistClass         string    `json:"leaderboard_assist_class,omitempty"`
+	LeaderboardIndoorPolicyState   string    `json:"leaderboard_indoor_policy_state,omitempty"`
+	LeaderboardVirtualPolicyState  string    `json:"leaderboard_virtual_policy_state,omitempty"`
+	LeaderboardElectricPolicyState string    `json:"leaderboard_electric_policy_state,omitempty"`
+	LeaderboardDirection           string    `json:"leaderboard_direction,omitempty"`
+	LeaderboardVersionPolicyKey    string    `json:"leaderboard_version_policy_key,omitempty"`
+	LeaderboardContractKey         string    `json:"leaderboard_contract_key,omitempty"`
+	LeaderboardContractVersion     int       `json:"leaderboard_contract_version,omitempty"`
+	RankOverall                    *int      `json:"rank_overall,omitempty"`
+	IsPersonalBest                 bool      `json:"is_personal_best"`
+	PersonalRank                   *int      `json:"personal_rank,omitempty"`
+	IsSegmentRecord                bool      `json:"is_segment_record"`
+	InLeaderboard                  bool      `json:"in_leaderboard"`
+	CreatedAt                      time.Time `json:"created_at"`
 	// Joined fields
 	SegmentName     *string          `json:"segment_name,omitempty"`
 	DisplayName     *string          `json:"display_name,omitempty"`

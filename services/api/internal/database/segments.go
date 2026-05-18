@@ -1194,14 +1194,49 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO segment_efforts (
 			segment_id, segment_version_id, activity_id, user_id,
-			started_at, elapsed_time_s, is_reverse, sport_type, sub_type,
-			gear_id, avg_power_w, avg_heart_rate, avg_speed_ms,
-			distance_m, elevation_gain_m
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			started_at, elapsed_time_s, is_reverse,
+			sport_type, sub_type, gear_id,
+			avg_speed_ms, avg_heart_rate, avg_power_w,
+			distance_m, elevation_gain_m,
+			matching_contract_key, matching_contract_version,
+			match_source_type, match_source_id, match_identity_key,
+			occurrence_index, occurrence_hash, superseded_by_effort_id,
+			leaderboard_sport_type, leaderboard_sub_type,
+			leaderboard_equipment_class, leaderboard_assist_class,
+			leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
+			leaderboard_electric_policy_state, leaderboard_direction,
+			leaderboard_version_policy_key,
+			leaderboard_contract_key, leaderboard_contract_version
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10,
+			$11, $12, $13,
+			$14, $15,
+			$16, $17,
+			$18, $19, $20,
+			$21, $22, $23,
+			$24, $25,
+			$26, $27,
+			$28, $29,
+			$30, $31,
+			$32,
+			$33, $34
+		)
+		ON CONFLICT DO NOTHING`,
 		effort.SegmentID, effort.SegmentVersionID, effort.ActivityID, effort.UserID,
 		effort.StartedAt, effort.ElapsedTimeS, effort.IsReverse, effort.SportType, effort.SubType,
-		effort.GearID, effort.AvgPowerW, effort.AvgHeartRate, effort.AvgSpeedMs,
+		effort.GearID, effort.AvgSpeedMs, effort.AvgHeartRate, effort.AvgPowerW,
 		effort.DistanceM, effort.ElevationGainM,
+		nullableString(effort.MatchingContractKey), nullableInt(effort.MatchingContractVersion),
+		nullableString(effort.MatchSourceType), nullableString(effort.MatchSourceID), nullableString(effort.MatchIdentityKey),
+		effort.OccurrenceIndex, effort.OccurrenceHash, effort.SupersededByEffortID,
+		nullableString(effort.LeaderboardSportType), nullableString(effort.LeaderboardSubType),
+		nullableString(effort.LeaderboardEquipmentClass), nullableString(effort.LeaderboardAssistClass),
+		nullableString(effort.LeaderboardIndoorPolicyState), nullableString(effort.LeaderboardVirtualPolicyState),
+		nullableString(effort.LeaderboardElectricPolicyState), nullableString(effort.LeaderboardDirection),
+		nullableString(effort.LeaderboardVersionPolicyKey),
+		nullableString(effort.LeaderboardContractKey), nullableInt(effort.LeaderboardContractVersion),
 	)
 	if err != nil {
 		return fmt.Errorf("insert segment effort: %w", err)
@@ -1979,16 +2014,19 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return nil
 	}
 
-	const cols = 15
+	const cols = 34
 	valueParts := make([]string, 0, len(efforts))
 	args := make([]any, 0, len(efforts)*cols)
 
 	for i, e := range efforts {
 		base := i * cols
 		valueParts = append(valueParts, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
 			base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
+			base+16, base+17, base+18, base+19, base+20, base+21, base+22,
+			base+23, base+24, base+25, base+26, base+27, base+28, base+29,
+			base+30, base+31, base+32, base+33, base+34,
 		))
 		args = append(args,
 			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
@@ -1996,6 +2034,15 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 			e.SportType, e.SubType, e.GearID,
 			e.AvgSpeedMs, e.AvgHeartRate, e.AvgPowerW,
 			e.DistanceM, e.ElevationGainM,
+			nullableString(e.MatchingContractKey), nullableInt(e.MatchingContractVersion),
+			nullableString(e.MatchSourceType), nullableString(e.MatchSourceID), nullableString(e.MatchIdentityKey),
+			e.OccurrenceIndex, e.OccurrenceHash, e.SupersededByEffortID,
+			nullableString(e.LeaderboardSportType), nullableString(e.LeaderboardSubType),
+			nullableString(e.LeaderboardEquipmentClass), nullableString(e.LeaderboardAssistClass),
+			nullableString(e.LeaderboardIndoorPolicyState), nullableString(e.LeaderboardVirtualPolicyState),
+			nullableString(e.LeaderboardElectricPolicyState), nullableString(e.LeaderboardDirection),
+			nullableString(e.LeaderboardVersionPolicyKey),
+			nullableString(e.LeaderboardContractKey), nullableInt(e.LeaderboardContractVersion),
 		)
 	}
 
@@ -2004,7 +2051,16 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		 started_at, elapsed_time_s, is_reverse,
 		 sport_type, sub_type, gear_id,
 		 avg_speed_ms, avg_heart_rate, avg_power_w,
-		 distance_m, elevation_gain_m)
+		 distance_m, elevation_gain_m,
+		 matching_contract_key, matching_contract_version,
+		 match_source_type, match_source_id, match_identity_key,
+		 occurrence_index, occurrence_hash, superseded_by_effort_id,
+		 leaderboard_sport_type, leaderboard_sub_type,
+		 leaderboard_equipment_class, leaderboard_assist_class,
+		 leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
+		 leaderboard_electric_policy_state, leaderboard_direction,
+		 leaderboard_version_policy_key,
+		 leaderboard_contract_key, leaderboard_contract_version)
 		VALUES ` + strings.Join(valueParts, ", ") + `
 		ON CONFLICT DO NOTHING`
 
