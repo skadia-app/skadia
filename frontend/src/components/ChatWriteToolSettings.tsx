@@ -24,6 +24,7 @@ const WRITE_TOOL_GROUPS: ToolGroup[] = [
       { id: 'add_gear_component', label: 'Gear-Komponente anlegen' },
       { id: 'update_gear_component_status', label: 'Komponentenstatus ändern' },
       { id: 'record_gear_service_event', label: 'Service-Ereignis erfassen' },
+      { id: 'create_chain_rotation', label: 'Kettenrotation anlegen' },
       { id: 'update_gear_default_predicates', label: 'Gear-Standards ändern' },
     ],
   },

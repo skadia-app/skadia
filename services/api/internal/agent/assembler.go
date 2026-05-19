@@ -66,6 +66,9 @@ const toolGuide = `## Werkzeug-Auswahl
 - "Segment / Bestzeit / PR / schnellste Zeit auf Trail" → zuerst query_segments. Aktivitäten nur als Fallback suchen, wenn kein Segment passt.
 - "Ausrüstung / Schuhe / km-Stand" → get_gear_stats
 - "Kette/Reifen/Kassette fällig, überfällig, Wartungshistorie" → query_gear_maintenance
+- Neue Ausrüstung wie Fahrrad/Schuhe/Uhr → create_gear. Komponenten wie Kette/Reifen/Kassette/Bremsbeläge/Gabel/Dämpfer niemals als eigenes Gear anlegen; dafür add_gear_component oder create_gear.components verwenden.
+- Neue Ausrüstung mit Komponenten → zuerst create_gear mit components, danach bei Rotation die zurückgegebenen component_ids an create_chain_rotation übergeben.
+- Komponenten an bestehender Ausrüstung hinzufügen → zuerst find_gear/resolve_entity, dann add_gear_component; bei "Kettenrotation" create_chain_rotation mit den Component-IDs.
 - "Gear/Tag/Route/Aktivität per Name finden" → zuerst resolve_entity oder find_gear, dann ID-basiertes Tool
 - "Viele Aktivitäten ändern/taggen" → zuerst preview_activity_selection, dann confirmable Bulk-Write-Tool; niemals ohne konkrete Auswahl schreiben
 - "Anomalie / Korrelation / Trend" → get_analytics

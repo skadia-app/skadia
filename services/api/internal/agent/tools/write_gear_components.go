@@ -88,6 +88,26 @@ var updateGearDefaultPredicatesInputSchema = json.RawMessage(`{
   "additionalProperties": false
 }`)
 
+var createChainRotationInputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "gear_id": {"type": "string", "format": "uuid"},
+    "name": {"type": "string", "minLength": 1},
+    "component_ids": {
+      "type": "array",
+      "items": {"type": "string", "format": "uuid"},
+      "minItems": 2,
+      "uniqueItems": true
+    },
+    "swap_interval_km": {"type": "number", "minimum": 0},
+    "swap_interval_hm": {"type": "number", "minimum": 0},
+    "swap_interval_metric_key": {"type": "string", "enum": ["distance_m", "moving_time_s", "elapsed_time_s", "elevation_gain_m", "elevation_loss_m"]},
+    "swap_interval_value": {"type": "number", "minimum": 0}
+  },
+  "required": ["gear_id", "name", "component_ids"],
+  "additionalProperties": false
+}`)
+
 var batchSetActivityGearInputSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -130,7 +150,7 @@ var batchSetActivityGearInputSchema = json.RawMessage(`{
 func AddGearComponentTool() *Tool {
 	return &Tool{
 		Name:                 "add_gear_component",
-		Description:          "Add a component to an owned gear item after user confirmation.",
+		Description:          "Add a component such as a chain, tire, cassette, brake pad, fork, or shock to an owned gear item after user confirmation. Use create_gear only for the parent gear item.",
 		InputSchema:          addGearComponentInputSchema,
 		Permission:           PermissionWriteSafe,
 		RequiresConfirmation: true,
@@ -166,6 +186,21 @@ func RecordGearServiceEventTool() *Tool {
 		IsUserOwned:          true,
 		SummaryForUser:       summarizeRecordGearServiceEvent,
 		ExecuteWrite:         executeRecordGearServiceEvent,
+	}
+}
+
+func CreateChainRotationTool() *Tool {
+	return &Tool{
+		Name:                 "create_chain_rotation",
+		Description:          "Create a chain rotation group from existing chain component IDs on an owned gear item after user confirmation. The chain components must already exist.",
+		InputSchema:          createChainRotationInputSchema,
+		Permission:           PermissionWriteSafe,
+		RequiresConfirmation: true,
+		AuditMode:            AuditWrite,
+		IsUserOwned:          true,
+		PrepareWrite:         prepareCreateChainRotation,
+		SummaryForUser:       summarizeCreateChainRotation,
+		ExecuteWrite:         executeCreateChainRotation,
 	}
 }
 
@@ -228,6 +263,16 @@ type recordGearServiceEventArgs struct {
 	Notes       *string  `json:"notes"`
 }
 
+type createChainRotationArgs struct {
+	GearID                string   `json:"gear_id"`
+	Name                  string   `json:"name"`
+	ComponentIDs          []string `json:"component_ids"`
+	SwapIntervalKM        *float64 `json:"swap_interval_km"`
+	SwapIntervalHM        *float64 `json:"swap_interval_hm"`
+	SwapIntervalMetricKey *string  `json:"swap_interval_metric_key"`
+	SwapIntervalValue     *float64 `json:"swap_interval_value"`
+}
+
 type updateGearDefaultPredicatesArgs struct {
 	GearID     string                         `json:"gear_id"`
 	Predicates []gearpkg.GearDefaultPredicate `json:"predicates"`
@@ -249,7 +294,11 @@ func executeAddGearComponent(ctx context.Context, deps *WriteExecutionDeps, user
 		return nil, err
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	in.Type = strings.TrimSpace(in.Type)
+	componentType, err := normalizeAgentComponentType(in.Type)
+	if err != nil {
+		return nil, err
+	}
+	in.Type = componentType
 	if strings.TrimSpace(in.GearID) == "" || in.Name == "" || in.Type == "" {
 		return nil, fmt.Errorf("INVALID_ARGUMENT")
 	}
@@ -329,6 +378,44 @@ func executeRecordGearServiceEvent(ctx context.Context, deps *WriteExecutionDeps
 		return nil, err
 	}
 	return map[string]any{"affected_id": event.ID, "gear_id": gearID, "component_id": in.ComponentID, "service_event_id": event.ID, "status": "ok"}, nil
+}
+
+func prepareCreateChainRotation(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (*PreparedWrite, error) {
+	in, err := parseCreateChainRotationArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	gearName, componentNames, err := validateChainRotationOwnership(ctx, deps, userID, in)
+	if err != nil {
+		return nil, err
+	}
+	return &PreparedWrite{
+		Summary: fmt.Sprintf("Kettenrotation %s für Gear %s mit %d Komponenten anlegen", in.Name, gearName, len(componentNames)),
+		Preview: map[string]any{
+			"tool":          "create_chain_rotation",
+			"gear_id":       in.GearID,
+			"gear_name":     gearName,
+			"name":          in.Name,
+			"component_ids": in.ComponentIDs,
+			"components":    componentNames,
+		},
+		Args: args,
+	}, nil
+}
+
+func executeCreateChainRotation(ctx context.Context, deps *WriteExecutionDeps, userID string, args json.RawMessage) (any, error) {
+	in, err := parseCreateChainRotationArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireOwnedGear(ctx, deps, in.GearID, userID); err != nil {
+		return nil, err
+	}
+	groupID, err := createChainRotationTx(ctx, deps, userID, in)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"affected_id": groupID, "chain_rotation_id": groupID, "gear_id": in.GearID, "member_count": len(in.ComponentIDs), "status": "ok"}, nil
 }
 
 func executeUpdateGearDefaultPredicates(ctx context.Context, deps *WriteExecutionDeps, userID string, args json.RawMessage) (any, error) {
@@ -504,6 +591,18 @@ func summarizeRecordGearServiceEvent(ctx context.Context, deps *Deps, userID str
 	return fmt.Sprintf("%s für Komponente %s am %s erfassen", description, name, in.PerformedAt), nil
 }
 
+func summarizeCreateChainRotation(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (string, error) {
+	in, err := parseCreateChainRotationArgs(args)
+	if err != nil {
+		return "", err
+	}
+	gearName, componentNames, err := validateChainRotationOwnership(ctx, deps, userID, in)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Kettenrotation %s für Gear %s mit %d Komponenten anlegen", in.Name, gearName, len(componentNames)), nil
+}
+
 func summarizeUpdateGearDefaultPredicates(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (string, error) {
 	var in updateGearDefaultPredicatesArgs
 	if err := json.Unmarshal(args, &in); err != nil {
@@ -556,6 +655,103 @@ func ownedComponentName(ctx context.Context, deps *Deps, componentID, userID str
 		return "", err
 	}
 	return name, nil
+}
+
+func parseCreateChainRotationArgs(args json.RawMessage) (createChainRotationArgs, error) {
+	if err := validateArgs("create_chain_rotation", createChainRotationInputSchema, args); err != nil {
+		return createChainRotationArgs{}, err
+	}
+	var in createChainRotationArgs
+	if err := json.Unmarshal(args, &in); err != nil {
+		return createChainRotationArgs{}, err
+	}
+	in.GearID = strings.TrimSpace(in.GearID)
+	in.Name = strings.TrimSpace(in.Name)
+	for i := range in.ComponentIDs {
+		in.ComponentIDs[i] = strings.TrimSpace(in.ComponentIDs[i])
+	}
+	if in.GearID == "" || in.Name == "" || len(in.ComponentIDs) < 2 {
+		return createChainRotationArgs{}, fmt.Errorf("INVALID_ARGUMENT")
+	}
+	return in, nil
+}
+
+func validateChainRotationOwnership(ctx context.Context, deps *Deps, userID string, in createChainRotationArgs) (string, []string, error) {
+	gearName, err := ownedGearName(ctx, deps, in.GearID, userID)
+	if err != nil {
+		return "", nil, err
+	}
+	rows, err := deps.DB.Pool.Query(ctx, `
+		SELECT gc.id::text, gc.name
+		FROM gear_components gc
+		JOIN gear g ON g.id = gc.gear_id
+		WHERE gc.gear_id = $1 AND g.user_id = $2 AND gc.id = ANY($3::uuid[])`,
+		in.GearID, userID, in.ComponentIDs,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	defer rows.Close()
+	namesByID := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return "", nil, err
+		}
+		namesByID[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	if len(namesByID) != len(in.ComponentIDs) {
+		return "", nil, fmt.Errorf("FORBIDDEN")
+	}
+	names := make([]string, 0, len(in.ComponentIDs))
+	for _, componentID := range in.ComponentIDs {
+		name, ok := namesByID[componentID]
+		if !ok {
+			return "", nil, fmt.Errorf("FORBIDDEN")
+		}
+		names = append(names, name)
+	}
+	return gearName, names, nil
+}
+
+func createChainRotationTx(ctx context.Context, deps *WriteExecutionDeps, userID string, in createChainRotationArgs) (string, error) {
+	var groupID string
+	err := deps.Tx.QueryRow(ctx, `
+		INSERT INTO chain_rotation_groups (user_id, gear_id, name, swap_interval_km, swap_interval_hm, swap_interval_metric_key, swap_interval_value)
+		SELECT $1, g.id, $3, $4, $5, $6, $7
+		FROM gear g
+		WHERE g.id = $2 AND g.user_id = $1
+		RETURNING id::text`,
+		userID, in.GearID, in.Name, in.SwapIntervalKM, in.SwapIntervalHM, in.SwapIntervalMetricKey, in.SwapIntervalValue,
+	).Scan(&groupID)
+	if err != nil {
+		return "", fmt.Errorf("create chain rotation: %w", err)
+	}
+	var validComponentCount int
+	if err := deps.Tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM gear_components
+		WHERE gear_id = $1 AND id = ANY($2::uuid[])`,
+		in.GearID, in.ComponentIDs,
+	).Scan(&validComponentCount); err != nil {
+		return "", fmt.Errorf("validate chain rotation components: %w", err)
+	}
+	if validComponentCount != len(in.ComponentIDs) {
+		return "", fmt.Errorf("FORBIDDEN")
+	}
+	for i, componentID := range in.ComponentIDs {
+		if _, err := deps.Tx.Exec(ctx, `
+			INSERT INTO chain_rotation_members (group_id, component_id, position, is_active)
+			VALUES ($1, $2, $3, $4)`,
+			groupID, componentID, i+1, i == 0,
+		); err != nil {
+			return "", fmt.Errorf("create chain rotation member: %w", err)
+		}
+	}
+	return groupID, nil
 }
 
 func createGearComponentTx(ctx context.Context, deps *WriteExecutionDeps, gearID string, create *model.GearComponentCreate) (*model.GearComponent, error) {
