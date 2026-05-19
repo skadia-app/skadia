@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
+)
 
 type IntentOperation string
 
@@ -19,6 +23,8 @@ type IntentEntity string
 const (
 	EntityActivity IntentEntity = "activity"
 	EntityGear     IntentEntity = "gear"
+	EntityGearPart IntentEntity = "gear_component"
+	EntityGearSet  IntentEntity = "gear_setup"
 	EntityTag      IntentEntity = "tag"
 	EntityRule     IntentEntity = "automation_rule"
 	EntitySegment  IntentEntity = "segment"
@@ -122,6 +128,12 @@ func inferIntentEntities(q string, domains []string) []IntentEntity {
 	if containsAny(q, "gear", "fahrrad", "rad", "ausrüstung", "ausruestung", "schuh", "kette", "reifen") {
 		add(EntityGear)
 	}
+	if containsGearComponentHint(q) {
+		add(EntityGearPart)
+	}
+	if containsGearRotationHint(q) {
+		add(EntityGearSet)
+	}
 	if containsAny(q, "segment", "bestzeit", "pr", "rekord") {
 		add(EntitySegment)
 	}
@@ -163,12 +175,63 @@ func inferIntentEntities(q string, domains []string) []IntentEntity {
 		return []IntentEntity{EntityUnknown}
 	}
 	out := make([]IntentEntity, 0, len(seen))
-	for _, entity := range []IntentEntity{EntityRoute, EntitySegment, EntityActivity, EntityGear, EntityTag, EntityRule, EntityWeather, EntityDocument, EntityPhoto, EntityUnknown} {
+	for _, entity := range []IntentEntity{EntityRoute, EntitySegment, EntityActivity, EntityGear, EntityGearPart, EntityGearSet, EntityTag, EntityRule, EntityWeather, EntityDocument, EntityPhoto, EntityUnknown} {
 		if seen[entity] {
 			out = append(out, entity)
 		}
 	}
 	return out
+}
+
+func containsGearComponentHint(q string) bool {
+	if containsAny(q, "komponente", "component", "bauteil", "anbauteil") {
+		return true
+	}
+	for _, componentType := range gearpkg.Schema.ComponentTypes {
+		if keyTailMatchesQuery(q, componentType.Key) || tokenMatchesQuery(q, componentType.LabelDE) {
+			return true
+		}
+		for _, subtypeKey := range componentType.SubtypeKeys {
+			if keyTailMatchesQuery(q, subtypeKey) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsGearRotationHint(q string) bool {
+	return containsGearComponentHint(q) && containsAny(q, "rotation", "rotieren", "wechselnd", "abwechselnd")
+}
+
+func keyTailMatchesQuery(q, key string) bool {
+	key = strings.ToLower(strings.TrimSpace(key))
+	if key == "" {
+		return false
+	}
+	if idx := strings.LastIndex(key, "."); idx >= 0 {
+		key = key[idx+1:]
+	}
+	return tokenMatchesQuery(q, key)
+}
+
+func tokenMatchesQuery(q, value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	if strings.Contains(q, value) {
+		return true
+	}
+	for _, part := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == '.' || r == '_' || r == '-' || r == '/' || r == ' '
+	}) {
+		part = strings.TrimSpace(part)
+		if len(part) >= 4 && strings.Contains(q, part) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsActivityEntityHint(q string) bool {
