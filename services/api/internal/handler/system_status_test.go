@@ -194,6 +194,39 @@ func TestAdminSystemStatusUsesInjectedS3StorageProbeResults(t *testing.T) {
 	}
 }
 
+func TestAdminSystemStatusSkipsWriteDeleteProbeDuringMaintenance(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{
+		DeploymentProfile: "full",
+		StorageBackend:    "s3",
+		StorageMode:       "s3-local-garage",
+		APIReplicaCount:   1,
+		SharedStorage:     "true",
+	}
+	probe := &countingAdminStatusStorageProbe{head: true, write: true, list: true, multipart: true}
+	h.StorageProbe = probe
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO system_flags (key, value, expires_at)
+		VALUES ('maintenance_mode', 'storage migration in progress', 'infinity'::timestamptz)
+		ON CONFLICT (key) DO UPDATE
+		SET value = EXCLUDED.value, set_at = NOW(), expires_at = EXCLUDED.expires_at`); err != nil {
+		t.Fatalf("set maintenance_mode: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM system_flags WHERE key = 'maintenance_mode'`)
+	})
+
+	got := h.collectStorageComponent(context.Background())
+
+	if probe.writeCalls != 0 {
+		t.Fatalf("PutGetDelete calls during maintenance = %d, want 0", probe.writeCalls)
+	}
+	if got.State != systemstatus.StatusOK {
+		t.Fatalf("storage status = %+v, want OK when read-only probes pass during maintenance", got)
+	}
+}
+
 func TestAdminSystemStatusIncludesServiceAndGeodataComponents(t *testing.T) {
 	h := newTestHandler(t, fusionTestPool(t))
 	h.Config = &HandlerConfig{DeploymentProfile: "full", StorageBackend: "local", StorageMode: "local"}
@@ -452,6 +485,11 @@ type fakeAdminStatusStorageProbe struct {
 	head, write, list, multipart bool
 }
 
+type countingAdminStatusStorageProbe struct {
+	head, write, list, multipart bool
+	writeCalls                   int
+}
+
 type failingArtifactCounter struct{}
 
 func (failingArtifactCounter) CountIncompleteUploads(context.Context, gdprartifacts.ArtifactPrefix) (int, error) {
@@ -480,6 +518,35 @@ func (f fakeAdminStatusStorageProbe) ListPrefix(context.Context) error {
 }
 
 func (f fakeAdminStatusStorageProbe) MultipartAbortDryRun(context.Context) error {
+	if f.multipart {
+		return nil
+	}
+	return errors.New("multipart failed")
+}
+
+func (f *countingAdminStatusStorageProbe) HeadBucket(context.Context) error {
+	if f.head {
+		return nil
+	}
+	return errors.New("head failed")
+}
+
+func (f *countingAdminStatusStorageProbe) PutGetDelete(context.Context) error {
+	f.writeCalls++
+	if f.write {
+		return nil
+	}
+	return errors.New("write failed")
+}
+
+func (f *countingAdminStatusStorageProbe) ListPrefix(context.Context) error {
+	if f.list {
+		return nil
+	}
+	return errors.New("list failed")
+}
+
+func (f *countingAdminStatusStorageProbe) MultipartAbortDryRun(context.Context) error {
 	if f.multipart {
 		return nil
 	}

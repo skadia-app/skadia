@@ -275,13 +275,32 @@ func (h *Handler) collectStorageComponent(ctx context.Context) systemstatus.Comp
 		if probe == nil {
 			probe = newShadowFSSystemStatusProbe(cfg.S3BE, cfg.BucketFn)
 		}
-		probed := systemstatus.StorageSnapshotFromProbe(ctx, snap.Backend, snap.StorageMode, probe)
-		snap.HeadBucketOK = probed.HeadBucketOK
-		snap.PutGetDeleteOK = probed.PutGetDeleteOK
-		snap.ListPrefixOK = probed.ListPrefixOK
-		snap.MultipartAbortOK = probed.MultipartAbortOK
+		if h.storageMaintenanceModeActive(ctx) {
+			if probe != nil {
+				snap.HeadBucketOK = probe.HeadBucket(ctx) == nil
+				snap.ListPrefixOK = probe.ListPrefix(ctx) == nil
+				snap.MultipartAbortOK = probe.MultipartAbortDryRun(ctx) == nil
+			}
+			snap.PutGetDeleteOK = true
+		} else {
+			probed := systemstatus.StorageSnapshotFromProbe(ctx, snap.Backend, snap.StorageMode, probe)
+			snap.HeadBucketOK = probed.HeadBucketOK
+			snap.PutGetDeleteOK = probed.PutGetDeleteOK
+			snap.ListPrefixOK = probed.ListPrefixOK
+			snap.MultipartAbortOK = probed.MultipartAbortOK
+		}
 	}
 	return systemstatus.StorageStatusFromSnapshot(snap)
+}
+
+func (h *Handler) storageMaintenanceModeActive(ctx context.Context) bool {
+	if h == nil || h.DB == nil || h.DB.Pool == nil {
+		return false
+	}
+	var value string
+	return h.DB.Pool.QueryRow(ctx,
+		`SELECT value FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`,
+	).Scan(&value) == nil
 }
 
 func (h *Handler) collectJobsComponent(ctx context.Context) systemstatus.ComponentStatus {

@@ -27,6 +27,7 @@ import (
 )
 
 var ErrQuotaExceeded = errors.New("shadowfs: storage quota exceeded")
+var ErrStorageMaintenance = errors.New("shadowfs: storage maintenance active")
 
 // UnifiedShadowFS implements ShadowFS with per-file backend dispatch.
 // Replaces LocalShadowFS + S3ShadowFS.
@@ -224,6 +225,28 @@ func (u *UnifiedShadowFS) diskUsageWithQuotaCredit(ctx context.Context, userID, 
 	return used, nil
 }
 
+func (u *UnifiedShadowFS) ensureWritableStorage(ctx context.Context) error {
+	if u.pool == nil {
+		return nil
+	}
+	var value string
+	err := u.pool.QueryRow(ctx,
+		`SELECT value
+		 FROM system_flags
+		 WHERE key = 'maintenance_mode' AND expires_at > NOW()`,
+	).Scan(&value)
+	if err == nil {
+		if value == "" {
+			return ErrStorageMaintenance
+		}
+		return fmt.Errorf("%w: %s", ErrStorageMaintenance, value)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return fmt.Errorf("shadowfs: check storage maintenance mode: %w", err)
+}
+
 // getUserDir returns the library directory name for a user.
 func (u *UnifiedShadowFS) getUserDir(ctx context.Context, userID string) (string, error) {
 	return ResolveLibraryDirName(ctx, u.pool, userID)
@@ -285,6 +308,10 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 
 // PutStream stores a file without forcing callers to buffer the entire object.
 func (u *UnifiedShadowFS) PutStream(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return FileRecord{}, err
+	}
+
 	// 1. Validate file_type.
 	dir, ok := fileTypeDirName[entry.FileType]
 	if !ok {
@@ -544,6 +571,10 @@ func (u *UnifiedShadowFS) Get(ctx context.Context, userID, fileID string) (io.Re
 // Delete removes a file record and its physical storage.
 // DB record is deleted first — orphaned physical files are safe (reconciler cleans them).
 func (u *UnifiedShadowFS) Delete(ctx context.Context, userID, fileID string) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	var storagePath, fileType, backend string
 	var hasSidecar bool
 	err := u.pool.QueryRow(ctx,
@@ -653,6 +684,10 @@ func (u *UnifiedShadowFS) Resolve(ctx context.Context, userID, fileID string) (R
 
 // Archive marks a file as archived, optionally moving it physically (local) or metadata-only (S3).
 func (u *UnifiedShadowFS) Archive(ctx context.Context, userID, fileID, replacedByID string) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	if u.keepVersions == 0 {
 		return u.Delete(ctx, userID, fileID)
 	}
@@ -898,6 +933,10 @@ func (s *limitedExportFileSink) AddExportFile(ctx context.Context, file ExportFi
 // DeleteAllForUser purges all files (physical + registry) for a user.
 // Uses an advisory lock to prevent concurrent purges.
 func (u *UnifiedShadowFS) DeleteAllForUser(ctx context.Context, userID string) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	conn, err := u.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("shadowfs: acquire conn: %w", err)
@@ -1009,6 +1048,10 @@ func validateCompanionSuffix(suffix string) error {
 // the main file identified by fileID, using the same backend and bucket.
 // Sets has_sidecar=true on the parent record after a successful write.
 func (u *UnifiedShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	if err := validateCompanionSuffix(suffix); err != nil {
 		return err
 	}
@@ -1066,6 +1109,10 @@ func (u *UnifiedShadowFS) GetCompanion(ctx context.Context, userID, fileID, suff
 // DeleteCompanions removes all companion sidecars for fileID.
 // No-ops silently when the file has no sidecars (has_sidecar=false) or is not found.
 func (u *UnifiedShadowFS) DeleteCompanions(ctx context.Context, userID, fileID string) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	var backend, storagePath, fileType string
 	var hasSidecar bool
 	err := u.pool.QueryRow(ctx,
@@ -1099,6 +1146,10 @@ const fusionCompanionFileType = "activity"
 // PutCompanionAt writes raw bytes to a caller-supplied path without touching
 // user_files. path is a relative ShadowFS key (e.g. "{user_id}/activity-{id}.meta").
 func (u *UnifiedShadowFS) PutCompanionAt(ctx context.Context, path string, data []byte) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	be, _, err := u.targetBackend()
 	if err != nil {
 		return fmt.Errorf("shadowfs: PutCompanionAt backend: %w", err)
@@ -1134,6 +1185,10 @@ func (u *UnifiedShadowFS) GetCompanionAt(ctx context.Context, path string) ([]by
 // DeleteCompanionAt removes an arbitrary-path sidecar. Errors are silently
 // swallowed — this is idempotent cleanup.
 func (u *UnifiedShadowFS) DeleteCompanionAt(ctx context.Context, path string) error {
+	if err := u.ensureWritableStorage(ctx); err != nil {
+		return err
+	}
+
 	be, _, err := u.targetBackend()
 	if err != nil {
 		return nil // No backend → nothing to delete.
