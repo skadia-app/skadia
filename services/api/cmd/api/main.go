@@ -20,6 +20,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	natsgo "github.com/nats-io/nats.go"
 
@@ -59,6 +61,28 @@ const (
 	metricsAddrEnv             = "SKADIA_METRICS_ADDR"
 	importLogProcessingTimeout = 30 * time.Minute
 )
+
+func exitIfMaintenanceMode(ctx context.Context, pool *pgxpool.Pool) {
+	var maintenanceValue string
+	var maintenanceSetAt time.Time
+	err := pool.QueryRow(ctx,
+		`SELECT value, set_at FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue, &maintenanceSetAt)
+	if err == nil {
+		slog.Error("maintenance mode active — server cannot start",
+			"reason", maintenanceValue,
+			"set_at", maintenanceSetAt,
+			"help", "Complete the storage migration or see docs for recovery steps")
+		os.Exit(1)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return
+	}
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "42P01" {
+		return
+	}
+	slog.Error("failed to check maintenance mode", "error", err)
+	os.Exit(1)
+}
 
 func main() {
 	// Parse LOG_LEVEL before config.Load() so startup logs use the correct level.
@@ -416,6 +440,8 @@ func main() {
 	}
 	defer db.Close()
 
+	exitIfMaintenanceMode(ctx, db.Pool)
+
 	// Run database migrations
 	if err := migrate.Run(ctx, db.Pool); err != nil {
 		slog.Error("failed to run migrations", "error", err)
@@ -462,17 +488,7 @@ func main() {
 	// Clean up expired system_flags
 	db.Pool.Exec(ctx, `DELETE FROM system_flags WHERE expires_at < NOW()`)
 
-	// Check maintenance mode
-	var maintenanceValue string
-	var maintenanceSetAt time.Time
-	if err := db.Pool.QueryRow(ctx,
-		`SELECT value, set_at FROM system_flags WHERE key = 'maintenance_mode' AND expires_at > NOW()`).Scan(&maintenanceValue, &maintenanceSetAt); err == nil {
-		slog.Error("maintenance mode active — server cannot start",
-			"reason", maintenanceValue,
-			"set_at", maintenanceSetAt,
-			"help", "Complete the storage migration or see docs for recovery steps")
-		os.Exit(1)
-	}
+	exitIfMaintenanceMode(ctx, db.Pool)
 
 	// Bootstrap admin from env vars (for headless/CI setup).
 	if cfg.BootstrapAdminUser != "" {

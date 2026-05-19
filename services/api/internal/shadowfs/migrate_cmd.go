@@ -17,6 +17,7 @@ import (
 	"errors"
 
 	"github.com/skadia-app/skadia/services/api/internal/settings"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -60,19 +61,19 @@ func RunMigrateStorage(
 	}
 
 	if workers > 1 {
-		fmt.Fprintf(os.Stderr, "WARNING: each worker buffers up to 500 MB in memory (S3 write). workers=%d → up to %d MB RAM\n", workers, workers*500)
+		fmt.Fprintf(os.Stderr, "WARNING: running %d migration workers in parallel; ensure the source backend, target backend, and database can handle the load\n", workers)
 	}
 
 	// ── Dry-Run ──────────────────────────────────────────────────────────────
 	if dryRun {
-		return runDryRun(ctx, pool, source, target, sourceName, targetName)
+		return runDryRun(ctx, pool, source, target, sourceName, targetName, bucketFn, renderer, store)
 	}
 
 	// ── Set maintenance mode ──────────────────────────────────────────────────
 	reason := fmt.Sprintf("migrate-storage %s→%s started at %s", sourceName, targetName, time.Now().UTC().Format(time.RFC3339))
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO system_flags (key, value, expires_at)
-		 VALUES ('maintenance_mode', $1, NOW() + INTERVAL '24 hours')
+		 VALUES ('maintenance_mode', $1, 'infinity'::timestamptz)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_at = NOW(), expires_at = EXCLUDED.expires_at`,
 		reason); err != nil {
 		return fmt.Errorf("migrate-storage: set maintenance_mode: %w", err)
@@ -130,6 +131,14 @@ func RunMigrateStorage(
 		}
 	}
 
+	pathOnlySidecars, err := migratePathOnlySidecars(ctx, pool, source, target, bucketFn)
+	if err != nil {
+		return fmt.Errorf("migrate-storage: path-only sidecars: %w", err)
+	}
+	if pathOnlySidecars > 0 {
+		fmt.Fprintf(os.Stderr, "\nmigrate-storage: migrated %d path-only sidecars\n", pathOnlySidecars)
+	}
+
 	fmt.Fprintf(os.Stderr, "\nmigrate-storage: migration complete — %d files, %s, %d errors\n",
 		totalMigrated, formatMigrBytes(totalBytes), totalErrors)
 
@@ -155,6 +164,9 @@ func runDryRun(
 	pool *pgxpool.Pool,
 	source, target StorageBackend,
 	sourceName, targetName string,
+	bucketFn func(string) string,
+	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
 ) error {
 	var count int64
 	var totalBytes int64
@@ -169,13 +181,36 @@ func runDryRun(
 	fmt.Fprintf(os.Stderr, "dry-run: %d files to migrate (%s) from %s → %s\n",
 		count, formatMigrBytes(totalBytes), sourceName, targetName)
 
-	// Check target reachability with a probe Exists call.
-	if exists, err := target.Exists(ctx, "migrate-storage-probe-do-not-create", nil); err != nil {
-		fmt.Fprintf(os.Stderr, "dry-run: target backend (%s) reachability check FAILED: %v\n", targetName, err)
-	} else {
-		_ = exists
-		fmt.Fprintf(os.Stderr, "dry-run: target backend (%s) reachable\n", targetName)
+	if err := validateDryRunFiles(ctx, pool, source, target, sourceName, targetName, bucketFn, renderer, store); err != nil {
+		return err
 	}
+	pathOnly, err := validateDryRunPathOnlySidecars(ctx, pool, source, target, bucketFn)
+	if err != nil {
+		return err
+	}
+	if pathOnly > 0 {
+		fmt.Fprintf(os.Stderr, "dry-run: %d path-only sidecars found on source backend\n", pathOnly)
+	}
+
+	probeFileTypes, err := dryRunTargetProbeFileTypes(ctx, pool, sourceName)
+	if err != nil {
+		return err
+	}
+	if pathOnly > 0 {
+		probeFileTypes = append(probeFileTypes, fusionCompanionFileType)
+	}
+	if len(probeFileTypes) == 0 {
+		probeFileTypes = []string{fusionCompanionFileType}
+	}
+	for _, fileType := range probeFileTypes {
+		opts := migrBucketOpts(bucketFn, fileType)
+		if exists, err := target.Exists(ctx, "migrate-storage-probe-do-not-create", opts); err != nil {
+			return fmt.Errorf("dry-run: target backend %s reachability for file_type=%s: %w", targetName, fileType, err)
+		} else {
+			_ = exists
+		}
+	}
+	fmt.Fprintf(os.Stderr, "dry-run: source files, declared sidecars, path-only sidecars, and target buckets validated\n")
 
 	return nil
 }
@@ -228,23 +263,23 @@ func fillNullHashes(
 			opts := migrBucketOpts(bucketFn, rec.fileType)
 			rc, err := source.Read(ctx, rec.storagePath, opts)
 			if err != nil {
-				slog.Warn("fillNullHashes: read failed — skipping", "id", rec.id, "path", rec.storagePath, "error", err)
-				continue
+				return fmt.Errorf("fillNullHashes: read source %q for row %s: %w", rec.storagePath, rec.id, err)
 			}
 			h := sha256.New()
-			if _, err := io.Copy(h, rc); err != nil {
-				rc.Close()
-				slog.Warn("fillNullHashes: hash failed — skipping", "id", rec.id, "error", err)
-				continue
+			_, copyErr := io.Copy(h, rc)
+			closeErr := rc.Close()
+			if copyErr != nil {
+				return fmt.Errorf("fillNullHashes: hash source %q for row %s: %w", rec.storagePath, rec.id, copyErr)
 			}
-			rc.Close()
+			if closeErr != nil {
+				return fmt.Errorf("fillNullHashes: close source %q for row %s: %w", rec.storagePath, rec.id, closeErr)
+			}
 
 			hash := hex.EncodeToString(h.Sum(nil))
 			if _, err := pool.Exec(ctx,
 				`UPDATE user_files SET file_hash = $1 WHERE id = $2`,
 				hash, rec.id); err != nil {
-				slog.Warn("fillNullHashes: update failed", "id", rec.id, "error", err)
-				continue
+				return fmt.Errorf("fillNullHashes: update row %s: %w", rec.id, err)
 			}
 			filled++
 		}
@@ -312,6 +347,7 @@ func processBatch(
 	close(ch)
 
 	var wg sync.WaitGroup
+	var batchErrors int64
 	for range workers {
 		wg.Go(func() {
 			for rec := range ch {
@@ -323,6 +359,7 @@ func processBatch(
 					slog.Error("migrate-storage: file failed",
 						"id", rec.ID, "path", rec.StoragePath, "error", err)
 					atomic.AddInt64(totalErrors, 1)
+					atomic.AddInt64(&batchErrors, 1)
 				} else {
 					m := atomic.AddInt64(totalMigrated, 1)
 					b := atomic.AddInt64(totalBytes, rec.SizeBytes)
@@ -333,6 +370,12 @@ func processBatch(
 	}
 
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if failed := atomic.LoadInt64(&batchErrors); failed > 0 {
+		return fmt.Errorf("%d of %d files failed in batch", failed, len(batch))
+	}
 	return nil
 }
 
@@ -349,6 +392,13 @@ func migrateFile(
 	store *settings.SettingsStore,
 ) error {
 	srcOpts := migrBucketOpts(bucketFn, rec.FileType)
+	if rec.FileHash == "" {
+		hash, err := hashMigrateBackendFile(ctx, source, rec.StoragePath, srcOpts)
+		if err != nil {
+			return fmt.Errorf("hash source before target path %q: %w", rec.StoragePath, err)
+		}
+		rec.FileHash = hash
+	}
 
 	// Compute target path.
 	targetPath, targetOpts, err := computeTargetPath(ctx, pool, rec, targetName, bucketFn, renderer, store)
@@ -356,9 +406,32 @@ func migrateFile(
 		return fmt.Errorf("compute target path: %w", err)
 	}
 
-	// Check if already exists at target (idempotent).
-	if exists, err := target.Exists(ctx, targetPath, targetOpts); err == nil && exists {
-		return updateMigrRecord(ctx, pool, rec.ID, targetName, targetPath)
+	if targetName == "local" {
+		targetPath, err = resolveMigrateLocalTargetPath(ctx, pool, target, rec.ID, targetName, targetPath, targetOpts, rec.FileHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := ensureMigrateTargetRegistryPathFree(ctx, pool, rec.ID, targetName, targetPath); err != nil {
+		return err
+	}
+
+	// Check if already exists at target (idempotent only after hash verification).
+	exists, err := target.Exists(ctx, targetPath, targetOpts)
+	if err != nil {
+		return fmt.Errorf("check target %q: %w", targetPath, err)
+	}
+	if exists {
+		if err := verifyExistingMigrateTarget(ctx, target, targetPath, targetOpts, rec.FileHash); err != nil {
+			return err
+		}
+		if rec.HasSidecar {
+			if err := copyMigrateSidecar(ctx, source, target, rec.StoragePath+".meta", targetPath+".meta", srcOpts, targetOpts); err != nil {
+				return err
+			}
+		}
+		return updateMigrRecord(ctx, pool, rec.ID, targetName, targetPath, rec.FileHash)
 	}
 
 	// Read from source.
@@ -373,7 +446,7 @@ func migrateFile(
 	reader := io.TeeReader(rc, h)
 
 	// Write to target.
-	_, writtenHash, err := target.Write(ctx, targetPath, reader, rec.ContentType, false, targetOpts)
+	_, writtenHash, err := writeMigrateTarget(ctx, target, targetPath, reader, rec.ContentType, rec.FileHash, targetOpts)
 	if err != nil {
 		return fmt.Errorf("write target %q: %w", targetPath, err)
 	}
@@ -381,12 +454,19 @@ func migrateFile(
 	// Verify hash.
 	computedHash := hex.EncodeToString(h.Sum(nil))
 	if rec.FileHash != "" && computedHash != rec.FileHash {
-		_ = target.Delete(ctx, targetPath, targetOpts)
+		cleanupMigrateTargetAfterFailure(ctx, pool, target, targetName, targetPath, targetOpts, rec.HasSidecar)
 		return fmt.Errorf("hash mismatch: expected %s got %s", rec.FileHash, computedHash)
 	}
 	if writtenHash != "" && rec.FileHash != "" && writtenHash != rec.FileHash {
-		_ = target.Delete(ctx, targetPath, targetOpts)
+		cleanupMigrateTargetAfterFailure(ctx, pool, target, targetName, targetPath, targetOpts, rec.HasSidecar)
 		return fmt.Errorf("target hash mismatch: expected %s got %s", rec.FileHash, writtenHash)
+	}
+
+	if rec.HasSidecar {
+		if err := copyMigrateSidecar(ctx, source, target, rec.StoragePath+".meta", targetPath+".meta", srcOpts, targetOpts); err != nil {
+			cleanupMigrateTargetAfterFailure(ctx, pool, target, targetName, targetPath, targetOpts, true)
+			return err
+		}
 	}
 
 	// Persist final hash (use known or computed).
@@ -399,30 +479,11 @@ func migrateFile(
 		`UPDATE user_files SET storage_backend = $1, storage_path = $2, file_hash = $3, updated_at = NOW()
 		 WHERE id = $4`,
 		targetName, targetPath, finalHash, rec.ID); err != nil {
+		cleanupMigrateTargetAfterFailure(ctx, pool, target, targetName, targetPath, targetOpts, rec.HasSidecar)
 		if isUniqueViolation(err) {
-			slog.Info("migrate-storage: duplicate path on write — marking as migrated",
-				"id", rec.ID, "target_path", targetPath)
-			// Path collision: just flip the backend so the file exits the migration queue.
-			_, fallbackErr := pool.Exec(ctx,
-				`UPDATE user_files SET storage_backend = $1, updated_at = NOW() WHERE id = $2`,
-				targetName, rec.ID)
-			return fallbackErr
+			return fmt.Errorf("target registry path already exists for %s:%s: %w", targetName, targetPath, err)
 		}
 		return fmt.Errorf("update DB record: %w", err)
-	}
-
-	// Copy companion sidecar if present (best-effort).
-	if rec.HasSidecar {
-		companionSrc := rec.StoragePath + ".meta"
-		companionDst := targetPath + ".meta"
-		srcRC, readErr := source.Read(ctx, companionSrc, srcOpts)
-		if readErr == nil {
-			_, _, writeErr := target.Write(ctx, companionDst, srcRC, "application/json", false, targetOpts)
-			srcRC.Close()
-			if writeErr != nil {
-				slog.Warn("migrate-storage: companion copy failed", "src", companionSrc, "error", writeErr)
-			}
-		}
 	}
 
 	slog.Debug("migrate-storage: migrated file",
@@ -453,7 +514,15 @@ func computeTargetPath(
 		if key == "" {
 			key = rec.ID // fallback (should not happen after pre-pass)
 		}
-		path = fmt.Sprintf("%s/%s/%s%s", rec.UserID, dir, key, ext)
+		if rec.ParentType != "" && rec.ParentID != nil && *rec.ParentID != "" {
+			parentType, parentID, segErr := safeMigrateS3ParentSegments(rec.ParentType, *rec.ParentID)
+			if segErr != nil {
+				return "", nil, segErr
+			}
+			path = fmt.Sprintf("%s/%s/%s/%s/%s%s", rec.UserID, dir, parentType, parentID, key, ext)
+		} else {
+			path = fmt.Sprintf("%s/%s/%s%s", rec.UserID, dir, key, ext)
+		}
 		if b := bucketFn(rec.FileType); b != "" {
 			opts = &BackendOpts{Bucket: b}
 		}
@@ -502,24 +571,376 @@ func computeTargetPath(
 	return path, opts, nil
 }
 
-// updateMigrRecord updates only the backend/path (file already present at target).
-// Returns nil on unique_violation (23505) — the file was already migrated by another path.
-func updateMigrRecord(ctx context.Context, pool *pgxpool.Pool, id, targetName, targetPath string) error {
+func updateMigrRecord(ctx context.Context, pool *pgxpool.Pool, id, targetName, targetPath, fileHash string) error {
 	_, err := pool.Exec(ctx,
-		`UPDATE user_files SET storage_backend = $1, storage_path = $2, updated_at = NOW()
-		 WHERE id = $3`,
-		targetName, targetPath, id)
+		`UPDATE user_files SET storage_backend = $1, storage_path = $2, file_hash = $3, updated_at = NOW()
+		 WHERE id = $4`,
+		targetName, targetPath, fileHash, id)
 	if isUniqueViolation(err) {
-		slog.Info("migrate-storage: duplicate path — marking as already migrated",
-			"id", id, "target_path", targetPath)
-		// Path collision: another row already occupies this (backend, path).
-		// Just flip the backend so this file is no longer picked up.
-		_, err = pool.Exec(ctx,
-			`UPDATE user_files SET storage_backend = $1, updated_at = NOW() WHERE id = $2`,
-			targetName, id)
-		return err
+		return fmt.Errorf("target registry path already exists for %s:%s: %w", targetName, targetPath, err)
 	}
 	return err
+}
+
+func validateDryRunFiles(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	source, target StorageBackend,
+	sourceName, targetName string,
+	bucketFn func(string) string,
+	renderer *SchemaRenderer,
+	store *settings.SettingsStore,
+) error {
+	rows, err := pool.Query(ctx,
+		`SELECT id, user_id, file_type, storage_backend, storage_path, content_type,
+		 file_name, size_bytes, COALESCE(file_hash, ''),
+		 COALESCE(parent_type, ''), parent_id, has_sidecar
+		 FROM user_files
+		 WHERE storage_backend = $1 AND status != 'purging'
+		 ORDER BY size_bytes ASC`,
+		sourceName)
+	if err != nil {
+		return fmt.Errorf("dry-run: list source files: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var rec migrateRecord
+		var parentType string
+		if err := rows.Scan(&rec.ID, &rec.UserID, &rec.FileType, &rec.StorageBackend, &rec.StoragePath,
+			&rec.ContentType, &rec.FileName, &rec.SizeBytes, &rec.FileHash,
+			&parentType, &rec.ParentID, &rec.HasSidecar); err != nil {
+			return fmt.Errorf("dry-run: scan source file: %w", err)
+		}
+		rec.ParentType = parentType
+
+		srcOpts := migrBucketOpts(bucketFn, rec.FileType)
+		sourceHash, err := hashMigrateBackendFile(ctx, source, rec.StoragePath, srcOpts)
+		if err != nil {
+			return fmt.Errorf("dry-run: read source file %s (%s): %w", rec.StoragePath, rec.ID, err)
+		}
+		if rec.FileHash == "" {
+			rec.FileHash = sourceHash
+		} else if !strings.EqualFold(rec.FileHash, sourceHash) {
+			return fmt.Errorf("dry-run: source file %s (%s) sha256 mismatch: registry %s source %s", rec.StoragePath, rec.ID, rec.FileHash, sourceHash)
+		}
+		if rec.HasSidecar {
+			sidecarPath := rec.StoragePath + ".meta"
+			if _, err := hashMigrateBackendFile(ctx, source, sidecarPath, srcOpts); err != nil {
+				return fmt.Errorf("dry-run: read declared sidecar %s for file %s: %w", sidecarPath, rec.ID, err)
+			}
+		}
+
+		targetPath, targetOpts, err := computeTargetPath(ctx, pool, rec, targetName, bucketFn, renderer, store)
+		if err != nil {
+			return fmt.Errorf("dry-run: compute target path for file %s: %w", rec.ID, err)
+		}
+		if targetName == "local" {
+			if _, err := resolveMigrateLocalTargetPath(ctx, pool, target, rec.ID, targetName, targetPath, targetOpts, rec.FileHash); err != nil {
+				return fmt.Errorf("dry-run: resolve local target path for file %s: %w", rec.ID, err)
+			}
+			continue
+		}
+		if err := ensureMigrateTargetRegistryPathFree(ctx, pool, rec.ID, targetName, targetPath); err != nil {
+			return fmt.Errorf("dry-run: target registry path for file %s: %w", rec.ID, err)
+		}
+		exists, err := target.Exists(ctx, targetPath, targetOpts)
+		if err != nil {
+			return fmt.Errorf("dry-run: check target %q for file %s: %w", targetPath, rec.ID, err)
+		}
+		if exists {
+			if err := verifyExistingMigrateTarget(ctx, target, targetPath, targetOpts, rec.FileHash); err != nil {
+				return fmt.Errorf("dry-run: target conflict for file %s: %w", rec.ID, err)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("dry-run: iterate source files: %w", err)
+	}
+	return nil
+}
+
+func dryRunTargetProbeFileTypes(ctx context.Context, pool *pgxpool.Pool, sourceName string) ([]string, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT DISTINCT file_type
+		 FROM user_files
+		 WHERE storage_backend = $1 AND status != 'purging'
+		 ORDER BY file_type`,
+		sourceName)
+	if err != nil {
+		return nil, fmt.Errorf("dry-run: target probe file types: %w", err)
+	}
+	defer rows.Close()
+
+	var fileTypes []string
+	for rows.Next() {
+		var fileType string
+		if err := rows.Scan(&fileType); err != nil {
+			return nil, fmt.Errorf("dry-run: scan target probe file type: %w", err)
+		}
+		fileTypes = append(fileTypes, fileType)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dry-run: iterate target probe file types: %w", err)
+	}
+	return fileTypes, nil
+}
+
+func validateDryRunPathOnlySidecars(ctx context.Context, pool *pgxpool.Pool, source, target StorageBackend, bucketFn func(string) string) (int64, error) {
+	var count int64
+	err := forEachPathOnlySidecar(ctx, pool, func(path string) error {
+		opts := migrBucketOpts(bucketFn, fusionCompanionFileType)
+		exists, err := source.Exists(ctx, path, opts)
+		if err != nil {
+			return fmt.Errorf("dry-run: check path-only sidecar %s: %w", path, err)
+		}
+		if !exists {
+			return nil
+		}
+		sourceHash, err := hashMigrateBackendFile(ctx, source, path, opts)
+		if err != nil {
+			return fmt.Errorf("dry-run: read path-only sidecar %s: %w", path, err)
+		}
+		targetExists, err := target.Exists(ctx, path, opts)
+		if err != nil {
+			return fmt.Errorf("dry-run: check path-only sidecar target %s: %w", path, err)
+		}
+		if targetExists {
+			if err := verifyExistingMigrateTarget(ctx, target, path, opts, sourceHash); err != nil {
+				return fmt.Errorf("dry-run: path-only sidecar target conflict %s: %w", path, err)
+			}
+		}
+		count++
+		return nil
+	})
+	return count, err
+}
+
+func migratePathOnlySidecars(ctx context.Context, pool *pgxpool.Pool, source, target StorageBackend, bucketFn func(string) string) (int64, error) {
+	var migrated int64
+	opts := migrBucketOpts(bucketFn, fusionCompanionFileType)
+	err := forEachPathOnlySidecar(ctx, pool, func(path string) error {
+		exists, err := source.Exists(ctx, path, opts)
+		if err != nil {
+			return fmt.Errorf("check path-only sidecar source %s: %w", path, err)
+		}
+		if !exists {
+			return nil
+		}
+
+		sourceHash, err := hashMigrateBackendFile(ctx, source, path, opts)
+		if err != nil {
+			return fmt.Errorf("hash path-only sidecar source %s: %w", path, err)
+		}
+		targetExists, err := target.Exists(ctx, path, opts)
+		if err != nil {
+			return fmt.Errorf("check path-only sidecar target %s: %w", path, err)
+		}
+		if targetExists {
+			if err := verifyExistingMigrateTarget(ctx, target, path, opts, sourceHash); err != nil {
+				return fmt.Errorf("path-only sidecar target conflict %s: %w", path, err)
+			}
+			return nil
+		}
+		if err := copyMigrateSidecar(ctx, source, target, path, path, opts, opts); err != nil {
+			_ = target.Delete(ctx, path, opts)
+			return err
+		}
+		migrated++
+		return nil
+	})
+	return migrated, err
+}
+
+func forEachPathOnlySidecar(ctx context.Context, pool *pgxpool.Pool, fn func(path string) error) error {
+	rows, err := pool.Query(ctx,
+		`SELECT id::text, user_id::text
+		 FROM activities
+		 WHERE file_id IS NULL
+		 ORDER BY user_id, id`)
+	if err != nil {
+		return fmt.Errorf("list path-only sidecar candidates: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var activityID, userID string
+		if err := rows.Scan(&activityID, &userID); err != nil {
+			return fmt.Errorf("scan path-only sidecar candidate: %w", err)
+		}
+		if err := fn(pathOnlyActivitySidecarPath(userID, activityID)); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate path-only sidecar candidates: %w", err)
+	}
+	return nil
+}
+
+func pathOnlyActivitySidecarPath(userID, activityID string) string {
+	return fmt.Sprintf("%s/activity-%s.meta", userID, activityID)
+}
+
+func ensureMigrateTargetRegistryPathFree(ctx context.Context, pool *pgxpool.Pool, currentID, targetName, targetPath string) error {
+	var existingID string
+	err := pool.QueryRow(ctx,
+		`SELECT id::text
+		 FROM user_files
+		 WHERE storage_backend = $1 AND storage_path = $2 AND id <> $3
+		 LIMIT 1`,
+		targetName, targetPath, currentID,
+	).Scan(&existingID)
+	if err == nil {
+		return fmt.Errorf("target registry path already exists for %s:%s on row %s", targetName, targetPath, existingID)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return fmt.Errorf("check target registry path: %w", err)
+}
+
+func cleanupMigrateTargetAfterFailure(ctx context.Context, pool *pgxpool.Pool, target StorageBackend, targetName, targetPath string, opts *BackendOpts, hasSidecar bool) {
+	claimed, err := migrateTargetRegistryClaimed(ctx, pool, targetName, targetPath)
+	if err != nil {
+		slog.Warn("migrate-storage: target cleanup skipped; registry claim check failed",
+			"target_backend", targetName, "target_path", targetPath, "error", err)
+		return
+	}
+	if claimed {
+		slog.Warn("migrate-storage: target cleanup skipped; target path is now claimed in registry",
+			"target_backend", targetName, "target_path", targetPath)
+		return
+	}
+	if err := target.Delete(ctx, targetPath, opts); err != nil {
+		slog.Warn("migrate-storage: target cleanup failed", "target_path", targetPath, "error", err)
+	}
+	if hasSidecar {
+		if err := target.Delete(ctx, targetPath+".meta", opts); err != nil {
+			slog.Warn("migrate-storage: target sidecar cleanup failed", "target_path", targetPath+".meta", "error", err)
+		}
+	}
+}
+
+func migrateTargetRegistryClaimed(ctx context.Context, pool *pgxpool.Pool, targetName, targetPath string) (bool, error) {
+	if pool == nil {
+		return false, nil
+	}
+	var existingID string
+	err := pool.QueryRow(ctx,
+		`SELECT id::text
+		 FROM user_files
+		 WHERE storage_backend = $1 AND storage_path = $2
+		 LIMIT 1`,
+		targetName, targetPath,
+	).Scan(&existingID)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
+func verifyExistingMigrateTarget(ctx context.Context, target StorageBackend, targetPath string, opts *BackendOpts, expectedHash string) error {
+	if expectedHash == "" {
+		return fmt.Errorf("target exists at %q but source file_hash is empty; cannot verify idempotency", targetPath)
+	}
+	gotHash, err := hashMigrateBackendFile(ctx, target, targetPath, opts)
+	if err != nil {
+		return fmt.Errorf("hash existing target %q: %w", targetPath, err)
+	}
+	if !strings.EqualFold(gotHash, expectedHash) {
+		return fmt.Errorf("target exists at %q with sha256 %s, want %s", targetPath, gotHash, expectedHash)
+	}
+	return nil
+}
+
+func resolveMigrateLocalTargetPath(ctx context.Context, pool *pgxpool.Pool, target StorageBackend, currentID, targetName, initialPath string, opts *BackendOpts, expectedHash string) (string, error) {
+	for attempt := range 1000 {
+		candidate := initialPath
+		if attempt > 0 {
+			candidate = migrateCollisionCandidate(initialPath, attempt)
+		}
+
+		if err := ensureMigrateTargetRegistryPathFree(ctx, pool, currentID, targetName, candidate); err != nil {
+			if attempt == 999 {
+				return "", err
+			}
+			continue
+		}
+
+		exists, err := target.Exists(ctx, candidate, opts)
+		if err != nil {
+			return "", fmt.Errorf("check local target %q: %w", candidate, err)
+		}
+		if !exists {
+			return candidate, nil
+		}
+		if expectedHash != "" {
+			if err := verifyExistingMigrateTarget(ctx, target, candidate, opts, expectedHash); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("exhausted local target collision candidates for %q", initialPath)
+}
+
+func migrateCollisionCandidate(path string, index int) string {
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	return fmt.Sprintf("%s_%d%s", stem, index, ext)
+}
+
+func writeMigrateTarget(ctx context.Context, target StorageBackend, targetPath string, data io.Reader, contentType, expectedHash string, opts *BackendOpts) (int64, string, error) {
+	if streaming, ok := target.(StreamingBackend); ok {
+		return streaming.WriteStream(ctx, targetPath, data, contentType, false, expectedHash, opts)
+	}
+	return target.Write(ctx, targetPath, data, contentType, false, opts)
+}
+
+func copyMigrateSidecar(ctx context.Context, source, target StorageBackend, sourcePath, targetPath string, sourceOpts, targetOpts *BackendOpts) error {
+	rc, err := source.Read(ctx, sourcePath, sourceOpts)
+	if err != nil {
+		return fmt.Errorf("copy sidecar: read %q: %w", sourcePath, err)
+	}
+	defer rc.Close()
+
+	h := sha256.New()
+	_, writtenHash, err := target.Write(ctx, targetPath, io.TeeReader(rc, h), "application/json", false, targetOpts)
+	if err != nil {
+		return fmt.Errorf("copy sidecar: write %q: %w", targetPath, err)
+	}
+	computedHash := hex.EncodeToString(h.Sum(nil))
+	if writtenHash != "" && !strings.EqualFold(writtenHash, computedHash) {
+		_ = target.Delete(ctx, targetPath, targetOpts)
+		return fmt.Errorf("copy sidecar: target hash mismatch for %q: wrote %s computed %s", targetPath, writtenHash, computedHash)
+	}
+	return nil
+}
+
+func hashMigrateBackendFile(ctx context.Context, backend StorageBackend, path string, opts *BackendOpts) (string, error) {
+	rc, err := backend.Read(ctx, path, opts)
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, rc); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func safeMigrateS3ParentSegments(parentType, parentID string) (string, string, error) {
+	if strings.Contains(parentType, "/") || strings.Contains(parentType, "\\") || strings.Contains(parentType, "..") || parentType == "" {
+		return "", "", fmt.Errorf("invalid parent_type for s3 key: %q", parentType)
+	}
+	if strings.Contains(parentID, "/") || strings.Contains(parentID, "\\") || strings.Contains(parentID, "..") || parentID == "" {
+		return "", "", fmt.Errorf("invalid parent_id for s3 key: %q", parentID)
+	}
+	return parentType, parentID, nil
 }
 
 // isUniqueViolation returns true if err is a PostgreSQL unique_violation (23505).
