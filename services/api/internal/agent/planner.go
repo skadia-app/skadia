@@ -42,7 +42,7 @@ func BuildToolPlan(query string, profile *ModelProfile, prefs *ChatPreferences) 
 		}
 	}
 	required, optional := readToolsForIntent(query, intent, profile)
-	writeTools, writeOmissions := writeToolsForIntent(intent, prefs)
+	writeTools, writeOmissions := writeToolsForIntent(query, intent, prefs)
 	if intent.WriteRequested {
 		required = appendUniqueToolNames(required, writeTools...)
 	}
@@ -165,8 +165,8 @@ func activityOptionalTools(q string, profile *ModelProfile) []string {
 	return tools
 }
 
-func writeToolsForIntent(intent AgentIntent, prefs *ChatPreferences) ([]string, []ToolOmission) {
-	candidates := writeToolCandidatesForIntent(intent)
+func writeToolsForIntent(query string, intent AgentIntent, prefs *ChatPreferences) ([]string, []ToolOmission) {
+	candidates := writeToolCandidatesForIntent(query, intent)
 	omitted := []ToolOmission{}
 	if !intent.WriteRequested {
 		if prefs != nil && prefs.ChatWriteToolsEnabled {
@@ -200,12 +200,21 @@ func writeToolsForIntent(intent AgentIntent, prefs *ChatPreferences) ([]string, 
 	return out, omitted
 }
 
-func writeToolCandidatesForIntent(intent AgentIntent) []string {
+func writeToolCandidatesForIntent(query string, intent AgentIntent) []string {
 	candidates := []string{}
+	q := strings.ToLower(query)
 	switch intent.Operation {
 	case IntentCreate:
-		if containsIntentEntity(intent.Entities, EntityGear) {
+		componentCreate := containsIntentEntity(intent.Entities, EntityGearPart)
+		existingGearComponentCreate := componentCreate && referencesExistingGear(q)
+		if containsIntentEntity(intent.Entities, EntityGear) && !existingGearComponentCreate {
 			candidates = append(candidates, "create_gear")
+		}
+		if componentCreate {
+			candidates = append(candidates, "add_gear_component")
+		}
+		if containsIntentEntity(intent.Entities, EntityGearSet) {
+			candidates = append(candidates, "create_chain_rotation")
 		}
 		if containsIntentEntity(intent.Entities, EntityTag) {
 			candidates = append(candidates, "create_tag")
@@ -219,6 +228,9 @@ func writeToolCandidatesForIntent(intent AgentIntent) []string {
 		}
 		if containsIntentEntity(intent.Entities, EntityGear) {
 			candidates = append(candidates, "update_gear_metadata")
+		}
+		if containsIntentEntity(intent.Entities, EntityGearPart) {
+			candidates = append(candidates, "add_gear_component", "update_gear_component_status", "record_gear_service_event")
 		}
 		if containsIntentEntity(intent.Entities, EntityTag) {
 			candidates = append(candidates, "tag_activity", "update_tag")
@@ -248,6 +260,13 @@ func writeToolCandidatesForIntent(intent AgentIntent) []string {
 		candidates = append(candidates, "save_planned_route")
 	}
 	return appendUniqueToolNames(nil, candidates...)
+}
+
+func referencesExistingGear(q string) bool {
+	return containsAny(q,
+		"meinem ", "meiner ", "meinen ", "meines ", "mein ", "meine ",
+		"bestehenden", "vorhandenen", "an meinem", "zu meinem",
+	) && !containsAny(q, "neues fahrrad", "neuen fahrrad", "neues rad", "neuen rad", "neues test", "neues rennrad", "neuen rennrad")
 }
 
 func mergeToolPlanNames(required, optional []string, limit int) ([]string, []string) {

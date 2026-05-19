@@ -21,7 +21,27 @@ var createGearInputSchema = json.RawMessage(`{
     "scope": {"type": "string"},
     "applicable_sport_predicates": {"type": "array"},
     "attributes": {"type": "object"},
-    "modifiers": {"type": "object"}
+    "modifiers": {"type": "object"},
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "type": {"type": "string", "minLength": 1},
+          "brand": {"type": "string"},
+          "model": {"type": "string"},
+          "purchase_price": {"type": "number"},
+          "purchase_date": {"type": "string"},
+          "weight_g": {"type": "integer"},
+          "serial_number": {"type": "string"},
+          "notes": {"type": "string"},
+          "preset_gear_type_key": {"type": "string"}
+        },
+        "required": ["name", "type"],
+        "additionalProperties": false
+      }
+    }
   },
   "required": ["name", "gear_type"],
   "additionalProperties": false
@@ -78,6 +98,7 @@ func WriteGearTools() []*Tool {
 		AddGearComponentTool(),
 		UpdateGearComponentStatusTool(),
 		RecordGearServiceEventTool(),
+		CreateChainRotationTool(),
 		UpdateGearDefaultPredicatesTool(),
 		BatchSetActivityGearTool(),
 	}
@@ -86,7 +107,7 @@ func WriteGearTools() []*Tool {
 func CreateGearTool() *Tool {
 	return &Tool{
 		Name:                 "create_gear",
-		Description:          "Create a new gear item after user confirmation.",
+		Description:          "Create a new top-level gear item such as a bike, shoes, watch, or sensor after user confirmation. Do not use for components such as chains, tires, cassettes, brake pads, forks, or shocks; attach those as components.",
 		InputSchema:          createGearInputSchema,
 		Permission:           PermissionWriteSafe,
 		RequiresConfirmation: true,
@@ -148,6 +169,7 @@ type createGearArgs struct {
 	ApplicableSportPredicates *[]gearpkg.GearDefaultPredicate `json:"applicable_sport_predicates"`
 	Attributes                map[string]any                  `json:"attributes"`
 	Modifiers                 map[string]any                  `json:"modifiers"`
+	Components                []model.GearComponentInput      `json:"components"`
 }
 
 type updateGearMetadataArgs struct {
@@ -183,6 +205,13 @@ func executeCreateGear(ctx context.Context, deps *WriteExecutionDeps, userID str
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.GearType) == "" {
 		return nil, fmt.Errorf("INVALID_ARGUMENT")
 	}
+	if err := validateAgentGearType(in.GearType); err != nil {
+		return nil, err
+	}
+	components, err := cleanInitialGearComponents(in.Components)
+	if err != nil {
+		return nil, err
+	}
 	g, err := deps.DB.CreateGearTx(ctx, deps.Tx, userID, &model.GearCreate{
 		Name:                      strings.TrimSpace(in.Name),
 		Type:                      strings.TrimSpace(in.GearType),
@@ -192,11 +221,20 @@ func executeCreateGear(ctx context.Context, deps *WriteExecutionDeps, userID str
 		ApplicableSportPredicates: in.ApplicableSportPredicates,
 		Attributes:                in.Attributes,
 		Modifiers:                 in.Modifiers,
+		Components:                components,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"affected_id": g.ID, "gear_id": g.ID, "status": "ok"}, nil
+	componentResults := make([]map[string]any, 0, len(g.Components))
+	for _, component := range g.Components {
+		componentResults = append(componentResults, map[string]any{
+			"component_id": component.ID,
+			"name":         component.Name,
+			"type":         component.Type,
+		})
+	}
+	return map[string]any{"affected_id": g.ID, "gear_id": g.ID, "components": componentResults, "status": "ok"}, nil
 }
 
 func executeUpdateGearMetadata(ctx context.Context, deps *WriteExecutionDeps, userID string, args json.RawMessage) (any, error) {
@@ -271,7 +309,64 @@ func summarizeCreateGear(_ context.Context, _ *Deps, _ string, args json.RawMess
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", err
 	}
+	if err := validateAgentGearType(in.GearType); err != nil {
+		return "", err
+	}
+	if len(in.Components) > 0 {
+		return fmt.Sprintf("Neues Gear anlegen: %s (%s), Komponenten: %d", in.Name, in.GearType, len(in.Components)), nil
+	}
 	return fmt.Sprintf("Neues Gear anlegen: %s (%s)", in.Name, in.GearType), nil
+}
+
+func validateAgentGearType(typeKey string) error {
+	typeKey = strings.TrimSpace(typeKey)
+	if _, ok := gearpkg.LookupGearType(typeKey); ok {
+		return nil
+	}
+	if _, ok := gearpkg.LookupComponentType(typeKey); ok {
+		return fmt.Errorf("gear.component_type_requires_component_tool")
+	}
+	return fmt.Errorf("gear.unknown_gear_type")
+}
+
+func cleanInitialGearComponents(in []model.GearComponentInput) ([]model.GearComponentInput, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make([]model.GearComponentInput, 0, len(in))
+	for _, component := range in {
+		component.ID = ""
+		component.Name = strings.TrimSpace(component.Name)
+		componentType, err := normalizeAgentComponentType(component.Type)
+		if err != nil {
+			return nil, err
+		}
+		component.Type = componentType
+		if component.Name == "" || component.Type == "" {
+			return nil, fmt.Errorf("INVALID_ARGUMENT")
+		}
+		out = append(out, component)
+	}
+	return out, nil
+}
+
+func normalizeAgentComponentType(typeKey string) (string, error) {
+	typeKey = strings.TrimSpace(typeKey)
+	if typeKey == "" {
+		return "", fmt.Errorf("INVALID_ARGUMENT")
+	}
+	for _, componentType := range gearpkg.Schema.ComponentTypes {
+		tail := componentType.Key
+		if idx := strings.LastIndex(tail, "."); idx >= 0 && idx+1 < len(tail) {
+			tail = tail[idx+1:]
+		}
+		if strings.EqualFold(typeKey, componentType.Key) ||
+			strings.EqualFold(typeKey, tail) ||
+			strings.EqualFold(typeKey, componentType.LabelDE) {
+			return tail, nil
+		}
+	}
+	return "", fmt.Errorf("gear.unknown_component_type")
 }
 
 func summarizeUpdateGearMetadata(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (string, error) {

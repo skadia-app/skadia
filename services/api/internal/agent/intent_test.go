@@ -81,6 +81,33 @@ func TestBuildToolPlanExposesOnlyRelevantWriteTools(t *testing.T) {
 	}
 }
 
+func TestBuildToolPlanUsesComponentToolForExistingGearComponent(t *testing.T) {
+	profile := GetProfile("small", "", nil)
+	plan := BuildToolPlan("Fuege meinem Test-Fahrrad eine neue Kette hinzu", &profile, &ChatPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: []string{"create_gear", "add_gear_component", "create_chain_rotation"},
+	})
+	if !containsToolName(plan.Tools, "add_gear_component") {
+		t.Fatalf("tools = %#v, want add_gear_component", plan.Tools)
+	}
+	if containsToolName(plan.Tools, "create_gear") {
+		t.Fatalf("tools = %#v, did not want create_gear for a component on existing gear", plan.Tools)
+	}
+}
+
+func TestBuildToolPlanIncludesSetupToolsForGearWithChainRotation(t *testing.T) {
+	profile := GetProfile("small", "", nil)
+	plan := BuildToolPlan("Erstelle ein neues Test-Rennrad mit zwei Ketten in Rotation", &profile, &ChatPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: []string{"create_gear", "add_gear_component", "create_chain_rotation"},
+	})
+	for _, want := range []string{"create_gear", "add_gear_component", "create_chain_rotation"} {
+		if !containsToolName(plan.Tools, want) {
+			t.Fatalf("tools = %#v, want %s", plan.Tools, want)
+		}
+	}
+}
+
 func TestBuildToolPlanScopesUpdateWritesToEntity(t *testing.T) {
 	profile := GetProfile("small", "", nil)
 	plan := BuildToolPlan("Aendere die Metadaten meines Test-Fahrrads", &profile, &ChatPreferences{
