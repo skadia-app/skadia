@@ -55,6 +55,7 @@ var chatWriteToolCatalog = map[string]bool{
 	"add_gear_component":                  true,
 	"update_gear_component_status":        true,
 	"record_gear_service_event":           true,
+	"create_chain_rotation":               true,
 	"update_gear_default_predicates":      true,
 	"create_routing_profile_variant":      true,
 	"save_planned_route":                  true,

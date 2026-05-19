@@ -70,6 +70,170 @@ func TestCreateGearWriteToolAuditAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestCreateGearRejectsComponentTypeAsTopLevelGear(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	envelope := gearWriteEnvelope(t, fx, "create_gear")
+	args := json.RawMessage(`{"name":"Synthetic Chain","gear_type":"bike.chain"}`)
+
+	_, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: uuid.NewString(), ToolCallID: "call-create-component-type", ToolName: "create_gear", Args: args,
+	})
+	if err == nil || !strings.Contains(err.Error(), "gear.component_type_requires_component_tool") {
+		t.Fatalf("PrepareConfirmation err = %v, want component type rejection", err)
+	}
+}
+
+func TestCreateGearStoresInitialComponents(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	envelope := gearWriteEnvelope(t, fx, "create_gear")
+	sessionID := uuid.NewString()
+	toolCallID := "call-create-gear-components"
+	args := json.RawMessage(`{
+		"name":"Setup Bike",
+		"gear_type":"bike.road",
+		"components":[
+			{"name":"Chain A","type":"bike.chain"},
+			{"name":"Chain B","type":"bike.chain"}
+		]
+	}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_gear", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, toolCallID)
+	result, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_gear", Args: args,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	gearID, _ := result.(map[string]any)["gear_id"].(string)
+	if gearID == "" {
+		t.Fatalf("result = %#v, want gear_id", result)
+	}
+	var componentCount int
+	var componentTypes []string
+	if err := fx.pool.QueryRow(ctx, `SELECT count(*), array_agg(type ORDER BY name) FROM gear_components WHERE gear_id = $1`, gearID).Scan(&componentCount, &componentTypes); err != nil {
+		t.Fatalf("count components: %v", err)
+	}
+	if componentCount != 2 {
+		t.Fatalf("component count = %d, want 2", componentCount)
+	}
+	if len(componentTypes) != 2 || componentTypes[0] != "chain" || componentTypes[1] != "chain" {
+		t.Fatalf("component types = %#v, want normalized chain types", componentTypes)
+	}
+}
+
+func TestCreateGearNormalizesGermanInitialComponentType(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	envelope := gearWriteEnvelope(t, fx, "create_gear")
+	sessionID := uuid.NewString()
+	toolCallID := "call-create-gear-german-component"
+	args := json.RawMessage(`{
+		"name":"Label Type Bike",
+		"gear_type":"bike.road",
+		"components":[{"name":"Chain A","type":"Kette"}]
+	}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_gear", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, toolCallID)
+	result, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_gear", Args: args,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	gearID, _ := result.(map[string]any)["gear_id"].(string)
+	var componentType string
+	if err := fx.pool.QueryRow(ctx, `SELECT type FROM gear_components WHERE gear_id = $1`, gearID).Scan(&componentType); err != nil {
+		t.Fatalf("select component type: %v", err)
+	}
+	if componentType != "chain" {
+		t.Fatalf("component type = %q, want chain", componentType)
+	}
+}
+
+func TestCreateChainRotationWriteToolCreatesGroup(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	componentA := fx.insertComponent(t, "Chain A", "bike.chain")
+	componentB := fx.insertComponent(t, "Chain B", "bike.chain")
+	envelope := gearWriteEnvelope(t, fx, "create_chain_rotation")
+	sessionID := uuid.NewString()
+	toolCallID := "call-create-chain-rotation"
+	args := json.RawMessage(`{"gear_id":"` + fx.gearID + `","name":"Rotation","component_ids":["` + componentA + `","` + componentB + `"]}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_chain_rotation", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, toolCallID)
+	result, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_chain_rotation", Args: args,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	if result.(map[string]any)["member_count"] != 2 {
+		t.Fatalf("result = %#v, want member_count 2", result)
+	}
+
+	var groupCount, memberCount int
+	if err := fx.pool.QueryRow(ctx, `SELECT count(*) FROM chain_rotation_groups WHERE gear_id = $1`, fx.gearID).Scan(&groupCount); err != nil {
+		t.Fatalf("count groups: %v", err)
+	}
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM chain_rotation_members m
+		JOIN chain_rotation_groups g ON g.id = m.group_id
+		WHERE g.gear_id = $1`, fx.gearID).Scan(&memberCount); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if groupCount != 1 || memberCount != 2 {
+		t.Fatalf("groupCount=%d memberCount=%d, want 1/2", groupCount, memberCount)
+	}
+}
+
+func TestAddGearComponentNormalizesGermanComponentType(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	envelope := gearWriteEnvelope(t, fx, "add_gear_component")
+	sessionID := uuid.NewString()
+	toolCallID := "call-add-german-component-type"
+	args := json.RawMessage(`{"gear_id":"` + fx.gearID + `","name":"Chain Label","type":"Kette"}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "add_gear_component", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, toolCallID)
+	result, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "add_gear_component", Args: args,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	componentID, _ := result.(map[string]any)["component_id"].(string)
+	var componentType string
+	if err := fx.pool.QueryRow(ctx, `SELECT type FROM gear_components WHERE id = $1`, componentID).Scan(&componentType); err != nil {
+		t.Fatalf("select component type: %v", err)
+	}
+	if componentType != "chain" {
+		t.Fatalf("component type = %q, want chain", componentType)
+	}
+}
+
 func TestSetActivityGearRejectsForeignGear(t *testing.T) {
 	fx := newGearToolFixture(t)
 	ctx := context.Background()

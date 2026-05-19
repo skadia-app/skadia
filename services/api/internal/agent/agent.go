@@ -667,6 +667,8 @@ func expansionToolsForNeed(need string) []string {
 		return []string{"geocode_place", "resolve_route_place", "resolve_route_feature", "resolve_entity"}
 	case strings.Contains(need, "terrain") || strings.Contains(need, "surface") || strings.Contains(need, "forest") || strings.Contains(need, "water"):
 		return []string{"query_activity_terrain_summary", "query_geo_features", "search_pois_nearby", "search_trails_by_difficulty"}
+	case strings.Contains(need, "component") || strings.Contains(need, "chain_rotation") || strings.Contains(need, "rotation"):
+		return []string{"find_gear", "add_gear_component", "create_chain_rotation", "query_gear_maintenance"}
 	case strings.Contains(need, "sql") || strings.Contains(need, "schema") || strings.Contains(need, "database"):
 		return []string{"run_sql"}
 	default:
@@ -694,6 +696,10 @@ func knownExpansionToolOrder() []string {
 		"search_pois_nearby",
 		"search_trails_by_difficulty",
 		"resolve_entity",
+		"find_gear",
+		"add_gear_component",
+		"create_chain_rotation",
+		"query_gear_maintenance",
 		"run_sql",
 	}
 }

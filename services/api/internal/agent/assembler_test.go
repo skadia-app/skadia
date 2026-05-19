@@ -21,6 +21,7 @@ func TestAssembleSystemPromptContainsBasePromptSkillsAndFewShots(t *testing.T) {
 		"Wenn ein Tool 'sport_query' anbietet",
 		"## Kontext: Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten",
 		"## Werkzeug-Auswahl",
+		"Komponenten wie Kette/Reifen/Kassette/Bremsbeläge/Gabel/Dämpfer niemals als eigenes Gear anlegen",
 		"Subjektive Routing-Wünsche",
 		"list_routing_profiles",
 		"## Beispiele",
