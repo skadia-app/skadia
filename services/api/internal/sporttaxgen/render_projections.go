@@ -42,6 +42,25 @@ func RenderGoProjections(activityPresets []ExpandedActivityFilterPreset, segment
 		fmt.Fprintf(&buf, "\t{SegmentType: %q, Domain: %q, SportType: %q, SubType: %q, SportGroup: %q},\n", entry.SegmentType, entry.Domain, entry.SportType, entry.SubType, entry.SportGroup)
 	}
 	buf.WriteString("}\n")
+	buf.WriteString("\nvar generatedActivityTraitBuckets = buildGeneratedActivityTraitBuckets([]activityTraitBucketTuple{\n")
+	seenActivityTraitTuples := map[string]struct{}{}
+	for _, bucket := range segmentProjection.ActivityTraitBuckets {
+		tupleKey := projectionTupleKey(bucket.SportType, bucket.SubType)
+		if _, ok := seenActivityTraitTuples[tupleKey]; ok {
+			continue
+		}
+		seenActivityTraitTuples[tupleKey] = struct{}{}
+		fmt.Fprintf(&buf, "\t{SportType: %q, SubType: %q, MovementFamilies: %#v, PropulsionModes: %#v, EquipmentFamilies: %#v, ActivityForm: %q, EnvironmentState: %q},\n",
+			bucket.SportType,
+			bucket.SubType,
+			bucket.MovementFamilies,
+			bucket.PropulsionModes,
+			bucket.EquipmentFamilies,
+			bucket.ActivityForm,
+			bucket.EnvironmentState,
+		)
+	}
+	buf.WriteString("})\n")
 	buf.WriteString("\nvar generatedRuleTupleOptions = []RuleTupleOption{\n")
 	for _, option := range ruleProjection.TupleOptions {
 		fmt.Fprintf(&buf, "\t{SportType: %q, SubType: %q, LabelDE: %q},\n", option.SportType, option.SubType, option.Label["de"])
