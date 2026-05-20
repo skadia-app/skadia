@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -161,6 +162,137 @@ func TestSegmentsHandlerParityExplicitQueryParsing(t *testing.T) {
 	}
 	if resp.HasMore {
 		t.Fatalf("has_more = true, want false for limit=-1")
+	}
+}
+
+func TestSegmentSharedVisibilityHandlersEnforceAccessScope(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Get("/api/v1/segments", h.ListSegments)
+	r.Post("/api/v1/segments", h.CreateSegment)
+	r.Get("/api/v1/segments/{id}", h.GetSegment)
+	r.Get("/api/v1/segments/{id}/favorite", h.GetSegmentFavoriteStatus)
+	r.Get("/api/v1/segments/{id}/performances", h.GetSegmentPerformances)
+	r.Get("/api/v1/segments/{id}/export", h.ExportSegment)
+	r.Post("/api/v1/segments/export", h.ExportSegments)
+	shutdown.Shutdown(time.Millisecond)
+	t.Cleanup(shutdown.Reset)
+
+	ownerID := insertTestUser(t, pool)
+	viewerID := insertTestUser(t, pool)
+	strangerID := insertTestUser(t, pool)
+	scope, err := h.DB.CreateObjectAccessScope(context.Background(), routeObjectAccessScopeInput(ownerID, viewerID))
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM segments WHERE access_scope_id = $1`, scope.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM object_access_scopes WHERE id = $1`, scope.ID)
+	})
+
+	createBody := `{
+		"name":"shared-segment",
+		"sport_group":"bike",
+		"segment_type":"standard",
+		"visibility":"shared",
+		"access_scope_id":"` + scope.ID + `",
+		"geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[0,0],[1,1]]}"
+	}`
+	rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", createBody, ownerID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var seg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	rec = performSegmentRequest(t, r, http.MethodGet, "/api/v1/segments?visibility=shared&limit=-1", "", viewerID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("shared list status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var list model.ListSegmentsResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	if !segmentListContains(list.Segments, seg.ID) {
+		t.Fatalf("shared list did not include granted segment %s", seg.ID)
+	}
+
+	for _, target := range []string{
+		"/api/v1/segments/" + seg.ID,
+		"/api/v1/segments/" + seg.ID + "/favorite",
+		"/api/v1/segments/" + seg.ID + "/performances",
+		"/api/v1/segments/" + seg.ID + "/export?format=geojson",
+	} {
+		rec = performSegmentRequest(t, r, http.MethodGet, target, "", viewerID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("viewer GET %s status = %d, want 200; body: %s", target, rec.Code, rec.Body.String())
+		}
+		rec = performSegmentRequest(t, r, http.MethodGet, target, "", strangerID)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("stranger GET %s status = %d, want 404; body: %s", target, rec.Code, rec.Body.String())
+		}
+	}
+
+	exportBody := `{"ids":["` + seg.ID + `"],"format":"geojson"}`
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments/export", exportBody, viewerID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("viewer bulk export status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if got := zipEntryCount(t, rec.Body.Bytes()); got != 1 {
+		t.Fatalf("viewer bulk export entries = %d, want 1", got)
+	}
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments/export", exportBody, strangerID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stranger bulk export status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if got := zipEntryCount(t, rec.Body.Bytes()); got != 0 {
+		t.Fatalf("stranger bulk export entries = %d, want 0", got)
+	}
+}
+
+func TestSegmentSharedVisibilityRejectsInvalidAccessScopePairs(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+	r.Put("/api/v1/segments/{id}", h.UpdateSegment)
+	shutdown.Shutdown(time.Millisecond)
+	t.Cleanup(shutdown.Reset)
+
+	ownerID := insertTestUser(t, pool)
+	viewerID := insertTestUser(t, pool)
+	scope, err := h.DB.CreateObjectAccessScope(context.Background(), routeObjectAccessScopeInput(ownerID, viewerID))
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM segments WHERE access_scope_id = $1`, scope.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM object_access_scopes WHERE id = $1`, scope.ID)
+	})
+
+	base := `"name":"invalid-share","sport_group":"bike","segment_type":"standard","geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[0,0],[1,1]]}"`
+	for _, body := range []string{
+		`{` + base + `,"visibility":"shared"}`,
+		`{` + base + `,"visibility":"private","access_scope_id":"` + scope.ID + `"}`,
+		`{` + base + `,"visibility":"public","access_scope_id":"` + scope.ID + `"}`,
+	} {
+		rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", body, ownerID)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("create status = %d, want 422; body: %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	segID := insertTestSegment(t, pool, ownerID, TestSegmentOpts{})
+	rec := performSegmentRequest(t, r, http.MethodPut, "/api/v1/segments/"+segID, `{"visibility":"shared"}`, ownerID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("update shared without scope status = %d, want 422; body: %s", rec.Code, rec.Body.String())
+	}
+	rec = performSegmentRequest(t, r, http.MethodPut, "/api/v1/segments/"+segID, `{"access_scope_id":"`+scope.ID+`"}`, ownerID)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("update public with scope status = %d, want 422; body: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -355,6 +487,24 @@ func TestSubTypeResponsesAreDeterministic(t *testing.T) {
 	if got[0].SubType != "a_first" || got[1].SubType != "z_last" {
 		t.Fatalf("subtype order = %#v, want sorted by sub_type", got)
 	}
+}
+
+func segmentListContains(segments []model.Segment, id string) bool {
+	for _, segment := range segments {
+		if segment.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func zipEntryCount(t *testing.T, raw []byte) int {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatalf("open zip response: %v", err)
+	}
+	return len(reader.File)
 }
 
 func performSegmentRequest(t *testing.T, r http.Handler, method, target, body, userID string) *httptest.ResponseRecorder {

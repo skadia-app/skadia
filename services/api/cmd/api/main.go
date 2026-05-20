@@ -1750,6 +1750,11 @@ func main() {
 			// Isochrone
 			r.Post("/isochrone", h.Isochrone)
 
+			// Object access scopes
+			r.Post("/access-scopes", h.CreateObjectAccessScope)
+			r.Get("/access-scopes", h.ListObjectAccessScopes)
+			r.Patch("/access-scopes/{id}", h.UpdateObjectAccessScope)
+
 			// Segments
 			r.Get("/segment-prs", h.GetSegmentPRs)
 			r.Get("/segment-prs/global-top", h.GetGlobalTopSegmentEfforts)
@@ -1972,6 +1977,11 @@ func main() {
 			r.Patch("/routes/{id}", h.UpdateRoute)
 			r.Delete("/routes/{id}", h.DeleteRoute)
 			r.Post("/routes/{id}/duplicate", h.DuplicateRoute)
+			r.Post("/routes/{id}/snapshots", h.CreateRouteSnapshot)
+			r.Post("/routes/{id}/publish-course", h.PublishRouteCourse)
+			r.Post("/routes/{id}/fork", h.ForkRoute)
+			r.Post("/routes/{id}/relationships", h.CreateRouteRelationship)
+			r.Post("/route-publications/{id}/relationships", h.CreateRouteCourseRelationship)
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
 			r.Put("/routes/{id}/tags", h.SetRouteTags)
 			r.Post("/routes/{id}/tags/{tagId}", h.AddRouteTag)

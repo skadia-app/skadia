@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +27,72 @@ import (
 // projection of the row state — equal version implies byte-equal payload.
 func routeETag(version int64) string {
 	return `"` + strconv.FormatInt(version, 10) + `"`
+}
+
+type CreateRouteSnapshotRequest struct {
+	SourceRouteVersion int64  `json:"source_route_version"`
+	OperationID        string `json:"operation_id"`
+	Reason             string `json:"reason,omitempty"`
+}
+
+type CreateRouteSnapshotResponse struct {
+	SnapshotID    string `json:"snapshot_id"`
+	SnapshotHash  string `json:"snapshot_hash"`
+	GeometryHash  string `json:"geometry_hash"`
+	SourceVersion int64  `json:"source_route_version"`
+}
+
+type PublishRouteCourseRequest struct {
+	RouteSnapshotID              string         `json:"route_snapshot_id,omitempty"`
+	SnapshotID                   string         `json:"snapshot_id"`
+	SourceRouteVersion           int64          `json:"source_route_version"`
+	PublishPolicy                string         `json:"publish_policy,omitempty"`
+	EquivalenceDecision          string         `json:"equivalence_decision,omitempty"`
+	Visibility                   string         `json:"visibility,omitempty"`
+	AccessScopeID                *string        `json:"access_scope_id,omitempty"`
+	CompatibilityPreset          string         `json:"compatibility_preset,omitempty"`
+	TargetPublicationID          *string        `json:"target_publication_id,omitempty"`
+	TargetCourseSegmentID        *string        `json:"target_course_segment_id,omitempty"`
+	TargetCourseSegmentVersionID *string        `json:"target_course_segment_version_id,omitempty"`
+	CompatibilityEvidence        map[string]any `json:"compatibility_evidence,omitempty"`
+	OperationID                  string         `json:"operation_id"`
+}
+
+type PublishRouteCourseResponse struct {
+	PublicationID          string `json:"publication_id"`
+	CourseSegmentID        string `json:"course_segment_id"`
+	CourseSegmentVersionID string `json:"course_segment_version_id"`
+}
+
+type ForkRouteRequest struct {
+	Name               string `json:"name"`
+	SourceRouteVersion int64  `json:"source_route_version"`
+	OperationID        string `json:"operation_id"`
+}
+
+type ForkRouteResponse struct {
+	RouteID        string `json:"route_id"`
+	RelationshipID string `json:"relationship_id"`
+}
+
+type CreateRouteRelationshipRequest struct {
+	TargetRouteID string `json:"target_route_id"`
+	RelationType  string `json:"relation_type"`
+	OperationID   string `json:"operation_id"`
+}
+
+type CreateRouteRelationshipResponse struct {
+	RelationshipID string `json:"relationship_id"`
+}
+
+type CreateRouteCourseRelationshipRequest struct {
+	TargetPublicationID string `json:"target_publication_id"`
+	RelationType        string `json:"relation_type"`
+	OperationID         string `json:"operation_id"`
+}
+
+type CreateRouteCourseRelationshipResponse struct {
+	RelationshipID string `json:"relationship_id"`
 }
 
 // parseIfMatchResult is the outcome of parseIfMatchVersion.
@@ -467,6 +535,206 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
+}
+
+func (h *Handler) CreateRouteSnapshot(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteSnapshotRequest](w, r)
+	if !ok {
+		return
+	}
+	if v, state := parseIfMatchVersion(r.Header.Get("If-Match")); state == ifMatchValid {
+		if req.SourceRouteVersion != 0 && req.SourceRouteVersion != v {
+			httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+			return
+		}
+		req.SourceRouteVersion = v
+	} else if state == ifMatchMalformed {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid If-Match header", r.URL.Path)
+		return
+	}
+	if req.SourceRouteVersion == 0 || req.OperationID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_route_version and operation_id are required", r.URL.Path)
+		return
+	}
+	snapshot, err := h.DB.CreatePlannedRouteSnapshot(r.Context(), model.CreatePlannedRouteSnapshotInput{
+		RouteID:            routeID,
+		UserID:             userID,
+		SourceRouteVersion: req.SourceRouteVersion,
+		OperationID:        req.OperationID,
+		Reason:             req.Reason,
+	})
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteSnapshotResponse{
+		SnapshotID:    snapshot.ID,
+		SnapshotHash:  snapshot.SnapshotHash,
+		GeometryHash:  snapshot.GeometryHash,
+		SourceVersion: snapshot.SourceRouteVersion,
+	})
+}
+
+func (h *Handler) PublishRouteCourse(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[PublishRouteCourseRequest](w, r)
+	if !ok {
+		return
+	}
+	snapshotID := req.RouteSnapshotID
+	if snapshotID == "" {
+		snapshotID = req.SnapshotID
+	}
+	if snapshotID == "" || req.SourceRouteVersion == 0 || req.OperationID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "route_snapshot_id, source_route_version, and operation_id are required", r.URL.Path)
+		return
+	}
+	var snapshotRouteID string
+	err := h.DB.Pool.QueryRow(r.Context(), `
+		SELECT route_id::text
+		FROM planned_route_snapshots
+		WHERE id = $1
+		  AND user_id = $2
+	`, snapshotID, userID).Scan(&snapshotRouteID)
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	if snapshotRouteID != routeID {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "snapshot does not belong to route", r.URL.Path)
+		return
+	}
+	publication, err := h.DB.PublishRouteSnapshotAsCourse(r.Context(), model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              snapshotID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           req.SourceRouteVersion,
+		PublishPolicy:                req.PublishPolicy,
+		EquivalenceDecision:          req.EquivalenceDecision,
+		Visibility:                   req.Visibility,
+		AccessScopeID:                req.AccessScopeID,
+		CompatibilityPreset:          req.CompatibilityPreset,
+		TargetPublicationID:          req.TargetPublicationID,
+		TargetCourseSegmentID:        req.TargetCourseSegmentID,
+		TargetCourseSegmentVersionID: req.TargetCourseSegmentVersionID,
+		CompatibilityEvidence:        req.CompatibilityEvidence,
+		OperationID:                  req.OperationID,
+	})
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route snapshot version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) || errors.Is(err, database.ErrSegmentValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, PublishRouteCourseResponse{
+		PublicationID:          publication.ID,
+		CourseSegmentID:        publication.CourseSegmentID,
+		CourseSegmentVersionID: publication.CourseSegmentVersionID,
+	})
+}
+
+func (h *Handler) ForkRoute(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[ForkRouteRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.Name == "" || req.OperationID == "" || req.SourceRouteVersion == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name, source_route_version, and operation_id are required", r.URL.Path)
+		return
+	}
+	route, relationshipID, err := h.DB.ForkRoute(r.Context(), routeID, userID, req.Name, req.OperationID, routeHandlerOperationHash(req), req.SourceRouteVersion)
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, ForkRouteResponse{RouteID: route.ID, RelationshipID: relationshipID})
+}
+
+func (h *Handler) CreateRouteRelationship(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteRelationshipRequest](w, r)
+	if !ok {
+		return
+	}
+	relationshipID, err := h.DB.CreateRouteRelationship(r.Context(), routeID, req.TargetRouteID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(req))
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteRelationshipResponse{RelationshipID: relationshipID})
+}
+
+func (h *Handler) CreateRouteCourseRelationship(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	publicationID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteCourseRelationshipRequest](w, r)
+	if !ok {
+		return
+	}
+	relationshipID, err := h.DB.CreateRouteCourseRelationship(r.Context(), publicationID, req.TargetPublicationID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(req))
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "publication not found", "id", publicationID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteCourseRelationshipResponse{RelationshipID: relationshipID})
+}
+
+func routeHandlerOperationHash(value any) string {
+	raw, _ := json.Marshal(value)
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // collectRoutePhotoFileIDs captures ShadowFS (or legacy S3) file IDs for all
