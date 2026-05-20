@@ -31,16 +31,34 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 	matchCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	allEfforts, matchedSegmentIDs, _, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
+	affectedSegmentIDs, affectedErr := db.GetAffectedSegmentIDs(matchCtx, activityID)
+	if affectedErr != nil {
+		slog.Warn("segment matching: existing affected segments unavailable", "activity_id", activityID, "error", affectedErr)
+	}
+
+	allEfforts, matchedSegmentIDs, candidateSegmentIDs, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
 	if err != nil {
 		slog.Error("segment matching: collect efforts failed", "error", err)
 		return
 	}
 
-	if len(matchedSegmentIDs) > 0 {
-		segmentIDs := make([]string, 0, len(matchedSegmentIDs))
-		for segID := range matchedSegmentIDs {
+	replacementSegmentIDs := make(map[string]struct{}, len(candidateSegmentIDs)+len(affectedSegmentIDs))
+	for segID := range candidateSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	for _, segID := range affectedSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	for segID := range matchedSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	if len(replacementSegmentIDs) > 0 {
+		segmentIDs := make([]string, 0, len(replacementSegmentIDs))
+		for segID := range replacementSegmentIDs {
 			segmentIDs = append(segmentIDs, segID)
+		}
+		for segID := range matchedSegmentIDs {
+			replacementSegmentIDs[segID] = struct{}{}
 		}
 		if err := db.ReplaceSegmentEffortsForActivitySegments(matchCtx, activityID, userID, segmentIDs, allEfforts); err != nil {
 			slog.Error("segment matching: replace efforts failed", "error", err)

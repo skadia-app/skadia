@@ -945,9 +945,6 @@ func segmentUpdateTouchesVersionedFields(update *model.SegmentUpdate) bool {
 	}
 	return update.SegmentType != nil ||
 		update.SegmentTypeMeta != nil ||
-		update.TerrainType != nil ||
-		update.ClimbType != nil ||
-		update.ElevationKind != nil ||
 		update.Visibility != nil ||
 		len(update.AllowedPredicates) > 0 ||
 		update.Bidirectional != nil
@@ -1816,7 +1813,10 @@ func (db *DB) DeleteSegmentEffortsBySegmentForActivities(ctx context.Context, se
 // GetAffectedSegmentIDs returns all segment IDs that have efforts for a given activity.
 func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT DISTINCT segment_id FROM segment_efforts WHERE activity_id = $1`, activityID)
+		`SELECT DISTINCT segment_id
+		 FROM segment_efforts
+		 WHERE activity_id = $1
+		   AND superseded_at IS NULL`, activityID)
 	if err != nil {
 		return nil, fmt.Errorf("get affected segment IDs: %w", err)
 	}
@@ -2085,18 +2085,13 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 // callers clear stale matches via per-activity transactional replacement instead
 // of deleting the whole segment upfront.
 func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT DISTINCT activity_id
 		FROM (
 			SELECT at.activity_id
 			FROM activity_tracks at
 			JOIN activities a ON a.id = at.activity_id
-			JOIN LATERAL (
-				SELECT track FROM segment_versions
-				WHERE segment_id = $2
-				ORDER BY version_number DESC
-				LIMIT 1
-			) sv ON true
+			%s
 			WHERE a.user_id = $1
 			  AND at.track_full IS NOT NULL
 			  AND sv.track IS NOT NULL
@@ -2108,8 +2103,12 @@ func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, se
 			FROM segment_efforts se
 			JOIN activities a ON a.id = se.activity_id
 			WHERE se.segment_id = $2
+			  AND se.superseded_at IS NULL
 			  AND a.user_id = $1
 		) ids`,
+		activeCourseGPSV1VersionLateral("JOIN", "$2", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		userID, segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list activity ids for segment recompute: %w", err)
@@ -2154,17 +2153,13 @@ func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentI
 // segment is published. It includes already-matched activities so stale efforts
 // are cleared without a segment-wide pre-delete.
 func (db *DB) ListAllActivityIDsForSegmentRecompute(ctx context.Context, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT DISTINCT activity_id
 		FROM (
 			SELECT at.activity_id
 			FROM activity_tracks at
-			JOIN LATERAL (
-				SELECT track FROM segment_versions
-				WHERE segment_id = $1
-				ORDER BY version_number DESC
-				LIMIT 1
-			) sv ON true
+			JOIN activities a ON a.id = at.activity_id
+			%s
 			WHERE at.track_full IS NOT NULL
 			  AND sv.track IS NOT NULL
 			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
@@ -2174,7 +2169,11 @@ func (db *DB) ListAllActivityIDsForSegmentRecompute(ctx context.Context, segment
 			SELECT activity_id
 			FROM segment_efforts
 			WHERE segment_id = $1
+			  AND superseded_at IS NULL
 		) ids`,
+		activeCourseGPSV1VersionLateral("JOIN", "$1", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list all activity ids for segment recompute: %w", err)
@@ -2255,34 +2254,8 @@ func LockSegmentEffortReplacementTx(ctx context.Context, tx pgx.Tx, activityID s
 // for one activity across the provided segment IDs. It keeps repeated matcher runs
 // idempotent even though segment_efforts uses UUID primary keys.
 func (db *DB) ReplaceSegmentEffortsForActivitySegments(ctx context.Context, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort) error {
-	if len(segmentIDs) == 0 {
-		return nil
-	}
-
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin replace segment efforts: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	if err := LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
+	if _, err := db.SupersedeSegmentEffortsForActivitySegments(ctx, activityID, userID, segmentIDs, efforts, nil, nil, nil); err != nil {
 		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM segment_efforts
-		WHERE activity_id = $1
-		  AND user_id = $2
-		  AND segment_id = ANY($3::uuid[])
-	`, activityID, userID, segmentIDs); err != nil {
-		return fmt.Errorf("delete existing matched segment efforts: %w", err)
-	}
-
-	if err := InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit replace segment efforts: %w", err)
 	}
 	return nil
 }

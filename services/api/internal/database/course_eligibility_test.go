@@ -57,13 +57,13 @@ func TestRebuildSegmentCourseEligibilityProjectionEmptyPredicatesDeletesRows(t *
 	}
 
 	emptyPredicates := json.RawMessage(`[]`)
-	if _, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{AllowedPredicates: emptyPredicates}); err != nil {
+	if _, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{AllowedPredicates: emptyPredicates, NewVersion: true}); err != nil {
 		t.Fatalf("set empty predicates: %v", err)
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
 		t.Fatalf("empty-predicate rebuild: %v", err)
 	}
-	if got := countCourseEligibilityRows(t, db, segmentID); got != 0 {
+	if got := countLatestCourseEligibilityRows(t, db, segmentID); got != 0 {
 		t.Fatalf("rows after empty predicates = %d, want 0", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestRebuildSegmentCourseEligibilityProjectionUpdatesAfterSegmentTypeChange(
 	}
 
 	liftType := "lift"
-	if _, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{SegmentType: &liftType}); err != nil {
+	if _, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{SegmentType: &liftType, NewVersion: true}); err != nil {
 		t.Fatalf("UpdateSegment: %v", err)
 	}
 
@@ -324,6 +324,27 @@ func countCourseEligibilityRows(t *testing.T, db *DB, segmentID string) int {
 		WHERE target_kind = 'segment' AND target_id = $1
 	`, segmentID).Scan(&count); err != nil {
 		t.Fatalf("count course eligibility rows: %v", err)
+	}
+	return count
+}
+
+func countLatestCourseEligibilityRows(t *testing.T, db *DB, segmentID string) int {
+	t.Helper()
+	var count int
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM target_course_eligibility_projection cep
+		WHERE cep.target_kind = 'segment'
+		  AND cep.target_id = $1
+		  AND cep.target_version_id = (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = $1
+			ORDER BY version_number DESC
+			LIMIT 1
+		  )
+	`, segmentID).Scan(&count); err != nil {
+		t.Fatalf("count latest course eligibility rows: %v", err)
 	}
 	return count
 }

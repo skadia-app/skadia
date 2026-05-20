@@ -86,6 +86,10 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		slog.Info("resume: reset stale importing regions", "count", res.RowsAffected())
 	}
 
+	if h.resumeJobAllowedByCapabilities("segment_recompute") {
+		h.resumeSegmentRecalculationRuns(ctx)
+	}
+
 	jobs, err := h.DB.ListStaleRunningJobs(ctx)
 	if err != nil {
 		slog.Warn("resume: failed to list stale jobs", "error", err)
@@ -135,6 +139,32 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		}
 	}
 
+}
+
+func (h *Handler) resumeSegmentRecalculationRuns(ctx context.Context) {
+	shutdown.Go("segment-recalculation-runs", func(ctx context.Context) {
+		workerID := "api-segment-recalculation"
+		for {
+			claim, err := h.DB.ClaimNextSegmentRecalculationActivity(ctx, workerID, 5*time.Minute)
+			if err != nil {
+				slog.Warn("resume: claim segment recalculation activity failed", "error", err)
+				return
+			}
+			if claim == nil {
+				return
+			}
+			if err := h.recomputeSegmentEffortsForActivityInRun(ctx, *claim); err != nil {
+				slog.Warn("resume: segment recalculation activity failed",
+					"run_id", claim.RunID,
+					"segment_id", claim.SegmentID,
+					"activity_id", claim.ActivityID,
+					"error", err)
+				if failErr := h.DB.FailSegmentRecalculationActivity(ctx, *claim, err.Error()); failErr != nil {
+					slog.Warn("resume: mark segment recalculation activity failed", "run_id", claim.RunID, "error", failErr)
+				}
+			}
+		}
+	})
 }
 
 func (h *Handler) deploymentProfile() string {
@@ -237,29 +267,22 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 			slog.Warn("resume segment_publish: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
-		if err := h.DB.DeleteAllSegmentEffortsBySegmentForActivities(ctx, segmentID, ids); err != nil {
-			slog.Error("resume segment_publish: delete efforts failed", "job_id", job.ID, "error", err)
-			failed = true
-		}
-
-		if !failed {
-			for i, actID := range ids {
-				act, err := h.DB.GetActivity(ctx, actID)
-				if err != nil || act == nil {
-					continue
-				}
-				if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, act.UserID); err != nil {
-					slog.Warn("resume segment_publish: activity match failed",
-						"segment_id", segmentID,
-						"activity_id", actID,
-						"error", err)
-				}
-				if i%10 == 0 || i == len(ids)-1 {
-					h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1))
-				}
+		for i, actID := range ids {
+			act, err := h.DB.GetActivity(ctx, actID)
+			if err != nil || act == nil {
+				continue
 			}
-			slog.Info("resume segment_publish: recompute done", "job_id", job.ID, "segment_id", segmentID)
+			if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, act.UserID); err != nil {
+				slog.Warn("resume segment_publish: activity match failed",
+					"segment_id", segmentID,
+					"activity_id", actID,
+					"error", err)
+			}
+			if i%10 == 0 || i == len(ids)-1 {
+				h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1))
+			}
 		}
+		slog.Info("resume segment_publish: recompute done", "job_id", job.ID, "segment_id", segmentID)
 
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
 			slog.Warn("resume segment_publish: final rank update failed", "segment_id", segmentID, "error", err)
@@ -302,29 +325,21 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 			slog.Warn("resume: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
-		// Delete existing efforts (idempotent restart).
-		if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, segmentID, job.UserID, ids); err != nil {
-			slog.Error("resume: delete efforts failed", "job_id", job.ID, "error", err)
-			failed = true
-		}
+		for i, actID := range ids {
+			if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, job.UserID); err != nil {
+				slog.Warn("resume: activity match failed",
+					"segment_id", segmentID,
+					"activity_id", actID,
+					"error", err)
+			}
 
-		if !failed {
-			for i, actID := range ids {
-				if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, job.UserID); err != nil {
-					slog.Warn("resume: activity match failed",
-						"segment_id", segmentID,
-						"activity_id", actID,
-						"error", err)
-				}
-
-				if i%10 == 0 || i == len(ids)-1 {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1)); err != nil {
-						slog.Warn("resume: update progress failed", "job_id", job.ID, "error", err)
-					}
+			if i%10 == 0 || i == len(ids)-1 {
+				if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1)); err != nil {
+					slog.Warn("resume: update progress failed", "job_id", job.ID, "error", err)
 				}
 			}
-			slog.Info("resume: segment recompute done", "job_id", job.ID, "segment_id", segmentID)
 		}
+		slog.Info("resume: segment recompute done", "job_id", job.ID, "segment_id", segmentID)
 
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
 			slog.Warn("resume: final rank update failed", "segment_id", segmentID, "error", err)

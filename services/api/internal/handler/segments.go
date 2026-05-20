@@ -722,9 +722,9 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
-// recomputeSegmentEfforts deletes segment_efforts for the activity set that can
-// be rebuilt, then re-matches every eligible activity against the version active
-// at that activity's start time.
+// recomputeSegmentEfforts re-matches every eligible activity against the
+// version active at that activity's start time. Existing active rows are
+// superseded per activity instead of deleted, so recalculation remains auditable.
 // It is the library-level core used by both RecomputeSegment (HTTP-triggered,
 // with job tracking) and RecomputeEffortsForActivity (post-fusion, non-fatal).
 //
@@ -734,9 +734,6 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
 	if err != nil {
 		return fmt.Errorf("list activities for backfill: %w", err)
-	}
-	if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, segmentID, userID, ids); err != nil {
-		return fmt.Errorf("delete existing efforts: %w", err)
 	}
 
 	slog.Info("segment recompute: starting", "segment_id", segmentID, "activity_count", len(ids))
@@ -755,14 +752,14 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 	return nil
 }
 
-// recomputeSegmentEffortsForActivity deletes and re-matches segment_efforts
+// recomputeSegmentEffortsForActivity supersedes and re-matches segment_efforts
 // only for a specific (segment_id, activity_id) tuple. Used by
 // RecomputeEffortsForActivity (post-fusion cleanup) to avoid the user-wide
-// DELETE that the general recomputeSegmentEfforts handler does.
+// recompute path.
 //
-// The DELETE and INSERT are wrapped in a single transaction so that a matching
-// failure never leaves the pair with zero efforts (R2-10): if the INSERT fails,
-// the DELETE is rolled back and the pre-recompute efforts are preserved.
+// Superseding and inserting are wrapped in a single transaction so that a
+// matching failure never leaves the pair with zero active efforts: if the INSERT
+// fails, superseding is rolled back and the pre-recompute efforts stay active.
 //
 // Rank updates happen outside the transaction because they are non-critical and
 // idempotent — a partial rank failure does not corrupt effort data.
@@ -811,39 +808,72 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 		}
 	}
 
-	// Transactional DELETE + INSERT: if the INSERT fails the DELETE is rolled back,
-	// preserving the pre-recompute state (fixes R2-10 non-atomic delete+match).
 	tx, err := h.beginTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin tx for segment rematch: %w", err)
+		return fmt.Errorf("begin segment rematch tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if err := database.LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
-		return err
+	if _, err := database.SupersedeSegmentEffortsForActivitySegmentsTx(ctx, tx, activityID, userID, []string{segmentID}, efforts, nil, nil, nil); err != nil {
+		return fmt.Errorf("supersede efforts for segment+activity: %w", err)
 	}
-
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
-		segmentID, activityID,
-	); err != nil {
-		return fmt.Errorf("delete efforts for segment+activity: %w", err)
-	}
-
-	if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-		return fmt.Errorf("insert new efforts for segment+activity: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit segment rematch tx: %w", err)
 	}
 
 	// Update ranks outside the transaction — non-critical, idempotent.
+	matchedSegmentIDs[segmentID] = struct{}{}
 	for segID := range matchedSegmentIDs {
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
 			slog.Warn("segment recompute: update ranks failed",
 				"segment_id", segID, "activity_id", activityID, "error", err)
 		}
+	}
+	return nil
+}
+
+func (h *Handler) recomputeSegmentEffortsForActivityInRun(ctx context.Context, claim database.SegmentRecalculationActivityClaim) error {
+	act, err := h.DB.GetActivity(ctx, claim.ActivityID)
+	if err != nil {
+		return fmt.Errorf("load activity for segment recalculation run: %w", err)
+	}
+	if act == nil {
+		return fmt.Errorf("activity %s not found for segment recalculation run", claim.ActivityID)
+	}
+	subType := ""
+	if act.SubType != nil {
+		subType = *act.SubType
+	}
+
+	allEfforts, _, _, _, err := collectSegmentEfforts(ctx, h.DB, claim.ActivityID, claim.UserID, act.SportType, subType, act.GearID, act.StartedAt)
+	if err != nil {
+		return fmt.Errorf("collect efforts for segment recalculation run: %w", err)
+	}
+	efforts := make([]*model.SegmentEffort, 0, len(allEfforts))
+	for _, e := range allEfforts {
+		if e.SegmentID == claim.SegmentID {
+			efforts = append(efforts, e)
+		}
+	}
+
+	tx, err := h.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin segment recalculation activity tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	result, err := database.SupersedeSegmentEffortsForActivitySegmentsTx(ctx, tx, claim.ActivityID, claim.UserID, []string{claim.SegmentID}, efforts, &claim.RunID, claim.FromAt, claim.UntilAt)
+	if err != nil {
+		return fmt.Errorf("supersede segment recalculation activity: %w", err)
+	}
+	if err := database.CompleteSegmentRecalculationActivityTx(ctx, tx, claim, result); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit segment recalculation activity tx: %w", err)
+	}
+	if err := h.DB.UpdateSegmentEffortRanks(ctx, claim.SegmentID); err != nil {
+		slog.Warn("segment recalculation run: update ranks failed", "segment_id", claim.SegmentID, "error", err)
 	}
 	return nil
 }
@@ -904,6 +934,7 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 		JOIN segment_versions sv ON sv.id = se.segment_version_id
 		WHERE se.activity_id = $1
 		  AND se.user_id = $2
+		  AND se.superseded_at IS NULL
 		  AND se.match_source_type = 'platform_activity'
 		  AND se.matching_contract_key = 'course_gps_v1'
 		  AND se.matching_contract_version = 1
@@ -934,43 +965,14 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 		segmentIDs = append(segmentIDs, segID)
 	}
 
-	// 5. Per segment: transactional DELETE + batch-INSERT of only that segment's efforts.
-	// Rank updates happen outside the transaction (non-critical, idempotent).
+	// 5. Per segment: transactional supersede + strict insert of only that
+	// segment's efforts. Rank updates happen outside the transaction
+	// (non-critical, idempotent).
 	for _, segID := range segmentIDs {
 		efforts := effortsBySegment[segID] // nil/empty when no GPS match for this segment
 
-		tx, err := h.beginTx(ctx)
-		if err != nil {
-			slog.Warn("post-fusion segment recompute: begin tx failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
-			segID, activityID,
-		); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			slog.Warn("post-fusion segment recompute: delete failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			slog.Warn("post-fusion segment recompute: insert failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			slog.Warn("post-fusion segment recompute: commit failed",
+		if _, err := h.DB.SupersedeSegmentEffortsForActivitySegments(ctx, activityID, userID, []string{segID}, efforts, nil, nil, nil); err != nil {
+			slog.Warn("post-fusion segment recompute: supersede failed",
 				"activity_id", activityID,
 				"segment_id", segID,
 				"err", err)
@@ -1035,30 +1037,23 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-recompute-"+id, func(ctx context.Context) {
 		failed := false
 
-		if err := h.DB.DeleteSegmentEffortsBySegmentForActivities(ctx, id, userID, ids); err != nil {
-			slog.Error("segment recompute: delete existing efforts failed", "segment_id", id, "error", err)
-			failed = true
-		}
+		slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
+		for i, actID := range ids {
+			if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, userID); err != nil {
+				slog.Warn("segment recompute: activity match failed",
+					"segment_id", id,
+					"activity_id", actID,
+					"error", err)
+			}
 
-		if !failed {
-			slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
-			for i, actID := range ids {
-				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, userID); err != nil {
-					slog.Warn("segment recompute: activity match failed",
-						"segment_id", id,
-						"activity_id", actID,
-						"error", err)
-				}
-
-				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
-				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-						slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
-					}
+			// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
+			if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
+				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
+					slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
 				}
 			}
-			slog.Info("segment recompute: done", "segment_id", id)
 		}
+		slog.Info("segment recompute: done", "segment_id", id)
 
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
 			slog.Warn("segment recompute: final rank update failed", "segment_id", id, "error", err)
@@ -1144,32 +1139,25 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-publish-"+id, func(ctx context.Context) {
 		failed := false
 
-		if err := h.DB.DeleteAllSegmentEffortsBySegmentForActivities(ctx, id, ids); err != nil {
-			slog.Error("publish recompute: delete efforts failed", "segment_id", id, "error", err)
-			failed = true
-		}
+		for i, actID := range ids {
+			act, err := h.DB.GetActivity(ctx, actID)
+			if err != nil || act == nil {
+				continue
+			}
+			if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, act.UserID); err != nil {
+				slog.Warn("publish recompute: activity match failed",
+					"segment_id", id,
+					"activity_id", actID,
+					"error", err)
+			}
 
-		if !failed {
-			for i, actID := range ids {
-				act, err := h.DB.GetActivity(ctx, actID)
-				if err != nil || act == nil {
-					continue
-				}
-				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, act.UserID); err != nil {
-					slog.Warn("publish recompute: activity match failed",
-						"segment_id", id,
-						"activity_id", actID,
-						"error", err)
-				}
-
-				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-						slog.Warn("publish recompute: update progress failed", "job_id", jobID, "error", err)
-					}
+			if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
+				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
+					slog.Warn("publish recompute: update progress failed", "job_id", jobID, "error", err)
 				}
 			}
-			slog.Info("segment publish recompute: done", "segment_id", id, "activity_count", len(ids))
 		}
+		slog.Info("segment publish recompute: done", "segment_id", id, "activity_count", len(ids))
 
 		// Final rank/count update — ensures correct values even if zero activities matched.
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {

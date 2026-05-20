@@ -28,10 +28,10 @@ import (
 // All methods except Exec are promoted from the embedded pgx.Tx interface so the
 // struct automatically satisfies pgx.Tx.
 type mockTx struct {
-	pgx.Tx                             // embed real tx — delegates all non-overridden methods
-	shouldFail  func(sql string) bool  // returns true when this Exec should fail
-	tripped     atomic.Bool            // true after the first failure has been injected
-	injectedErr error                  // error to inject when shouldFail fires
+	pgx.Tx                            // embed real tx — delegates all non-overridden methods
+	shouldFail  func(sql string) bool // returns true when this Exec should fail
+	tripped     atomic.Bool           // true after the first failure has been injected
+	injectedErr error                 // error to inject when shouldFail fires
 }
 
 // Exec overrides pgx.Tx.Exec to inject errors on matching SQL.
@@ -41,6 +41,16 @@ func (m *mockTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn
 		return pgconn.CommandTag{}, m.injectedErr
 	}
 	return m.Tx.Exec(ctx, sql, arguments...)
+}
+
+// Query overrides pgx.Tx.Query to support failure injection for write statements
+// that return rows, such as UPDATE ... RETURNING.
+func (m *mockTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if !m.tripped.Load() && m.shouldFail != nil && m.shouldFail(sql) {
+		m.tripped.Store(true)
+		return nil, m.injectedErr
+	}
+	return m.Tx.Query(ctx, sql, args...)
 }
 
 // sqlContains is a helper predicate for mockTx.shouldFail: returns true when the

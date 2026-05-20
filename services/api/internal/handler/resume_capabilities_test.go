@@ -71,12 +71,23 @@ func TestSegmentRecomputePathsAvoidPreDelete(t *testing.T) {
 		{"segments.go", "recomputeSegmentEfforts"},
 		{"segments.go", "RecomputeSegment"},
 		{"segments.go", "PublishSegment"},
+		{"segment_matching.go", "MatchActivitySegments"},
+		{"recompute.go", "reprocessActivity"},
 		{"resume.go", "resumeSegmentPublish"},
 		{"resume.go", "resumeSegmentRecompute"},
 	} {
 		body := functionBodyString(t, tc.file, tc.fn)
-		if strings.Contains(body, "DeleteSegmentEffortsBySegment(") || strings.Contains(body, "DeleteAllSegmentEffortsBySegment(") {
-			t.Fatalf("%s.%s pre-deletes segment efforts; recompute must replace each segment/activity tuple atomically", tc.file, tc.fn)
+		for _, forbidden := range []string{
+			"DeleteSegmentEffortsByActivity(",
+			"DeleteSegmentEffortsBySegment(",
+			"DeleteSegmentEffortsBySegmentForActivities(",
+			"DeleteAllSegmentEffortsBySegment(",
+			"DeleteAllSegmentEffortsBySegmentForActivities(",
+			"DELETE FROM segment_efforts",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s.%s pre-deletes segment efforts via %q; recompute must supersede active rows atomically", tc.file, tc.fn, forbidden)
+			}
 		}
 	}
 }

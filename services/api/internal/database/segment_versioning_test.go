@@ -208,9 +208,9 @@ func TestSegmentUpdateRequiresVersionedPathForMatchingRelevantMetadata(t *testin
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
 	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Metadata Guard")
-	terrain := "gravel"
+	bidirectional := false
 
-	_, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{TerrainType: &terrain})
+	_, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{Bidirectional: &bidirectional})
 	if !errors.Is(err, ErrSegmentValidation) {
 		t.Fatalf("UpdateSegment metadata error = %v, want ErrSegmentValidation", err)
 	}
@@ -269,6 +269,18 @@ func insertVersioningTestActivity(t *testing.T, db *DB, userID string, startedAt
 		VALUES ($1, $2, 'cycling', 'mountain', 'Versioning Test Activity', $3, $4, 'private', 'complete')
 	`, activityID, userID, startedAt, "segment-versioning-"+activityID); err != nil {
 		t.Fatalf("insert activity: %v", err)
+	}
+	if _, err := db.Pool.Exec(context.Background(), `
+		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
+		VALUES (
+			$1,
+			ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326),
+			ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326),
+			ST_Envelope(ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326)),
+			2
+		)
+	`, activityID); err != nil {
+		t.Fatalf("insert activity track: %v", err)
 	}
 	return activityID
 }
