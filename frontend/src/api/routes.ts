@@ -72,10 +72,74 @@ export interface PlannedRoute {
   // lack elevation_profile). 1 = T0-formatted (all segments have profiles).
   // Absent from old server responses — treat as 0 via `?? 0`.
   route_schema_version?: number
+  version?: number
   photos: RoutePhoto[]
   tags: Tag[]
   created_at: string
   updated_at: string
+}
+
+export type RoutePublicationVisibility = 'private' | 'shared' | 'public'
+export type RoutePublishPolicy = 'new_course' | 'continue_equivalence_group' | 'split_course'
+export type RouteEquivalenceDecision = 'version_specific' | 'new_group' | 'continue_group'
+
+export interface CreateRouteSnapshotResponse {
+  snapshot_id: string
+  snapshot_hash: string
+  geometry_hash: string
+  source_route_version: number
+}
+
+export interface PublishRouteCourseRequest {
+  route_snapshot_id: string
+  source_route_version: number
+  publish_policy?: RoutePublishPolicy
+  equivalence_decision?: RouteEquivalenceDecision
+  visibility?: RoutePublicationVisibility
+  access_scope_id?: string | null
+  compatibility_preset?: 'standard' | 'trail' | 'lap' | string
+  target_publication_id?: string | null
+  target_course_segment_id?: string | null
+  target_course_segment_version_id?: string | null
+  compatibility_evidence?: Record<string, unknown>
+  operation_id: string
+}
+
+export interface PublishRouteCourseResponse {
+  publication_id: string
+  course_segment_id: string
+  course_segment_version_id: string
+}
+
+export interface ForkRouteRequest {
+  name: string
+  source_route_version: number
+  operation_id: string
+}
+
+export interface ForkRouteResponse {
+  route_id: string
+  relationship_id: string
+}
+
+export interface CreateRouteRelationshipRequest {
+  target_route_id: string
+  relation_type: 'variant_of' | 'derived_from' | 'fork_of'
+  operation_id: string
+}
+
+export interface CreateRouteRelationshipResponse {
+  relationship_id: string
+}
+
+export interface CreateRouteCourseRelationshipRequest {
+  target_publication_id: string
+  relation_type: 'variant_of' | 'derived_from'
+  operation_id: string
+}
+
+export interface CreateRouteCourseRelationshipResponse {
+  relationship_id: string
 }
 
 // Open index signature: backend /capabilities may return additional boolean fields
@@ -254,6 +318,51 @@ export async function deleteRoute(id: string): Promise<void> {
 
 export async function duplicateRoute(id: string): Promise<{ id: string }> {
   return apiClient(`/routes/${id}/duplicate`, { method: 'POST' })
+}
+
+export async function createRouteSnapshot(
+  routeId: string,
+  operationId: string,
+  sourceRouteVersion: number,
+): Promise<CreateRouteSnapshotResponse> {
+  return apiClient<CreateRouteSnapshotResponse>(`/routes/${routeId}/snapshots`, {
+    method: 'POST',
+    body: { operation_id: operationId, source_route_version: sourceRouteVersion },
+  })
+}
+
+export async function publishRouteCourse(
+  routeId: string,
+  request: PublishRouteCourseRequest,
+): Promise<PublishRouteCourseResponse> {
+  return apiClient<PublishRouteCourseResponse>(`/routes/${routeId}/publish-course`, {
+    method: 'POST',
+    body: request,
+  })
+}
+
+export async function forkRoute(routeId: string, request: ForkRouteRequest): Promise<ForkRouteResponse> {
+  return apiClient<ForkRouteResponse>(`/routes/${routeId}/fork`, { method: 'POST', body: request })
+}
+
+export async function createRouteRelationship(
+  routeId: string,
+  request: CreateRouteRelationshipRequest,
+): Promise<CreateRouteRelationshipResponse> {
+  return apiClient<CreateRouteRelationshipResponse>(`/routes/${routeId}/relationships`, {
+    method: 'POST',
+    body: request,
+  })
+}
+
+export async function createRouteCourseRelationship(
+  publicationId: string,
+  request: CreateRouteCourseRelationshipRequest,
+): Promise<CreateRouteCourseRelationshipResponse> {
+  return apiClient<CreateRouteCourseRelationshipResponse>(`/route-publications/${publicationId}/relationships`, {
+    method: 'POST',
+    body: request,
+  })
 }
 
 // === GPX Export ===

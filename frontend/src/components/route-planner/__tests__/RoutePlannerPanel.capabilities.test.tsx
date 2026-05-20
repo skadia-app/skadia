@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -11,6 +11,17 @@ import * as routesApi from '@/api/routes'
 
 vi.mock('@/api/routes', () => ({
   getProfileDefaults: vi.fn().mockResolvedValue({ profile: 'hiking' }),
+  createRouteSnapshot: vi.fn().mockResolvedValue({
+    snapshot_id: 'snap-1',
+    snapshot_hash: 'hash-1',
+    geometry_hash: 'geom-1',
+    source_route_version: 7,
+  }),
+  publishRouteCourse: vi.fn().mockResolvedValue({
+    publication_id: 'pub-1',
+    course_segment_id: 'seg-1',
+    course_segment_version_id: 'ver-1',
+  }),
 }))
 
 vi.mock('@/api/routingProfiles', () => ({
@@ -82,5 +93,43 @@ describe('RoutePlannerPanel capability gates', () => {
     await waitFor(() => {
       expect(routesApi.getProfileDefaults).not.toHaveBeenCalled()
     })
+  })
+
+  it('publishes a saved route with explicit operation ids', async () => {
+    const randomUUID = vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001')
+    renderPanel({
+      waypoints: [{ id: 'a', latlng: [0, 0], type: 'start' }, { id: 'b', latlng: [1, 1], type: 'end' }],
+      segments: [{
+        from_waypoint: 'a',
+        to_waypoint: 'b',
+        mode: 'routed',
+        control_points: [],
+        smooth: false,
+        distance_m: 1000,
+        elevation_gain: 10,
+        elevation_loss: 0,
+        geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+      }],
+      totalDistanceM: 1000,
+      editingRouteId: 'route-1',
+      editingRouteVersion: 7,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Als Kurs veröffentlichen' }))
+
+    await waitFor(() => {
+      expect(routesApi.createRouteSnapshot).toHaveBeenCalledWith('route-1', '00000000-0000-4000-8000-000000000001:snapshot', 7)
+    })
+    expect(routesApi.publishRouteCourse).toHaveBeenCalledWith('route-1', {
+      route_snapshot_id: 'snap-1',
+      source_route_version: 7,
+      publish_policy: 'new_course',
+      equivalence_decision: 'new_group',
+      visibility: 'private',
+      compatibility_preset: 'standard',
+      operation_id: '00000000-0000-4000-8000-000000000001:publish',
+    })
+
+    randomUUID.mockRestore()
   })
 })

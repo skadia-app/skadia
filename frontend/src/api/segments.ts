@@ -2,6 +2,8 @@ import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
 import type { SportPredicate } from '@/lib/sportPredicates'
 
+export type SegmentVisibility = 'public' | 'private' | 'shared'
+
 export interface Segment {
   id: string
   name: string
@@ -15,7 +17,8 @@ export interface Segment {
   athlete_count: number
   ridden_count: number
   is_favorite: boolean
-  visibility: 'public' | 'private'
+  visibility: SegmentVisibility
+  access_scope_id?: string | null
   created_by: string
   created_at: string
   track_geojson?: string
@@ -141,7 +144,8 @@ export interface CreateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
-  visibility?: 'public' | 'private'
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
   /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
@@ -169,7 +173,7 @@ export interface FetchSegmentsOpts {
   mtb_scale?: string
   surface?: string
   elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
-  /** comma-separated: "public", "private", or "public,private" */
+  /** comma-separated: "public", "private", "shared", or combinations */
   visibility?: string
   /** "any" = OR between SAC and MTB; "all" (default) = AND */
   difficulty_match?: 'any' | 'all'
@@ -207,7 +211,8 @@ export interface UpdateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
-  visibility?: 'public' | 'private'
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
   /** absent = unchanged; null = legacy match-all inside the stored sport group; [] = no sports; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** absent = unchanged */
