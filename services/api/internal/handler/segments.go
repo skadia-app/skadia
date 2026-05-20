@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
@@ -85,7 +86,7 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 
 	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
 	if params.SegmentTypes != "" {
-		for _, t := range strings.Split(params.SegmentTypes, ",") {
+		for t := range strings.SplitSeq(params.SegmentTypes, ",") {
 			if !isValidSegmentType(strings.TrimSpace(t)) {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_types parameter", r.URL.Path)
 				return
@@ -116,7 +117,7 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		// write deterministically sorted result back to params so the DB layer
 		// always sees at most len=2 and never a stale toggle fail-open (#15, A2).
 		seen := make(map[string]struct{}, 2)
-		for _, v := range strings.Split(params.VisibilityFilter, ",") {
+		for v := range strings.SplitSeq(params.VisibilityFilter, ",") {
 			v = strings.TrimSpace(v)
 			if v == "" {
 				continue
@@ -884,6 +885,9 @@ func (h *Handler) recomputeSegmentEffortsForActivityInRun(ctx context.Context, c
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	if err := database.ValidateSegmentRecalculationActivityClaimTx(ctx, tx, claim); err != nil {
+		return err
+	}
 	result, err := database.SupersedeSegmentEffortsForActivitySegmentsTx(ctx, tx, claim.ActivityID, claim.UserID, []string{claim.SegmentID}, efforts, &claim.RunID, claim.FromAt, claim.UntilAt)
 	if err != nil {
 		return fmt.Errorf("supersede segment recalculation activity: %w", err)
@@ -1011,8 +1015,8 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 	return nil
 }
 
-// RecomputeSegment re-matches all of the user's GPS activities against a single segment.
-// Useful after editing a segment or when matching failed due to a bug.
+// RecomputeSegment queues durable recalculation activities for the caller's
+// GPS activities against a single segment.
 func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -1035,67 +1039,29 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Aktivitäts-IDs vorab ermitteln (brauchen wir für progress_total).
-	ids, err := h.DB.ListActivityIDsForSegmentRecompute(r.Context(), userID, id)
+	runID, total, err := h.DB.SeedSegmentRecalculationRun(r.Context(), userID, database.SegmentRecalculationScope{
+		SegmentID:       id,
+		OwnerUserID:     userID,
+		IncludeAllUsers: false,
+		OperationID:     "manual-recompute:" + uuid.NewString(),
+	}, "manual segment recompute", nil)
 	if err != nil {
-		slog.Error("segment recompute: list activities failed", "segment_id", id, "user_id", userID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		slog.Error("segment recompute: seed recalculation run failed", "segment_id", id, "user_id", userID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to queue recompute", r.URL.Path)
 		return
 	}
-
-	// Vorherige laufende Jobs für dieses Segment abbrechen.
-	if err := h.DB.CancelRunningJobsForEntity(r.Context(), userID, id); err != nil {
-		slog.Warn("segment recompute: cancel previous jobs failed", "segment_id", id, "error", err)
-	}
-
-	// Job in DB anlegen.
-	entityName := seg.Name
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_recompute", &id, &entityName, int64(len(ids)))
-	if err != nil {
-		slog.Warn("segment recompute: failed to insert job", "segment_id", id, "error", err)
-		jobID = ""
-	}
-
-	shutdown.Go("segment-recompute-"+id, func(ctx context.Context) {
-		failed := false
-
-		slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
-		for i, actID := range ids {
-			if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, userID); err != nil {
-				slog.Warn("segment recompute: activity match failed",
-					"segment_id", id,
-					"activity_id", actID,
-					"error", err)
-			}
-
-			// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
-			if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-					slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
-				}
-			}
-		}
-		slog.Info("segment recompute: done", "segment_id", id)
-
-		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
-			slog.Warn("segment recompute: final rank update failed", "segment_id", id, "error", err)
-		}
-
-		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
-				slog.Warn("segment recompute: complete job failed", "job_id", jobID, "error", err)
-			}
-		}
-	})
+	h.startSegmentRecalculationRuns("manual-segment-recompute")
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"status": "recompute started",
-		"job_id": jobID,
+		"status":           "recompute queued",
+		"run_id":           runID,
+		"total_activities": total,
+		"segment_name":     seg.Name,
 	})
 }
 
-// PublishSegment transitions a private segment to public and triggers a full recompute
-// so all users' activities are matched. Uses background_job tracking (visible in ActiveJobsIndicator).
+// PublishSegment transitions a private segment to public and queues durable
+// recalculation activities so all users' matching activities are processed.
 func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -1125,14 +1091,6 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// List all nearby activities (all users) before publishing, so we know the total.
-	ids, err := h.DB.ListAllActivityIDsForSegmentRecompute(r.Context(), id)
-	if err != nil {
-		slog.Error("publish segment: list activities failed", "segment_id", id, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
-		return
-	}
-
 	// Set visibility = 'public'. After this point the segment is visible to all users.
 	published, err := h.DB.PublishSegment(r.Context(), id, userID, isAdmin)
 	if err != nil {
@@ -1146,56 +1104,23 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel any in-progress recompute jobs for this segment to prevent races (A8).
-	// Must run BEFORE InsertBackgroundJob — otherwise it cancels the job we just created.
-	h.DB.CancelRunningJobsForEntity(r.Context(), userID, id)
-
-	// Track the recompute as a background job (visible in ActiveJobsIndicator).
-	entityName := seg.Name
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_publish", &id, &entityName, int64(len(ids)))
+	runID, total, err := h.DB.SeedSegmentRecalculationRun(r.Context(), userID, database.SegmentRecalculationScope{
+		SegmentID:       id,
+		OwnerUserID:     userID,
+		IncludeAllUsers: true,
+		OperationID:     "publish:" + uuid.NewString(),
+	}, "segment publish recompute", nil)
 	if err != nil {
-		slog.Warn("publish segment: failed to insert job", "segment_id", id, "error", err)
-		jobID = ""
+		slog.Error("publish segment: seed recalculation run failed", "segment_id", id, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to queue publish recompute", r.URL.Path)
+		return
 	}
-
-	shutdown.Go("segment-publish-"+id, func(ctx context.Context) {
-		failed := false
-
-		for i, actID := range ids {
-			act, err := h.DB.GetActivity(ctx, actID)
-			if err != nil || act == nil {
-				continue
-			}
-			if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, act.UserID); err != nil {
-				slog.Warn("publish recompute: activity match failed",
-					"segment_id", id,
-					"activity_id", actID,
-					"error", err)
-			}
-
-			if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-				if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-					slog.Warn("publish recompute: update progress failed", "job_id", jobID, "error", err)
-				}
-			}
-		}
-		slog.Info("segment publish recompute: done", "segment_id", id, "activity_count", len(ids))
-
-		// Final rank/count update — ensures correct values even if zero activities matched.
-		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
-			slog.Warn("publish recompute: final rank update failed", "segment_id", id, "error", err)
-		}
-
-		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
-				slog.Warn("publish recompute: complete job failed", "job_id", jobID, "error", err)
-			}
-		}
-	})
+	h.startSegmentRecalculationRuns("segment-publish")
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"status": "publish started",
-		"job_id": jobID,
+		"status":           "publish queued",
+		"run_id":           runID,
+		"total_activities": total,
 	})
 }
 

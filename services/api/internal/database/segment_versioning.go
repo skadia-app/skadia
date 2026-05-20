@@ -209,6 +209,14 @@ func (db *DB) UpdateSegmentVersionValidity(ctx context.Context, segmentID, versi
 	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
 		return nil, err
 	}
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "validity_update", update.OperationID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing segment validity revision: %w", err)
+		}
+		return existing, nil
+	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
 	if err != nil {
 		return nil, err
@@ -234,7 +242,7 @@ func (db *DB) UpdateSegmentVersionValidity(ctx context.Context, segmentID, versi
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
-	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, nil); err != nil {
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, "", actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, nil); err != nil {
 		return nil, err
 	}
 	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, update.OperationID, update.Reason, affectedFrom, affectedUntil, update.Recalculate || intervalTouchesNowOrPast(affectedFrom))
@@ -271,6 +279,14 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
 		return nil, err
 	}
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "geometry_update", update.OperationID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing segment geometry revision: %w", err)
+		}
+		return existing, nil
+	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
 	if err != nil {
 		return nil, err
@@ -282,6 +298,9 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	boundary := time.Now().UTC()
 	affectedFrom := &boundary
 	affectedUntil := oldVersion.ValidUntilAt
+	if err := validateSegmentGeometryUpdateTx(ctx, tx, update); err != nil {
+		return nil, err
+	}
 
 	var newVersionID string
 	if err := tx.QueryRow(ctx, `
@@ -317,7 +336,7 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
-	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, newVersionID, actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, update.EquivalenceEvidence); err != nil {
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, newVersionID, versionID, actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, update.EquivalenceEvidence); err != nil {
 		return nil, err
 	}
 	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, update.OperationID, update.Reason, affectedFrom, affectedUntil, true)
@@ -347,6 +366,15 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 
 	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
 		return nil, err
+	}
+	operationID := "rollback:" + revisionID
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "rollback_revision", operationID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing segment rollback revision: %w", err)
+		}
+		return existing, nil
 	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
 	if err != nil {
@@ -379,7 +407,7 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
-	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, "rollback:"+revisionID, reason, affectedFrom, affectedUntil, true)
+	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, operationID, reason, affectedFrom, affectedUntil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +416,7 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 		return nil, err
 	}
 	rollbackOf := revisionID
-	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "rollback_revision", reason, before, after, affectedFrom, affectedUntil, recalcRunID, &rollbackOf, "rollback:"+revisionID)
+	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "rollback_revision", reason, before, after, affectedFrom, affectedUntil, recalcRunID, &rollbackOf, operationID)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +598,7 @@ func (db *DB) ReverseActiveSegmentVersionTx(ctx context.Context, tx pgx.Tx, segm
 	`, segmentID, actorUserID, boundary).Scan(&versionID); err != nil {
 		return "", "", fmt.Errorf("insert reversed segment version: %w", err)
 	}
-	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, actorUserID, operationID, "new_group", "reverse", nil); err != nil {
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, "", actorUserID, operationID, "new_group", "reverse", nil); err != nil {
 		return "", "", err
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
@@ -608,13 +636,17 @@ func authorizeSegmentOwnerTx(ctx context.Context, tx pgx.Tx, segmentID, actorUse
 	return nil
 }
 
-func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versionID, actorUserID, operationID, decision, reason string, evidence map[string]any) error {
+func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versionID, continueFromVersionID, actorUserID, operationID, decision, reason string, evidence map[string]any) error {
 	decision = strings.TrimSpace(decision)
 	if decision == "" {
 		decision = "continue_group"
 	}
-	if decision == "continue_group" && len(evidence) == 0 {
-		var existing string
+	var groupID string
+	var joinSourceVersionID string
+	if decision == "continue_group" {
+		if len(evidence) == 0 && strings.TrimSpace(continueFromVersionID) != "" {
+			return fmt.Errorf("%w: equivalence evidence is required when a new geometry continues an existing leaderboard group", ErrSegmentValidation)
+		}
 		err := tx.QueryRow(ctx, `
 			SELECT group_id
 			FROM segment_leaderboard_equivalence_group_versions
@@ -622,51 +654,90 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 			  AND leaderboard_surface = 'default'
 			  AND retired_at IS NULL
 			LIMIT 1
-		`, versionID).Scan(&existing)
-		if err == nil && existing != "" {
+		`, versionID).Scan(&groupID)
+		if err == nil && groupID != "" {
 			return nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("load current equivalence group: %w", err)
 		}
-		decision = "version_specific"
+		if strings.TrimSpace(continueFromVersionID) != "" {
+			var sourceGroupKind string
+			err = tx.QueryRow(ctx, `
+				SELECT gv.group_id, g.equivalence_kind
+				FROM segment_leaderboard_equivalence_group_versions gv
+				JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+				WHERE gv.segment_version_id = $1
+				  AND gv.leaderboard_surface = 'default'
+				  AND gv.retired_at IS NULL
+				LIMIT 1
+			`, continueFromVersionID).Scan(&groupID, &sourceGroupKind)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return fmt.Errorf("%w: source version has no active equivalence group to continue", ErrSegmentValidation)
+				}
+				return fmt.Errorf("load source equivalence group: %w", err)
+			}
+			if sourceGroupKind == "version_specific" {
+				joinSourceVersionID = continueFromVersionID
+				groupID = ""
+			}
+		} else {
+			decision = "version_specific"
+		}
 	}
-
-	equivalenceKind := "same_course"
-	if decision == "version_specific" {
-		equivalenceKind = "version_specific"
+	if decision != "continue_group" && decision != "new_group" && decision != "version_specific" {
+		return fmt.Errorf("%w: unsupported equivalence decision %q", ErrSegmentValidation, decision)
 	}
-	changeKey := "operation:" + stableOperationHash(operationID, decision) + ":" + decision
-	metadata, err := json.Marshal(map[string]any{
-		"operation_id_hash": stableOperationHash(operationID, "metadata"),
-		"decision":          decision,
-		"evidence":          evidence,
-	})
-	if err != nil {
-		return err
-	}
-	var groupID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO segment_leaderboard_equivalence_groups (
-			segment_id, change_key, policy_key, policy_version, equivalence_kind,
-			created_by, reason, metadata
-		)
-		VALUES ($1, $2, 'segment_leaderboard_equivalence', 1, $3, $4, NULLIF($5, ''), $6)
-		ON CONFLICT (segment_id, policy_key, policy_version, change_key) DO UPDATE
-			SET reason = COALESCE(EXCLUDED.reason, segment_leaderboard_equivalence_groups.reason),
-			    metadata = EXCLUDED.metadata
-		RETURNING id
-	`, segmentID, changeKey, equivalenceKind, actorUserID, reason, metadata).Scan(&groupID); err != nil {
-		return fmt.Errorf("upsert segment leaderboard equivalence group: %w", err)
+	if groupID == "" {
+		equivalenceKind := "same_course"
+		if decision == "version_specific" {
+			equivalenceKind = "version_specific"
+		}
+		changeKey := "operation:" + stableOperationHash(operationID, decision) + ":" + decision
+		metadata, err := json.Marshal(map[string]any{
+			"operation_id_hash": stableOperationHash(operationID, "metadata"),
+			"decision":          decision,
+			"evidence":          evidence,
+		})
+		if err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO segment_leaderboard_equivalence_groups (
+				segment_id, change_key, policy_key, policy_version, equivalence_kind,
+				created_by, reason, metadata
+			)
+			VALUES ($1, $2, 'segment_leaderboard_equivalence', 1, $3, $4, NULLIF($5, ''), $6)
+			ON CONFLICT (segment_id, policy_key, policy_version, change_key) DO UPDATE
+				SET reason = COALESCE(EXCLUDED.reason, segment_leaderboard_equivalence_groups.reason),
+				    metadata = EXCLUDED.metadata
+			RETURNING id
+		`, segmentID, changeKey, equivalenceKind, actorUserID, reason, metadata).Scan(&groupID); err != nil {
+			return fmt.Errorf("upsert segment leaderboard equivalence group: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE segment_leaderboard_equivalence_group_versions
 		SET retired_at = GREATEST(NOW(), joined_at + interval '1 microsecond')
-		WHERE segment_version_id = $1
+		WHERE segment_version_id = ANY($1::uuid[])
 		  AND leaderboard_surface = 'default'
 		  AND retired_at IS NULL
-	`, versionID); err != nil {
+	`, equivalenceRetireVersionIDs(versionID, joinSourceVersionID)); err != nil {
 		return fmt.Errorf("retire previous equivalence membership: %w", err)
+	}
+	if joinSourceVersionID != "" {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO segment_leaderboard_equivalence_group_versions (
+				group_id, segment_version_id, leaderboard_surface, join_reason
+			)
+			VALUES ($1, $2, 'default', $3)
+			ON CONFLICT (group_id, segment_version_id, leaderboard_surface) DO UPDATE
+				SET retired_at = NULL,
+				    join_reason = EXCLUDED.join_reason
+		`, groupID, joinSourceVersionID, decision); err != nil {
+			return fmt.Errorf("insert source equivalence membership: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO segment_leaderboard_equivalence_group_versions (
@@ -680,6 +751,13 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 		return fmt.Errorf("insert equivalence membership: %w", err)
 	}
 	return nil
+}
+
+func equivalenceRetireVersionIDs(versionID, sourceVersionID string) []string {
+	if sourceVersionID == "" {
+		return []string{versionID}
+	}
+	return []string{versionID, sourceVersionID}
 }
 
 func activeLeaderboardEquivalenceGroupTx(ctx context.Context, tx pgx.Tx, segmentID, versionID string) (string, error) {
@@ -702,74 +780,34 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 	if !required {
 		return nil, nil
 	}
-	runID := stableUUID("segment-recalculation-run", segmentID, operationID).String()
-	idempotencyKey := "segment:" + segmentID + ":operation:" + stableOperationHash(operationID, "recalc")
 	if strings.TrimSpace(reason) == "" {
 		reason = "segment version changed"
 	}
-	var existingRunID string
-	var existingTotal int
-	err := tx.QueryRow(ctx, `
-		SELECT id, total_activities
-		FROM segment_recalculation_runs
-		WHERE idempotency_key = $1
-	`, idempotencyKey).Scan(&existingRunID, &existingTotal)
-	if err == nil {
-		return &existingRunID, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("lookup existing segment recalculation run: %w", err)
-	}
-
-	var ownerUserID string
-	if err := tx.QueryRow(ctx, `SELECT created_by FROM segments WHERE id = $1`, segmentID).Scan(&ownerUserID); err != nil {
-		return nil, fmt.Errorf("load segment owner for recalculation: %w", err)
-	}
-	var generation int64
+	var ownerUserID, visibility string
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO segment_recalculation_segment_state (segment_id, generation)
-		VALUES ($1, 1)
-		ON CONFLICT (segment_id) DO UPDATE
-			SET generation = segment_recalculation_segment_state.generation + 1,
-			    updated_at = NOW()
-		RETURNING generation
-	`, segmentID).Scan(&generation); err != nil {
-		return nil, fmt.Errorf("advance segment recalculation generation: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE segment_recalculation_runs
-		SET status = 'obsolete',
-		    completed_at = NOW()
-		WHERE segment_id = $1
-		  AND status IN ('queued', 'running')
-		  AND ($2::timestamptz IS NULL OR requested_until_at IS NULL OR requested_until_at > $2)
-		  AND ($3::timestamptz IS NULL OR requested_from_at IS NULL OR requested_from_at < $3)
-	`, segmentID, fromAt, untilAt); err != nil {
-		return nil, fmt.Errorf("obsolete overlapping segment recalculation runs: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO segment_recalculation_runs (
-			id, segment_id, actor_user_id, operation_key_hash, idempotency_key,
-			generation, reason, requested_from_at, requested_until_at, metadata
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}'::jsonb)
-		ON CONFLICT (idempotency_key) DO NOTHING
-	`, runID, segmentID, actorUserID, stableOperationHash(operationID, "operation"), idempotencyKey, generation, reason, fromAt, untilAt); err != nil {
-		return nil, fmt.Errorf("insert segment recalculation run: %w", err)
-	}
-	if _, err := tx.Exec(ctx, seedSegmentRecalculationActivitiesSQL, runID, segmentID, fromAt, untilAt, false, ownerUserID); err != nil {
-		return nil, fmt.Errorf("seed segment recalculation activities: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE segment_recalculation_runs
-		SET total_activities = (
-			SELECT count(*)
-			FROM segment_recalculation_run_activities
-			WHERE run_id = $1
-		)
+		SELECT created_by, visibility
+		FROM segments
 		WHERE id = $1
-	`, runID); err != nil {
-		return nil, fmt.Errorf("update segment recalculation activity count: %w", err)
+		FOR UPDATE
+	`, segmentID).Scan(&ownerUserID, &visibility); err != nil {
+		return nil, fmt.Errorf("load segment recalculation scope: %w", err)
+	}
+	scope := SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     ownerUserID,
+		IncludeAllUsers: visibility == "public",
+		OperationID:     operationID,
+		FromAt:          fromAt,
+		UntilAt:         untilAt,
+	}
+	metadata, err := json.Marshal(map[string]any{"source": "segment_version_workflow"})
+	if err != nil {
+		return nil, err
+	}
+	idempotencyKey := segmentRecalculationIdempotencyKey(scope)
+	runID, _, err := seedSegmentRecalculationRunTx(ctx, tx, actorUserID, scope, reason, idempotencyKey, metadata)
+	if err != nil {
+		return nil, err
 	}
 	return &runID, nil
 }
@@ -829,6 +867,32 @@ func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, a
 	return &revision, nil
 }
 
+func loadExistingSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, operation, operationID string) (*model.SegmentVersionRevision, error) {
+	revisionID := stableUUID("segment-version-revision", segmentID, operation, operationID).String()
+	rows, err := tx.Query(ctx, `
+		SELECT id, segment_id, operation, reason,
+		       snapshot_schema_key, snapshot_schema_version,
+		       affected_from_at, affected_until_at,
+		       recalculation_run_id, rollback_of_revision_id,
+		       before_snapshot, after_snapshot,
+		       before_snapshot_sha256, after_snapshot_sha256, created_at
+		FROM segment_version_revisions
+		WHERE id = $1 AND segment_id = $2
+	`, revisionID, segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("load existing segment version revision: %w", err)
+	}
+	defer rows.Close()
+	revisions, err := scanSegmentVersionRevisions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(revisions) == 0 {
+		return nil, nil
+	}
+	return &revisions[0], nil
+}
+
 func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVersionSnapshot) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE segments
@@ -874,6 +938,138 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 			version.EligibilityVisibility, version.EligibilityElevationKind); err != nil {
 			return fmt.Errorf("restore segment version %s: %w", version.ID, err)
 		}
+	}
+	if err := retireVersionsAbsentFromSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
+	if err := restoreSegmentEquivalenceSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
+	return nil
+}
+
+func retireVersionsAbsentFromSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVersionSnapshot) error {
+	versionIDs := make([]string, 0, len(snapshot.Versions))
+	for _, version := range snapshot.Versions {
+		versionIDs = append(versionIDs, version.ID)
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE segment_versions
+		SET valid_until_at = CASE
+				WHEN valid_from_at IS NULL THEN NOW()
+				ELSE GREATEST(valid_from_at + interval '1 microsecond', NOW())
+			END,
+		    validity_basis = 'editor_asserted'
+		WHERE segment_id = $1
+		  AND NOT (id = ANY($2::uuid[]))
+		  AND (valid_until_at IS NULL OR valid_until_at > NOW())
+	`, snapshot.SegmentID, versionIDs)
+	if err != nil {
+		return fmt.Errorf("retire segment versions absent from rollback snapshot: %w", err)
+	}
+	return nil
+}
+
+func restoreSegmentEquivalenceSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVersionSnapshot) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE segment_leaderboard_equivalence_group_versions gv
+		SET retired_at = GREATEST(NOW(), gv.joined_at + interval '1 microsecond')
+		FROM segment_leaderboard_equivalence_groups g
+		WHERE g.id = gv.group_id
+		  AND g.segment_id = $1
+		  AND gv.retired_at IS NULL
+	`, snapshot.SegmentID); err != nil {
+		return fmt.Errorf("retire segment equivalence memberships for rollback: %w", err)
+	}
+	for _, group := range snapshot.EquivalenceGroups {
+		metadata := nullableRawJSON(group.Metadata)
+		if metadata == nil {
+			metadata = []byte(`{}`)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO segment_leaderboard_equivalence_groups (
+				id, segment_id, change_key, policy_key, policy_version, equivalence_kind, reason, metadata
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, NULL, COALESCE($7::jsonb, '{}'::jsonb))
+			ON CONFLICT (id) DO UPDATE
+				SET change_key = EXCLUDED.change_key,
+				    policy_key = EXCLUDED.policy_key,
+				    policy_version = EXCLUDED.policy_version,
+				    equivalence_kind = EXCLUDED.equivalence_kind,
+				    metadata = EXCLUDED.metadata
+		`, group.GroupID, snapshot.SegmentID, group.ChangeKey, group.PolicyKey, group.PolicyVersion, group.EquivalenceKind, metadata); err != nil {
+			return fmt.Errorf("restore segment equivalence group %s: %w", group.GroupID, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO segment_leaderboard_equivalence_group_versions (
+				group_id, segment_version_id, leaderboard_surface, joined_at, retired_at, join_reason
+			)
+			VALUES (
+				$1, $2, $3,
+				CASE WHEN $4::timestamptz IS NULL THEN NOW() ELSE $4::timestamptz - interval '1 microsecond' END,
+				$4, $5
+			)
+			ON CONFLICT (group_id, segment_version_id, leaderboard_surface) DO UPDATE
+				SET retired_at = EXCLUDED.retired_at,
+				    join_reason = EXCLUDED.join_reason
+		`, group.GroupID, group.SegmentVersionID, group.LeaderboardSurface, group.RetiredAt, group.JoinReason); err != nil {
+			return fmt.Errorf("restore segment equivalence membership %s/%s: %w", group.GroupID, group.SegmentVersionID, err)
+		}
+	}
+	return nil
+}
+
+func validateSegmentGeometryUpdateTx(ctx context.Context, tx pgx.Tx, update model.SegmentGeometryUpdate) error {
+	var valid bool
+	err := tx.QueryRow(ctx, `
+		WITH g AS (
+			SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS track
+		)
+		SELECT ST_GeometryType(track) = 'ST_LineString'
+		   AND ST_NPoints(track) >= 2
+		FROM g
+	`, string(update.TrackGeoJSON)).Scan(&valid)
+	if err != nil {
+		return segmentVersioningPgError("validate segment geometry", err)
+	}
+	if !valid {
+		return fmt.Errorf("%w: track_geojson must be a LineString with at least two points", ErrSegmentValidation)
+	}
+	if len(update.StartPointGeoJSON) > 0 {
+		if err := validateGeometryEndpointTx(ctx, tx, update.TrackGeoJSON, update.StartPointGeoJSON, true); err != nil {
+			return err
+		}
+	}
+	if len(update.EndPointGeoJSON) > 0 {
+		if err := validateGeometryEndpointTx(ctx, tx, update.TrackGeoJSON, update.EndPointGeoJSON, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGeometryEndpointTx(ctx context.Context, tx pgx.Tx, trackRaw, pointRaw json.RawMessage, start bool) error {
+	endpointSQL := "ST_EndPoint(track)"
+	label := "end_point_geojson"
+	if start {
+		endpointSQL = "ST_StartPoint(track)"
+		label = "start_point_geojson"
+	}
+	var matches bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH g AS (
+			SELECT ST_SetSRID(ST_GeomFromGeoJSON($1), 4326) AS track,
+			       ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS point
+		)
+		SELECT ST_GeometryType(point) = 'ST_Point'
+		   AND ST_DWithin(%s::geography, point::geography, 0.01)
+		FROM g
+	`, endpointSQL), string(trackRaw), string(pointRaw)).Scan(&matches)
+	if err != nil {
+		return segmentVersioningPgError("validate segment geometry endpoint", err)
+	}
+	if !matches {
+		return fmt.Errorf("%w: %s must match the track endpoint", ErrSegmentValidation, label)
 	}
 	return nil
 }
@@ -950,8 +1146,7 @@ func nullableRawJSON(raw json.RawMessage) any {
 }
 
 func segmentVersioningPgError(action string, err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		switch pgErr.Code {
 		case "23P01", "23514":
 			return fmt.Errorf("%w: %s: %s", ErrSegmentValidation, action, pgErr.Message)

@@ -226,9 +226,89 @@ func TestSegmentRecalculationRunClaimsOnlyQueuedOrStaleRunning(t *testing.T) {
 	}
 }
 
+func TestFailSegmentRecalculationActivityFinalizesRunAndRedactsError(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Fail Finalize")
+	runID := insertSegmentRecalculationRun(t, db, segmentID, userID)
+	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 5, 6, 9, 0, 0, 0, time.UTC))
+	insertSegmentRecalculationRunActivity(t, db, runID, activityID, userID, "queued", nil)
+
+	claim, err := db.ClaimNextSegmentRecalculationActivity(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNextSegmentRecalculationActivity: %v", err)
+	}
+	if claim == nil {
+		t.Fatal("claim = nil, want queued activity")
+	}
+	if err := db.FailSegmentRecalculationActivity(ctx, *claim, "raw sql /tmp/private/path failed"); err != nil {
+		t.Fatalf("FailSegmentRecalculationActivity: %v", err)
+	}
+
+	var runStatus, errorCode, errorMessage string
+	var failedActivities int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT r.status, r.failed_activities, ra.error_code, ra.error_message
+		FROM segment_recalculation_runs r
+		JOIN segment_recalculation_run_activities ra ON ra.run_id = r.id
+		WHERE r.id = $1 AND ra.activity_id = $2
+	`, runID, activityID).Scan(&runStatus, &failedActivities, &errorCode, &errorMessage); err != nil {
+		t.Fatalf("load failed run: %v", err)
+	}
+	if runStatus != "failed" || failedActivities != 1 || errorCode != "activity_failed" {
+		t.Fatalf("run status/failed/code = %q/%d/%q", runStatus, failedActivities, errorCode)
+	}
+	if errorMessage != "activity recalculation failed" {
+		t.Fatalf("error message = %q, want redacted generic message", errorMessage)
+	}
+}
+
+func TestValidateSegmentRecalculationClaimRejectsObsoleteGeneration(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Claim Obsolete Generation")
+	runID := insertSegmentRecalculationRun(t, db, segmentID, userID)
+	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 5, 7, 9, 0, 0, 0, time.UTC))
+	insertSegmentRecalculationRunActivity(t, db, runID, activityID, userID, "queued", nil)
+	claim, err := db.ClaimNextSegmentRecalculationActivity(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNextSegmentRecalculationActivity: %v", err)
+	}
+	if claim == nil {
+		t.Fatal("claim = nil, want queued activity")
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE segment_recalculation_segment_state
+		SET generation = generation + 1
+		WHERE segment_id = $1
+	`, segmentID); err != nil {
+		t.Fatalf("advance generation: %v", err)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin validation tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	err = ValidateSegmentRecalculationActivityClaimTx(ctx, tx, *claim)
+	if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("ValidateSegmentRecalculationActivityClaimTx error = %v, want ErrSegmentValidation", err)
+	}
+}
+
 func insertSegmentRecalculationRun(t *testing.T, db *DB, segmentID, userID string) string {
 	t.Helper()
 	runID := uuid.NewString()
+	if _, err := db.Pool.Exec(context.Background(), `
+		INSERT INTO segment_recalculation_segment_state (segment_id, generation)
+		VALUES ($1, 1)
+		ON CONFLICT (segment_id) DO UPDATE
+			SET generation = 1,
+			    updated_at = NOW()
+	`, segmentID); err != nil {
+		t.Fatalf("insert recalculation state: %v", err)
+	}
 	if _, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO segment_recalculation_runs (
 			id, segment_id, actor_user_id, operation_key_hash, idempotency_key,

@@ -272,12 +272,18 @@ export async function fetchDetectedLaps(activityId: string): Promise<DetectedLap
   return apiClient<DetectedLap[]>(`/activities/${activityId}/detected-laps`)
 }
 
-export async function recomputeSegment(segmentId: string): Promise<void> {
-  return apiClient<void>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+export type SegmentRecalculationRunResponse = {
+  status: string
+  run_id?: string
+  total_activities?: number
 }
 
-export async function publishSegment(id: string): Promise<{ status: string; job_id: string }> {
-  return apiClient<{ status: string; job_id: string }>(`/segments/${id}/publish`, { method: 'POST' })
+export async function recomputeSegment(segmentId: string): Promise<SegmentRecalculationRunResponse> {
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+}
+
+export async function publishSegment(id: string): Promise<SegmentRecalculationRunResponse> {
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${id}/publish`, { method: 'POST' })
 }
 
 export async function updateSegmentVersionValidity(

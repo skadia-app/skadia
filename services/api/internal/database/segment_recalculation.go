@@ -35,6 +35,7 @@ type SegmentRecalculationActivityClaim struct {
 	ActivityID string
 	UserID     string
 	ClaimToken string
+	Generation int64
 	FromAt     *time.Time
 	UntilAt    *time.Time
 }
@@ -122,7 +123,8 @@ func seedSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, actorUserID s
 	if err := tx.QueryRow(ctx, `
 		SELECT created_by, visibility
 		FROM segments
-		WHERE id = $1`, scope.SegmentID).Scan(&segmentOwner, &visibility); err != nil {
+		WHERE id = $1
+		FOR UPDATE`, scope.SegmentID).Scan(&segmentOwner, &visibility); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", 0, ErrSegmentNotFound
 		}
@@ -192,6 +194,16 @@ func seedSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, actorUserID s
 	`, runID).Scan(&existingTotal); err != nil {
 		return "", 0, fmt.Errorf("update segment recalculation activity count: %w", err)
 	}
+	if existingTotal == 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE segment_recalculation_runs
+			SET status = 'completed',
+			    completed_at = NOW()
+			WHERE id = $1
+		`, runID); err != nil {
+			return "", 0, fmt.Errorf("complete empty segment recalculation run: %w", err)
+		}
+	}
 	return runID, existingTotal, nil
 }
 
@@ -252,6 +264,7 @@ candidate_activity AS (
      AND cep.match_allowed = true
     WHERE at.track_full IS NOT NULL
       AND sv.track IS NOT NULL
+      AND at.track_full && ST_Expand(sv.track, 0.002)
       AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
 
     UNION
@@ -288,6 +301,7 @@ func (db *DB) ClaimNextSegmentRecalculationActivity(ctx context.Context, workerI
 			       r.segment_id,
 			       ra.activity_id,
 			       ra.user_id,
+			       r.generation,
 			       r.requested_from_at,
 			       r.requested_until_at
 			FROM segment_recalculation_run_activities ra
@@ -313,12 +327,12 @@ func (db *DB) ClaimNextSegmentRecalculationActivity(ctx context.Context, workerI
 			WHERE ra.run_id = picked.run_id
 			  AND ra.activity_id = picked.activity_id
 			RETURNING ra.run_id, picked.segment_id, ra.activity_id, ra.user_id,
-			          ra.claim_token, picked.requested_from_at, picked.requested_until_at
+			          ra.claim_token, picked.generation, picked.requested_from_at, picked.requested_until_at
 		)
 		SELECT run_id, segment_id, activity_id, user_id, claim_token::text,
-		       requested_from_at, requested_until_at
+		       generation, requested_from_at, requested_until_at
 		FROM updated
-	`, claimTTL, workerID).Scan(&claim.RunID, &claim.SegmentID, &claim.ActivityID, &claim.UserID, &claim.ClaimToken, &claim.FromAt, &claim.UntilAt)
+	`, claimTTL, workerID).Scan(&claim.RunID, &claim.SegmentID, &claim.ActivityID, &claim.UserID, &claim.ClaimToken, &claim.Generation, &claim.FromAt, &claim.UntilAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, tx.Commit(ctx)
 	}
@@ -340,6 +354,37 @@ func (db *DB) ClaimNextSegmentRecalculationActivity(ctx context.Context, workerI
 		return nil, fmt.Errorf("commit segment recalculation claim: %w", err)
 	}
 	return &claim, nil
+}
+
+func ValidateSegmentRecalculationActivityClaimTx(ctx context.Context, tx pgx.Tx, claim SegmentRecalculationActivityClaim) error {
+	var runStatus, activityStatus string
+	var runGeneration, currentGeneration int64
+	err := tx.QueryRow(ctx, `
+		SELECT r.status, ra.status, r.generation, COALESCE(s.generation, 0)
+		FROM segment_recalculation_run_activities ra
+		JOIN segment_recalculation_runs r ON r.id = ra.run_id
+		LEFT JOIN segment_recalculation_segment_state s ON s.segment_id = r.segment_id
+		WHERE ra.run_id = $1
+		  AND ra.activity_id = $2
+		  AND ra.claim_token = $3::uuid
+		FOR UPDATE OF r, ra
+	`, claim.RunID, claim.ActivityID, claim.ClaimToken).Scan(&runStatus, &activityStatus, &runGeneration, &currentGeneration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	}
+	if err != nil {
+		return fmt.Errorf("validate segment recalculation activity claim: %w", err)
+	}
+	if runStatus != "running" || activityStatus != "running" {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	}
+	if claim.Generation != 0 && claim.Generation != runGeneration {
+		return fmt.Errorf("%w: stale segment recalculation generation", ErrSegmentValidation)
+	}
+	if runGeneration != currentGeneration {
+		return fmt.Errorf("%w: obsolete segment recalculation generation", ErrSegmentValidation)
+	}
+	return nil
 }
 
 func CompleteSegmentRecalculationActivityTx(ctx context.Context, tx pgx.Tx, claim SegmentRecalculationActivityClaim, result SegmentEffortSupersedeResult) error {
@@ -389,10 +434,12 @@ func CompleteSegmentRecalculationActivityTx(ctx context.Context, tx pgx.Tx, clai
 }
 
 func (db *DB) FailSegmentRecalculationActivity(ctx context.Context, claim SegmentRecalculationActivityClaim, errText string) error {
-	_, err := db.Pool.Exec(ctx, `
+	var updated int
+	err := db.Pool.QueryRow(ctx, `
 		WITH activity_update AS (
 			UPDATE segment_recalculation_run_activities
 			SET status = 'failed',
+			    error_code = 'activity_failed',
 			    error_message = NULLIF($4, ''),
 			    processed_at = NOW(),
 			    claimed_until = NULL
@@ -401,16 +448,44 @@ func (db *DB) FailSegmentRecalculationActivity(ctx context.Context, claim Segmen
 			  AND claim_token = $3::uuid
 			  AND status = 'running'
 			RETURNING run_id
+		),
+		counter_update AS (
+			UPDATE segment_recalculation_runs r
+			SET failed_activities = failed_activities + 1
+			FROM activity_update au
+			WHERE r.id = au.run_id
+			RETURNING r.id
+		),
+		finalize AS (
+			UPDATE segment_recalculation_runs r
+			SET status = 'failed',
+			    completed_at = NOW()
+			FROM counter_update cu
+			WHERE r.id = cu.id
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM segment_recalculation_run_activities ra
+				WHERE ra.run_id = r.id
+				  AND ra.status IN ('queued', 'running')
+			  )
+			RETURNING r.id
 		)
-		UPDATE segment_recalculation_runs r
-		SET failed_activities = failed_activities + 1
-		FROM activity_update au
-		WHERE r.id = au.run_id
-	`, claim.RunID, claim.ActivityID, claim.ClaimToken, errText)
+		SELECT count(*) FROM activity_update
+	`, claim.RunID, claim.ActivityID, claim.ClaimToken, sanitizedSegmentRecalculationErrorMessage(errText)).Scan(&updated)
 	if err != nil {
 		return fmt.Errorf("fail segment recalculation activity: %w", err)
 	}
+	if updated != 1 {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	}
 	return nil
+}
+
+func sanitizedSegmentRecalculationErrorMessage(errText string) string {
+	if strings.TrimSpace(errText) == "" {
+		return "activity recalculation failed"
+	}
+	return "activity recalculation failed"
 }
 
 // SupersedeSegmentEffortsForActivitySegments replaces active efforts for an

@@ -57,17 +57,13 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 		for segID := range replacementSegmentIDs {
 			segmentIDs = append(segmentIDs, segID)
 		}
-		for segID := range matchedSegmentIDs {
-			replacementSegmentIDs[segID] = struct{}{}
-		}
 		if err := db.ReplaceSegmentEffortsForActivitySegments(matchCtx, activityID, userID, segmentIDs, allEfforts); err != nil {
 			slog.Error("segment matching: replace efforts failed", "error", err)
 			return
 		}
 	}
 
-	// Update ranks once per matched segment (not per effort)
-	for segID := range matchedSegmentIDs {
+	for segID := range replacementSegmentIDs {
 		if err := db.UpdateSegmentEffortRanks(matchCtx, segID); err != nil {
 			slog.Warn("segment matching: update ranks failed",
 				"segment_id", segID, "error", err)
