@@ -1332,7 +1332,10 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 			leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
 			leaderboard_electric_policy_state, leaderboard_direction,
 			leaderboard_version_policy_key,
-			leaderboard_contract_key, leaderboard_contract_version
+			leaderboard_contract_key, leaderboard_contract_version,
+			activity_trait_bucket_key, eligibility_policy_key,
+			eligibility_policy_version, eligibility_source_hash,
+			in_leaderboard
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
@@ -1347,7 +1350,10 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 			$28, $29,
 			$30, $31,
 			$32,
-			$33, $34
+			$33, $34,
+			$35, $36,
+			$37, $38,
+			$39
 		)
 		ON CONFLICT DO NOTHING`,
 		effort.SegmentID, effort.SegmentVersionID, effort.ActivityID, effort.UserID,
@@ -1363,6 +1369,9 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 		nullableString(effort.LeaderboardElectricPolicyState), nullableString(effort.LeaderboardDirection),
 		nullableString(effort.LeaderboardVersionPolicyKey),
 		nullableString(effort.LeaderboardContractKey), nullableInt(effort.LeaderboardContractVersion),
+		nullableString(effort.ActivityTraitBucketKey), segmentEffortEligibilityPolicyKey(effort),
+		segmentEffortEligibilityPolicyVersion(effort), nullableString(effort.EligibilitySourceHash),
+		segmentEffortInLeaderboard(effort),
 	)
 	if err != nil {
 		return fmt.Errorf("insert segment effort: %w", err)
@@ -1489,50 +1498,44 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 
 // CandidateSegment holds info for spatial pre-filtered segment matching.
 type CandidateSegment struct {
-	SegmentID     string
-	VersionID     string
-	SportGroup    string
-	DistanceM     float64
-	SegmentType   string
-	TypeMeta      map[string]any
-	TrackWKB      []byte // Segment track as WKB for in-memory Hausdorff
-	Bidirectional bool
+	SegmentID              string
+	VersionID              string
+	SportGroup             string
+	DistanceM              float64
+	SegmentType            string
+	TypeMeta               map[string]any
+	TrackWKB               []byte // Segment track as WKB for in-memory Hausdorff
+	Bidirectional          bool
+	ActivityTraitBucketKey string
+	RankAllowed            bool
+	CompletionAllowed      bool
+	EligibilitySourceHash  string
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
-// filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
-func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time, subType string) ([]CandidateSegment, error) {
-	sportGroup := sportGroupFromTuple(sportType, subType)
-
-	// $5/$6 form the canonical activity tuple for allowed_predicates.
-	// allowed_predicates NULL means all tuples inside the segment's stored prefilter group.
-	// allowed_predicates = '[]' means "none" — matched never.
+// filtered by the course eligibility projection. Uses ST_DWithin with GIST
+// index for fast spatial pre-filtering after indexed eligibility lookup.
+func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, activityTraitBucketKey string, activityDate time.Time) ([]CandidateSegment, error) {
 	query := `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
 		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
-		       ST_AsBinary(sv.track), s.bidirectional
+		       ST_AsBinary(sv.track), s.bidirectional,
+		       cep.activity_trait_bucket_key, cep.rank_allowed,
+		       cep.completion_allowed, cep.source_hash
 		FROM segments s
 		` + activeCourseGPSV1VersionLateral("JOIN", "s.id", "$4", "id, track") + `
+		JOIN target_course_eligibility_projection cep
+		  ON cep.target_kind = 'segment'
+		 AND cep.target_id = s.id
+		 AND cep.target_version_id = sv.id
+		 AND cep.activity_trait_bucket_key = $3
+		 AND cep.match_allowed = true
 		JOIN activity_tracks at ON at.activity_id = $1
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
-		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
-			  AND (
-			      (s.allowed_predicates IS NULL AND s.segment_type NOT IN ('wintersport', 'wassersport'))
-			      OR jsonb_array_length(s.allowed_predicates) > 0
-			  )
-			  AND (
-			      s.allowed_predicates IS NULL
-			      OR EXISTS (
-			          SELECT 1
-			          FROM jsonb_array_elements(s.allowed_predicates) pred
-			          WHERE pred->>'sport' = $5
-			            AND (NOT pred ? 'sub_type' OR pred->>'sub_type' = $6)
-			      )
-			  )
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`
-	rows, err := db.Pool.Query(ctx, query, activityID, userID, sportGroup, activityDate, sportType, subType)
+	rows, err := db.Pool.Query(ctx, query, activityID, userID, activityTraitBucketKey, activityDate)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
@@ -1543,7 +1546,9 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		var c CandidateSegment
 		var rawMeta json.RawMessage
 		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
-			&c.SegmentType, &rawMeta, &c.TrackWKB, &c.Bidirectional); err != nil {
+			&c.SegmentType, &rawMeta, &c.TrackWKB, &c.Bidirectional,
+			&c.ActivityTraitBucketKey, &c.RankAllowed, &c.CompletionAllowed,
+			&c.EligibilitySourceHash); err != nil {
 			return nil, fmt.Errorf("scan candidate segment: %w", err)
 		}
 		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
@@ -1555,6 +1560,14 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
 	return result, nil
+}
+
+func ApplyCandidateEligibilityToEffort(e *model.SegmentEffort, candidate CandidateSegment) {
+	e.ActivityTraitBucketKey = candidate.ActivityTraitBucketKey
+	e.EligibilityPolicyKey = courseEligibilityPolicyKey
+	e.EligibilityPolicyVersion = courseEligibilityPolicyVersion
+	e.EligibilitySourceHash = candidate.EligibilitySourceHash
+	e.InLeaderboard = candidate.RankAllowed
 }
 
 func (db *DB) GetSegmentMatchActivityContext(ctx context.Context, activityID string) (SegmentMatchActivityContext, error) {
@@ -2195,19 +2208,20 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return nil
 	}
 
-	const cols = 34
+	const cols = 39
 	valueParts := make([]string, 0, len(efforts))
 	args := make([]any, 0, len(efforts)*cols)
 
 	for i, e := range efforts {
 		base := i * cols
 		valueParts = append(valueParts, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
 			base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
 			base+16, base+17, base+18, base+19, base+20, base+21, base+22,
 			base+23, base+24, base+25, base+26, base+27, base+28, base+29,
-			base+30, base+31, base+32, base+33, base+34,
+			base+30, base+31, base+32, base+33, base+34, base+35, base+36,
+			base+37, base+38, base+39,
 		))
 		args = append(args,
 			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
@@ -2224,6 +2238,9 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 			nullableString(e.LeaderboardElectricPolicyState), nullableString(e.LeaderboardDirection),
 			nullableString(e.LeaderboardVersionPolicyKey),
 			nullableString(e.LeaderboardContractKey), nullableInt(e.LeaderboardContractVersion),
+			nullableString(e.ActivityTraitBucketKey), segmentEffortEligibilityPolicyKey(e),
+			segmentEffortEligibilityPolicyVersion(e), nullableString(e.EligibilitySourceHash),
+			segmentEffortInLeaderboard(e),
 		)
 	}
 
@@ -2241,7 +2258,10 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		 leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
 		 leaderboard_electric_policy_state, leaderboard_direction,
 		 leaderboard_version_policy_key,
-		 leaderboard_contract_key, leaderboard_contract_version)
+		 leaderboard_contract_key, leaderboard_contract_version,
+		 activity_trait_bucket_key, eligibility_policy_key,
+		 eligibility_policy_version, eligibility_source_hash,
+		 in_leaderboard)
 		VALUES ` + strings.Join(valueParts, ", ") + `
 		ON CONFLICT DO NOTHING`
 
@@ -2250,6 +2270,27 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return fmt.Errorf("batch insert segment efforts: %w", err)
 	}
 	return nil
+}
+
+func segmentEffortInLeaderboard(e *model.SegmentEffort) bool {
+	if e.ActivityTraitBucketKey == "" && e.EligibilityPolicyKey == "" && e.EligibilitySourceHash == "" {
+		return true
+	}
+	return e.InLeaderboard
+}
+
+func segmentEffortEligibilityPolicyKey(e *model.SegmentEffort) string {
+	if e.EligibilityPolicyKey == "" {
+		return courseEligibilityPolicyKey
+	}
+	return e.EligibilityPolicyKey
+}
+
+func segmentEffortEligibilityPolicyVersion(e *model.SegmentEffort) int {
+	if e.EligibilityPolicyVersion == 0 {
+		return courseEligibilityPolicyVersion
+	}
+	return e.EligibilityPolicyVersion
 }
 
 // IsSegmentFavoriteByUser checks if a segment is favorited by a user.

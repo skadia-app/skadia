@@ -131,6 +131,10 @@ func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts Tes
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit tx: %v", err)
 	}
+	db := &database.DB{Pool: pool}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
+	}
 	return segID
 }
 

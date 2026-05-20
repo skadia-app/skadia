@@ -37,6 +37,9 @@ func TestMatcherFreezesMetadataForLapEfforts(t *testing.T) {
 		)`, segmentID, userID); err != nil {
 		t.Fatalf("insert lap version: %v", err)
 	}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
+	}
 
 	pts := [][2]float64{
 		{0, 0.000},
