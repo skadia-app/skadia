@@ -119,6 +119,9 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("insert segment_version %s: %v", name, err)
 		}
+		if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+			t.Fatalf("rebuild course eligibility projection %s: %v", name, err)
+		}
 		t.Cleanup(func() {
 			pool.Exec(context.Background(), "DELETE FROM segments WHERE id = $1", segID) //nolint:errcheck
 		})
@@ -243,6 +246,9 @@ func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
 	`, uuid.New().String(), segID)
 	if err != nil {
 		t.Fatalf("insert segment version: %v", err)
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
 	}
 
 	MatchActivitySegments(ctx, db, actID, userID, "cycling", "", nil, baseTime)
