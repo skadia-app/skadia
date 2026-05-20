@@ -1,6 +1,9 @@
 package sport
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -75,6 +78,68 @@ type SegmentProjectionEntry struct {
 	SportGroup  string `json:"sport_group"`
 }
 
+type ActivityTraitBucket struct {
+	Key                string   `json:"key"`
+	TraitPolicyKey     string   `json:"trait_policy_key"`
+	TraitPolicyVersion int      `json:"trait_policy_version"`
+	SourceHash         string   `json:"source_hash"`
+	SportType          string   `json:"sport_type"`
+	SubType            string   `json:"sub_type"`
+	IsIndoor           bool     `json:"is_indoor"`
+	IsVirtual          bool     `json:"is_virtual"`
+	IsElectric         bool     `json:"is_electric"`
+	MovementFamilies   []string `json:"movement_families"`
+	PropulsionModes    []string `json:"propulsion_modes"`
+	EquipmentFamilies  []string `json:"equipment_families"`
+	ActivityForm       string   `json:"activity_form"`
+	EnvironmentState   string   `json:"environment_state"`
+}
+
+type ActivityTraitBucketInput struct {
+	SportType  string
+	SubType    string
+	IsIndoor   bool
+	IsVirtual  bool
+	IsElectric bool
+}
+
+type activityTraitBucketTuple struct {
+	SportType         string
+	SubType           string
+	MovementFamilies  []string
+	PropulsionModes   []string
+	EquipmentFamilies []string
+	ActivityForm      string
+	EnvironmentState  string
+}
+
+type CourseEligibilityInput struct {
+	TargetKind           string
+	TargetID             string
+	TargetVersionID      string
+	SegmentType          string
+	SportGroup           string
+	AllowedPredicates    []Predicate
+	AllowedPredicatesSet bool
+	Bidirectional        bool
+	Visibility           string
+	ElevationKind        string
+	AdapterKey           string
+	AdapterVersion       int
+}
+
+type CourseEligibilityProjectionRow struct {
+	ActivityTraitBucketKey string
+	CompatibilityPreset    string
+	ActivityGroup          string
+	MatchAllowed           bool
+	CompletionAllowed      bool
+	RankAllowed            bool
+	LeaderboardTemplate    map[string]any
+	SourceHash             string
+	SourceHashPayload      map[string]any
+}
+
 type RuleTupleOption struct {
 	SportType string `json:"sport_type"`
 	SubType   string `json:"sub_type,omitempty"`
@@ -87,6 +152,8 @@ var (
 	segmentProjectionGroupsByTuple  map[string]string
 	segmentProjectionActiveByType   map[string]map[string]struct{}
 	segmentProjectionActiveByDomain map[string]struct{}
+	activityTraitBucketIndexOnce    sync.Once
+	activityTraitBucketsByKey       map[string]ActivityTraitBucket
 )
 
 type RuleModifierProjection struct {
@@ -366,6 +433,105 @@ func SegmentProjectionGroupForPredicates(preds []Predicate) string {
 	return group
 }
 
+func ActivityTraitBuckets() []ActivityTraitBucket {
+	out := make([]ActivityTraitBucket, len(generatedActivityTraitBuckets))
+	for i, bucket := range generatedActivityTraitBuckets {
+		out[i] = cloneActivityTraitBucket(bucket)
+	}
+	return out
+}
+
+func ActivityTraitBucketByKey(key string) (ActivityTraitBucket, bool) {
+	ensureActivityTraitBucketIndex()
+	bucket, ok := activityTraitBucketsByKey[key]
+	if !ok {
+		return ActivityTraitBucket{}, false
+	}
+	return cloneActivityTraitBucket(bucket), true
+}
+
+func BuildActivityTraitBucketKey(input ActivityTraitBucketInput) string {
+	sportType := CanonicalSportTypeID(input.SportType)
+	subType := bucketSubType(input.SubType)
+	var sb strings.Builder
+	sb.Grow(len(sportType) + len(subType) + 48)
+	sb.WriteString("atb:v1:sport=")
+	sb.WriteString(sportType)
+	sb.WriteString(":sub=")
+	sb.WriteString(subType)
+	sb.WriteString(":indoor=")
+	sb.WriteString(boolKey(input.IsIndoor))
+	sb.WriteString(":virtual=")
+	sb.WriteString(boolKey(input.IsVirtual))
+	sb.WriteString(":electric=")
+	sb.WriteString(boolKey(input.IsElectric))
+	return sb.String()
+}
+
+func ActivityTraitBucketKeyForActivity(sportType, subType string, state ActivityModifierState) (string, bool) {
+	tuple, _, err := NormalizeSportTuple(sportType, subType)
+	if err != nil {
+		return "", false
+	}
+	return activityTraitBucketKeyForTuple(tuple.SportType, tuple.SubType, state)
+}
+
+func ActivityTraitBucketKeyForActivityLegacyCandidate(sportType, subType string, state ActivityModifierState) (string, bool) {
+	tuple, _, err := NormalizeSportTuple(sportType, subType)
+	if err == nil {
+		if key, ok := activityTraitBucketKeyForTuple(tuple.SportType, tuple.SubType, state); ok {
+			return key, true
+		}
+	}
+
+	canonicalSport := CanonicalSportTypeID(sportType)
+	if _, ok := registry[canonicalSport]; ok {
+		return activityTraitBucketKeyForTuple(canonicalSport, "", state)
+	}
+	return activityTraitBucketKeyForTuple(GenericSportType, "", state)
+}
+
+func CourseEligibilityRowsForSegment(input CourseEligibilityInput) []CourseEligibilityProjectionRow {
+	if input.TargetKind != "" && input.TargetKind != "segment" {
+		return nil
+	}
+	if !input.AllowedPredicatesSet && (input.SegmentType == "wintersport" || input.SegmentType == "wassersport") {
+		return nil
+	}
+	if input.AllowedPredicatesSet && len(input.AllowedPredicates) == 0 {
+		return nil
+	}
+
+	buckets := ActivityTraitBuckets()
+	rows := make([]CourseEligibilityProjectionRow, 0, len(buckets))
+	for _, bucket := range buckets {
+		group := activityGroupForBucket(bucket)
+		if !courseEligibilityBucketAllowed(input, bucket, group) {
+			continue
+		}
+		row := CourseEligibilityProjectionRow{
+			ActivityTraitBucketKey: bucket.Key,
+			CompatibilityPreset:    input.SegmentType,
+			ActivityGroup:          group,
+			MatchAllowed:           true,
+			CompletionAllowed:      true,
+			RankAllowed:            input.SegmentType != "lift",
+			LeaderboardTemplate: map[string]any{
+				"activity_trait_bucket_key": bucket.Key,
+				"assist_class":              "legacy",
+				"direction":                 "legacy",
+				"matching_contract_key":     "course_gps_v1",
+				"matching_contract_version": 1,
+				"ranking_scope":             "legacy_segment_wide",
+			},
+		}
+		row.SourceHashPayload = courseEligibilitySourceHashPayload(input, bucket, group)
+		row.SourceHash = sourceHash(row.SourceHashPayload)
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func RuleTupleOptions() []RuleTupleOption {
 	return append([]RuleTupleOption(nil), generatedRuleTupleOptions...)
 }
@@ -510,6 +676,13 @@ func cloneStringSlice(values []string) []string {
 	return out
 }
 
+func cloneActivityTraitBucket(bucket ActivityTraitBucket) ActivityTraitBucket {
+	bucket.MovementFamilies = cloneStringSlice(bucket.MovementFamilies)
+	bucket.PropulsionModes = cloneStringSlice(bucket.PropulsionModes)
+	bucket.EquipmentFamilies = cloneStringSlice(bucket.EquipmentFamilies)
+	return bucket
+}
+
 // ModifierDefaultsForTuple returns effective canonical modifier defaults for a
 // sport tuple. Unknown sports return zero defaults; unknown subtypes inherit the parent.
 func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
@@ -573,6 +746,142 @@ func projectionTupleKey(sportType, subType string) string {
 	return sportType + ":" + subType
 }
 
+func bucketSubType(subType string) string {
+	subType = CanonicalSubTypeID(subType)
+	if subType == "" {
+		return "_"
+	}
+	return subType
+}
+
+func boolKey(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
+}
+
+func buildGeneratedActivityTraitBuckets(tuples []activityTraitBucketTuple) []ActivityTraitBucket {
+	buckets := make([]ActivityTraitBucket, 0, len(tuples)*8)
+	for _, tuple := range tuples {
+		for _, indoor := range []bool{false, true} {
+			for _, virtual := range []bool{false, true} {
+				for _, electric := range []bool{false, true} {
+					bucket := ActivityTraitBucket{
+						Key: BuildActivityTraitBucketKey(ActivityTraitBucketInput{
+							SportType:  tuple.SportType,
+							SubType:    tuple.SubType,
+							IsIndoor:   indoor,
+							IsVirtual:  virtual,
+							IsElectric: electric,
+						}),
+						TraitPolicyKey:     "activity_traits",
+						TraitPolicyVersion: 1,
+						SportType:          tuple.SportType,
+						SubType:            bucketSubType(tuple.SubType),
+						IsIndoor:           indoor,
+						IsVirtual:          virtual,
+						IsElectric:         electric,
+						MovementFamilies:   cloneStringSlice(tuple.MovementFamilies),
+						PropulsionModes:    cloneStringSlice(tuple.PropulsionModes),
+						EquipmentFamilies:  cloneStringSlice(tuple.EquipmentFamilies),
+						ActivityForm:       tuple.ActivityForm,
+						EnvironmentState:   tuple.EnvironmentState,
+					}
+					bucket.SourceHash = sourceHash(map[string]any{
+						"activity_form":        bucket.ActivityForm,
+						"environment_state":    bucket.EnvironmentState,
+						"equipment_families":   bucket.EquipmentFamilies,
+						"is_electric":          bucket.IsElectric,
+						"is_indoor":            bucket.IsIndoor,
+						"is_virtual":           bucket.IsVirtual,
+						"movement_families":    bucket.MovementFamilies,
+						"propulsion_modes":     bucket.PropulsionModes,
+						"sport_type":           bucket.SportType,
+						"sub_type":             bucket.SubType,
+						"trait_policy_key":     bucket.TraitPolicyKey,
+						"trait_policy_version": bucket.TraitPolicyVersion,
+					})
+					buckets = append(buckets, bucket)
+				}
+			}
+		}
+	}
+	return buckets
+}
+
+func activityTraitBucketKeyForTuple(sportType, subType string, state ActivityModifierState) (string, bool) {
+	key := BuildActivityTraitBucketKey(ActivityTraitBucketInput{
+		SportType:  sportType,
+		SubType:    subType,
+		IsIndoor:   state.IsIndoor,
+		IsVirtual:  state.IsVirtual,
+		IsElectric: state.IsElectric,
+	})
+	if _, ok := ActivityTraitBucketByKey(key); !ok {
+		return "", false
+	}
+	return key, true
+}
+
+func activityGroupForBucket(bucket ActivityTraitBucket) string {
+	subType := bucket.SubType
+	if subType == "_" {
+		subType = ""
+	}
+	if bucket.SportType == GenericSportType {
+		return "generic"
+	}
+	if group, ok := SegmentProjectionGroupForTuple(bucket.SportType, subType); ok {
+		return group
+	}
+	return "generic"
+}
+
+func courseEligibilityBucketAllowed(input CourseEligibilityInput, bucket ActivityTraitBucket, group string) bool {
+	if input.AllowedPredicatesSet {
+		subType := bucket.SubType
+		if subType == "_" {
+			subType = ""
+		}
+		return PredicatesMatch(input.AllowedPredicates, bucket.SportType, &subType)
+	}
+	if input.SportGroup == "generic" {
+		return true
+	}
+	return group == input.SportGroup
+}
+
+func courseEligibilitySourceHashPayload(input CourseEligibilityInput, bucket ActivityTraitBucket, activityGroup string) map[string]any {
+	return map[string]any{
+		"activity_group":            activityGroup,
+		"activity_trait_bucket_key": bucket.Key,
+		"activity_trait_source":     bucket.SourceHash,
+		"adapter_key":               input.AdapterKey,
+		"adapter_version":           input.AdapterVersion,
+		"allowed_predicates":        input.AllowedPredicates,
+		"allowed_predicates_set":    input.AllowedPredicatesSet,
+		"bidirectional":             input.Bidirectional,
+		"elevation_kind":            input.ElevationKind,
+		"matching_contract_key":     "course_gps_v1",
+		"matching_contract_version": 1,
+		"policy_key":                "course_eligibility",
+		"policy_version":            1,
+		"segment_type":              input.SegmentType,
+		"sport_group":               input.SportGroup,
+		"target_id":                 input.TargetID,
+		"target_kind":               "segment",
+		"target_version_id":         input.TargetVersionID,
+		"visibility":                input.Visibility,
+	}
+}
+
+func sourceHash(payload map[string]any) string {
+	encoded, _ := json.Marshal(payload)
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func segmentProjectionActiveDomains(segmentType string) map[string]struct{} {
 	ensureSegmentProjectionIndex()
 	return segmentProjectionActiveByType[segmentType]
@@ -609,6 +918,15 @@ func ensureSegmentProjectionIndex() {
 			if _, exists := segmentProjectionGroupsByTuple[key]; !exists {
 				segmentProjectionGroupsByTuple[key] = entry.SportGroup
 			}
+		}
+	})
+}
+
+func ensureActivityTraitBucketIndex() {
+	activityTraitBucketIndexOnce.Do(func() {
+		activityTraitBucketsByKey = make(map[string]ActivityTraitBucket, len(generatedActivityTraitBuckets))
+		for _, bucket := range generatedActivityTraitBuckets {
+			activityTraitBucketsByKey[bucket.Key] = bucket
 		}
 	})
 }
