@@ -25,6 +25,11 @@ var (
 	ErrSegmentValidation    = errors.New("segment validation failed")
 )
 
+const (
+	segmentEffortActivePredicate = "se.superseded_at IS NULL"
+	segmentEffortActiveWhere     = "superseded_at IS NULL"
+)
+
 func normalizeSegmentPredicates(preds []sport.Predicate) ([]sport.Predicate, error) {
 	normalized, err := sport.NormalizePredicates(preds)
 	if err != nil {
@@ -262,7 +267,7 @@ LEFT JOIN LATERAL (
         LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
         WHERE se.segment_id = s.id
           AND a.user_id = $1
-          AND se.superseded_by_effort_id IS NULL
+          AND se.superseded_at IS NULL
     ) ranked_efforts
 ) ue ON true
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
@@ -688,7 +693,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                                LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
                                LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
                                WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
-                                 AND se.superseded_by_effort_id IS NULL
+                                 AND se.superseded_at IS NULL
                            ) user_efforts
                            WHERE rn = 1 AND visibility != 'public'
                        ), 0) AS effort_count, s.athlete_count,
@@ -711,7 +716,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                                LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
                                LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
                                WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
-                                 AND se.superseded_by_effort_id IS NULL
+                                 AND se.superseded_at IS NULL
                            ) user_efforts
                            WHERE rn = 1
                        ), 0) AS ridden_count,
@@ -758,6 +763,10 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 }
 
 func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdmin bool, update *model.SegmentUpdate) (*model.Segment, error) {
+	if segmentUpdateTouchesVersionedFields(update) && !update.NewVersion {
+		return nil, fmt.Errorf("%w: segment matching, eligibility, privacy, and leaderboard metadata must use the versioned segment workflow", ErrSegmentValidation)
+	}
+
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin segment update tx: %w", err)
@@ -930,6 +939,20 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 }
 
+func segmentUpdateTouchesVersionedFields(update *model.SegmentUpdate) bool {
+	if update == nil {
+		return false
+	}
+	return update.SegmentType != nil ||
+		update.SegmentTypeMeta != nil ||
+		update.TerrainType != nil ||
+		update.ClimbType != nil ||
+		update.ElevationKind != nil ||
+		update.Visibility != nil ||
+		len(update.AllowedPredicates) > 0 ||
+		update.Bidirectional != nil
+}
+
 func segmentTypeForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, userID string, isAdmin bool) (string, bool, error) {
 	var segmentType string
 	var err error
@@ -986,7 +1009,22 @@ func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) err
 
 // createNewSegmentVersionTx copies the latest segment_version into a new version row.
 func (db *DB) createNewSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
-	_, err := tx.Exec(ctx, `
+	var actorUserID string
+	if err := tx.QueryRow(ctx, `SELECT created_by FROM segments WHERE id = $1`, segmentID).Scan(&actorUserID); err != nil {
+		return fmt.Errorf("select segment owner for new version: %w", err)
+	}
+	_, _, err := db.createNewSegmentVersionWithPolicyTx(ctx, tx, segmentID, actorUserID, "manual_new_version", "version_specific")
+	return err
+}
+
+func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operation, equivalenceDecision string) (string, string, error) {
+	operationID := stableOperationHash(segmentID, actorUserID, operation, time.Now().UTC().Format(time.RFC3339Nano))
+	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	var versionID string
+	if err := tx.QueryRow(ctx, `
 		WITH boundary AS (
 			SELECT NOW() AS at
 		),
@@ -1040,11 +1078,25 @@ func (db *DB) createNewSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentI
 		       'course_gps_v1',
 		       1,
 		       boundary.at
-		FROM active, next_version, next_future, boundary, closed`, segmentID)
-	if err != nil {
-		return fmt.Errorf("create new segment version: %w", err)
+		FROM active, next_version, next_future, boundary, closed
+		RETURNING id`, segmentID).Scan(&versionID); err != nil {
+		return "", "", fmt.Errorf("create new segment version: %w", err)
 	}
-	return nil
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, actorUserID, operationID, equivalenceDecision, operation, nil); err != nil {
+		return "", "", err
+	}
+	after, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, operation, operation, before, after, nil, nil, nil, nil, operationID); err != nil {
+		return "", "", err
+	}
+	groupID, err := activeLeaderboardEquivalenceGroupTx(ctx, tx, segmentID, versionID)
+	if err != nil {
+		return "", "", err
+	}
+	return versionID, groupID, nil
 }
 
 func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string, isAdmin bool) error {
@@ -1181,7 +1233,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		// "Nur ich": show canonical own efforts including from private activities.
 		query += `
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true
-		  AND se.superseded_by_effort_id IS NULL
+		  AND se.superseded_at IS NULL
 		  AND se.user_id = $` + fmt.Sprint(argIdx)
 		args = append(args, onlyUserID)
 		argIdx++
@@ -1190,7 +1242,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		query += `
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true
 		  AND act.visibility = 'public'
-		  AND se.superseded_by_effort_id IS NULL`
+		  AND se.superseded_at IS NULL`
 	}
 
 	if sportType != "" {
@@ -1291,7 +1343,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1
-		  AND se.superseded_by_effort_id IS NULL
+		  AND se.superseded_at IS NULL
 		)
 		SELECT id, segment_id, segment_version_id, activity_id,
 		       user_id, started_at, elapsed_time_s,
@@ -1353,6 +1405,8 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 			matching_contract_key, matching_contract_version,
 			match_source_type, match_source_id, match_identity_key,
 			occurrence_index, occurrence_hash, superseded_by_effort_id,
+			superseded_at, superseded_reason, superseded_by_recalculation_run_id,
+			created_by_recalculation_run_id, leaderboard_equivalence_group_id,
 			leaderboard_sport_type, leaderboard_sub_type,
 			leaderboard_equipment_class, leaderboard_assist_class,
 			leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
@@ -1371,15 +1425,17 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 			$16, $17,
 			$18, $19, $20,
 			$21, $22, $23,
-			$24, $25,
-			$26, $27,
-			$28, $29,
-			$30, $31,
-			$32,
+			$24, $25, $26,
+			$27, $28,
+			$29, $30,
+			$31, $32,
 			$33, $34,
 			$35, $36,
-			$37, $38,
-			$39
+			$37,
+			$38, $39,
+			$40, $41,
+			$42, $43,
+			$44
 		)
 		ON CONFLICT DO NOTHING`,
 		effort.SegmentID, effort.SegmentVersionID, effort.ActivityID, effort.UserID,
@@ -1389,6 +1445,8 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 		nullableString(effort.MatchingContractKey), nullableInt(effort.MatchingContractVersion),
 		nullableString(effort.MatchSourceType), nullableString(effort.MatchSourceID), nullableString(effort.MatchIdentityKey),
 		effort.OccurrenceIndex, effort.OccurrenceHash, effort.SupersededByEffortID,
+		effort.SupersededAt, effort.SupersededReason, effort.SupersededByRecalculationRunID,
+		effort.CreatedByRecalculationRunID, nullableString(effort.LeaderboardEquivalenceGroupID),
 		nullableString(effort.LeaderboardSportType), nullableString(effort.LeaderboardSubType),
 		nullableString(effort.LeaderboardEquipmentClass), nullableString(effort.LeaderboardAssistClass),
 		nullableString(effort.LeaderboardIndoorPolicyState), nullableString(effort.LeaderboardVirtualPolicyState),
@@ -1425,10 +1483,12 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 	_, err := conn.Exec(ctx, `
 		WITH
 		canonical AS (
-			SELECT se.id, se.started_at, se.user_id, se.leaderboard_sport_type, se.leaderboard_direction, se.elapsed_time_s,
+			SELECT se.id, se.started_at, se.user_id,
+			       se.leaderboard_equivalence_group_id,
+			       se.leaderboard_sport_type, se.leaderboard_direction, se.elapsed_time_s,
 			       a.visibility,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
+			           PARTITION BY se.leaderboard_equivalence_group_id, COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
 			           ORDER BY
 			               CASE
 			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -1444,16 +1504,16 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 			WHERE se.segment_id = $1
 			  AND se.in_leaderboard = true
-			  AND se.superseded_by_effort_id IS NULL
+			  AND se.superseded_at IS NULL
 		),
 		global_ranked AS (
 			SELECT c.id, c.started_at,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY c.leaderboard_sport_type, c.leaderboard_direction
+			           PARTITION BY c.leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) AS rk,
 			       (ROW_NUMBER() OVER (
-			           PARTITION BY c.leaderboard_sport_type, c.leaderboard_direction
+			           PARTITION BY c.leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) = 1) AS is_record
 			FROM canonical c
@@ -1462,7 +1522,7 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 		personal_ranked AS (
 			SELECT id, started_at,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY leaderboard_sport_type, leaderboard_direction, user_id
+			           PARTITION BY leaderboard_equivalence_group_id, leaderboard_sport_type, leaderboard_direction, user_id
 			           ORDER BY elapsed_time_s ASC
 			       ) AS user_rk
 			FROM canonical
@@ -1505,7 +1565,7 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 			WHERE se.segment_id = $1
-			  AND se.superseded_by_effort_id IS NULL
+			  AND se.superseded_at IS NULL
 		)
 		UPDATE segments SET
 			effort_count = (
@@ -2234,20 +2294,21 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return nil
 	}
 
-	const cols = 39
+	const cols = 44
 	valueParts := make([]string, 0, len(efforts))
 	args := make([]any, 0, len(efforts)*cols)
 
 	for i, e := range efforts {
 		base := i * cols
 		valueParts = append(valueParts, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
 			base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
 			base+16, base+17, base+18, base+19, base+20, base+21, base+22,
 			base+23, base+24, base+25, base+26, base+27, base+28, base+29,
 			base+30, base+31, base+32, base+33, base+34, base+35, base+36,
-			base+37, base+38, base+39,
+			base+37, base+38, base+39, base+40, base+41, base+42, base+43,
+			base+44,
 		))
 		args = append(args,
 			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
@@ -2258,6 +2319,8 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 			nullableString(e.MatchingContractKey), nullableInt(e.MatchingContractVersion),
 			nullableString(e.MatchSourceType), nullableString(e.MatchSourceID), nullableString(e.MatchIdentityKey),
 			e.OccurrenceIndex, e.OccurrenceHash, e.SupersededByEffortID,
+			e.SupersededAt, e.SupersededReason, e.SupersededByRecalculationRunID,
+			e.CreatedByRecalculationRunID, nullableString(e.LeaderboardEquivalenceGroupID),
 			nullableString(e.LeaderboardSportType), nullableString(e.LeaderboardSubType),
 			nullableString(e.LeaderboardEquipmentClass), nullableString(e.LeaderboardAssistClass),
 			nullableString(e.LeaderboardIndoorPolicyState), nullableString(e.LeaderboardVirtualPolicyState),
@@ -2279,6 +2342,8 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		 matching_contract_key, matching_contract_version,
 		 match_source_type, match_source_id, match_identity_key,
 		 occurrence_index, occurrence_hash, superseded_by_effort_id,
+		 superseded_at, superseded_reason, superseded_by_recalculation_run_id,
+		 created_by_recalculation_run_id, leaderboard_equivalence_group_id,
 		 leaderboard_sport_type, leaderboard_sub_type,
 		 leaderboard_equipment_class, leaderboard_assist_class,
 		 leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
@@ -2388,7 +2453,7 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id
 	WHERE se.segment_id = $1
 	  AND a.user_id = $2
-	  AND se.superseded_by_effort_id IS NULL`
+	  AND se.superseded_at IS NULL`
 
 	args := []any{segmentID, userID}
 	if isReverse != nil {
@@ -2449,7 +2514,7 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 		WHERE se.user_id = $1
 		  AND se.personal_rank IS NOT NULL
 		  AND se.personal_rank <= 3
-		  AND se.superseded_by_effort_id IS NULL
+		  AND se.superseded_at IS NULL
 		ORDER BY s.name ASC, se.personal_rank ASC`,
 		userID)
 	if err != nil {
@@ -2516,7 +2581,7 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 		  AND se.rank_overall IS NOT NULL
 		  AND se.rank_overall <= 10
 		  AND se.in_leaderboard = true
-		  AND se.superseded_by_effort_id IS NULL
+		  AND se.superseded_at IS NULL
 		ORDER BY se.rank_overall ASC, s.name ASC`,
 		userID)
 	if err != nil {

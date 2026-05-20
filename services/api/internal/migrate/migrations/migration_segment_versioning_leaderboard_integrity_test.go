@@ -299,6 +299,147 @@ func TestMigration_SegmentVersioningLeaderboardIntegrity_SegmentDeleteCascadesNe
 	}
 }
 
+func TestMigration_SegmentVersioningLeaderboardIntegrity_FillsActiveEffortEquivalenceGroup(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, activityID, segmentID, versionID := insertSegmentValidityFixture(t, ctx, pool)
+	applySegmentVersioningLeaderboardIntegrityMigration(t, ctx, pool)
+
+	var effortGroupID string
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts (
+			segment_id, segment_version_id, activity_id, user_id, started_at,
+			elapsed_time_s, sport_type, sub_type, match_identity_key
+		)
+		VALUES ($1, $2, $3, $4, '2026-05-14T09:30:00Z', 60, 'cycling', 'mountain', $5)
+	`, segmentID, versionID, activityID, userID, "mig-plan2-fill:"+activityID); err != nil {
+		t.Fatalf("insert active effort without group: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT leaderboard_equivalence_group_id
+		FROM segment_efforts
+		WHERE activity_id = $1
+	`, activityID).Scan(&effortGroupID); err != nil {
+		t.Fatalf("query filled effort group: %v", err)
+	}
+	if effortGroupID == "" {
+		t.Fatal("active effort group id was not filled")
+	}
+}
+
+func TestMigration_SegmentVersioningLeaderboardIntegrity_RejectsCrossSegmentMembership(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	_, _, _, versionAID := insertSegmentValidityFixture(t, ctx, pool)
+	_, _, segmentBID, _ := insertSegmentValidityFixture(t, ctx, pool)
+	applySegmentVersioningLeaderboardIntegrityMigration(t, ctx, pool)
+
+	var groupBID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id
+		FROM segment_leaderboard_equivalence_groups
+		WHERE segment_id = $1
+		LIMIT 1
+	`, segmentBID).Scan(&groupBID); err != nil {
+		t.Fatalf("query second segment group: %v", err)
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO segment_leaderboard_equivalence_group_versions (
+			group_id, segment_version_id, leaderboard_surface, join_reason
+		)
+		VALUES ($1, $2, 'default', 'bad_cross_segment_test')
+	`, groupBID, versionAID)
+	if err == nil {
+		t.Fatal("expected cross-segment membership to fail")
+	}
+	if !strings.Contains(err.Error(), "different segments") {
+		t.Fatalf("cross-segment error = %v, want different segments", err)
+	}
+}
+
+func TestMigration_SegmentVersioningLeaderboardIntegrity_RejectsMultiVersionVersionSpecificGroup(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, _, segmentID, versionID := insertSegmentValidityFixture(t, ctx, pool)
+	applySegmentVersioningLeaderboardIntegrityMigration(t, ctx, pool)
+
+	var groupID string
+	if err := pool.QueryRow(ctx, `
+		SELECT group_id
+		FROM segment_leaderboard_equivalence_group_versions
+		WHERE segment_version_id = $1
+		  AND retired_at IS NULL
+	`, versionID).Scan(&groupID); err != nil {
+		t.Fatalf("query version_specific group: %v", err)
+	}
+	var secondVersionID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO segment_versions (
+			segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT $1, 2,
+		       ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326),
+		       ST_StartPoint(ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326)),
+		       ST_EndPoint(ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326)),
+		       CURRENT_DATE, $2, '2027-01-01T00:00:00Z', 'editor_asserted',
+		       'course_gps_v1', 1, NOW()
+		RETURNING id
+	`, segmentID, userID).Scan(&secondVersionID); err != nil {
+		t.Fatalf("insert second version: %v", err)
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO segment_leaderboard_equivalence_group_versions (
+			group_id, segment_version_id, leaderboard_surface, join_reason
+		)
+		VALUES ($1, $2, 'default', 'bad_version_specific_test')
+	`, groupID, secondVersionID)
+	if err == nil {
+		t.Fatal("expected multi-version version_specific group to fail")
+	}
+	if !strings.Contains(err.Error(), "version_specific") {
+		t.Fatalf("version_specific cardinality error = %v", err)
+	}
+}
+
+func TestMigration_SegmentVersioningLeaderboardIntegrity_RejectsEffortInactiveMembership(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, activityID, segmentID, versionID := insertSegmentValidityFixture(t, ctx, pool)
+	applySegmentVersioningLeaderboardIntegrityMigration(t, ctx, pool)
+
+	var groupID string
+	if err := pool.QueryRow(ctx, `
+		SELECT group_id
+		FROM segment_leaderboard_equivalence_group_versions
+		WHERE segment_version_id = $1
+		  AND retired_at IS NULL
+	`, versionID).Scan(&groupID); err != nil {
+		t.Fatalf("query group: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE segment_leaderboard_equivalence_group_versions
+		SET retired_at = NOW()
+		WHERE group_id = $1 AND segment_version_id = $2
+	`, groupID, versionID); err != nil {
+		t.Fatalf("retire membership: %v", err)
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts (
+			segment_id, segment_version_id, activity_id, user_id, started_at,
+			elapsed_time_s, sport_type, sub_type, match_identity_key,
+			leaderboard_equivalence_group_id
+		)
+		VALUES ($1, $2, $3, $4, '2026-05-14T09:30:00Z', 60, 'cycling', 'mountain', $5, $6)
+	`, segmentID, versionID, activityID, userID, "mig-plan2-inactive:"+activityID, groupID)
+	if err == nil {
+		t.Fatal("expected inactive effort membership to fail")
+	}
+	if !strings.Contains(err.Error(), "not active") {
+		t.Fatalf("inactive membership error = %v, want not active", err)
+	}
+}
+
 func readMigrationSQL(t *testing.T, pattern string) string {
 	t.Helper()
 	matches, err := filepath.Glob(pattern)
@@ -317,8 +458,54 @@ func readMigrationSQL(t *testing.T, pattern string) string {
 
 func applySegmentVersioningLeaderboardIntegrityMigration(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, readMigrationSQL(t, "*_segment_versioning_leaderboard_integrity.up.sql")); err != nil {
-		t.Fatalf("reapply segment versioning leaderboard integrity migration: %v", err)
+	if _, err := pool.Exec(ctx, `
+		WITH missing_versions AS (
+			SELECT sv.id AS version_id,
+			       sv.segment_id,
+			       sv.version_number
+			FROM segment_versions sv
+			WHERE sv.matching_contract_key = 'course_gps_v1'
+			  AND sv.matching_contract_version = 1
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM segment_leaderboard_equivalence_group_versions gv
+			      WHERE gv.segment_version_id = sv.id
+			        AND gv.leaderboard_surface = 'default'
+			        AND gv.retired_at IS NULL
+			  )
+		),
+		inserted AS (
+			INSERT INTO segment_leaderboard_equivalence_groups (
+				segment_id, change_key, policy_key, policy_version, equivalence_kind, reason, metadata
+			)
+			SELECT mv.segment_id,
+			       'legacy_version_specific:' || mv.version_id::text,
+			       'segment_leaderboard_equivalence',
+			       1,
+			       'version_specific',
+			       'legacy_version_specific_backfill',
+			       jsonb_build_object(
+			           'legacy_policy', 'legacy_segment_wide',
+			           'backfilled_version_id', mv.version_id::text,
+			           'version_number', mv.version_number,
+			           'merge_policy', 'no_automatic_historical_merge'
+			       )
+			FROM missing_versions mv
+			ON CONFLICT (segment_id, policy_key, policy_version, change_key) DO UPDATE
+				SET metadata = EXCLUDED.metadata
+			RETURNING id, metadata
+		)
+		INSERT INTO segment_leaderboard_equivalence_group_versions (
+			group_id, segment_version_id, leaderboard_surface, join_reason
+		)
+		SELECT inserted.id,
+		       (inserted.metadata->>'backfilled_version_id')::uuid,
+		       'default',
+		       'legacy_version_specific_backfill'
+		FROM inserted
+		ON CONFLICT (group_id, segment_version_id, leaderboard_surface) DO NOTHING
+	`); err != nil {
+		t.Fatalf("backfill missing segment version equivalence groups: %v", err)
 	}
 }
 
