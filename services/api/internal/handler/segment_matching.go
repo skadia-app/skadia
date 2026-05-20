@@ -36,10 +36,13 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 		return
 	}
 
-	// Batch-insert all collected efforts
-	if len(allEfforts) > 0 {
-		if err := db.InsertSegmentEffortsBatch(matchCtx, allEfforts); err != nil {
-			slog.Error("segment matching: batch insert failed", "error", err)
+	if len(matchedSegmentIDs) > 0 {
+		segmentIDs := make([]string, 0, len(matchedSegmentIDs))
+		for segID := range matchedSegmentIDs {
+			segmentIDs = append(segmentIDs, segID)
+		}
+		if err := db.ReplaceSegmentEffortsForActivitySegments(matchCtx, activityID, userID, segmentIDs, allEfforts); err != nil {
+			slog.Error("segment matching: replace efforts failed", "error", err)
 			return
 		}
 	}

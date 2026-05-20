@@ -181,18 +181,9 @@ func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*mo
 	args := []any{p.UserID}
 	argIdx := 2
 
-	// --- CTE: user_efforts ---
+	// --- CTE: user_favs ---
 	cte := `
-WITH user_efforts AS (
-    SELECT se.segment_id,
-           COUNT(*)::int AS ridden_count,
-           COUNT(*) FILTER (WHERE a.visibility != 'public')::int AS private_ridden_count
-    FROM segment_efforts se
-    JOIN activities a ON se.activity_id = a.id
-    WHERE a.user_id = $1
-    GROUP BY se.segment_id
-),
-user_favs AS (
+WITH user_favs AS (
     SELECT segment_id FROM segment_favorites WHERE user_id = $1
 )`
 
@@ -221,7 +212,30 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
 	// --- FROM + JOINs ---
 	from := `
 FROM segments s
-LEFT JOIN user_efforts ue ON ue.segment_id = s.id
+LEFT JOIN LATERAL (
+    SELECT COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count,
+           COUNT(*) FILTER (WHERE rn = 1 AND visibility != 'public')::int AS private_ridden_count
+    FROM (
+        SELECT a.visibility,
+               ROW_NUMBER() OVER (
+                   PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+                   ORDER BY
+                       CASE
+                           WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+                           WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+                           ELSE 2
+                       END,
+                       se.created_at ASC,
+                       se.id ASC
+               ) AS rn
+        FROM segment_efforts se
+        JOIN activities a ON se.activity_id = a.id
+        LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+        LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+        WHERE se.segment_id = s.id
+          AND a.user_id = $1
+    ) ranked_efforts
+) ue ON true
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 
 	if p.IncludeGeoJSON {
@@ -610,14 +624,49 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                        s.source_activity_id, s.osm_lift_id,
                        s.distance_m, s.elevation_gain_m,
                        s.effort_count + COALESCE((
-                           SELECT COUNT(*)::int FROM segment_efforts se
-                           JOIN activities a ON se.activity_id = a.id
-                           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid AND a.visibility != 'public'
+                           SELECT COUNT(*)::int
+                           FROM (
+                               SELECT a.visibility,
+                                      ROW_NUMBER() OVER (
+                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+                                          ORDER BY
+                                              CASE
+                                                  WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+                                                  WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+                                                  ELSE 2
+                                              END,
+                                              se.created_at ASC,
+                                              se.id ASC
+                                      ) AS rn
+                               FROM segment_efforts se
+                               JOIN activities a ON se.activity_id = a.id
+                               LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+                               LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+                               WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                           ) user_efforts
+                           WHERE rn = 1 AND visibility != 'public'
                        ), 0) AS effort_count, s.athlete_count,
                        COALESCE((
-                           SELECT COUNT(*)::int FROM segment_efforts se
-                           JOIN activities a ON se.activity_id = a.id
-                           WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                           SELECT COUNT(*)::int
+                           FROM (
+                               SELECT ROW_NUMBER() OVER (
+                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+                                          ORDER BY
+                                              CASE
+                                                  WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+                                                  WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+                                                  ELSE 2
+                                              END,
+                                              se.created_at ASC,
+                                              se.id ASC
+                                      ) AS rn
+                               FROM segment_efforts se
+                               JOIN activities a ON se.activity_id = a.id
+                               LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+                               LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+                               WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                           ) user_efforts
+                           WHERE rn = 1
                        ), 0) AS ridden_count,
                        EXISTS(
                            SELECT 1 FROM segment_favorites sf
@@ -949,37 +998,52 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
 	query := `
+		WITH ranked AS (
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
 		       se.is_reverse, se.sport_type, se.sub_type,
-		       COALESCE(act.is_indoor, false), COALESCE(act.is_virtual, false), COALESCE(act.is_electric, false),
+		       COALESCE(act.is_indoor, false) AS is_indoor,
+		       COALESCE(act.is_virtual, false) AS is_virtual,
+		       COALESCE(act.is_electric, false) AS is_electric,
 		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       u.display_name,
-		       g.name AS gear_name
+		       g.name AS gear_name,
+		       ROW_NUMBER() OVER (
+		           PARTITION BY COALESCE(rg.id::text, act.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+		           ORDER BY
+		               CASE
+		                   WHEN rg.primary_activity_id IS NOT NULL AND act.id = rg.primary_activity_id THEN 0
+		                   WHEN COALESCE(act.is_group_secondary, false) = false THEN 1
+		                   ELSE 2
+		               END,
+		               se.created_at ASC,
+		               se.id ASC
+		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		JOIN users u ON u.id = se.user_id
-		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id`
+		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
+		JOIN activities act ON act.id = se.activity_id
+		LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
+		LEFT JOIN recording_groups rg ON rg.id = rgm.group_id`
 
 	args := []any{segmentID}
 	argIdx := 2
 
 	if onlyUserID != "" {
-		// "Nur ich": show all own efforts including from private activities, but exclude group-secondary.
+		// "Nur ich": show canonical own efforts including from private activities.
 		query += `
-		JOIN activities act ON act.id = se.activity_id AND NOT act.is_group_secondary
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND se.user_id = $` + fmt.Sprint(argIdx)
 		args = append(args, onlyUserID)
 		argIdx++
 	} else {
-		// "Alle": JOIN activities to exclude efforts from private or group-secondary activities.
+		// "Alle": exclude private activity efforts.
 		query += `
-		JOIN activities act ON act.id = se.activity_id AND act.visibility = 'public' AND NOT act.is_group_secondary
-		WHERE se.segment_id = $1 AND se.in_leaderboard = true`
+		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND act.visibility = 'public'`
 	}
 
 	if sportType != "" {
@@ -998,7 +1062,23 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		argIdx++
 	}
 
-	query += " ORDER BY se.elapsed_time_s ASC LIMIT 100"
+	query += `
+		)
+		SELECT id, segment_id, segment_version_id, activity_id,
+		       user_id, started_at, elapsed_time_s,
+		       is_reverse, sport_type, sub_type,
+		       is_indoor, is_virtual, is_electric,
+		       gear_id,
+		       avg_power_w, avg_heart_rate, avg_speed_ms,
+		       rank_overall, is_personal_best, personal_rank, is_segment_record,
+		       in_leaderboard, created_at,
+		       segment_name,
+		       display_name,
+		       gear_name
+		FROM ranked
+		WHERE canonical_rank = 1
+		ORDER BY elapsed_time_s ASC
+		LIMIT 100`
 
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -1036,10 +1116,13 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 
 func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) ([]model.SegmentEffort, error) {
 	rows, err := db.Pool.Query(ctx, `
+		WITH ranked AS (
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
 		       se.is_reverse, se.sport_type, se.sub_type,
-		       COALESCE(a.is_indoor, false), COALESCE(a.is_virtual, false), COALESCE(a.is_electric, false),
+		       COALESCE(a.is_indoor, false) AS is_indoor,
+		       COALESCE(a.is_virtual, false) AS is_virtual,
+		       COALESCE(a.is_electric, false) AS is_electric,
 		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
@@ -1047,13 +1130,32 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       s.name AS segment_name,
 		       NULL::text AS display_name,
 		       g.name AS gear_name,
-		       s.segment_type_meta
+		       s.segment_type_meta,
+		       ROW_NUMBER() OVER (
+		           PARTITION BY se.segment_id, se.started_at, se.elapsed_time_s, se.is_reverse
+		           ORDER BY se.created_at ASC, se.id ASC
+		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1
-		ORDER BY se.started_at ASC`, activityID)
+		)
+		SELECT id, segment_id, segment_version_id, activity_id,
+		       user_id, started_at, elapsed_time_s,
+		       is_reverse, sport_type, sub_type,
+		       is_indoor, is_virtual, is_electric,
+		       gear_id,
+		       avg_power_w, avg_heart_rate, avg_speed_ms,
+		       rank_overall, is_personal_best, personal_rank, is_segment_record,
+		       in_leaderboard, created_at,
+		       segment_name,
+		       display_name,
+		       gear_name,
+		       segment_type_meta
+		FROM ranked
+		WHERE canonical_rank = 1
+		ORDER BY started_at ASC`, activityID)
 	if err != nil {
 		return nil, fmt.Errorf("get activity segment efforts: %w", err)
 	}
@@ -1118,19 +1220,38 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 	// composite PK (id, started_at) — required for efficient chunk pruning on the hypertable.
 	_, err := db.Pool.Exec(ctx, `
 		WITH
-		global_ranked AS (
-			SELECT se.id, se.started_at,
+		canonical AS (
+			SELECT se.id, se.started_at, se.user_id, se.sport_type, se.is_reverse, se.elapsed_time_s,
+			       a.visibility,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
+			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			           ORDER BY
+			               CASE
+			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+			                   WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+			                   ELSE 2
+			               END,
+			               se.created_at ASC,
+			               se.id ASC
+			       ) AS canonical_rank
+			FROM segment_efforts se
+			JOIN activities a ON a.id = se.activity_id
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+			WHERE se.segment_id = $1 AND se.in_leaderboard = true
+		),
+		global_ranked AS (
+			SELECT c.id, c.started_at,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY c.sport_type, c.is_reverse
+			           ORDER BY c.elapsed_time_s ASC
 			       ) AS rk,
 			       (ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
+			           PARTITION BY c.sport_type, c.is_reverse
+			           ORDER BY c.elapsed_time_s ASC
 			       ) = 1) AS is_record
-			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-			WHERE se.segment_id = $1 AND se.in_leaderboard = true
+			FROM canonical c
+			WHERE c.canonical_rank = 1 AND c.visibility = 'public'
 		),
 		personal_ranked AS (
 			SELECT id, started_at,
@@ -1138,33 +1259,53 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 			           PARTITION BY sport_type, is_reverse, user_id
 			           ORDER BY elapsed_time_s ASC
 			       ) AS user_rk
-			FROM segment_efforts
-			WHERE segment_id = $1 AND in_leaderboard = true
+			FROM canonical
+			WHERE canonical_rank = 1
+		),
+		rank_updates AS (
+			SELECT c.id, c.started_at, c.canonical_rank, pr.user_rk, gr.rk, gr.is_record
+			FROM canonical c
+			LEFT JOIN personal_ranked pr ON pr.id = c.id AND pr.started_at = c.started_at
+			LEFT JOIN global_ranked gr ON gr.id = c.id AND gr.started_at = c.started_at
 		)
 		UPDATE segment_efforts se
-		SET rank_overall      = gr.rk,
-		    is_personal_best  = (pr.user_rk = 1),
-		    personal_rank     = CASE WHEN pr.user_rk <= 3 THEN pr.user_rk::smallint ELSE NULL END,
-		    is_segment_record = COALESCE(gr.is_record, false)
-		FROM personal_ranked pr
-		LEFT JOIN global_ranked gr ON gr.id = pr.id AND gr.started_at = pr.started_at
-		WHERE se.id = pr.id AND se.started_at = pr.started_at`, segmentID)
+		SET rank_overall      = CASE WHEN ru.canonical_rank = 1 THEN ru.rk ELSE NULL END,
+		    is_personal_best  = COALESCE(ru.canonical_rank = 1 AND ru.user_rk = 1, false),
+		    personal_rank     = CASE WHEN ru.canonical_rank = 1 AND ru.user_rk <= 3 THEN ru.user_rk::smallint ELSE NULL END,
+		    is_segment_record = COALESCE(ru.canonical_rank = 1 AND ru.is_record, false)
+		FROM rank_updates ru
+		WHERE se.id = ru.id AND se.started_at = ru.started_at`, segmentID)
 	if err != nil {
 		return fmt.Errorf("update effort ranks: %w", err)
 	}
 
 	// Update effort_count and athlete_count: public, non-group-secondary activities only.
 	_, err = db.Pool.Exec(ctx, `
+		WITH canonical AS (
+			SELECT se.user_id,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			           ORDER BY
+			               CASE
+			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+			                   WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+			                   ELSE 2
+			               END,
+			               se.created_at ASC,
+			               se.id ASC
+			       ) AS canonical_rank
+			FROM segment_efforts se
+			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public'
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+			WHERE se.segment_id = $1
+		)
 		UPDATE segments SET
 			effort_count = (
-				SELECT COUNT(*) FROM segment_efforts se
-				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-				WHERE se.segment_id = $1
+				SELECT COUNT(*) FROM canonical WHERE canonical_rank = 1
 			),
 			athlete_count = (
-				SELECT COUNT(DISTINCT se.user_id) FROM segment_efforts se
-				JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-				WHERE se.segment_id = $1
+				SELECT COUNT(DISTINCT user_id) FROM canonical WHERE canonical_rank = 1
 			)
 		WHERE id = $1`, segmentID)
 	if err != nil {
@@ -1641,6 +1782,43 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 	return ids, nil
 }
 
+// ListActivityIDsForSegmentRecompute returns candidate activities plus activities
+// that already have efforts for this segment. Including existing efforts lets
+// callers clear stale matches via per-activity transactional replacement instead
+// of deleting the whole segment upfront.
+func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, segmentID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT activity_id
+		FROM (
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN activities a ON a.id = at.activity_id
+			JOIN LATERAL (
+				SELECT track FROM segment_versions
+				WHERE segment_id = $2
+				ORDER BY version_number DESC
+				LIMIT 1
+			) sv ON true
+			WHERE a.user_id = $1
+			  AND at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+
+			UNION
+
+			SELECT se.activity_id
+			FROM segment_efforts se
+			JOIN activities a ON a.id = se.activity_id
+			WHERE se.segment_id = $2
+			  AND a.user_id = $1
+		) ids`,
+		userID, segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list activity ids for segment recompute: %w", err)
+	}
+	return scanActivityIDs(rows)
+}
+
 // ListAllActivityIDsForSegmentBackfill returns activity IDs from ALL users
 // whose track passes within 100m of the given segment. Used when publishing
 // a previously private segment (full recompute across all users).
@@ -1674,6 +1852,55 @@ func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentI
 	return ids, rows.Err()
 }
 
+// ListAllActivityIDsForSegmentRecompute is the all-user variant used when a
+// segment is published. It includes already-matched activities so stale efforts
+// are cleared without a segment-wide pre-delete.
+func (db *DB) ListAllActivityIDsForSegmentRecompute(ctx context.Context, segmentID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT activity_id
+		FROM (
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN LATERAL (
+				SELECT track FROM segment_versions
+				WHERE segment_id = $1
+				ORDER BY version_number DESC
+				LIMIT 1
+			) sv ON true
+			WHERE at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+
+			UNION
+
+			SELECT activity_id
+			FROM segment_efforts
+			WHERE segment_id = $1
+		) ids`,
+		segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("list all activity ids for segment recompute: %w", err)
+	}
+	return scanActivityIDs(rows)
+}
+
+func scanActivityIDs(rows pgx.Rows) ([]string, error) {
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan activity id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list activity ids: %w", err)
+	}
+	return ids, nil
+}
+
 // DeleteAllSegmentEffortsBySegment removes ALL efforts for a segment across all users.
 // Used when publishing a previously private segment (full recompute).
 func (db *DB) DeleteAllSegmentEffortsBySegment(ctx context.Context, segmentID string) error {
@@ -1696,6 +1923,53 @@ func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.Se
 // recomputeSegmentEffortsForActivity to atomically DELETE + re-INSERT efforts.
 func InsertSegmentEffortsBatchTx(ctx context.Context, tx pgx.Tx, efforts []*model.SegmentEffort) error {
 	return insertSegmentEffortsBatch(ctx, tx, efforts)
+}
+
+// LockSegmentEffortReplacementTx serializes delete+insert replacement for one
+// activity's segment efforts. segment_efforts has UUID primary keys, so without
+// this lock concurrent matcher runs for the same activity can interleave and
+// recreate logical duplicates.
+func LockSegmentEffortReplacementTx(ctx context.Context, tx pgx.Tx, activityID string) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('segment_efforts:' || $1, 0))`, activityID); err != nil {
+		return fmt.Errorf("lock segment effort replacement: %w", err)
+	}
+	return nil
+}
+
+// ReplaceSegmentEffortsForActivitySegments atomically replaces the matched efforts
+// for one activity across the provided segment IDs. It keeps repeated matcher runs
+// idempotent even though segment_efforts uses UUID primary keys.
+func (db *DB) ReplaceSegmentEffortsForActivitySegments(ctx context.Context, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort) error {
+	if len(segmentIDs) == 0 {
+		return nil
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin replace segment efforts: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM segment_efforts
+		WHERE activity_id = $1
+		  AND user_id = $2
+		  AND segment_id = ANY($3::uuid[])
+	`, activityID, userID, segmentIDs); err != nil {
+		return fmt.Errorf("delete existing matched segment efforts: %w", err)
+	}
+
+	if err := InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit replace segment efforts: %w", err)
+	}
+	return nil
 }
 
 // insertSegmentEffortsBatch is the shared implementation for InsertSegmentEffortsBatch
@@ -1772,22 +2046,40 @@ func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID strin
 func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string, isReverse *bool) ([]model.SegmentPerformance, error) {
 	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	query := `
+	WITH ranked AS (
 	SELECT
 		se.id,
 		se.activity_id,
 		se.elapsed_time_s,
-			a.moving_time_s,
-			a.started_at,
-			a.sport_type,
-			a.sub_type,
-			` + activityTitleSQL + ` AS title,
+		a.moving_time_s,
+		a.started_at,
+		a.sport_type,
+		a.sub_type,
+		` + activityTitleSQL + ` AS title,
 		se.is_reverse,
 		aga.gear_id,
 		g.name AS gear_name,
 		g.type AS gear_type,
-		a.timezone
+		a.timezone,
+		ROW_NUMBER() OVER (
+			PARTITION BY
+				COALESCE(rg.id::text, a.id::text),
+				se.started_at,
+				se.elapsed_time_s,
+				se.is_reverse
+			ORDER BY
+				CASE
+					WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+					WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+					ELSE 2
+				END,
+				se.created_at ASC,
+				se.id ASC
+		) AS rn
 	FROM segment_efforts se
 	JOIN activities a ON se.activity_id = a.id
+	LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+	LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 	LEFT JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary' AND aga.user_id = a.user_id
 	LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id
 	WHERE se.segment_id = $1 AND a.user_id = $2`
@@ -1797,7 +2089,14 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		args = append(args, *isReverse)
 		query += fmt.Sprintf(" AND se.is_reverse = $%d", len(args))
 	}
-	query += " ORDER BY a.started_at DESC"
+	query += `
+	)
+	SELECT id, activity_id, elapsed_time_s, moving_time_s, started_at,
+	       sport_type, sub_type, title, is_reverse, gear_id, gear_name,
+	       gear_type, timezone
+	FROM ranked
+	WHERE rn = 1
+	ORDER BY started_at DESC`
 
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {

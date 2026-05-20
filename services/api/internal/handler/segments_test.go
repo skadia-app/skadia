@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 )
@@ -30,12 +32,14 @@ func TestCreateSegmentRejectsInvalidSegmentTypeBeforeDB(t *testing.T) {
 	}
 }
 
-func TestCreateSegmentFromActivityMatchesSourceBeforeResponse_DB(t *testing.T) {
+func TestCreateSegmentFromActivityDoesNotWaitForSourceMatch_DB(t *testing.T) {
 	pool := fusionTestPool(t)
 	db := newTestHandler(t, pool).DB
 	h := &Handler{DB: db}
 	r := chi.NewRouter()
 	r.Post("/api/v1/segments", h.CreateSegment)
+	shutdown.Shutdown(time.Millisecond)
+	t.Cleanup(shutdown.Reset)
 
 	userID := insertTestUser(t, pool)
 	pts := [][2]float64{
@@ -66,6 +70,9 @@ func TestCreateSegmentFromActivityMatchesSourceBeforeResponse_DB(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
+	if seg.SourceActivityID == nil || *seg.SourceActivityID != actID {
+		t.Fatalf("source_activity_id = %v, want %s", seg.SourceActivityID, actID)
+	}
 
 	var effortCount int
 	if err := pool.QueryRow(context.Background(),
@@ -74,8 +81,8 @@ func TestCreateSegmentFromActivityMatchesSourceBeforeResponse_DB(t *testing.T) {
 	).Scan(&effortCount); err != nil {
 		t.Fatalf("count source effort: %v", err)
 	}
-	if effortCount != 1 {
-		t.Fatalf("source effort count = %d, want 1", effortCount)
+	if effortCount != 0 {
+		t.Fatalf("source effort count before background match = %d, want 0", effortCount)
 	}
 }
 

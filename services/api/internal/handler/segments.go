@@ -243,10 +243,6 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if sourceActivity != nil {
-		matchSourceActivityForSegment(r.Context(), h.DB, userID, segment.ID, sourceActivity)
-	}
-
 	httputil.WriteJSON(w, http.StatusCreated, segment)
 
 	// Backfill: match new segment against all existing activities asynchronously.
@@ -254,31 +250,11 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	// GetSpatialCandidateSegments enforces: s.visibility = 'public' OR s.created_by = userID
 	segID := segment.ID
 	shutdown.Go("segment-backfill-"+segID, func(ctx context.Context) {
-		ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segID)
-		if err != nil {
-			slog.Error("segment backfill: list activities failed",
-				"segment_id", segID, "error", err)
-			return
-		}
-		slog.Info("segment backfill: starting",
-			"segment_id", segID, "activity_count", len(ids))
-		for _, actID := range ids {
-			act, err := h.DB.GetActivity(ctx, actID)
-			if err != nil || act == nil {
-				continue
-			}
-			subType := ""
-			if act.SubType != nil {
-				subType = *act.SubType
-			}
-			MatchActivitySegments(ctx, h.DB, actID, userID,
-				act.SportType, subType, act.GearID, act.StartedAt)
-		}
-		slog.Info("segment backfill: done", "segment_id", segID)
+		h.backfillSegmentEfforts(ctx, userID, segID, sourceActivity)
 	})
 }
 
-func matchSourceActivityForSegment(ctx context.Context, db *database.DB, userID, segmentID string, act *model.Activity) {
+func (h *Handler) matchSourceActivityForSegment(ctx context.Context, userID, segmentID string, act *model.Activity) {
 	matchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
@@ -287,11 +263,48 @@ func matchSourceActivityForSegment(ctx context.Context, db *database.DB, userID,
 		subType = *act.SubType
 	}
 	before := time.Now()
-	MatchActivitySegments(matchCtx, db, act.ID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	if err := h.recomputeSegmentEffortsForActivity(matchCtx, segmentID, act.ID, userID); err != nil {
+		slog.Warn("create segment: source activity match failed",
+			"segment_id", segmentID,
+			"activity_id", act.ID,
+			"sport_type", act.SportType,
+			"sub_type", subType,
+			"error", err)
+	}
 	slog.Info("create segment: source activity match attempted",
 		"segment_id", segmentID,
 		"activity_id", act.ID,
 		"duration_ms", time.Since(before).Milliseconds())
+}
+
+func (h *Handler) backfillSegmentEfforts(ctx context.Context, userID, segmentID string, sourceActivity *model.Activity) {
+	if sourceActivity != nil {
+		h.matchSourceActivityForSegment(ctx, userID, segmentID, sourceActivity)
+	}
+
+	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
+	if err != nil {
+		slog.Error("segment backfill: list activities failed",
+			"segment_id", segmentID, "error", err)
+		return
+	}
+	slog.Info("segment backfill: starting",
+		"segment_id", segmentID, "activity_count", len(ids))
+	for _, actID := range ids {
+		if sourceActivity != nil && actID == sourceActivity.ID {
+			continue
+		}
+		if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, userID); err != nil {
+			slog.Warn("segment backfill: activity match failed",
+				"segment_id", segmentID,
+				"activity_id", actID,
+				"error", err)
+		}
+	}
+	if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+		slog.Warn("segment backfill: final rank update failed", "segment_id", segmentID, "error", err)
+	}
+	slog.Info("segment backfill: done", "segment_id", segmentID)
 }
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
@@ -614,26 +627,22 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 // The caller is responsible for running this inside a shutdown.Go goroutine
 // or other long-running context when appropriate.
 func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID string) error {
-	if err := h.DB.DeleteSegmentEffortsBySegment(ctx, segmentID, userID); err != nil {
-		return fmt.Errorf("delete existing efforts: %w", err)
-	}
-
-	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
+	ids, err := h.DB.ListActivityIDsForSegmentRecompute(ctx, userID, segmentID)
 	if err != nil {
-		return fmt.Errorf("list activities for backfill: %w", err)
+		return fmt.Errorf("list activities for recompute: %w", err)
 	}
 
 	slog.Info("segment recompute: starting", "segment_id", segmentID, "activity_count", len(ids))
 	for _, actID := range ids {
-		act, err := h.DB.GetActivity(ctx, actID)
-		if err != nil || act == nil {
-			continue
+		if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, userID); err != nil {
+			slog.Warn("segment recompute: activity match failed",
+				"segment_id", segmentID,
+				"activity_id", actID,
+				"error", err)
 		}
-		subType := ""
-		if act.SubType != nil {
-			subType = *act.SubType
-		}
-		MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	}
+	if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+		slog.Warn("segment recompute: final rank update failed", "segment_id", segmentID, "error", err)
 	}
 	slog.Info("segment recompute: done", "segment_id", segmentID)
 	return nil
@@ -702,6 +711,10 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 		return fmt.Errorf("begin tx for segment rematch: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := database.LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
@@ -878,7 +891,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Aktivitäts-IDs vorab ermitteln (brauchen wir für progress_total).
-	ids, err := h.DB.ListActivityIDsForSegmentBackfill(r.Context(), userID, id)
+	ids, err := h.DB.ListActivityIDsForSegmentRecompute(r.Context(), userID, id)
 	if err != nil {
 		slog.Error("segment recompute: list activities failed", "segment_id", id, "user_id", userID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
@@ -901,23 +914,15 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-recompute-"+id, func(ctx context.Context) {
 		failed := false
 
-		if err := h.DB.DeleteSegmentEffortsBySegment(ctx, id, userID); err != nil {
-			slog.Error("segment recompute: delete existing efforts failed", "segment_id", id, "error", err)
-			failed = true
-		}
-
 		if !failed {
 			slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
 			for i, actID := range ids {
-				act, err := h.DB.GetActivity(ctx, actID)
-				if err != nil || act == nil {
-					continue
+				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, userID); err != nil {
+					slog.Warn("segment recompute: activity match failed",
+						"segment_id", id,
+						"activity_id", actID,
+						"error", err)
 				}
-				subType := ""
-				if act.SubType != nil {
-					subType = *act.SubType
-				}
-				MatchActivitySegments(ctx, h.DB, actID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
 				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
@@ -927,6 +932,10 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			slog.Info("segment recompute: done", "segment_id", id)
+		}
+
+		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
+			slog.Warn("segment recompute: final rank update failed", "segment_id", id, "error", err)
 		}
 
 		if jobID != "" {
@@ -974,7 +983,7 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// List all nearby activities (all users) before publishing, so we know the total.
-	ids, err := h.DB.ListAllActivityIDsForSegmentBackfill(r.Context(), id)
+	ids, err := h.DB.ListAllActivityIDsForSegmentRecompute(r.Context(), id)
 	if err != nil {
 		slog.Error("publish segment: list activities failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
@@ -1009,22 +1018,18 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-publish-"+id, func(ctx context.Context) {
 		failed := false
 
-		if err := h.DB.DeleteAllSegmentEffortsBySegment(ctx, id); err != nil {
-			slog.Error("publish recompute: delete efforts failed", "segment_id", id, "error", err)
-			failed = true
-		}
-
 		if !failed {
 			for i, actID := range ids {
 				act, err := h.DB.GetActivity(ctx, actID)
 				if err != nil || act == nil {
 					continue
 				}
-				subType := ""
-				if act.SubType != nil {
-					subType = *act.SubType
+				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, act.UserID); err != nil {
+					slog.Warn("publish recompute: activity match failed",
+						"segment_id", id,
+						"activity_id", actID,
+						"error", err)
 				}
-				MatchActivitySegments(ctx, h.DB, actID, act.UserID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
 					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {

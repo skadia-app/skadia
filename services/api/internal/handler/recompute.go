@@ -1055,7 +1055,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 		// Re-run segment matching synchronously (includes lap detection).
 		var gearIDPtr *string
-		var activityStartedAt time.Time
+		activityStartedAt := data.StartedAt
 		activity, aErr := h.DB.GetActivity(ctx, activityID)
 		if aErr == nil && activity != nil {
 			if activity.GearID != nil {
@@ -1063,7 +1063,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			}
 			activityStartedAt = activity.StartedAt
 		}
-		MatchActivitySegments(ctx, h.DB, activityID, userID, data.SportType, data.SubType, gearIDPtr, activityStartedAt)
+		matchSportType, matchSubType := segmentMatchSportTupleForReprocess(data, activity)
+		MatchActivitySegments(ctx, h.DB, activityID, userID, matchSportType, matchSubType, gearIDPtr, activityStartedAt)
 
 		// Lap detection.
 		if h.DB.IsLapDetectionEnabled(ctx, userID) {
@@ -1195,6 +1196,20 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	return nil
+}
+
+func segmentMatchSportTupleForReprocess(data *model.ActivityData, activity *model.Activity) (string, string) {
+	if activity != nil && activity.SportType != "" {
+		subType := ""
+		if activity.SubType != nil {
+			subType = *activity.SubType
+		}
+		return activity.SportType, subType
+	}
+	if data == nil {
+		return "", ""
+	}
+	return data.SportType, data.SubType
 }
 
 func activityDataFromManualSidecar(mf *sidecar.ManualActivityFile) *model.ActivityData {
