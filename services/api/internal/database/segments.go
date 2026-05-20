@@ -643,6 +643,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Re-fetch distance
 	tx.QueryRow(ctx, `SELECT distance_m FROM segments WHERE id = $1`, s.ID).Scan(&s.DistanceM)
 
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, s.ID); err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
@@ -755,10 +759,12 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 
 func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdmin bool, update *model.SegmentUpdate) (*model.Segment, error) {
 	// If new_version requested: copy latest segment_version to create a new one
+	newVersionCreated := false
 	if update.NewVersion {
 		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
 			return nil, err
 		}
+		newVersionCreated = true
 	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -880,6 +886,11 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 
 	if len(setClauses) == 0 {
+		if newVersionCreated {
+			if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
+				return nil, err
+			}
+		}
 		return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 	}
 
@@ -901,6 +912,9 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, nil
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit segment update tx: %w", err)
@@ -1069,23 +1083,34 @@ func (db *DB) DeleteSegments(ctx context.Context, ids []string, userID string) (
 // Owner may publish; admins may publish any private segment (isAdmin skips ownership check).
 // Returns false if segment not found, not owned (and not admin), or already public.
 func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isAdmin bool) (bool, error) {
-	var (
-		tag pgconn.CommandTag
-		err error
-	)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin publish segment tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var tag pgconn.CommandTag
 	if isAdmin {
-		tag, err = db.Pool.Exec(ctx,
+		tag, err = tx.Exec(ctx,
 			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND visibility = 'private'`,
 			segmentID)
 	} else {
-		tag, err = db.Pool.Exec(ctx,
+		tag, err = tx.Exec(ctx,
 			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
 			segmentID, actorID)
 	}
 	if err != nil {
 		return false, fmt.Errorf("publish segment: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit publish segment tx: %w", err)
+	}
+	return true, nil
 }
 
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
@@ -1843,8 +1868,11 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 
 	count := 0
 	for _, c := range candidates {
-		created, err := ensureImportedLiftSegment(ctx, tx, userID, c)
+		segID, created, err := ensureImportedLiftSegment(ctx, tx, userID, c)
 		if err != nil {
+			return count, err
+		}
+		if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segID); err != nil {
 			return count, err
 		}
 		if created {
@@ -1858,10 +1886,10 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 	return count, nil
 }
 
-func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (bool, error) {
+func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (string, bool, error) {
 	segID, created, err := findOrCreateImportedLiftSegment(ctx, tx, userID, c)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -1874,9 +1902,9 @@ func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c 
 			SELECT 1 FROM segment_versions WHERE segment_id = $1
 		)
 	`, segID, c.geojson, userID); err != nil {
-		return false, fmt.Errorf("ensure lift segment version osm_id=%d: %w", c.osmID, err)
+		return "", false, fmt.Errorf("ensure lift segment version osm_id=%d: %w", c.osmID, err)
 	}
-	return created, nil
+	return segID, created, nil
 }
 
 func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (string, bool, error) {
