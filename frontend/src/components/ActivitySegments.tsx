@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchActivitySegments } from '@/api/segments'
@@ -6,6 +6,8 @@ import type { StreamPoint } from '@/api/types'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
 import { fmtDuration } from '@/lib/format'
+
+const activitySegmentsRefreshDelaysMs = [1_000, 2_500, 5_000, 10_000]
 
 interface Props {
   activityId: string
@@ -21,6 +23,7 @@ export default function ActivitySegments({ activityId, streams }: Props) {
   const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
   const [showEditor, setShowEditor] = useState(false)
+  const refreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   const { data: efforts = [], isLoading } = useQuery({
     queryKey: ['activity-segments', activityId],
@@ -28,6 +31,27 @@ export default function ActivitySegments({ activityId, streams }: Props) {
   })
 
   const hasGps = (streams ?? []).filter(p => p.lat != null && p.lng != null).length >= 2
+
+  const clearScheduledRefreshes = () => {
+    for (const timer of refreshTimersRef.current) {
+      clearTimeout(timer)
+    }
+    refreshTimersRef.current = []
+  }
+
+  const scheduleActivitySegmentRefreshes = () => {
+    clearScheduledRefreshes()
+    refreshTimersRef.current = activitySegmentsRefreshDelaysMs.map(delay =>
+      setTimeout(() => {
+        queryClient.refetchQueries({
+          queryKey: ['activity-segments', activityId],
+          type: 'active',
+        })
+      }, delay),
+    )
+  }
+
+  useEffect(() => clearScheduledRefreshes, [activityId])
 
   if (isLoading) return null
 
@@ -86,8 +110,8 @@ export default function ActivitySegments({ activityId, streams }: Props) {
           sourceActivityId={activityId}
           onSuccess={() => {
             setShowEditor(false)
-            queryClient.invalidateQueries({ queryKey: ['activity-segments', activityId] })
             queryClient.invalidateQueries({ queryKey: ['segments'] })
+            scheduleActivitySegmentRefreshes()
           }}
           onClose={() => setShowEditor(false)}
         />
