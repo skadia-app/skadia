@@ -287,6 +287,15 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	segIDs := db.getUserSegmentIDs(ctx, userID)
 	if len(segIDs) > 0 {
+		var hasCourseEligibilityProjection bool
+		if err := conn.QueryRow(ctx,
+			`SELECT to_regclass('public.target_course_eligibility_projection') IS NOT NULL`).Scan(&hasCourseEligibilityProjection); err != nil {
+			slog.Error("GDPR: detect target_course_eligibility_projection failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("target_course_eligibility_projection: %s", err))
+		} else if hasCourseEligibilityProjection {
+			retryDelete("target_course_eligibility_projection",
+				`DELETE FROM target_course_eligibility_projection WHERE target_id = ANY($1)`, segIDs)
+		}
 		retryDelete("segment_efforts(by_segment)",
 			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs)
 		var hasLegacySubtypeHints bool

@@ -271,6 +271,15 @@ func TestSystemCacheTablesExplicitlyRegistered(t *testing.T) {
 	}
 }
 
+func TestCourseEligibilityProjectionGDPRClassification(t *testing.T) {
+	if got := GDPRRegistry["target_course_eligibility_projection"]; got != Derived {
+		t.Fatalf("target_course_eligibility_projection category = %v, want Derived", got)
+	}
+	if got := GDPRRegistry["activity_trait_projection"]; got != Global {
+		t.Fatalf("activity_trait_projection category = %v, want Global", got)
+	}
+}
+
 // TestRegistryCategoryMatchesSchema verifies that each table's GDPRRegistry
 // category is consistent with the actual columns/foreign keys in the live
 // schema. This catches *misclassification on schema drift* — the failure mode
@@ -536,17 +545,18 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		"health_training_load":      true,
 		"health_readiness_scores":   true,
 		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
-		"user_daily_features":            true,
-		"llm_user_config":                true, // no FK at all
-		"segment_efforts":                true, // user_id NO ACTION
-		"segment_versions":               true, // created_by NO ACTION
-		"segments":                       true, // created_by NO ACTION
-		"segments_legacy_sub_type_hints": true, // segment_id handoff table; explicit delete before segment purge
-		"route_photos":                   true, // user_id NO ACTION
-		"planned_routes":                 true, // user_id NO ACTION
-		"heatmap_trail_matches":          true, // user_id NO ACTION
-		"terra_incognita_cache":          true, // user_id TEXT, no FK
-		"background_jobs":                true, // user_id TEXT, no FK; gdpr_purge row kept as audit
+		"user_daily_features":                  true,
+		"llm_user_config":                      true, // no FK at all
+		"segment_efforts":                      true, // user_id NO ACTION
+		"segment_versions":                     true, // created_by NO ACTION
+		"segments":                             true, // created_by NO ACTION
+		"target_course_eligibility_projection": true, // derived segment projection; explicit delete before segment purge
+		"segments_legacy_sub_type_hints":       true, // segment_id handoff table; explicit delete before segment purge
+		"route_photos":                         true, // user_id NO ACTION
+		"planned_routes":                       true, // user_id NO ACTION
+		"heatmap_trail_matches":                true, // user_id NO ACTION
+		"terra_incognita_cache":                true, // user_id TEXT, no FK
+		"background_jobs":                      true, // user_id TEXT, no FK; gdpr_purge row kept as audit
 		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
 		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
 		"auth_audit_log": true,

@@ -112,32 +112,33 @@ var GDPRRegistry = map[string]TableCategory{
 	// activity_lift_candidates: upgraded from Derived to Export in Phase 4d
 	// because rejected_by_user is user-authored data that is not regenerable
 	// on re-import (unlike the detection results, which are derived).
-	"activity_lift_candidates":       Export,
-	"activity_privacy_sections":      Derived,
-	"activity_rr_intervals":          Derived,
-	"activity_segment_laps":          Derived,
-	"activity_sensors":               Derived,
-	"activity_sets":                  Derived,
-	"activity_splits":                Derived,
-	"activity_split_summaries":       Derived,
-	"activity_stops":                 Derived,
-	"activity_streams":               Derived,
-	"activity_enrichments":           Derived,
-	"activity_enrichment_meta":       Derived, // path (graph|sql) + resample_spacing_m; cascades via activity_id FK
-	"activity_tag_removals":          Derived,
-	"activity_time_in_zone":          Derived, // FIT-zone data, cascades from activities
-	"activity_tracks":                Derived,
-	"analytics_cache":                Derived,
-	"enrichment_errors":              Derived,
-	"fusion_candidates":              Derived,
-	"heatmap_lines":                  Derived,
-	"heatmap_points":                 Derived,
-	"heatmap_trail_matches":          Derived,
-	"pmc_daily":                      Derived,
-	"segment_efforts":                Derived,
-	"segments_legacy_sub_type_hints": Derived,
-	"terra_incognita_cache":          Derived,
-	"user_daily_features":            Derived,
+	"activity_lift_candidates":             Export,
+	"activity_privacy_sections":            Derived,
+	"activity_rr_intervals":                Derived,
+	"activity_segment_laps":                Derived,
+	"activity_sensors":                     Derived,
+	"activity_sets":                        Derived,
+	"activity_splits":                      Derived,
+	"activity_split_summaries":             Derived,
+	"activity_stops":                       Derived,
+	"activity_streams":                     Derived,
+	"activity_enrichments":                 Derived,
+	"activity_enrichment_meta":             Derived, // path (graph|sql) + resample_spacing_m; cascades via activity_id FK
+	"activity_tag_removals":                Derived,
+	"activity_time_in_zone":                Derived, // FIT-zone data, cascades from activities
+	"activity_tracks":                      Derived,
+	"analytics_cache":                      Derived,
+	"enrichment_errors":                    Derived,
+	"fusion_candidates":                    Derived,
+	"heatmap_lines":                        Derived,
+	"heatmap_points":                       Derived,
+	"heatmap_trail_matches":                Derived,
+	"pmc_daily":                            Derived,
+	"segment_efforts":                      Derived,
+	"target_course_eligibility_projection": Derived,
+	"segments_legacy_sub_type_hints":       Derived,
+	"terra_incognita_cache":                Derived,
+	"user_daily_features":                  Derived,
 
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
@@ -180,7 +181,8 @@ var GDPRRegistry = map[string]TableCategory{
 	"map_layers":              Global,
 	"system_layer_visibility": Global,
 	// sport_taxonomy removed — table never existed in DB (stale aspirational entry, Mig cleanup)
-	"system_flags": Global,
+	"activity_trait_projection": Global,
+	"system_flags":              Global,
 }
 
 // ExportedTables lists all tables exported via exportTable() in handler_data_export.go.
