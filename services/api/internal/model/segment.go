@@ -116,6 +116,10 @@ type SegmentEffort struct {
 	LeaderboardVersionPolicyKey    string    `json:"leaderboard_version_policy_key,omitempty"`
 	LeaderboardContractKey         string    `json:"leaderboard_contract_key,omitempty"`
 	LeaderboardContractVersion     int       `json:"leaderboard_contract_version,omitempty"`
+	ActivityTraitBucketKey         string    `json:"activity_trait_bucket_key,omitempty"`
+	EligibilityPolicyKey           string    `json:"eligibility_policy_key,omitempty"`
+	EligibilityPolicyVersion       int       `json:"eligibility_policy_version,omitempty"`
+	EligibilitySourceHash          string    `json:"eligibility_source_hash,omitempty"`
 	RankOverall                    *int      `json:"rank_overall,omitempty"`
 	IsPersonalBest                 bool      `json:"is_personal_best"`
 	PersonalRank                   *int      `json:"personal_rank,omitempty"`

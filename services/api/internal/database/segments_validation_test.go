@@ -168,10 +168,13 @@ func TestSpatialCandidateSQLSkipsEmptyAllowedPredicates(t *testing.T) {
 		t.Fatalf("read segments.go: %v", err)
 	}
 	sourceText := strings.Join(strings.Fields(string(source)), " ")
-	if !strings.Contains(sourceText, "jsonb_array_length(s.allowed_predicates) > 0") {
-		t.Fatalf("GetSpatialCandidateSegments must prefilter allowed_predicates=[] before expanding predicates")
+	if !strings.Contains(sourceText, "JOIN target_course_eligibility_projection cep") {
+		t.Fatalf("GetSpatialCandidateSegments must use the course eligibility projection")
 	}
-	if !strings.Contains(sourceText, "AND s.segment_type NOT IN ('wintersport', 'wassersport')") {
-		t.Fatalf("GetSpatialCandidateSegments must not let specialized null-predicate segments match all sports")
+	if !strings.Contains(sourceText, "cep.match_allowed = true") {
+		t.Fatalf("GetSpatialCandidateSegments must require match_allowed projection rows")
+	}
+	if strings.Contains(sourceText, "jsonb_array_elements(s.allowed_predicates)") {
+		t.Fatalf("GetSpatialCandidateSegments must not expand legacy allowed_predicates after the projection flip")
 	}
 }

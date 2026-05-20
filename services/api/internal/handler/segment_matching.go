@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 const (
@@ -69,8 +70,22 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 	matchedSegmentIDs = make(map[string]struct{})
 	candidateSegmentIDs = make(map[string]struct{})
 
+	activityContext, err := db.GetSegmentMatchActivityContext(ctx, activityID)
+	if err != nil {
+		return nil, nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
+	}
+	bucketKey, ok := sport.ActivityTraitBucketKeyForActivityLegacyCandidate(sportType, subType, sport.ActivityModifierState{
+		IsIndoor:   activityContext.IsIndoor,
+		IsVirtual:  activityContext.IsVirtual,
+		IsElectric: activityContext.IsElectric,
+	})
+	if !ok {
+		slog.Debug("segment matching: no activity trait bucket", "activity_id", activityID, "sport_type", sportType, "sub_type", subType)
+		return nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
+	}
+
 	// 1. Spatial pre-filter: only segments within 50m of activity track
-	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate, subType)
+	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, bucketKey, activityDate)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
 	}
@@ -90,11 +105,6 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 	if len(gpsStream) < 5 {
 		slog.Debug("segment matching: GPS stream too short", "activity_id", activityID, "points", len(gpsStream))
 		return nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
-	}
-
-	activityContext, err := db.GetSegmentMatchActivityContext(ctx, activityID)
-	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
 	}
 
 	// 3. Batch-load endpoints for all non-lap candidates
@@ -213,6 +223,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 				DistanceM:        distPtr,
 				ElevationGainM:   elevGain,
 			}
+			database.ApplyCandidateEligibilityToEffort(effort, cand)
 
 			allEfforts = append(allEfforts, effort)
 			matchedSegmentIDs[cand.SegmentID] = struct{}{}
@@ -454,6 +465,7 @@ func matchLapSegment(
 			DistanceM:        distPtr,
 			ElevationGainM:   elevGain,
 		}
+		database.ApplyCandidateEligibilityToEffort(effort, *cand)
 		efforts = append(efforts, effort)
 	}
 
