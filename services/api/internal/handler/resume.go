@@ -226,7 +226,7 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 	shutdown.Go("resume-segment-publish-"+segmentID, func(ctx context.Context) {
 		failed := false
 
-		ids, err := h.DB.ListAllActivityIDsForSegmentBackfill(ctx, segmentID)
+		ids, err := h.DB.ListAllActivityIDsForSegmentRecompute(ctx, segmentID)
 		if err != nil {
 			slog.Error("resume segment_publish: list activities failed", "job_id", job.ID, "error", err)
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
@@ -237,22 +237,18 @@ func (h *Handler) resumeSegmentPublish(job database.BackgroundJob) {
 			slog.Warn("resume segment_publish: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
-		if err := h.DB.DeleteAllSegmentEffortsBySegment(ctx, segmentID); err != nil {
-			slog.Error("resume segment_publish: delete efforts failed", "job_id", job.ID, "error", err)
-			failed = true
-		}
-
 		if !failed {
 			for i, actID := range ids {
 				act, err := h.DB.GetActivity(ctx, actID)
 				if err != nil || act == nil {
 					continue
 				}
-				subType := ""
-				if act.SubType != nil {
-					subType = *act.SubType
+				if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, act.UserID); err != nil {
+					slog.Warn("resume segment_publish: activity match failed",
+						"segment_id", segmentID,
+						"activity_id", actID,
+						"error", err)
 				}
-				MatchActivitySegments(ctx, h.DB, actID, act.UserID, act.SportType, subType, act.GearID, act.StartedAt)
 				if i%10 == 0 || i == len(ids)-1 {
 					h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1))
 				}
@@ -290,7 +286,7 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 		failed := false
 
 		// List activity IDs and reset progress.
-		ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, job.UserID, segmentID)
+		ids, err := h.DB.ListActivityIDsForSegmentRecompute(ctx, job.UserID, segmentID)
 		if err != nil {
 			slog.Error("resume: list activities failed", "job_id", job.ID, "error", err)
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
@@ -301,23 +297,14 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 			slog.Warn("resume: reset progress failed", "job_id", job.ID, "error", err)
 		}
 
-		// Delete existing efforts (idempotent restart).
-		if err := h.DB.DeleteSegmentEffortsBySegment(ctx, segmentID, job.UserID); err != nil {
-			slog.Error("resume: delete efforts failed", "job_id", job.ID, "error", err)
-			failed = true
-		}
-
 		if !failed {
 			for i, actID := range ids {
-				act, err := h.DB.GetActivity(ctx, actID)
-				if err != nil || act == nil {
-					continue
+				if err := h.recomputeSegmentEffortsForActivity(ctx, segmentID, actID, job.UserID); err != nil {
+					slog.Warn("resume: activity match failed",
+						"segment_id", segmentID,
+						"activity_id", actID,
+						"error", err)
 				}
-				subType := ""
-				if act.SubType != nil {
-					subType = *act.SubType
-				}
-				MatchActivitySegments(ctx, h.DB, actID, job.UserID, act.SportType, subType, act.GearID, act.StartedAt)
 
 				if i%10 == 0 || i == len(ids)-1 {
 					if err := h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(i+1)); err != nil {
@@ -326,6 +313,10 @@ func (h *Handler) resumeSegmentRecompute(job database.BackgroundJob) {
 				}
 			}
 			slog.Info("resume: segment recompute done", "job_id", job.ID, "segment_id", segmentID)
+		}
+
+		if err := h.DB.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+			slog.Warn("resume: final rank update failed", "segment_id", segmentID, "error", err)
 		}
 
 		if err := h.DB.CompleteBackgroundJob(ctx, job.ID, failed, ""); err != nil {

@@ -36,8 +36,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/jackc/pgx/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments verifies that
@@ -200,6 +200,64 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 	}
 }
 
+func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+
+	actID := insertMinimalActivity(t, db, userID)
+	baseTime := time.Date(2024, 3, 1, 9, 0, 0, 0, time.UTC)
+	insertStreams(t, db, actID, []model.StreamPoint{
+		{Time: baseTime, Lat: fusionPtrF64(48.2010), Lng: fusionPtrF64(16.3610)},
+		{Time: baseTime.Add(3 * time.Second), Lat: fusionPtrF64(48.2012), Lng: fusionPtrF64(16.3612)},
+		{Time: baseTime.Add(6 * time.Second), Lat: fusionPtrF64(48.2014), Lng: fusionPtrF64(16.3614)},
+		{Time: baseTime.Add(9 * time.Second), Lat: fusionPtrF64(48.2016), Lng: fusionPtrF64(16.3616)},
+		{Time: baseTime.Add(12 * time.Second), Lat: fusionPtrF64(48.2018), Lng: fusionPtrF64(16.3618)},
+		{Time: baseTime.Add(15 * time.Second), Lat: fusionPtrF64(48.2020), Lng: fusionPtrF64(16.3620)},
+	})
+	if err := db.EnsureActivityTrack(ctx, actID); err != nil {
+		t.Fatalf("EnsureActivityTrack: %v", err)
+	}
+
+	segID := uuid.New().String()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type)
+		VALUES ($1, $2, 'idempotent-match-test', 'bike', 'standard')
+	`, segID, userID)
+	if err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM segments WHERE id = $1", segID) //nolint:errcheck
+	})
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from)
+		VALUES ($1, $2, 1,
+			ST_GeomFromText('LINESTRING(16.361 48.201, 16.362 48.202)', 4326),
+			'2000-01-01')
+	`, uuid.New().String(), segID)
+	if err != nil {
+		t.Fatalf("insert segment version: %v", err)
+	}
+
+	MatchActivitySegments(ctx, db, actID, userID, "cycling", "", nil, baseTime)
+	MatchActivitySegments(ctx, db, actID, userID, "cycling", "", nil, baseTime)
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM segment_efforts
+		WHERE segment_id = $1 AND activity_id = $2
+	`, segID, actID).Scan(&count); err != nil {
+		t.Fatalf("count efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("segment efforts after repeated MatchActivitySegments = %d, want 1", count)
+	}
+}
+
 func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 	pool := fusionTestPool(t) // skips if TEST_DATABASE_URL is not set
 	ctx := context.Background()
@@ -291,4 +349,3 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 	// The pre-seeded effort must still be present — the DELETE was rolled back.
 	assertEffortCount(1)
 }
-
