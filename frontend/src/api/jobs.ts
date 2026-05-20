@@ -4,7 +4,7 @@ export interface ActiveJob {
   id: string
   job_type:
     // Activity recompute
-    | 'segment_recompute' | 'activity_recompute_all' | 'activity_recompute' | 'recompute_multisport'
+	    | 'segment_recompute' | 'segment_recalculation' | 'activity_recompute_all' | 'activity_recompute' | 'recompute_multisport'
     // OSM pipeline
     | 'osm_import' | 'osm_enrichment' | 'osm_update' | 'osm_update_all'
     // Routing & coverage

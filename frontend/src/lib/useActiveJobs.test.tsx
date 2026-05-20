@@ -88,4 +88,18 @@ describe('invalidateQueriesForCompletedJob', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['data-export-latest'] })
   })
+
+  it('invalidates segment lookups after visible segment recalculation jobs finish', async () => {
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    invalidateQueriesForCompletedJob(queryClient, makeJob({
+      job_type: 'segment_recalculation',
+      entity_id: 'segment-1',
+    }))
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['segment', 'segment-1'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['segment-performances', 'segment-1'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['segments'] })
+  })
 })
