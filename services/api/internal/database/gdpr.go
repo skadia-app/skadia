@@ -396,6 +396,90 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		slog.Warn("GDPR: delete segment_efforts by user_id failed", "error", err)
 	}
 
+	userPublicationWhere := `
+		actor_user_id = $1
+		OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		OR route_snapshot_id IN (
+			SELECT id FROM planned_route_snapshots
+			WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		)
+		OR course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+	`
+	userAccessScopeWhere := `owner_user_id = $1 OR created_by = $1`
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE segments
+		SET visibility = 'private', access_scope_id = NULL
+		WHERE access_scope_id IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		slog.Warn("GDPR: clear segment access scopes failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET visibility = 'private', access_scope_id = NULL
+		WHERE access_scope_id IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		slog.Warn("GDPR: clear route course projection access scopes failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE route_course_publications
+		SET visibility_snapshot = 'private', access_scope_id_snapshot = NULL
+		WHERE access_scope_id_snapshot IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		slog.Warn("GDPR: clear route publication access scope snapshots failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM route_course_relationships
+		WHERE actor_user_id = $1
+		   OR source_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		   OR target_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		   OR source_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+		   OR target_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+	`, userPublicationWhere, userPublicationWhere), userID); err != nil {
+		slog.Warn("GDPR: delete route_course_relationships failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM route_relationships
+		WHERE actor_user_id = $1
+		   OR source_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		   OR target_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+	`, userID); err != nil {
+		slog.Warn("GDPR: delete route_relationships failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM route_course_publications
+		WHERE %s
+	`, userPublicationWhere), userID); err != nil {
+		slog.Warn("GDPR: delete route_course_publications failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM planned_route_snapshots
+		WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+	`, userID); err != nil {
+		slog.Warn("GDPR: delete planned_route_snapshots failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM object_access_grants WHERE principal_user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: delete object_access_grants by principal failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM object_access_scopes
+		WHERE %s
+	`, userAccessScopeWhere), userID); err != nil {
+		slog.Warn("GDPR: delete object_access_scopes failed", "error", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE route_publication_events SET actor_user_id = NULL WHERE actor_user_id = $1`, userID); err != nil {
+		slog.Warn("GDPR: anonymize route_publication_events failed", "error", err)
+	}
+
 	// segment_versions: created_by REFERENCES users(id) — NO ACTION.
 	if _, err := tx.Exec(ctx, `DELETE FROM segment_versions WHERE created_by = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete segment_versions failed", "error", err)

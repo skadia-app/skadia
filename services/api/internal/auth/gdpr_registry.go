@@ -23,58 +23,67 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// Export — primary user data
 	// -------------------------------------------------------------------------
-	"users":                       Export,
-	"activities":                  Export,
-	"activity_edits":              Export,
-	"activity_tags":               Export,
-	"activity_photos":             Export,
-	"activity_developer_apps":     Export,
-	"automation_rules":            Export,
-	"best_effort_exclusions":      Export,
-	"best_efforts":                Export, // ableitbar aber günstig; teuer zu recomputen
-	"bike_setups":                 Export,
-	"chain_rotation_groups":       Export,
-	"chain_rotation_members":      Export,
-	"chat_messages":               Export,
-	"chat_sessions":               Export,
-	"chat_user_preferences":       Export,
-	"component_assignments":       Export,
-	"custom_map_markers":          Export,
-	"custom_maps":                 Export,
-	"devices":                     Export,
-	"file_attachments":            Export,
-	"gear":                        Export,
-	"gear_components":             Export,
-	"gear_documents":              Export,
-	"activity_gear_assignments":   Export, // gear-to-activity link with role/slot/quantity (Mig 000355)
-	"gear_component_swap_events":  Export, // component swap history (Mig 000355)
-	"gear_schema_definitions":     Export, // user-custom schema overrides (Mig 000355)
-	"gear_service_events":         Export,
-	"gear_service_intervals":      Export,
-	"llm_user_config":             Export,
-	"ml_user_settings":            Export,
-	"oauth_connections":           Export, // Metadaten; Tokens in Deny-List
-	"planned_routes":              Export,
-	"recording_group_members":     Export,
-	"recording_groups":            Export,
-	"route_photos":                Export,
-	"route_tags":                  Export,
-	"routing_profiles":            Export,
-	"segments":                    Export,
-	"segment_versions":            Export, // Enthält die Geometrie (track, start_point, end_point); ohne diese ist ein importiertes Segment unbrauchbar. Purge via DELETE in gdpr.go (created_by NO ACTION).
-	"segment_favorites":           Export, // Kann fremde Segment-IDs referenzieren → Importer muss skip+warn
-	"tag_zones":                   Export,
-	"tags":                        Export,
-	"training_zones":              Export,
-	"user_enrichment_settings":    Export,
-	"user_file_schemas":           Export,
-	"user_files":                  Export, // Metadaten; Binaries via ShadowFS
-	"user_map_layers":             Export, // per-user custom tile-URL layers (Mig 000333)
-	"user_privacy_zones":          Export,
-	"user_readiness_preferences":  Export, // Setting (Mig 000343)
-	"activity_fusion_memberships": Export, // Join-Tabelle: welche Quell-Activity trägt welches Feld zur Merged-Activity bei. DeleteVia: CASCADE via activities(merged_id|source_id) und users(user_id)
-	"workouts":                    Export,
-	"workout_steps":               Export,
+	"users":                             Export,
+	"activities":                        Export,
+	"activity_edits":                    Export,
+	"activity_tags":                     Export,
+	"activity_photos":                   Export,
+	"activity_developer_apps":           Export,
+	"automation_rules":                  Export,
+	"best_effort_exclusions":            Export,
+	"best_efforts":                      Export, // ableitbar aber günstig; teuer zu recomputen
+	"bike_setups":                       Export,
+	"chain_rotation_groups":             Export,
+	"chain_rotation_members":            Export,
+	"chat_messages":                     Export,
+	"chat_sessions":                     Export,
+	"chat_user_preferences":             Export,
+	"component_assignments":             Export,
+	"custom_map_markers":                Export,
+	"custom_maps":                       Export,
+	"devices":                           Export,
+	"file_attachments":                  Export,
+	"gear":                              Export,
+	"gear_components":                   Export,
+	"gear_documents":                    Export,
+	"activity_gear_assignments":         Export, // gear-to-activity link with role/slot/quantity (Mig 000355)
+	"gear_component_swap_events":        Export, // component swap history (Mig 000355)
+	"gear_schema_definitions":           Export, // user-custom schema overrides (Mig 000355)
+	"gear_service_events":               Export,
+	"gear_service_intervals":            Export,
+	"llm_user_config":                   Export,
+	"ml_user_settings":                  Export,
+	"oauth_connections":                 Export, // Metadaten; Tokens in Deny-List
+	"planned_routes":                    Export,
+	"planned_route_snapshots":           Export,
+	"recording_group_members":           Export,
+	"recording_groups":                  Export,
+	"route_course_publications":         Export,
+	"route_course_relationships":        Export,
+	"route_profile_snapshots":           Export,
+	"route_photos":                      Export,
+	"route_publication_events":          Export,
+	"route_publication_privacy_reviews": Export,
+	"route_relationships":               Export,
+	"route_tags":                        Export,
+	"routing_profiles":                  Export,
+	"segments":                          Export,
+	"segment_versions":                  Export, // Enthält die Geometrie (track, start_point, end_point); ohne diese ist ein importiertes Segment unbrauchbar. Purge via DELETE in gdpr.go (created_by NO ACTION).
+	"segment_favorites":                 Export, // Kann fremde Segment-IDs referenzieren → Importer muss skip+warn
+	"tag_zones":                         Export,
+	"tags":                              Export,
+	"training_zones":                    Export,
+	"user_enrichment_settings":          Export,
+	"user_file_schemas":                 Export,
+	"user_files":                        Export, // Metadaten; Binaries via ShadowFS
+	"user_map_layers":                   Export, // per-user custom tile-URL layers (Mig 000333)
+	"object_access_grants":              Export,
+	"object_access_scopes":              Export,
+	"user_privacy_zones":                Export,
+	"user_readiness_preferences":        Export, // Setting (Mig 000343)
+	"activity_fusion_memberships":       Export, // Join-Tabelle: welche Quell-Activity trägt welches Feld zur Merged-Activity bei. DeleteVia: CASCADE via activities(merged_id|source_id) und users(user_id)
+	"workouts":                          Export,
+	"workout_steps":                     Export,
 
 	// -------------------------------------------------------------------------
 	// External — externally sourced; should be exported
@@ -138,6 +147,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"segment_leaderboard_equivalence_groups":         Derived,
 	"segment_leaderboard_equivalence_group_versions": Derived,
 	"segment_version_revisions":                      Derived,
+	"route_course_profile_projection":                Derived,
 	"target_course_eligibility_projection":           Derived,
 	"segments_legacy_sub_type_hints":                 Derived,
 	"terra_incognita_cache":                          Derived,
@@ -203,6 +213,15 @@ var ExportedTables = []string{
 	"segments",
 	"segment_versions",
 	"planned_routes",
+	"planned_route_snapshots",
+	"route_publication_privacy_reviews",
+	"route_course_publications",
+	"route_relationships",
+	"route_course_relationships",
+	"route_profile_snapshots",
+	"route_publication_events",
+	"object_access_scopes",
+	"object_access_grants",
 	"activity_weather",
 	"workouts",
 	"workout_steps",

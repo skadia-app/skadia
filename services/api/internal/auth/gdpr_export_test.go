@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -151,6 +152,8 @@ func TestIsDenied(t *testing.T) {
 		{"oauth_connections", "access_token", true},
 		{"oauth_connections", "refresh_token", true},
 		{"oauth_connections", "provider", false},
+		{"object_access_grants", "link_token_hash", true},
+		{"object_access_grants", "principal_selector_hash", false},
 		{"gear", "name", false},
 		{"gear", "password_hash", false}, // same column name, different (unlisted) table
 	}
@@ -160,5 +163,40 @@ func TestIsDenied(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isDenied(%q, %q) = %v, want %v", tc.table, tc.column, got, tc.want)
 		}
+	}
+}
+
+func TestRoutePublicationPrivacyTablesAreExported(t *testing.T) {
+	specs := gdprExportTables()
+	specByTable := make(map[string]gdprExportTableSpec, len(specs))
+	for _, spec := range specs {
+		specByTable[spec.table] = spec
+	}
+
+	required := []string{
+		"planned_route_snapshots",
+		"route_publication_privacy_reviews",
+		"route_course_publications",
+		"route_relationships",
+		"route_course_relationships",
+		"route_profile_snapshots",
+		"route_publication_events",
+		"object_access_scopes",
+		"object_access_grants",
+	}
+	for _, table := range required {
+		if !slices.Contains(ExportedTables, table) {
+			t.Fatalf("%s missing from ExportedTables", table)
+		}
+		spec, ok := specByTable[table]
+		if !ok {
+			t.Fatalf("%s missing from gdprExportTables", table)
+		}
+		if spec.where == "" {
+			t.Fatalf("%s export has empty ownership scope", table)
+		}
+	}
+	if !isDenied("object_access_grants", "link_token_hash") {
+		t.Fatal("object_access_grants.link_token_hash must not be exported")
 	}
 }
