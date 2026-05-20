@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -125,70 +126,9 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 		return 0, errLapSegmentCannotBeReversed
 	}
 
-	// Insert a new segment_versions row with ST_Reverse(track) and swapped
-	// start_point / end_point. Segment metadata lives on segments, so the
-	// parent row's effort_count/athlete_count and metadata are untouched.
-	if _, err := tx.Exec(ctx, `
-		WITH boundary AS (
-			SELECT NOW() AS at
-		),
-		next_version AS (
-			SELECT COALESCE(MAX(version_number), 0) + 1 AS number
-			FROM segment_versions
-			WHERE segment_id = $1
-		),
-		active AS (
-			SELECT id, segment_id, version_number, track, start_point, end_point
-			FROM segment_versions, boundary
-			WHERE segment_id = $1
-			  AND matching_contract_key = 'course_gps_v1'
-			  AND matching_contract_version = 1
-			  AND (valid_from_at IS NULL OR valid_from_at <= boundary.at)
-			  AND (valid_until_at IS NULL OR boundary.at < valid_until_at)
-			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
-			         version_number DESC
-			LIMIT 1
-		),
-		next_future AS (
-			SELECT MIN(valid_from_at) AS at
-			FROM segment_versions, boundary
-			WHERE segment_id = $1
-			  AND matching_contract_key = 'course_gps_v1'
-			  AND matching_contract_version = 1
-			  AND valid_from_at > boundary.at
-		),
-		closed AS (
-			UPDATE segment_versions sv
-			SET valid_until_at = boundary.at
-			FROM active, boundary
-			WHERE sv.id = active.id
-			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
-			RETURNING sv.id
-		)
-		INSERT INTO segment_versions (
-			segment_id, version_number, track, start_point, end_point,
-			valid_from, created_by, valid_from_at, valid_until_at, validity_basis,
-			matching_contract_key, matching_contract_version, published_at
-		)
-		SELECT active.segment_id,
-		       next_version.number,
-		       ST_Reverse(active.track),
-		       active.end_point,
-		       active.start_point,
-		       CURRENT_DATE,
-		       $2,
-		       boundary.at,
-		       next_future.at,
-		       'editor_asserted',
-		       'course_gps_v1',
-		       1,
-		       boundary.at
-	FROM active, next_version, next_future, boundary, closed`, segID, userID); err != nil {
-		return 0, fmt.Errorf("insert reversed version: %w", err)
-	}
-
-	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segID); err != nil {
-		return 0, fmt.Errorf("rebuild course eligibility projection: %w", err)
+	operationID := fmt.Sprintf("reverse:%s:%d:%d", segID, lockKey, time.Now().UnixNano())
+	if _, _, err := db.ReverseActiveSegmentVersionTx(ctx, tx, segID, userID, operationID); err != nil {
+		return 0, err
 	}
 
 	if err := database.UpdateSegmentEffortRanksTx(ctx, tx, segID); err != nil {

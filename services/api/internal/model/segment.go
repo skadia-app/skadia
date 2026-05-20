@@ -66,44 +66,90 @@ type SegmentUpdate struct {
 }
 
 type SegmentVersion struct {
-	ID            string    `json:"id" db:"id"`
-	SegmentID     string    `json:"segment_id" db:"segment_id"`
-	VersionNumber int       `json:"version_number" db:"version_number"`
-	TrackGeoJSON  string    `json:"track_geojson" db:"track_geojson"`
-	ValidFrom     string    `json:"valid_from" db:"valid_from"`
-	ChangeNote    *string   `json:"change_note,omitempty" db:"change_note"`
-	CreatedBy     *string   `json:"created_by,omitempty" db:"created_by"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	ID            string     `json:"id" db:"id"`
+	SegmentID     string     `json:"segment_id" db:"segment_id"`
+	VersionNumber int        `json:"version_number" db:"version_number"`
+	TrackGeoJSON  string     `json:"track_geojson" db:"track_geojson"`
+	ValidFrom     string     `json:"valid_from" db:"valid_from"`
+	ValidFromAt   *time.Time `json:"valid_from_at,omitempty" db:"valid_from_at"`
+	ValidUntilAt  *time.Time `json:"valid_until_at,omitempty" db:"valid_until_at"`
+	ValidityBasis string     `json:"validity_basis,omitempty" db:"validity_basis"`
+	ChangeNote    *string    `json:"change_note,omitempty" db:"change_note"`
+	CreatedBy     *string    `json:"created_by,omitempty" db:"created_by"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+}
+
+type SegmentVersionValidityUpdate struct {
+	OperationID         string     `json:"operation_id"`
+	ValidFromAt         *time.Time `json:"valid_from_at"`
+	ValidUntilAt        *time.Time `json:"valid_until_at"`
+	Reason              string     `json:"reason,omitempty"`
+	Recalculate         bool       `json:"recalculate"`
+	EquivalenceDecision string     `json:"equivalence_decision,omitempty"`
+}
+
+type SegmentGeometryUpdate struct {
+	OperationID         string          `json:"operation_id"`
+	TrackGeoJSON        json.RawMessage `json:"track_geojson"`
+	StartPointGeoJSON   json.RawMessage `json:"start_point_geojson"`
+	EndPointGeoJSON     json.RawMessage `json:"end_point_geojson"`
+	Reason              string          `json:"reason,omitempty"`
+	Recalculate         bool            `json:"recalculate"`
+	EquivalenceDecision string          `json:"equivalence_decision,omitempty"`
+	EquivalenceEvidence map[string]any  `json:"equivalence_evidence,omitempty"`
+}
+
+type SegmentVersionRevision struct {
+	ID                    string          `json:"id"`
+	SegmentID             string          `json:"segment_id"`
+	Operation             string          `json:"operation"`
+	Reason                *string         `json:"reason,omitempty"`
+	SnapshotSchemaKey     string          `json:"snapshot_schema_key"`
+	SnapshotSchemaVersion int             `json:"snapshot_schema_version"`
+	AffectedFromAt        *time.Time      `json:"affected_from_at,omitempty"`
+	AffectedUntilAt       *time.Time      `json:"affected_until_at,omitempty"`
+	RecalculationRunID    *string         `json:"recalculation_run_id,omitempty"`
+	RollbackOfRevisionID  *string         `json:"rollback_of_revision_id,omitempty"`
+	BeforeSnapshot        json.RawMessage `json:"before_snapshot"`
+	AfterSnapshot         json.RawMessage `json:"after_snapshot"`
+	BeforeSnapshotSHA256  string          `json:"before_snapshot_sha256"`
+	AfterSnapshotSHA256   string          `json:"after_snapshot_sha256"`
+	CreatedAt             time.Time       `json:"created_at"`
 }
 
 type SegmentEffort struct {
-	ID                      string    `json:"id"`
-	SegmentID               string    `json:"segment_id"`
-	SegmentVersionID        string    `json:"segment_version_id"`
-	ActivityID              string    `json:"activity_id"`
-	UserID                  string    `json:"user_id"`
-	StartedAt               time.Time `json:"started_at"`
-	ElapsedTimeS            int       `json:"elapsed_time_s"`
-	IsReverse               bool      `json:"is_reverse"`
-	SportType               string    `json:"sport_type"`
-	SubType                 string    `json:"sub_type"`
-	IsIndoor                bool      `json:"is_indoor"`
-	IsVirtual               bool      `json:"is_virtual"`
-	IsElectric              bool      `json:"is_electric"`
-	GearID                  *string   `json:"gear_id,omitempty"`
-	AvgPowerW               *float64  `json:"avg_power_w,omitempty"`
-	AvgHeartRate            *float64  `json:"avg_heart_rate,omitempty"`
-	AvgSpeedMs              *float64  `json:"avg_speed_ms,omitempty"`
-	DistanceM               *float64  `json:"distance_m,omitempty"`
-	ElevationGainM          *float64  `json:"elevation_gain_m,omitempty"`
-	MatchingContractKey     string    `json:"matching_contract_key,omitempty"`
-	MatchingContractVersion int       `json:"matching_contract_version,omitempty"`
-	MatchSourceType         string    `json:"match_source_type,omitempty"`
-	MatchSourceID           string    `json:"match_source_id,omitempty"`
-	MatchIdentityKey        string    `json:"match_identity_key,omitempty"`
-	OccurrenceIndex         int       `json:"occurrence_index,omitempty"`
-	OccurrenceHash          *string   `json:"occurrence_hash,omitempty"`
-	SupersededByEffortID    *string   `json:"superseded_by_effort_id,omitempty"`
+	ID                             string     `json:"id"`
+	SegmentID                      string     `json:"segment_id"`
+	SegmentVersionID               string     `json:"segment_version_id"`
+	ActivityID                     string     `json:"activity_id"`
+	UserID                         string     `json:"user_id"`
+	StartedAt                      time.Time  `json:"started_at"`
+	ElapsedTimeS                   int        `json:"elapsed_time_s"`
+	IsReverse                      bool       `json:"is_reverse"`
+	SportType                      string     `json:"sport_type"`
+	SubType                        string     `json:"sub_type"`
+	IsIndoor                       bool       `json:"is_indoor"`
+	IsVirtual                      bool       `json:"is_virtual"`
+	IsElectric                     bool       `json:"is_electric"`
+	GearID                         *string    `json:"gear_id,omitempty"`
+	AvgPowerW                      *float64   `json:"avg_power_w,omitempty"`
+	AvgHeartRate                   *float64   `json:"avg_heart_rate,omitempty"`
+	AvgSpeedMs                     *float64   `json:"avg_speed_ms,omitempty"`
+	DistanceM                      *float64   `json:"distance_m,omitempty"`
+	ElevationGainM                 *float64   `json:"elevation_gain_m,omitempty"`
+	MatchingContractKey            string     `json:"matching_contract_key,omitempty"`
+	MatchingContractVersion        int        `json:"matching_contract_version,omitempty"`
+	MatchSourceType                string     `json:"match_source_type,omitempty"`
+	MatchSourceID                  string     `json:"match_source_id,omitempty"`
+	MatchIdentityKey               string     `json:"match_identity_key,omitempty"`
+	OccurrenceIndex                int        `json:"occurrence_index,omitempty"`
+	OccurrenceHash                 *string    `json:"occurrence_hash,omitempty"`
+	SupersededByEffortID           *string    `json:"superseded_by_effort_id,omitempty"`
+	SupersededAt                   *time.Time `json:"superseded_at,omitempty"`
+	SupersededReason               *string    `json:"superseded_reason,omitempty"`
+	SupersededByRecalculationRunID *string    `json:"superseded_by_recalculation_run_id,omitempty"`
+	CreatedByRecalculationRunID    *string    `json:"created_by_recalculation_run_id,omitempty"`
+	LeaderboardEquivalenceGroupID  string     `json:"leaderboard_equivalence_group_id,omitempty"`
 
 	LeaderboardSportType           string    `json:"leaderboard_sport_type,omitempty"`
 	LeaderboardSubType             string    `json:"leaderboard_sub_type,omitempty"`
