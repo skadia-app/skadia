@@ -112,33 +112,36 @@ var GDPRRegistry = map[string]TableCategory{
 	// activity_lift_candidates: upgraded from Derived to Export in Phase 4d
 	// because rejected_by_user is user-authored data that is not regenerable
 	// on re-import (unlike the detection results, which are derived).
-	"activity_lift_candidates":             Export,
-	"activity_privacy_sections":            Derived,
-	"activity_rr_intervals":                Derived,
-	"activity_segment_laps":                Derived,
-	"activity_sensors":                     Derived,
-	"activity_sets":                        Derived,
-	"activity_splits":                      Derived,
-	"activity_split_summaries":             Derived,
-	"activity_stops":                       Derived,
-	"activity_streams":                     Derived,
-	"activity_enrichments":                 Derived,
-	"activity_enrichment_meta":             Derived, // path (graph|sql) + resample_spacing_m; cascades via activity_id FK
-	"activity_tag_removals":                Derived,
-	"activity_time_in_zone":                Derived, // FIT-zone data, cascades from activities
-	"activity_tracks":                      Derived,
-	"analytics_cache":                      Derived,
-	"enrichment_errors":                    Derived,
-	"fusion_candidates":                    Derived,
-	"heatmap_lines":                        Derived,
-	"heatmap_points":                       Derived,
-	"heatmap_trail_matches":                Derived,
-	"pmc_daily":                            Derived,
-	"segment_efforts":                      Derived,
-	"target_course_eligibility_projection": Derived,
-	"segments_legacy_sub_type_hints":       Derived,
-	"terra_incognita_cache":                Derived,
-	"user_daily_features":                  Derived,
+	"activity_lift_candidates":                       Export,
+	"activity_privacy_sections":                      Derived,
+	"activity_rr_intervals":                          Derived,
+	"activity_segment_laps":                          Derived,
+	"activity_sensors":                               Derived,
+	"activity_sets":                                  Derived,
+	"activity_splits":                                Derived,
+	"activity_split_summaries":                       Derived,
+	"activity_stops":                                 Derived,
+	"activity_streams":                               Derived,
+	"activity_enrichments":                           Derived,
+	"activity_enrichment_meta":                       Derived, // path (graph|sql) + resample_spacing_m; cascades via activity_id FK
+	"activity_tag_removals":                          Derived,
+	"activity_time_in_zone":                          Derived, // FIT-zone data, cascades from activities
+	"activity_tracks":                                Derived,
+	"analytics_cache":                                Derived,
+	"enrichment_errors":                              Derived,
+	"fusion_candidates":                              Derived,
+	"heatmap_lines":                                  Derived,
+	"heatmap_points":                                 Derived,
+	"heatmap_trail_matches":                          Derived,
+	"pmc_daily":                                      Derived,
+	"segment_efforts":                                Derived,
+	"segment_leaderboard_equivalence_groups":         Derived,
+	"segment_leaderboard_equivalence_group_versions": Derived,
+	"segment_version_revisions":                      Derived,
+	"target_course_eligibility_projection":           Derived,
+	"segments_legacy_sub_type_hints":                 Derived,
+	"terra_incognita_cache":                          Derived,
+	"user_daily_features":                            Derived,
 
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
@@ -160,10 +163,13 @@ var GDPRRegistry = map[string]TableCategory{
 	// System: state is fully reproducible from automation_rules + gear; no historical signal lost (Plan 2026-05-08 §11).
 	"gear_rule_action_state": System,
 	// hotfolder_imports removed — table never existed in DB (stale aspirational entry, Mig cleanup)
-	"import_queue":       System, // transiente Import-Queue
-	"komoot_credentials": System,
-	"notifications":      System,
-	"refresh_tokens":     System,
+	"import_queue":                         System, // transiente Import-Queue
+	"komoot_credentials":                   System,
+	"notifications":                        System,
+	"refresh_tokens":                       System,
+	"segment_recalculation_runs":           System,
+	"segment_recalculation_run_activities": System,
+	"segment_recalculation_segment_state":  System,
 	// reverse_geocode_cache: System-Kategorie gerechtfertigt trotz user-stammender
 	// Koordinaten. Rationale: PK ist (lat*1000, lng*1000, provider) = ~100m-Grid
 	// (Mig 000300), 30d TTL, keine user_id-Spalte, keine Tracking-Korrelation
