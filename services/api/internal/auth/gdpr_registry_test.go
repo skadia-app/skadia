@@ -582,6 +582,16 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		// references on other segments are nulled by ON DELETE SET NULL.
 		"segment_recalculation_runs":          true,
 		"segment_recalculation_segment_state": true,
+		"object_access_grants":                true,
+		"object_access_scopes":                true,
+		"planned_route_snapshots":             true,
+		"route_course_profile_projection":     true,
+		"route_course_publications":           true,
+		"route_course_relationships":          true,
+		"route_profile_snapshots":             true,
+		"route_publication_events":            true,
+		"route_publication_privacy_reviews":   true,
+		"route_relationships":                 true,
 	}
 
 	// Query: which tables are reachable via ON DELETE CASCADE from users?
