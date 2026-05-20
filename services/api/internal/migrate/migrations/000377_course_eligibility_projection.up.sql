@@ -47,11 +47,11 @@ CREATE TABLE IF NOT EXISTS target_course_eligibility_projection (
 CREATE INDEX IF NOT EXISTS idx_tcep_candidate_lookup
     ON target_course_eligibility_projection (
         activity_trait_bucket_key,
-        match_allowed,
         target_kind,
         target_id,
         target_version_id
-    );
+    )
+    WHERE match_allowed;
 
 CREATE INDEX IF NOT EXISTS idx_tcep_target_lookup
     ON target_course_eligibility_projection (target_kind, target_id, target_version_id);
