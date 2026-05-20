@@ -215,6 +215,22 @@ type RouteCoursePublication struct {
 	Metadata                     json.RawMessage `json:"metadata,omitempty"`
 }
 
+type PublishRouteSnapshotInput struct {
+	RouteSnapshotID              string
+	ActorUserID                  string
+	SourceRouteVersion           int64
+	PublishPolicy                string
+	EquivalenceDecision          string
+	Visibility                   string
+	AccessScopeID                *string
+	CompatibilityPreset          string
+	TargetPublicationID          *string
+	TargetCourseSegmentID        *string
+	TargetCourseSegmentVersionID *string
+	CompatibilityEvidence        map[string]any
+	OperationID                  string
+}
+
 type RouteRelationship struct {
 	ID                 string          `json:"id"`
 	SourceRouteID      string          `json:"source_route_id"`

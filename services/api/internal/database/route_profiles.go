@@ -362,7 +362,10 @@ func routeProfileCoordinateBasis(segments []model.RouteSegment) [][]float64 {
 		if i > 0 {
 			start = 1
 		}
-		for j := start; j < len(segment.Geometry.Coordinates); j++ {
+		for j := range len(segment.Geometry.Coordinates) {
+			if j < start {
+				continue
+			}
 			coord := segment.Geometry.Coordinates[j]
 			coords = append(coords, coord)
 		}
@@ -423,7 +426,10 @@ func routeProfileRangeDistanceM(coords [][]float64, r routeProfileCoordRange) fl
 		return 0
 	}
 	var distance float64
-	for i := from; i < to; i++ {
+	for i := range to {
+		if i < from {
+			continue
+		}
 		a := coords[i]
 		b := coords[i+1]
 		if len(a) < 2 || len(b) < 2 {
