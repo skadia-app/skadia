@@ -1506,6 +1506,8 @@ func main() {
 			r.Get("/activities/{id}", h.GetActivity)
 			r.Patch("/activities/{id}", h.UpdateActivity)
 			r.Delete("/activities/{id}", h.DeleteActivity)
+			r.Post("/activities/{id}/gear-assignments", h.AddActivityGearAssignment)
+			r.Delete("/activities/{id}/gear-assignments/{assignmentID}", h.RemoveActivityGearAssignment)
 			r.Delete("/activities", h.DeleteActivities)
 			r.Post("/activities/{id}/recompute", h.RecomputeActivity)
 			r.Patch("/activities/{id}/resolve-sport-conflict", h.ResolveSportConflict)

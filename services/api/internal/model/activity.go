@@ -52,56 +52,59 @@ type Activity struct {
 	TSS                *float64   `json:"tss,omitempty"`
 	TRIMP              *float64   `json:"trimp,omitempty"`
 	// Self-computed metrics (canonical values for PMC pipeline)
-	ComputedTSS             *float64         `json:"computed_tss,omitempty"`
-	ComputedNPW             *float64         `json:"computed_np_w,omitempty"`
-	ComputedNGPMps          *float64         `json:"computed_ngp_mps,omitempty"`
-	TSSMethod               *string          `json:"tss_method,omitempty"`
-	ComputedIF              *float64         `json:"computed_if,omitempty"`
-	MinHeartRate            *int             `json:"min_heart_rate,omitempty"`
-	TotalCalories           *int             `json:"total_calories,omitempty"`
-	AerobicTrainingEffect   *float64         `json:"aerobic_training_effect,omitempty"`
-	AnaerobicTrainingEffect *float64         `json:"anaerobic_training_effect,omitempty"`
-	TrainingLoadPeak        *float64         `json:"training_load_peak,omitempty"`
-	AvgSpo2Pct              *int             `json:"avg_spo2_pct,omitempty"`
-	AvgRespirationRate      *float64         `json:"avg_respiration_rate,omitempty"`
-	AvgStressLevel          *int             `json:"avg_stress_level,omitempty"`
-	WorkoutRpe              *int             `json:"workout_rpe,omitempty"`
-	WorkoutFeel             *int             `json:"workout_feel,omitempty"`
-	SessionRmssdMs          *int             `json:"session_rmssd_ms,omitempty"`
-	AvgCoreTemperatureC     *float64         `json:"avg_core_temperature_c,omitempty"`
-	ThresholdPowerW         *int             `json:"threshold_power_w,omitempty"`
-	VariabilityIndex        *float64         `json:"variability_index,omitempty"`
-	EfficiencyFactor        *float64         `json:"efficiency_factor,omitempty"`
-	AerobicDecoupling       *float64         `json:"aerobic_decoupling,omitempty"`
-	GearID                  *string          `json:"gear_id,omitempty"`
-	IsIndoor                bool             `json:"is_indoor"`
-	Tags                    []string         `json:"tags"`
-	Visibility              string           `json:"visibility"`
-	Source                  *string          `json:"source,omitempty"`
-	SourceDevice            *string          `json:"source_device,omitempty"`
-	EnrichmentStatus        string           `json:"enrichment_status"`
-	NeedsClassification     bool             `json:"needs_classification"`
-	HasGPS                  bool             `json:"has_gps"`
-	StartCity               *string          `json:"start_city,omitempty"`
-	EndCity                 *string          `json:"end_city,omitempty"`
-	StartState              *string          `json:"start_state,omitempty"`
-	StartCountry            *string          `json:"start_country,omitempty"`
-	StartCountryCode        *string          `json:"start_country_code,omitempty"`
-	EndCountry              *string          `json:"end_country,omitempty"`
-	EndCountryCode          *string          `json:"end_country_code,omitempty"`
-	LocationCountry         *string          `json:"location_country,omitempty"`
-	LocationCountryCode     *string          `json:"location_country_code,omitempty"`
-	VisitedCountryCodes     []string         `json:"visited_country_codes,omitempty"`
-	WeatherReadings         []WeatherReading `json:"weather_readings,omitempty"`
-	IsRoundTrip             bool             `json:"is_round_trip"`
-	Intensity               *string          `json:"intensity,omitempty"`
-	TimeOfDay               []string         `json:"time_of_day,omitempty"`
-	SunriseAt               *time.Time       `json:"sunrise_at,omitempty"`
-	SunsetAt                *time.Time       `json:"sunset_at,omitempty"`
-	OriginalFilename        *string          `json:"original_filename,omitempty"`
-	OriginalFileFormat      *string          `json:"original_file_format,omitempty"`
-	CreatedAt               time.Time        `json:"created_at"`
-	UpdatedAt               time.Time        `json:"updated_at"`
+	ComputedTSS             *float64                 `json:"computed_tss,omitempty"`
+	ComputedNPW             *float64                 `json:"computed_np_w,omitempty"`
+	ComputedNGPMps          *float64                 `json:"computed_ngp_mps,omitempty"`
+	TSSMethod               *string                  `json:"tss_method,omitempty"`
+	ComputedIF              *float64                 `json:"computed_if,omitempty"`
+	MinHeartRate            *int                     `json:"min_heart_rate,omitempty"`
+	TotalCalories           *int                     `json:"total_calories,omitempty"`
+	AerobicTrainingEffect   *float64                 `json:"aerobic_training_effect,omitempty"`
+	AnaerobicTrainingEffect *float64                 `json:"anaerobic_training_effect,omitempty"`
+	TrainingLoadPeak        *float64                 `json:"training_load_peak,omitempty"`
+	AvgSpo2Pct              *int                     `json:"avg_spo2_pct,omitempty"`
+	AvgRespirationRate      *float64                 `json:"avg_respiration_rate,omitempty"`
+	AvgStressLevel          *int                     `json:"avg_stress_level,omitempty"`
+	WorkoutRpe              *int                     `json:"workout_rpe,omitempty"`
+	WorkoutFeel             *int                     `json:"workout_feel,omitempty"`
+	SessionRmssdMs          *int                     `json:"session_rmssd_ms,omitempty"`
+	AvgCoreTemperatureC     *float64                 `json:"avg_core_temperature_c,omitempty"`
+	ThresholdPowerW         *int                     `json:"threshold_power_w,omitempty"`
+	VariabilityIndex        *float64                 `json:"variability_index,omitempty"`
+	EfficiencyFactor        *float64                 `json:"efficiency_factor,omitempty"`
+	AerobicDecoupling       *float64                 `json:"aerobic_decoupling,omitempty"`
+	GearID                  *string                  `json:"gear_id,omitempty"`
+	IsIndoor                bool                     `json:"is_indoor"`
+	Tags                    []string                 `json:"tags"`
+	Visibility              string                   `json:"visibility"`
+	HideMap                 bool                     `json:"hide_map"`
+	DataVisibility          map[string]any           `json:"data_visibility,omitempty"`
+	Source                  *string                  `json:"source,omitempty"`
+	SourceDevice            *string                  `json:"source_device,omitempty"`
+	EnrichmentStatus        string                   `json:"enrichment_status"`
+	NeedsClassification     bool                     `json:"needs_classification"`
+	HasGPS                  bool                     `json:"has_gps"`
+	StartCity               *string                  `json:"start_city,omitempty"`
+	EndCity                 *string                  `json:"end_city,omitempty"`
+	StartState              *string                  `json:"start_state,omitempty"`
+	StartCountry            *string                  `json:"start_country,omitempty"`
+	StartCountryCode        *string                  `json:"start_country_code,omitempty"`
+	EndCountry              *string                  `json:"end_country,omitempty"`
+	EndCountryCode          *string                  `json:"end_country_code,omitempty"`
+	LocationCountry         *string                  `json:"location_country,omitempty"`
+	LocationCountryCode     *string                  `json:"location_country_code,omitempty"`
+	VisitedCountryCodes     []string                 `json:"visited_country_codes,omitempty"`
+	WeatherReadings         []WeatherReading         `json:"weather_readings,omitempty"`
+	GearAssignments         []ActivityGearAssignment `json:"gear_assignments,omitempty"`
+	IsRoundTrip             bool                     `json:"is_round_trip"`
+	Intensity               *string                  `json:"intensity,omitempty"`
+	TimeOfDay               []string                 `json:"time_of_day,omitempty"`
+	SunriseAt               *time.Time               `json:"sunrise_at,omitempty"`
+	SunsetAt                *time.Time               `json:"sunset_at,omitempty"`
+	OriginalFilename        *string                  `json:"original_filename,omitempty"`
+	OriginalFileFormat      *string                  `json:"original_file_format,omitempty"`
+	CreatedAt               time.Time                `json:"created_at"`
+	UpdatedAt               time.Time                `json:"updated_at"`
 	// Manually assigned location from a location tag (independent of GPS start_lat/start_lng).
 	LocationLat *float64 `json:"location_lat,omitempty"`
 	LocationLng *float64 `json:"location_lng,omitempty"`
@@ -1175,21 +1178,15 @@ type GearCostSummary struct {
 	CostPerHour *float64 `json:"cost_per_hour,omitempty"`
 }
 
-// PHASE-7 DECISION — ActivityGearAssignment struct not restored.
-//
-// The DB table `activity_gear_assignments` was created by migration 000355 and
-// is fully populated (151 rows in production). Its RLS policy, GDPR export,
-// and FK constraints are all in place.
-//
-// The Go struct `ActivityGearAssignment` existed in the backup
-// (backup/gear-descent-analytics-pre-history-cleanup) but had no JSON tags,
-// meaning it was never exposed as a public DTO. Nothing in the current
-// codebase references the struct by name (confirmed via grep). The handler
-// reads assignments through the `gear_assignments_read.go` query functions
-// that return typed results directly without this struct.
-//
-// Restore this struct when a multi-gear-per-activity feature is built that
-// needs a model layer for slot/role/quantity/override data — not before.
+type ActivityGearAssignment struct {
+	ID        string  `json:"id"`
+	GearID    string  `json:"gear_id"`
+	GearName  string  `json:"gear_name"`
+	GearType  string  `json:"gear_type"`
+	RoleKey   string  `json:"role_key"`
+	RoleLabel string  `json:"role_label"`
+	Quantity  float64 `json:"quantity"`
+}
 
 // TimeInZone is the API response for a single zone.
 type TimeInZone struct {

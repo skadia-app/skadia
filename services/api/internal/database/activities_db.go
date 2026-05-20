@@ -714,7 +714,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.session_rmssd_ms, a.avg_core_temperature_c, a.threshold_power_w,
 			a.is_indoor,
 			a.source, a.source_device,
-			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
+			a.tags, a.visibility, a.hide_map, a.data_visibility, a.enrichment_status, a.original_filename, a.original_file_format,
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
 			a.end_country, a.end_country_code, a.location_country, a.location_country_code, a.visited_country_codes,
 			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at,
@@ -821,7 +821,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.SessionRmssdMs, &a.AvgCoreTemperatureC, &a.ThresholdPowerW,
 		&a.IsIndoor,
 		&a.Source, &a.SourceDevice,
-		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
+		&a.Tags, &a.Visibility, &a.HideMap, &a.DataVisibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
 		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
 		&a.EndCountry, &a.EndCountryCode, &a.LocationCountry, &a.LocationCountryCode, &a.VisitedCountryCodes,
 		&a.IsRoundTrip, &a.Intensity, &a.TimeOfDay, &a.SunriseAt, &a.SunsetAt, &a.GearID,
@@ -901,6 +901,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	a.NeedsClassification = a.SportType == "unknown"
 	if a.Tags == nil {
 		a.Tags = []string{}
+	}
+	if a.DataVisibility == nil {
+		a.DataVisibility = map[string]any{}
 	}
 	if sportConflictMeta != nil && a.SportConflictPending {
 		var meta model.SportConflictMeta
