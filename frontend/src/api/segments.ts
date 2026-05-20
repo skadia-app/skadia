@@ -279,11 +279,17 @@ export type SegmentRecalculationRunResponse = {
 }
 
 export async function recomputeSegment(segmentId: string): Promise<SegmentRecalculationRunResponse> {
-  return apiClient<SegmentRecalculationRunResponse>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${segmentId}/recompute`, {
+    method: 'POST',
+    body: { operation_id: crypto.randomUUID() },
+  })
 }
 
 export async function publishSegment(id: string): Promise<SegmentRecalculationRunResponse> {
-  return apiClient<SegmentRecalculationRunResponse>(`/segments/${id}/publish`, { method: 'POST' })
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${id}/publish`, {
+    method: 'POST',
+    body: { operation_id: crypto.randomUUID() },
+  })
 }
 
 export async function updateSegmentVersionValidity(

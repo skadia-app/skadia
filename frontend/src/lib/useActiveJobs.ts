@@ -8,7 +8,7 @@ import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
 export type { ActiveJob }
 
 export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: ActiveJob) {
-  if (job.job_type === 'segment_recompute' && job.entity_id) {
+  if ((job.job_type === 'segment_recompute' || job.job_type === 'segment_recalculation') && job.entity_id) {
     queryClient.invalidateQueries({ queryKey: ['segment', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['segment-performances', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['segments'] })

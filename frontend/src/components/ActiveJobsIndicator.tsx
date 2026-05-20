@@ -32,8 +32,9 @@ function JobRow({ job }: { job: ActiveJob }) {
   const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
   const isGDPRImport = job.job_type === 'data_import'
+  const isSegmentRecalculation = job.job_type === 'segment_recompute' || job.job_type === 'segment_recalculation'
 
-  const label = job.job_type === 'segment_recompute'
+  const label = isSegmentRecalculation
     ? `Segment „${job.entity_name ?? 'Segment'}"`
     : JOB_TYPE_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
 
@@ -45,7 +46,7 @@ function JobRow({ job }: { job: ActiveJob }) {
 
   const subLabel =
     !isOSMJob && !isDataImport && job.status === 'running' && job.progress_total > 0
-      ? job.job_type === 'segment_recompute'
+      ? isSegmentRecalculation
         ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
         : job.job_type === 'photo_preview_recompute' || job.job_type === 'photo_thumb_recompute'
         ? `${job.progress_current} / ${job.progress_total} Fotos verarbeitet`
