@@ -63,6 +63,11 @@ func (h *Handler) collectJobsPayload(ctx context.Context, userID string, include
 	} else {
 		slog.Warn("SSE: list strava import jobs failed", "error", err)
 	}
+	if segmentJobs, err := h.DB.ListActiveSegmentRecalculationJobs(ctx, userID); err == nil {
+		jobs = append(jobs, segmentJobs...)
+	} else {
+		slog.Warn("SSE: list segment recalculation jobs failed", "error", err)
+	}
 
 	for i := range jobs {
 		if jobs[i].Error != nil && len(*jobs[i].Error) > maxSSEErrorLen {

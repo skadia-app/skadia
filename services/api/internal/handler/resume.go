@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -88,9 +89,7 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		slog.Info("resume: reset stale importing regions", "count", res.RowsAffected())
 	}
 
-	if h.resumeJobAllowedByCapabilities("segment_recompute") {
-		h.resumeSegmentRecalculationRuns(ctx)
-	}
+	h.resumeSegmentRecalculationRuns(ctx)
 
 	jobs, err := h.DB.ListStaleRunningJobs(ctx)
 	if err != nil {
@@ -148,9 +147,6 @@ func (h *Handler) resumeSegmentRecalculationRuns(ctx context.Context) {
 }
 
 func (h *Handler) startSegmentRecalculationRuns(reason string) {
-	if !h.resumeJobAllowedByCapabilities("segment_recompute") {
-		return
-	}
 	jobID := "segment-recalculation-runs-" + uuid.NewString()
 	shutdown.Go(jobID, func(ctx context.Context) {
 		workerID := "api-segment-recalculation"
@@ -164,11 +160,17 @@ func (h *Handler) startSegmentRecalculationRuns(reason string) {
 				return
 			}
 			if err := h.recomputeSegmentEffortsForActivityInRun(ctx, *claim); err != nil {
+				if errors.Is(err, database.ErrSegmentRecalculationObsolete) {
+					if skipErr := h.DB.SkipObsoleteSegmentRecalculationActivity(ctx, *claim); skipErr != nil {
+						slog.Warn("resume: skip obsolete segment recalculation activity failed", "run_id", claim.RunID, "error", skipErr)
+					}
+					continue
+				}
 				slog.Warn("resume: segment recalculation activity failed",
 					"run_id", claim.RunID,
 					"segment_id", claim.SegmentID,
 					"activity_id", claim.ActivityID,
-					"error", err)
+					"error_code", "activity_failed")
 				if failErr := h.DB.FailSegmentRecalculationActivity(ctx, *claim, err.Error()); failErr != nil {
 					slog.Warn("resume: mark segment recalculation activity failed", "run_id", claim.RunID, "error", failErr)
 				}

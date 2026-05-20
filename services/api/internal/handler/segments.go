@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -40,6 +41,24 @@ var enrichableSegmentTypes = map[string]struct{}{
 	"lap":         {},
 	"wintersport": {},
 	"wassersport": {},
+}
+
+type segmentOperationRequest struct {
+	OperationID string `json:"operation_id"`
+}
+
+func decodeSegmentOperationID(r *http.Request, fallbackPrefix string) (string, error) {
+	var req segmentOperationRequest
+	if r.Body != nil {
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+	}
+	if strings.TrimSpace(req.OperationID) != "" {
+		return strings.TrimSpace(req.OperationID), nil
+	}
+	return fallbackPrefix + ":" + uuid.NewString(), nil
 }
 
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
@@ -1027,6 +1046,11 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentRecompute) {
 		return
 	}
+	operationID, err := decodeSegmentOperationID(r, "manual-recompute")
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		return
+	}
 
 	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 	if err != nil {
@@ -1043,8 +1067,12 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		SegmentID:       id,
 		OwnerUserID:     userID,
 		IncludeAllUsers: false,
-		OperationID:     "manual-recompute:" + uuid.NewString(),
-	}, "manual segment recompute", nil)
+		OperationID:     operationID,
+	}, "manual segment recompute", map[string]any{
+		"source":      "manual_recompute",
+		"visibility":  "user_visible",
+		"entity_name": seg.Name,
+	})
 	if err != nil {
 		slog.Error("segment recompute: seed recalculation run failed", "segment_id", id, "user_id", userID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to queue recompute", r.URL.Path)
@@ -1072,6 +1100,11 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentPublish) {
 		return
 	}
+	operationID, err := decodeSegmentOperationID(r, "publish")
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		return
+	}
 
 	// Get segment to verify ownership and retrieve name for job display.
 	// Admins may publish any private segment they can read.
@@ -1091,8 +1124,11 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set visibility = 'public'. After this point the segment is visible to all users.
-	published, err := h.DB.PublishSegment(r.Context(), id, userID, isAdmin)
+	published, runID, total, err := h.DB.PublishSegmentAndSeedRecalculationRun(r.Context(), id, userID, isAdmin, operationID, map[string]any{
+		"source":      "segment_publish",
+		"visibility":  "user_visible",
+		"entity_name": seg.Name,
+	})
 	if err != nil {
 		slog.Error("publish segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to publish segment", r.URL.Path)
@@ -1101,18 +1137,6 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	if !published {
 		// Race: another request already published it between our check and this call.
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "already_public"})
-		return
-	}
-
-	runID, total, err := h.DB.SeedSegmentRecalculationRun(r.Context(), userID, database.SegmentRecalculationScope{
-		SegmentID:       id,
-		OwnerUserID:     userID,
-		IncludeAllUsers: true,
-		OperationID:     "publish:" + uuid.NewString(),
-	}, "segment publish recompute", nil)
-	if err != nil {
-		slog.Error("publish segment: seed recalculation run failed", "segment_id", id, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to queue publish recompute", r.URL.Path)
 		return
 	}
 	h.startSegmentRecalculationRuns("segment-publish")
