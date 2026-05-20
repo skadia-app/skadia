@@ -124,6 +124,7 @@ func activeCourseGPSV1VersionLateral(joinKind, segmentIDExpr, atExpr, selectList
 			WHERE segment_id = %s
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND (valid_from_at IS NULL OR valid_from_at <= %s)
 			  AND (valid_until_at IS NULL OR %s < valid_until_at)
 			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -359,6 +360,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 		WHERE segment_id = s.id
 		  AND matching_contract_key = 'course_gps_v1'
 		  AND matching_contract_version = 1
+		  AND validity_basis <> 'rollback_retired'
 		  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
 		  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
 		ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -1036,6 +1038,7 @@ func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx
 			WHERE segment_id = $1
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND (valid_from_at IS NULL OR valid_from_at <= (SELECT at FROM boundary))
 			  AND (valid_until_at IS NULL OR (SELECT at FROM boundary) < valid_until_at)
 			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -1048,6 +1051,7 @@ func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx
 			WHERE segment_id = $1
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND valid_from_at > (SELECT at FROM boundary)
 		),
 		closed AS (
@@ -1086,7 +1090,18 @@ func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, operation, operation, before, after, nil, nil, nil, nil, operationID); err != nil {
+	beforeHash, err := segmentVersionSnapshotHash(before)
+	if err != nil {
+		return "", "", err
+	}
+	inputHash, err := segmentVersionOperationInputHash(operation, map[string]any{
+		"operation":            operation,
+		"equivalence_decision": equivalenceDecision,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, operation, operation, before, after, nil, nil, nil, nil, operationID, inputHash, nil, beforeHash); err != nil {
 		return "", "", err
 	}
 	groupID, err := activeLeaderboardEquivalenceGroupTx(ctx, tx, segmentID, versionID)
@@ -1186,6 +1201,78 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 		return false, fmt.Errorf("commit publish segment tx: %w", err)
 	}
 	return true, nil
+}
+
+func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segmentID, actorID string, isAdmin bool, operationID string, metadata map[string]any) (bool, string, int, error) {
+	if strings.TrimSpace(operationID) == "" {
+		return false, "", 0, fmt.Errorf("%w: operation_id is required", ErrSegmentValidation)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return false, "", 0, fmt.Errorf("begin publish segment tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var ownerID, name string
+	var query string
+	args := []any{segmentID}
+	if isAdmin {
+		query = `
+			UPDATE segments
+			SET visibility = 'public'
+			WHERE id = $1 AND visibility = 'private'
+			RETURNING created_by, name`
+	} else {
+		query = `
+			UPDATE segments
+			SET visibility = 'public'
+			WHERE id = $1 AND created_by = $2 AND visibility = 'private'
+			RETURNING created_by, name`
+		args = append(args, actorID)
+	}
+	if err := tx.QueryRow(ctx, query, args...).Scan(&ownerID, &name); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, "", 0, nil
+		}
+		return false, "", 0, fmt.Errorf("publish segment: %w", err)
+	}
+	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if _, ok := metadata["visibility"]; !ok {
+		metadata["visibility"] = "user_visible"
+	}
+	if _, ok := metadata["source"]; !ok {
+		metadata["source"] = "segment_publish"
+	}
+	if _, ok := metadata["entity_name"]; !ok {
+		metadata["entity_name"] = name
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return false, "", 0, fmt.Errorf("marshal publish recalculation metadata: %w", err)
+	}
+	scope := SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     ownerID,
+		IncludeAllUsers: true,
+		OperationID:     operationID,
+	}
+	idempotencyKey := segmentRecalculationIdempotencyKey(scope)
+	runID, total, err := seedSegmentRecalculationRunTx(ctx, tx, actorID, scope, "segment publish recompute", idempotencyKey, metadataJSON)
+	if err != nil {
+		return false, "", 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, "", 0, fmt.Errorf("commit publish segment tx: %w", err)
+	}
+	return true, runID, total, nil
 }
 
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
@@ -1402,11 +1489,12 @@ func (db *DB) resolveSegmentLeaderboardGroup(ctx context.Context, segmentID, sco
 			WITH active_version AS (
 				SELECT id
 				FROM segment_versions
-				WHERE segment_id = $1
-				  AND matching_contract_key = 'course_gps_v1'
-				  AND matching_contract_version = 1
-				  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
-				  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+					WHERE segment_id = $1
+					  AND matching_contract_key = 'course_gps_v1'
+					  AND matching_contract_version = 1
+					  AND validity_basis <> 'rollback_retired'
+					  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+					  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
 				ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
 				         version_number DESC
 				LIMIT 1

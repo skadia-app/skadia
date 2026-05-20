@@ -13,6 +13,8 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
+var ErrSegmentRecalculationObsolete = errors.New("segment recalculation obsolete")
+
 type SegmentRecalculationScope struct {
 	SegmentID       string
 	OwnerUserID     string
@@ -162,10 +164,8 @@ func seedSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, actorUserID s
 		    completed_at = NOW()
 		WHERE segment_id = $1
 		  AND status IN ('queued', 'running')
-		  AND ($2::timestamptz IS NULL OR requested_until_at IS NULL OR requested_until_at > $2)
-		  AND ($3::timestamptz IS NULL OR requested_from_at IS NULL OR requested_from_at < $3)
-	`, scope.SegmentID, scope.FromAt, scope.UntilAt); err != nil {
-		return "", 0, fmt.Errorf("obsolete overlapping segment recalculation runs: %w", err)
+	`, scope.SegmentID); err != nil {
+		return "", 0, fmt.Errorf("obsolete previous segment recalculation runs: %w", err)
 	}
 
 	runID := stableUUID("segment-recalculation-run", scope.SegmentID, idempotencyKey).String()
@@ -250,6 +250,7 @@ candidate_activity AS (
         WHERE segment_id = $2
           AND matching_contract_key = 'course_gps_v1'
           AND matching_contract_version = 1
+          AND validity_basis <> 'rollback_retired'
           AND (valid_from_at IS NULL OR valid_from_at <= ea.started_at)
           AND (valid_until_at IS NULL OR ea.started_at < valid_until_at)
         ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -379,10 +380,10 @@ func ValidateSegmentRecalculationActivityClaimTx(ctx context.Context, tx pgx.Tx,
 		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
 	}
 	if claim.Generation != 0 && claim.Generation != runGeneration {
-		return fmt.Errorf("%w: stale segment recalculation generation", ErrSegmentValidation)
+		return fmt.Errorf("%w: stale segment recalculation generation", ErrSegmentRecalculationObsolete)
 	}
 	if runGeneration != currentGeneration {
-		return fmt.Errorf("%w: obsolete segment recalculation generation", ErrSegmentValidation)
+		return fmt.Errorf("%w: obsolete segment recalculation generation", ErrSegmentRecalculationObsolete)
 	}
 	return nil
 }
@@ -429,6 +430,33 @@ func CompleteSegmentRecalculationActivityTx(ctx context.Context, tx pgx.Tx, clai
 		  )
 	`, claim.RunID); err != nil {
 		return fmt.Errorf("complete segment recalculation run if done: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) SkipObsoleteSegmentRecalculationActivity(ctx context.Context, claim SegmentRecalculationActivityClaim) error {
+	var updated int
+	err := db.Pool.QueryRow(ctx, `
+		WITH activity_update AS (
+			UPDATE segment_recalculation_run_activities
+			SET status = 'skipped',
+			    error_code = 'obsolete_generation',
+			    error_message = NULL,
+			    processed_at = NOW(),
+			    claimed_until = NULL
+			WHERE run_id = $1
+			  AND activity_id = $2
+			  AND claim_token = $3::uuid
+			  AND status = 'running'
+			RETURNING run_id
+		)
+		SELECT count(*) FROM activity_update
+	`, claim.RunID, claim.ActivityID, claim.ClaimToken).Scan(&updated)
+	if err != nil {
+		return fmt.Errorf("skip obsolete segment recalculation activity: %w", err)
+	}
+	if updated != 1 {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
 	}
 	return nil
 }
@@ -486,6 +514,66 @@ func sanitizedSegmentRecalculationErrorMessage(errText string) string {
 		return "activity recalculation failed"
 	}
 	return "activity recalculation failed"
+}
+
+func (db *DB) ListActiveSegmentRecalculationJobs(ctx context.Context, userID string) ([]BackgroundJob, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT r.id,
+		       COALESCE(r.actor_user_id, $1::uuid)::text AS user_id,
+		       'segment_recalculation' AS job_type,
+		       r.segment_id::text AS entity_id,
+		       COALESCE(NULLIF(r.metadata->>'entity_name', ''), s.name) AS entity_name,
+		       CASE WHEN r.status = 'queued' THEN 'running' ELSE r.status END AS status,
+		       'recalculation' AS phase,
+		       LEAST(r.total_activities, r.processed_activities + r.failed_activities)::bigint AS progress_current,
+		       r.total_activities::bigint AS progress_total,
+		       COALESCE(r.started_at, r.created_at) AS started_at,
+		       r.completed_at AS finished_at,
+		       NULL::text AS error
+		FROM segment_recalculation_runs r
+		JOIN segments s ON s.id = r.segment_id
+		WHERE r.actor_user_id = $1
+		  AND r.metadata->>'visibility' = 'user_visible'
+		  AND (
+		        r.status IN ('queued', 'running')
+		        OR (r.status IN ('completed', 'failed')
+		            AND r.completed_at > NOW() - INTERVAL '5 minutes')
+		      )
+		ORDER BY COALESCE(r.started_at, r.created_at) DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list active segment recalculation jobs: %w", err)
+	}
+	defer rows.Close()
+
+	jobs := []BackgroundJob{}
+	for rows.Next() {
+		var job BackgroundJob
+		var entityID, entityName string
+		if err := rows.Scan(
+			&job.ID,
+			&job.UserID,
+			&job.JobType,
+			&entityID,
+			&entityName,
+			&job.Status,
+			&job.Phase,
+			&job.ProgressCurrent,
+			&job.ProgressTotal,
+			&job.StartedAt,
+			&job.FinishedAt,
+			&job.Error,
+		); err != nil {
+			return nil, fmt.Errorf("scan active segment recalculation job: %w", err)
+		}
+		job.EntityID = &entityID
+		job.EntityName = &entityName
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active segment recalculation jobs: %w", err)
+	}
+	return jobs, nil
 }
 
 // SupersedeSegmentEffortsForActivitySegments replaces active efforts for an
