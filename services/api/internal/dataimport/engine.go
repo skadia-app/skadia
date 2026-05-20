@@ -619,7 +619,7 @@ func (e *Engine) runPhase5Activities(
 		var localDeferred []deferredFK
 		prepared := e.prepareRow(activitySpec, rawRow, rowIDMap, input.TargetUserID, insertCols, &localDeferred)
 
-		res, insertErr := e.insertRow(ctx, tx, activitySpec, prepared, rowIDMap, oldID, input.TargetUserID, insertCols, geometryCols)
+		res, insertErr := e.insertRow(ctx, tx, activitySpec, prepared, rowIDMap, oldID, input.TargetUserID, insertCols, geometryCols, targetCols)
 
 		if res == failed {
 			tx.Rollback(ctx) //nolint:errcheck
