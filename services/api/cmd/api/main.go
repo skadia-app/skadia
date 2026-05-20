@@ -1981,6 +1981,7 @@ func main() {
 			r.Post("/routes/{id}/publish-course", h.PublishRouteCourse)
 			r.Post("/routes/{id}/fork", h.ForkRoute)
 			r.Post("/routes/{id}/relationships", h.CreateRouteRelationship)
+			r.Get("/route-publications", h.ListRoutePublications)
 			r.Post("/route-publications/{id}/relationships", h.CreateRouteCourseRelationship)
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
 			r.Put("/routes/{id}/tags", h.SetRouteTags)

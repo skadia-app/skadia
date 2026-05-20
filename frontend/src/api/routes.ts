@@ -276,6 +276,66 @@ export interface ListRoutesParams {
   search?: string
 }
 
+export type RoutePublicationVisibilityMode =
+  | 'visible_to_me'
+  | 'public_only'
+  | 'owner_private'
+  | 'shared_visible_to_me'
+  | 'public'
+  | 'owner'
+  | 'shared'
+
+export interface PublishedRouteCourse {
+  publication_id: string
+  route_id?: string | null
+  route_snapshot_id: string
+  course_segment_id: string
+  course_segment_version_id: string
+  name: string
+  visibility: RoutePublicationVisibility
+  access_scope_id?: string | null
+  sport_type: string
+  sub_type?: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
+  is_commute: boolean
+  distance_m?: number | null
+  elevation_gain_m?: number | null
+  elevation_loss_m?: number | null
+  sac_max_rank?: number | null
+  mtb_max_rank?: number | null
+  via_ferrata_max_rank?: number | null
+  primary_surface?: string | null
+  primary_way_type?: string | null
+  has_variants: boolean
+  published_at: string
+  current_segment_version_id?: string | null
+  current_segment_version_valid: boolean
+}
+
+export interface ListRoutePublicationsParams {
+  limit?: number
+  offset?: number
+  sport_type?: string
+  sub_type?: string
+  visibility_mode?: RoutePublicationVisibilityMode
+  sac_max_rank?: number
+  mtb_max_rank?: number
+  via_ferrata_max_rank?: number
+  min_distance_m?: number
+  max_distance_m?: number
+  min_elevation_gain_m?: number
+  max_elevation_gain_m?: number
+  has_variants?: boolean
+}
+
+export interface ListRoutePublicationsResponse {
+  courses: PublishedRouteCourse[]
+  limit: number
+  offset: number
+}
+
 export interface BRouterRequest {
   waypoints: [number, number][]
   profile: string
@@ -298,6 +358,19 @@ export async function listRoutes(params?: ListRoutesParams): Promise<ListRoutesR
   }
   const qs = qsObj.size > 0 ? `?${qsObj.toString()}` : ''
   return apiClient(`/routes${qs}`)
+}
+
+export async function listRoutePublications(
+  params?: ListRoutePublicationsParams,
+): Promise<ListRoutePublicationsResponse> {
+  const qsObj = new URLSearchParams()
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) qsObj.set(key, String(value))
+    }
+  }
+  const qs = qsObj.size > 0 ? `?${qsObj.toString()}` : ''
+  return apiClient(`/route-publications${qs}`)
 }
 
 export async function getRoute(id: string): Promise<PlannedRoute> {

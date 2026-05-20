@@ -200,6 +200,102 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) ListRoutePublications(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	limit, offset := httputil.ParsePagination(r, 50, 200)
+	q := r.URL.Query()
+	filter := database.PublishedCourseFilters{
+		SportType:      q.Get("sport_type"),
+		SubType:        q.Get("sub_type"),
+		VisibilityMode: q.Get("visibility_mode"),
+	}
+	var err error
+	if filter.SACMaxRank, err = parseOptionalIntPointer(q.Get("sac_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid sac_max_rank", r.URL.Path)
+		return
+	}
+	if filter.MTBMaxRank, err = parseOptionalIntPointer(q.Get("mtb_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid mtb_max_rank", r.URL.Path)
+		return
+	}
+	if filter.ViaFerrataMaxRank, err = parseOptionalIntPointer(q.Get("via_ferrata_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid via_ferrata_max_rank", r.URL.Path)
+		return
+	}
+	if filter.MinDistanceM, err = parseOptionalFloatPointer(q.Get("min_distance_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid min_distance_m", r.URL.Path)
+		return
+	}
+	if filter.MaxDistanceM, err = parseOptionalFloatPointer(q.Get("max_distance_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid max_distance_m", r.URL.Path)
+		return
+	}
+	if filter.MinElevationGainM, err = parseOptionalFloatPointer(q.Get("min_elevation_gain_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid min_elevation_gain_m", r.URL.Path)
+		return
+	}
+	if filter.MaxElevationGainM, err = parseOptionalFloatPointer(q.Get("max_elevation_gain_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid max_elevation_gain_m", r.URL.Path)
+		return
+	}
+	if filter.HasVariants, err = parseOptionalBoolPointer(q.Get("has_variants")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid has_variants", r.URL.Path)
+		return
+	}
+
+	courses, err := h.DB.ListPublishedRouteCourses(r.Context(), userID, limit, offset, filter)
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if err != nil {
+		slog.Error("list route publications failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list route publications", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"courses": courses,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+func parseOptionalIntPointer(raw string) (*int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func parseOptionalFloatPointer(raw string) (*float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func parseOptionalBoolPointer(raw string) (*bool, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
 // CreateRoute creates a new planned route for the authenticated user.
 // POST /api/v1/routes
 func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {

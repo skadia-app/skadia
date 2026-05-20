@@ -19,6 +19,7 @@ import {
   createRouteRelationship,
   createRouteSnapshot,
   forkRoute,
+  listRoutePublications,
   listRoutes,
   publishRouteCourse,
 } from '@/api/routes'
@@ -36,6 +37,22 @@ describe('routes API', () => {
     await listRoutes({ limit: 50, offset: 0, sort: 'newest' })
 
     expect(apiClientMock).toHaveBeenCalledWith('/routes?limit=50&offset=0&sort=newest')
+  })
+
+  it('serializes published course search filters separately from route lists', async () => {
+    apiClientMock.mockResolvedValueOnce({ courses: [], limit: 25, offset: 0 })
+
+    await listRoutePublications({
+      visibility_mode: 'public_only',
+      sport_type: 'bike',
+      sac_max_rank: 3,
+      max_distance_m: 1000,
+      has_variants: true,
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith(
+      '/route-publications?visibility_mode=public_only&sport_type=bike&sac_max_rank=3&max_distance_m=1000&has_variants=true',
+    )
   })
 
   it('posts route snapshot requests with explicit operation and source version', async () => {
