@@ -257,6 +257,11 @@ func (h *Handler) GetActivity(w http.ResponseWriter, r *http.Request) {
 	} else {
 		slog.Warn("get activity: count fusion source memberships failed", "id", id, "error", fusionErr)
 	}
+	if assignments, gearErr := h.DB.ListActivityGearAssignments(r.Context(), userID, id); gearErr == nil {
+		activity.GearAssignments = assignments
+	} else {
+		slog.Warn("get activity: get gear assignments failed", "id", id, "error", gearErr)
+	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
 }

@@ -1,6 +1,6 @@
 import { apiClient, apiDownload, API_BASE } from './client'
 import { triggerBlobDownload } from '@/lib/utils'
-import type { ActivitiesResponse, Activity, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent, DiveInfo, HealthContext, DeveloperFieldInfo } from './types'
+import type { ActivitiesResponse, Activity, ActivityGearAssignment, StreamPoint, Sensor, ZoneDistribution, PowerCurveResponse, Lap, Split, SplitSummary, SwimLength, ClimbProEvent, ActivitySet, ActivityJump, ActivityEvent, DiveInfo, HealthContext, DeveloperFieldInfo } from './types'
 
 export interface ActivityFilterParams {
   sportTypes?: string[]
@@ -71,7 +71,7 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
   return apiClient<Sensor[]>(`/activities/${id}/sensors`)
 }
 
-export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe' | 'location_lat' | 'location_lng' | 'is_indoor' | 'is_virtual' | 'is_electric'>> & {
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe' | 'location_lat' | 'location_lng' | 'is_indoor' | 'is_virtual' | 'is_electric' | 'hide_map' | 'data_visibility'>> & {
   clear_title?: boolean
   clear_description?: boolean
   clear_workout_feel?: boolean
@@ -80,6 +80,21 @@ export async function updateActivity(id: string, data: Partial<Pick<Activity, 't
   exclude_from_stats?: boolean
 }): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
+}
+
+export async function addActivityGearAssignment(
+  activityId: string,
+  gearId: string,
+  roleKey?: string,
+): Promise<ActivityGearAssignment> {
+  return apiClient<ActivityGearAssignment>(`/activities/${activityId}/gear-assignments`, {
+    method: 'POST',
+    body: { gear_id: gearId, ...(roleKey ? { role_key: roleKey } : {}) },
+  })
+}
+
+export async function removeActivityGearAssignment(activityId: string, assignmentId: string): Promise<void> {
+  return apiClient<void>(`/activities/${activityId}/gear-assignments/${assignmentId}`, { method: 'DELETE' })
 }
 
 export async function reprocessActivity(id: string, scope?: string[], smoothWindow?: number): Promise<Activity | { job_id: string }> {

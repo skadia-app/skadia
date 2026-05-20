@@ -116,6 +116,8 @@ export interface Activity {
   is_indoor: boolean
   tags: string[]
   visibility: Visibility
+  hide_map?: boolean
+  data_visibility?: DataVisibility | null
   source?: string | null
   source_device?: string | null
   original_file_format?: string | null
@@ -135,6 +137,7 @@ export interface Activity {
   location_country_code?: string | null
   visited_country_codes?: string[]
   weather_readings?: WeatherReading[]
+  gear_assignments?: ActivityGearAssignment[]
   is_round_trip?: boolean
   intensity?: string | null
   time_of_day?: string[] | null
@@ -335,6 +338,16 @@ export interface Activity {
   avg_right_power_phase_peak_end_deg?: number
 }
 
+export interface ActivityGearAssignment {
+  id: string
+  gear_id: string
+  gear_name: string
+  gear_type: string
+  role_key: string
+  role_label: string
+  quantity?: number
+}
+
 export interface ActivitiesResponse {
   activities: Activity[]
   next_cursor: string | null
@@ -490,12 +503,8 @@ export interface LiftCandidate {
 }
 
 export interface DataVisibility {
-  speed: boolean
   heart_rate: boolean
   power: boolean
-  cadence: boolean
-  temperature: boolean
-  altitude: boolean
 }
 
 export interface Sensor {
