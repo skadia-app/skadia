@@ -25,6 +25,7 @@ type Segment struct {
 	RiddenCount       int               `json:"ridden_count" db:"ridden_count"`
 	IsFavorite        bool              `json:"is_favorite" db:"is_favorite"`
 	Visibility        string            `json:"visibility" db:"visibility"`
+	AccessScopeID     *string           `json:"access_scope_id,omitempty" db:"access_scope_id"`
 	RouteHash         *string           `json:"route_hash,omitempty" db:"route_hash"`
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 	TerrainType       *string           `json:"terrain_type,omitempty" db:"terrain_type"`
@@ -46,7 +47,8 @@ type SegmentCreate struct {
 	TerrainType       string            `json:"terrain_type"`
 	ClimbType         string            `json:"climb_type"`
 	ElevationKind     *string           `json:"elevation_kind,omitempty"`
-	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private"; default "public"
+	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private" | "shared"; default "public"
+	AccessScopeID     *string           `json:"access_scope_id,omitempty"`    // required for shared, forbidden for public/private
 	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"` // nil = legacy match-all inside stored sport_group; [] = none; entries = tuple predicates
 	Bidirectional     *bool             `json:"bidirectional,omitempty"`      // nil = use sport-group default
 }
@@ -60,7 +62,8 @@ type SegmentUpdate struct {
 	TerrainType       *string          `json:"terrain_type,omitempty"`
 	ClimbType         *string          `json:"climb_type,omitempty"`
 	ElevationKind     *string          `json:"elevation_kind,omitempty"`
-	Visibility        *string          `json:"visibility,omitempty"`         // "public" | "private"
+	Visibility        *string          `json:"visibility,omitempty"`         // "public" | "private" | "shared"
+	AccessScopeID     *string          `json:"access_scope_id,omitempty"`    // required for shared, forbidden for public/private
 	AllowedPredicates json.RawMessage  `json:"allowed_predicates,omitempty"` // absent = unchanged; null = legacy match-all inside stored sport_group; [] = no sports; entries = tuple predicates
 	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
 }
@@ -248,7 +251,7 @@ type ListSegmentsParams struct {
 	MtbScale         string // komma-separiert
 	Surface          string // komma-separiert
 	ElevationKind    string // "flat" | "hilly" | "uphill" | "downhill"
-	VisibilityFilter string // komma-separiert: "public", "private", "public,private", "" (= Default: beides)
+	VisibilityFilter string // comma-separated: "public", "shared", "private", combinations, "" (= visible to caller)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }
 

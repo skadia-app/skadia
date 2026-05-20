@@ -134,22 +134,22 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	if params.VisibilityFilter != "" {
 		// Dedup + clamp: build a set of whitelisted tokens, drop empties/whitespace,
 		// write deterministically sorted result back to params so the DB layer
-		// always sees at most len=2 and never a stale toggle fail-open (#15, A2).
-		seen := make(map[string]struct{}, 2)
+		// never sees unknown visibility tokens.
+		seen := make(map[string]struct{}, 3)
 		for v := range strings.SplitSeq(params.VisibilityFilter, ",") {
 			v = strings.TrimSpace(v)
 			if v == "" {
 				continue
 			}
-			if v != "public" && v != "private" {
-				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, or public,private)", r.URL.Path)
+			if v != "public" && v != "private" && v != "shared" {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, shared, or comma-separated combinations)", r.URL.Path)
 				return
 			}
 			seen[v] = struct{}{}
 		}
-		// Reconstruct deterministic order: public before private.
-		deduped := make([]string, 0, 2)
-		for _, k := range []string{"public", "private"} {
+		// Reconstruct deterministic order.
+		deduped := make([]string, 0, 3)
+		for _, k := range []string{"public", "shared", "private"} {
 			if _, ok := seen[k]; ok {
 				deduped = append(deduped, k)
 			}
@@ -224,8 +224,8 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 	if create.Visibility == "" {
 		create.Visibility = "public"
-	} else if create.Visibility != "public" && create.Visibility != "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public' or 'private'", r.URL.Path)
+	} else if create.Visibility != "public" && create.Visibility != "private" && create.Visibility != "shared" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
 		return
 	}
 
@@ -284,8 +284,8 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, segment)
 
 	// Backfill: match new segment against all existing activities asynchronously.
-	// For private segments, backfill only runs against creator's own activities.
-	// GetSpatialCandidateSegments enforces: s.visibility = 'public' OR s.created_by = userID
+	// Backfill uses the same segment visibility predicate as candidate matching:
+	// public, owned, admin, or shared through a live viewer grant.
 	segID := segment.ID
 	shutdown.Go("segment-backfill-"+segID, func(ctx context.Context) {
 		h.backfillSegmentEfforts(ctx, userID, segID, sourceActivity)
@@ -462,7 +462,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	// Load existing segment: pass userID so own private segments are visible,
+	// Load existing segment: pass userID so own/private/shared segments are visible,
 	// and isAdmin so admins can edit any segment they can read.
 	existing, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
@@ -486,15 +486,15 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate visibility value (clean 400 instead of DB CHECK constraint 500).
-	if update.Visibility != nil && *update.Visibility != "public" && *update.Visibility != "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public' or 'private'", r.URL.Path)
+	if update.Visibility != nil && *update.Visibility != "public" && *update.Visibility != "private" && *update.Visibility != "shared" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
 		return
 	}
 
 	// Block private→public via UpdateSegment — must use POST /segments/{id}/publish endpoint
 	// which triggers a full recompute for all users' activities.
-	if update.Visibility != nil && *update.Visibility == "public" && existing.Visibility == "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "use POST /segments/{id}/publish to publish a private segment", r.URL.Path)
+	if update.Visibility != nil && *update.Visibility == "public" && (existing.Visibility == "private" || existing.Visibility == "shared") {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "use POST /segments/{id}/publish to publish a non-public segment", r.URL.Path)
 		return
 	}
 
@@ -1088,7 +1088,7 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PublishSegment transitions a private segment to public and queues durable
+// PublishSegment transitions a non-public segment to public and queues durable
 // recalculation activities so all users' matching activities are processed.
 func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
@@ -1107,7 +1107,7 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get segment to verify ownership and retrieve name for job display.
-	// Admins may publish any private segment they can read.
+	// Admins may publish any non-public segment they can read.
 	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
 	if err != nil {
@@ -1119,7 +1119,7 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
 		return
 	}
-	if seg.Visibility != "private" {
+	if seg.Visibility == "public" {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "already_public"})
 		return
 	}
