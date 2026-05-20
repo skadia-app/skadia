@@ -231,7 +231,7 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
        s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
        COALESCE(ue.ridden_count, 0) AS ridden_count,
        (uf.segment_id IS NOT NULL) AS is_favorite,
-       s.visibility, s.route_hash, s.created_at,`
+       s.visibility, s.access_scope_id, s.route_hash, s.created_at,`
 
 	if p.IncludeGeoJSON {
 		selectCols += `
@@ -304,21 +304,20 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 				parts = append(parts, "s.visibility = 'public'")
 			case "private":
 				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
+			case "shared":
+				parts = append(parts, visibleSegmentAccessSQL("s", "$1", isAdminPlaceholder()))
 			}
 		}
 		switch len(parts) {
-		case 1:
-			visibilityClause = parts[0]
-		case 2:
-			visibilityClause = fmt.Sprintf("(%s OR %s)", parts[0], parts[1])
-		default:
-			// Defense-in-depth: whitelist + handler dedup ensure len is always 1 or 2.
-			// FALSE here closes the fail-open hole — unknown token count yields no results
-			// rather than silently showing everything. (#15, A1)
+		case 0:
+			// Defense-in-depth: unknown visibility tokens return no results rather
+			// than silently showing everything.
 			visibilityClause = "FALSE"
+		default:
+			visibilityClause = "(" + strings.Join(parts, " OR ") + ")"
 		}
 	} else {
-		visibilityClause = fmt.Sprintf("(s.visibility = 'public' OR s.created_by = $1 OR %s = true)", isAdminPlaceholder())
+		visibilityClause = visibleSegmentAccessSQL("s", "$1", isAdminPlaceholder())
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
@@ -482,7 +481,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
 			&s.RiddenCount, &s.IsFavorite,
-			&s.Visibility, &s.RouteHash, &s.CreatedAt,
+			&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
 			&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 		)
@@ -555,24 +554,31 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if create.ElevationKind != nil {
 		elevationKind = *create.ElevationKind
 	}
+	visibility := strings.TrimSpace(create.Visibility)
+	if visibility == "" {
+		visibility = "public"
+	}
+	if err := db.validateSegmentAccessScopeForOwner(ctx, visibility, create.AccessScopeID, userID); err != nil {
+		return nil, err
+	}
 
 	// Insert segment
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, elevation_kind, visibility, allowed_predicates, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, elevation_kind, visibility, access_scope_id, allowed_predicates, bidirectional)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_predicates,
 		          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
-		          visibility, route_hash, created_at,
+		          visibility, access_scope_id, route_hash, created_at,
 		          terrain_type, climb_type, elevation_kind`,
 		userID, create.Name, create.Description, segmentSportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
-		create.TerrainType, create.ClimbType, elevationKind, create.Visibility,
+		create.TerrainType, create.ClimbType, elevationKind, visibility, create.AccessScopeID,
 		allowedPredicatesJSON, bidirectional,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
@@ -581,7 +587,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
-		&s.Visibility, &s.RouteHash, &s.CreatedAt,
+		&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
 		&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 	)
 	if err != nil {
@@ -726,13 +732,13 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                            SELECT 1 FROM segment_favorites sf
                            WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
                        ) AS is_favorite,
-                       s.visibility, s.route_hash, s.created_at,
+                       s.visibility, s.access_scope_id, s.route_hash, s.created_at,
                        %s AS track_geojson,
                        s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional
                 FROM segments s
                 %s
                 WHERE s.id = $1
-                  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`,
+                  AND `+visibleSegmentAccessSQL("s", "NULLIF($2::text, '')::uuid", "$3"),
 		trackSelect,
 		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
 	)
@@ -746,7 +752,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.RiddenCount, &s.IsFavorite,
-		&s.Visibility, &s.RouteHash, &s.CreatedAt,
+		&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType, &s.ElevationKind, &s.Bidirectional,
 	)
@@ -778,6 +784,41 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
+	if update.Visibility != nil || update.AccessScopeID != nil {
+		var ownerUserID, currentVisibility string
+		var currentAccessScopeID *string
+		var err error
+		if isAdmin {
+			err = tx.QueryRow(ctx, `SELECT created_by, visibility, access_scope_id FROM segments WHERE id = $1 FOR UPDATE`, segmentID).
+				Scan(&ownerUserID, &currentVisibility, &currentAccessScopeID)
+		} else {
+			err = tx.QueryRow(ctx, `SELECT created_by, visibility, access_scope_id FROM segments WHERE id = $1 AND created_by = $2 FOR UPDATE`, segmentID, userID).
+				Scan(&ownerUserID, &currentVisibility, &currentAccessScopeID)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get segment access state for update: %w", err)
+		}
+		effectiveVisibility := currentVisibility
+		if update.Visibility != nil {
+			effectiveVisibility = strings.TrimSpace(*update.Visibility)
+		}
+		effectiveAccessScopeID := currentAccessScopeID
+		if update.AccessScopeID != nil {
+			effectiveAccessScopeID = update.AccessScopeID
+		}
+		if effectiveVisibility != "shared" {
+			if update.AccessScopeID != nil {
+				return nil, validateSegmentAccessScopePair(effectiveVisibility, update.AccessScopeID)
+			}
+			effectiveAccessScopeID = nil
+		}
+		if err := db.validateSegmentAccessScopeForOwner(ctx, effectiveVisibility, effectiveAccessScopeID, ownerUserID); err != nil {
+			return nil, err
+		}
+	}
 
 	if update.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
@@ -818,7 +859,15 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	// This SET clause only handles public→private or same-value updates.
 	if update.Visibility != nil {
 		setClauses = append(setClauses, fmt.Sprintf("visibility = $%d", argIdx))
-		args = append(args, *update.Visibility)
+		args = append(args, strings.TrimSpace(*update.Visibility))
+		argIdx++
+		if strings.TrimSpace(*update.Visibility) != "shared" {
+			setClauses = append(setClauses, "access_scope_id = NULL")
+		}
+	}
+	if update.AccessScopeID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("access_scope_id = $%d", argIdx))
+		args = append(args, *update.AccessScopeID)
 		argIdx++
 	}
 	if len(update.AllowedPredicates) > 0 {
@@ -948,6 +997,7 @@ func segmentUpdateTouchesVersionedFields(update *model.SegmentUpdate) bool {
 	return update.SegmentType != nil ||
 		update.SegmentTypeMeta != nil ||
 		update.Visibility != nil ||
+		update.AccessScopeID != nil ||
 		len(update.AllowedPredicates) > 0 ||
 		update.Bidirectional != nil
 }
@@ -1178,11 +1228,11 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 	var tag pgconn.CommandTag
 	if isAdmin {
 		tag, err = tx.Exec(ctx,
-			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND visibility = 'private'`,
+			`UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1 AND visibility IN ('private', 'shared')`,
 			segmentID)
 	} else {
 		tag, err = tx.Exec(ctx,
-			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
+			`UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1 AND created_by = $2 AND visibility IN ('private', 'shared')`,
 			segmentID, actorID)
 	}
 	if err != nil {
@@ -1219,14 +1269,14 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 	if isAdmin {
 		query = `
 			UPDATE segments
-			SET visibility = 'public'
-			WHERE id = $1 AND visibility = 'private'
+			SET visibility = 'public', access_scope_id = NULL
+			WHERE id = $1 AND visibility IN ('private', 'shared')
 			RETURNING created_by, name`
 	} else {
 		query = `
 			UPDATE segments
-			SET visibility = 'public'
-			WHERE id = $1 AND created_by = $2 AND visibility = 'private'
+			SET visibility = 'public', access_scope_id = NULL
+			WHERE id = $1 AND created_by = $2 AND visibility IN ('private', 'shared')
 			RETURNING created_by, name`
 		args = append(args, actorID)
 	}
@@ -1918,7 +1968,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		 AND cep.activity_trait_bucket_key = $3
 		 AND cep.match_allowed = true
 		JOIN activity_tracks at ON at.activity_id = $1
-		WHERE (s.visibility = 'public' OR s.created_by = $2)
+		WHERE ` + visibleSegmentExportSQL("s", "$2") + `
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`
@@ -2909,7 +2959,7 @@ func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID str
 		FROM segments s
 		%s
 		WHERE s.id = ANY($1)
-		  AND (s.visibility = 'public' OR s.created_by = $2)
+		  AND `+visibleSegmentExportSQL("s", "$2")+`
 		  AND sv.track IS NOT NULL`,
 		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
 	)
