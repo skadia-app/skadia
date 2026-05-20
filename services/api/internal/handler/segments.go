@@ -661,6 +661,10 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 
 	sportType := r.URL.Query().Get("sport_type")
 	gearID := r.URL.Query().Get("gear_id")
+	scope := r.URL.Query().Get("scope")
+	electricMode := r.URL.Query().Get("electric_mode")
+	versionID := r.URL.Query().Get("version_id")
+	leaderboardEquivalenceGroupID := r.URL.Query().Get("leaderboard_equivalence_group_id")
 
 	var isReverse *bool
 	if v := r.URL.Query().Get("is_reverse"); v != "" {
@@ -674,8 +678,26 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 		onlyUserID = userID
 	}
 
-	efforts, err := h.DB.GetSegmentLeaderboard(r.Context(), id, sportType, isReverse, gearID, onlyUserID)
+	efforts, err := h.DB.GetSegmentLeaderboardWithQuery(r.Context(), model.SegmentLeaderboardQuery{
+		SegmentID:                     id,
+		SportType:                     sportType,
+		IsReverse:                     isReverse,
+		GearID:                        gearID,
+		OnlyUserID:                    onlyUserID,
+		Scope:                         scope,
+		ElectricMode:                  electricMode,
+		VersionID:                     versionID,
+		LeaderboardEquivalenceGroupID: leaderboardEquivalenceGroupID,
+	})
 	if err != nil {
+		if errors.Is(err, database.ErrSegmentValidation) {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Unprocessable Entity", err.Error(), r.URL.Path)
+			return
+		}
+		if errors.Is(err, database.ErrSegmentNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "leaderboard group not found", r.URL.Path)
+			return
+		}
 		slog.Error("get segment leaderboard failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get leaderboard", r.URL.Path)
 		return

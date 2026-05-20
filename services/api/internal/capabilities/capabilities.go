@@ -46,6 +46,7 @@ const (
 	KeyActivityTrackSummaryGeo     = "activity_track_summary_geo"
 	KeyActivityTrackSummarySurface = "activity_track_summary_surface"
 	KeySegments                    = "segments"
+	KeySegmentVersionWorkflow      = "segment_version_workflow"
 	KeySegmentRecompute            = "segment_recompute"
 	KeySegmentPublish              = "segment_publish"
 	KeySegmentOSMLiftImport        = "segment_osm_lift_import"
@@ -99,6 +100,7 @@ var canonicalKeys = []string{
 	KeyActivityTrackSummaryGeo,
 	KeyActivityTrackSummarySurface,
 	KeySegments,
+	KeySegmentVersionWorkflow,
 	KeySegmentRecompute,
 	KeySegmentPublish,
 	KeySegmentOSMLiftImport,
@@ -526,6 +528,7 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	set(KeyBRouterSegmentDownload, true, true, "")
 	set(KeyRouting, true, routingAvailable, routingReason)
 	set(KeySegments, true, true, "")
+	set(KeySegmentVersionWorkflow, true, true, "")
 	set(KeyAIAgent, true, true, "")
 
 	mlStorageReadAvailable := false

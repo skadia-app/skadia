@@ -1770,6 +1770,14 @@ func main() {
 			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
 			r.Post("/segments/{id}/publish", h.PublishSegment)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Patch("/segments/{id}/versions/{version_id}/validity", h.UpdateSegmentVersionValidity)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Patch("/segments/{id}/versions/{version_id}/geometry", h.UpdateSegmentVersionGeometry)
+			r.Get("/segments/{id}/versions/revisions", h.ListSegmentVersionRevisions)
+			r.Get("/segments/{id}/versions/revisions/{revision_id}", h.GetSegmentVersionRevision)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Post("/segments/{id}/versions/revisions/{revision_id}/rollback", h.RollbackSegmentVersionRevision)
 			// Rate-limit: ~10/min per user, burst 3. Reverse runs a tx with inline
 			// rank-recompute (~10-100ms DB time) — without a cap this is a DoS vector
 			// against the DB in multi-user self-hosted deployments.
