@@ -241,6 +241,47 @@ func TestUpdateSegmentGeometryContinueGroupPromotesVersionSpecificSource(t *test
 	}
 }
 
+func TestUpdateSegmentGeometryContinueGroupMovesExistingEfforts(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Geometry Continue Efforts")
+	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 8, 1, 9, 0, 0, 0, time.UTC))
+	effortID := insertSegmentRecalculationEffort(t, db, segmentID, versionID, activityID, userID, time.Date(2025, 8, 1, 9, 5, 0, 0, time.UTC), "continue-effort-"+uuid.NewString(), 60)
+
+	revision, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
+		OperationID:         "geometry-continue-efforts-" + uuid.NewString(),
+		TrackGeoJSON:        json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.012,49.012],[8.024,49.024]]}`),
+		EquivalenceDecision: "continue_group",
+		EquivalenceEvidence: map[string]any{"reason": "minor correction"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSegmentVersionGeometry: %v", err)
+	}
+	var after SegmentVersionSnapshot
+	if err := json.Unmarshal(revision.AfterSnapshot, &after); err != nil {
+		t.Fatalf("decode after snapshot: %v", err)
+	}
+	var newVersionID string
+	for _, version := range after.Versions {
+		if version.ID != versionID {
+			newVersionID = version.ID
+		}
+	}
+	newGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, newVersionID)
+
+	var effortGroupID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT leaderboard_equivalence_group_id
+		FROM segment_efforts
+		WHERE id = $1
+	`, effortID).Scan(&effortGroupID); err != nil {
+		t.Fatalf("query effort group: %v", err)
+	}
+	if effortGroupID != newGroupID {
+		t.Fatalf("effort group = %s, want continued group %s", effortGroupID, newGroupID)
+	}
+}
+
 func TestUpdateSegmentGeometryValidatesProvidedEndpoints(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -283,6 +324,74 @@ func TestRollbackSegmentVersionRevisionRestoresBoundsGeometryAndSchedulesRun(t *
 	}
 	if restoredFrom != nil {
 		t.Fatalf("restored valid_from_at = %v, want nil", restoredFrom)
+	}
+}
+
+func TestRollbackSegmentVersionRevisionRetiresVersionsAbsentFromSnapshot(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Rollback Retire Absent")
+
+	revision, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
+		OperationID:         "rollback-retire-source-" + uuid.NewString(),
+		TrackGeoJSON:        json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.03,49.03]]}`),
+		EquivalenceDecision: "new_group",
+	})
+	if err != nil {
+		t.Fatalf("UpdateSegmentVersionGeometry: %v", err)
+	}
+	var after SegmentVersionSnapshot
+	if err := json.Unmarshal(revision.AfterSnapshot, &after); err != nil {
+		t.Fatalf("decode geometry snapshot: %v", err)
+	}
+	var newVersionID string
+	for _, version := range after.Versions {
+		if version.ID != versionID {
+			newVersionID = version.ID
+		}
+	}
+	if newVersionID == "" {
+		t.Fatal("new version not found")
+	}
+
+	if _, err := db.RollbackSegmentVersionRevision(ctx, segmentID, revision.ID, userID, false, "test rollback"); err != nil {
+		t.Fatalf("RollbackSegmentVersionRevision: %v", err)
+	}
+	var restoredFrom *time.Time
+	var retiredBasis string
+	if err := db.Pool.QueryRow(ctx, `SELECT valid_from_at FROM segment_versions WHERE id = $1`, versionID).Scan(&restoredFrom); err != nil {
+		t.Fatalf("query restored version: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx, `SELECT validity_basis FROM segment_versions WHERE id = $1`, newVersionID).Scan(&retiredBasis); err != nil {
+		t.Fatalf("query retired version: %v", err)
+	}
+	if restoredFrom != nil || retiredBasis != "rollback_retired" {
+		t.Fatalf("restored_from/retired_basis = %v/%q, want nil/rollback_retired", restoredFrom, retiredBasis)
+	}
+}
+
+func TestSegmentVersionOperationIDRejectsDifferentReplayPayload(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Operation Replay")
+	operationID := "validity-replay-" + uuid.NewString()
+	firstFrom := time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)
+	secondFrom := firstFrom.Add(24 * time.Hour)
+
+	if _, err := db.UpdateSegmentVersionValidity(ctx, segmentID, versionID, userID, false, model.SegmentVersionValidityUpdate{
+		OperationID: operationID,
+		ValidFromAt: &firstFrom,
+		Recalculate: true,
+	}); err != nil {
+		t.Fatalf("UpdateSegmentVersionValidity first call: %v", err)
+	}
+	_, err := db.UpdateSegmentVersionValidity(ctx, segmentID, versionID, userID, false, model.SegmentVersionValidityUpdate{
+		OperationID: operationID,
+		ValidFromAt: &secondFrom,
+		Recalculate: true,
+	})
+	if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("UpdateSegmentVersionValidity replay error = %v, want ErrSegmentValidation", err)
 	}
 }
 

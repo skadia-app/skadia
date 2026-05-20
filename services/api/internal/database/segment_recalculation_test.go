@@ -76,6 +76,34 @@ func TestSeedSegmentRecalculationRunRejectsPrivateAllUserScope(t *testing.T) {
 	}
 }
 
+func TestSeedSegmentRecalculationRunObsoletesAllOlderQueuedRuns(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Seed Obsolete All")
+	oldRunID := insertSegmentRecalculationRun(t, db, segmentID, userID)
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	until := from.Add(time.Hour)
+
+	if _, _, err := db.SeedSegmentRecalculationRun(ctx, userID, SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     userID,
+		OperationID:     "obsolete-all-" + uuid.NewString(),
+		IncludeAllUsers: false,
+		FromAt:          &from,
+		UntilAt:         &until,
+	}, "test obsolete all older runs", nil); err != nil {
+		t.Fatalf("SeedSegmentRecalculationRun: %v", err)
+	}
+	var oldStatus string
+	if err := db.Pool.QueryRow(ctx, `SELECT status FROM segment_recalculation_runs WHERE id = $1`, oldRunID).Scan(&oldStatus); err != nil {
+		t.Fatalf("query old run status: %v", err)
+	}
+	if oldStatus != "obsolete" {
+		t.Fatalf("old run status = %q, want obsolete", oldStatus)
+	}
+}
+
 func TestRecomputeSegmentActivitySupersedesInsteadOfDeletes(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -294,6 +322,89 @@ func TestValidateSegmentRecalculationClaimRejectsObsoleteGeneration(t *testing.T
 	err = ValidateSegmentRecalculationActivityClaimTx(ctx, tx, *claim)
 	if !errors.Is(err, ErrSegmentValidation) {
 		t.Fatalf("ValidateSegmentRecalculationActivityClaimTx error = %v, want ErrSegmentValidation", err)
+	}
+}
+
+func TestSkipObsoleteSegmentRecalculationActivityDoesNotFailRun(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Claim Obsolete Skip")
+	runID := insertSegmentRecalculationRun(t, db, segmentID, userID)
+	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 5, 8, 9, 0, 0, 0, time.UTC))
+	insertSegmentRecalculationRunActivity(t, db, runID, activityID, userID, "queued", nil)
+	claim, err := db.ClaimNextSegmentRecalculationActivity(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNextSegmentRecalculationActivity: %v", err)
+	}
+	if claim == nil {
+		t.Fatal("claim = nil, want queued activity")
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE segment_recalculation_segment_state
+		SET generation = generation + 1
+		WHERE segment_id = $1
+	`, segmentID); err != nil {
+		t.Fatalf("advance generation: %v", err)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin validation tx: %v", err)
+	}
+	err = ValidateSegmentRecalculationActivityClaimTx(ctx, tx, *claim)
+	if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
+		t.Fatalf("rollback validation tx: %v", rollbackErr)
+	}
+	if !errors.Is(err, ErrSegmentRecalculationObsolete) {
+		t.Fatalf("ValidateSegmentRecalculationActivityClaimTx error = %v, want ErrSegmentRecalculationObsolete", err)
+	}
+	if err := db.SkipObsoleteSegmentRecalculationActivity(ctx, *claim); err != nil {
+		t.Fatalf("SkipObsoleteSegmentRecalculationActivity: %v", err)
+	}
+	var runStatus, activityStatus string
+	var failedActivities int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT r.status, r.failed_activities, ra.status
+		FROM segment_recalculation_runs r
+		JOIN segment_recalculation_run_activities ra ON ra.run_id = r.id
+		WHERE r.id = $1 AND ra.activity_id = $2
+	`, runID, activityID).Scan(&runStatus, &failedActivities, &activityStatus); err != nil {
+		t.Fatalf("query skipped run: %v", err)
+	}
+	if runStatus == "failed" || failedActivities != 0 || activityStatus != "skipped" {
+		t.Fatalf("run/activity state = %q/%d/%q, want non-failed/0/skipped", runStatus, failedActivities, activityStatus)
+	}
+}
+
+func TestListActiveSegmentRecalculationJobsOnlyShowsUserVisibleRuns(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Visible Recalc Job")
+	visibleID, _, err := db.SeedSegmentRecalculationRun(ctx, userID, SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     userID,
+		OperationID:     "visible-job-" + uuid.NewString(),
+		IncludeAllUsers: false,
+	}, "visible job", map[string]any{"visibility": "user_visible", "entity_name": "Visible Recalc Job"})
+	if err != nil {
+		t.Fatalf("SeedSegmentRecalculationRun visible: %v", err)
+	}
+	if _, _, err := db.SeedSegmentRecalculationRun(ctx, userID, SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     userID,
+		OperationID:     "hidden-job-" + uuid.NewString(),
+		IncludeAllUsers: false,
+	}, "hidden job", nil); err != nil {
+		t.Fatalf("SeedSegmentRecalculationRun hidden: %v", err)
+	}
+
+	jobs, err := db.ListActiveSegmentRecalculationJobs(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListActiveSegmentRecalculationJobs: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != visibleID || jobs[0].JobType != "segment_recalculation" {
+		t.Fatalf("jobs = %#v, want exactly visible segment recalculation job %s", jobs, visibleID)
 	}
 }
 

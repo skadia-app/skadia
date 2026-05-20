@@ -71,6 +71,7 @@ func syncActiveSegmentVersionEligibilitySnapshotTx(ctx context.Context, tx pgx.T
 			WHERE segment_id = $1
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
 			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
 			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -134,6 +135,7 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 		WHERE segment_id = $1
 		  AND matching_contract_key = 'course_gps_v1'
 		  AND matching_contract_version = 1
+		  AND validity_basis <> 'rollback_retired'
 		ORDER BY version_number, id
 	`, segmentID)
 	if err != nil {
@@ -300,6 +302,7 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 		FROM segment_versions sv
 		WHERE sv.matching_contract_key = 'course_gps_v1'
 		  AND sv.matching_contract_version = 1
+		  AND sv.validity_basis <> 'rollback_retired'
 		ORDER BY sv.segment_id, sv.version_number, sv.id
 	`)
 	if err != nil {

@@ -209,21 +209,36 @@ func (db *DB) UpdateSegmentVersionValidity(ctx context.Context, segmentID, versi
 	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
 		return nil, err
 	}
-	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "validity_update", update.OperationID); err != nil {
-		return nil, err
-	} else if existing != nil {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("commit existing segment validity revision: %w", err)
-		}
-		return existing, nil
-	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return nil, err
+	}
+	beforeHash, err := segmentVersionSnapshotHash(before)
 	if err != nil {
 		return nil, err
 	}
 	oldVersion, ok := findSnapshotVersion(before, versionID)
 	if !ok {
 		return nil, ErrSegmentNotFound
+	}
+	inputHash, err := segmentVersionOperationInputHash("validity_update", map[string]any{
+		"version_id":           versionID,
+		"valid_from_at":        update.ValidFromAt,
+		"valid_until_at":       update.ValidUntilAt,
+		"recalculate":          update.Recalculate,
+		"equivalence_decision": update.EquivalenceDecision,
+		"reason":               update.Reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "validity_update", update.OperationID, inputHash, beforeHash, &versionID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing segment validity revision: %w", err)
+		}
+		return existing, nil
 	}
 	affectedFrom, affectedUntil := affectedInterval(oldVersion.ValidFromAt, oldVersion.ValidUntilAt, update.ValidFromAt, update.ValidUntilAt)
 	if !update.Recalculate && intervalTouchesNowOrPast(affectedFrom) {
@@ -253,7 +268,7 @@ func (db *DB) UpdateSegmentVersionValidity(ctx context.Context, segmentID, versi
 	if err != nil {
 		return nil, err
 	}
-	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "validity_update", update.Reason, before, after, affectedFrom, affectedUntil, recalcRunID, nil, update.OperationID)
+	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "validity_update", update.Reason, before, after, affectedFrom, affectedUntil, recalcRunID, nil, update.OperationID, inputHash, &versionID, beforeHash)
 	if err != nil {
 		return nil, err
 	}
@@ -279,21 +294,38 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
 		return nil, err
 	}
-	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "geometry_update", update.OperationID); err != nil {
-		return nil, err
-	} else if existing != nil {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, fmt.Errorf("commit existing segment geometry revision: %w", err)
-		}
-		return existing, nil
-	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return nil, err
+	}
+	beforeHash, err := segmentVersionSnapshotHash(before)
 	if err != nil {
 		return nil, err
 	}
 	oldVersion, ok := findSnapshotVersion(before, versionID)
 	if !ok {
 		return nil, ErrSegmentNotFound
+	}
+	inputHash, err := segmentVersionOperationInputHash("geometry_update", map[string]any{
+		"version_id":           versionID,
+		"track_geojson":        update.TrackGeoJSON,
+		"start_point_geojson":  update.StartPointGeoJSON,
+		"end_point_geojson":    update.EndPointGeoJSON,
+		"equivalence_decision": update.EquivalenceDecision,
+		"equivalence_evidence": update.EquivalenceEvidence,
+		"recalculate":          update.Recalculate,
+		"reason":               update.Reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "geometry_update", update.OperationID, inputHash, beforeHash, &versionID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit existing segment geometry revision: %w", err)
+		}
+		return existing, nil
 	}
 	boundary := time.Now().UTC()
 	affectedFrom := &boundary
@@ -347,7 +379,7 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	if err != nil {
 		return nil, err
 	}
-	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "geometry_update", update.Reason, before, after, affectedFrom, affectedUntil, recalcRunID, nil, update.OperationID)
+	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "geometry_update", update.Reason, before, after, affectedFrom, affectedUntil, recalcRunID, nil, update.OperationID, inputHash, &versionID, beforeHash)
 	if err != nil {
 		return nil, err
 	}
@@ -368,17 +400,28 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 		return nil, err
 	}
 	operationID := "rollback:" + revisionID
-	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "rollback_revision", operationID); err != nil {
+	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return nil, err
+	}
+	beforeHash, err := segmentVersionSnapshotHash(before)
+	if err != nil {
+		return nil, err
+	}
+	inputHash, err := segmentVersionOperationInputHash("rollback_revision", map[string]any{
+		"revision_id": revisionID,
+		"reason":      reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if existing, err := loadExistingSegmentVersionRevisionTx(ctx, tx, segmentID, "rollback_revision", operationID, inputHash, beforeHash, nil); err != nil {
 		return nil, err
 	} else if existing != nil {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, fmt.Errorf("commit existing segment rollback revision: %w", err)
 		}
 		return existing, nil
-	}
-	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
-	if err != nil {
-		return nil, err
 	}
 
 	var storedSegmentID string
@@ -416,7 +459,7 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 		return nil, err
 	}
 	rollbackOf := revisionID
-	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "rollback_revision", reason, before, after, affectedFrom, affectedUntil, recalcRunID, &rollbackOf, operationID)
+	revision, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "rollback_revision", reason, before, after, affectedFrom, affectedUntil, recalcRunID, &rollbackOf, operationID, inputHash, nil, beforeHash)
 	if err != nil {
 		return nil, err
 	}
@@ -553,6 +596,7 @@ func (db *DB) ReverseActiveSegmentVersionTx(ctx context.Context, tx pgx.Tx, segm
 			WHERE segment_id = $1
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND (valid_from_at IS NULL OR valid_from_at <= boundary.at)
 			  AND (valid_until_at IS NULL OR boundary.at < valid_until_at)
 			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
@@ -565,6 +609,7 @@ func (db *DB) ReverseActiveSegmentVersionTx(ctx context.Context, tx pgx.Tx, segm
 			WHERE segment_id = $1
 			  AND matching_contract_key = 'course_gps_v1'
 			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
 			  AND valid_from_at > boundary.at
 		),
 		closed AS (
@@ -612,7 +657,15 @@ func (db *DB) ReverseActiveSegmentVersionTx(ctx context.Context, tx pgx.Tx, segm
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "reverse", "reverse", before, after, &boundary, nil, recalcRunID, nil, operationID); err != nil {
+	beforeHash, err := segmentVersionSnapshotHash(before)
+	if err != nil {
+		return "", "", err
+	}
+	inputHash, err := segmentVersionOperationInputHash("reverse", map[string]any{"operation": "reverse"})
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, "reverse", "reverse", before, after, &boundary, nil, recalcRunID, nil, operationID, inputHash, nil, beforeHash); err != nil {
 		return "", "", err
 	}
 	groupID, err := activeLeaderboardEquivalenceGroupTx(ctx, tx, segmentID, versionID)
@@ -647,6 +700,7 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 		if len(evidence) == 0 && strings.TrimSpace(continueFromVersionID) != "" {
 			return fmt.Errorf("%w: equivalence evidence is required when a new geometry continues an existing leaderboard group", ErrSegmentValidation)
 		}
+		var currentGroupID string
 		err := tx.QueryRow(ctx, `
 			SELECT group_id
 			FROM segment_leaderboard_equivalence_group_versions
@@ -654,8 +708,8 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 			  AND leaderboard_surface = 'default'
 			  AND retired_at IS NULL
 			LIMIT 1
-		`, versionID).Scan(&groupID)
-		if err == nil && groupID != "" {
+		`, versionID).Scan(&currentGroupID)
+		if err == nil && currentGroupID != "" && strings.TrimSpace(continueFromVersionID) == "" {
 			return nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -750,6 +804,17 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 	`, groupID, versionID, decision); err != nil {
 		return fmt.Errorf("insert equivalence membership: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE segment_efforts
+		SET leaderboard_equivalence_group_id = $2
+		WHERE segment_version_id = ANY($1::uuid[])
+		  AND superseded_at IS NULL
+	`, equivalenceRetireVersionIDs(versionID, joinSourceVersionID), groupID); err != nil {
+		return fmt.Errorf("move active segment efforts to equivalence group: %w", err)
+	}
+	if err := UpdateSegmentEffortRanksTx(ctx, tx, segmentID); err != nil {
+		return fmt.Errorf("refresh segment effort ranks after equivalence change: %w", err)
+	}
 	return nil
 }
 
@@ -783,13 +848,13 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 	if strings.TrimSpace(reason) == "" {
 		reason = "segment version changed"
 	}
-	var ownerUserID, visibility string
+	var ownerUserID, visibility, segmentName string
 	if err := tx.QueryRow(ctx, `
-		SELECT created_by, visibility
+		SELECT created_by, visibility, name
 		FROM segments
 		WHERE id = $1
 		FOR UPDATE
-	`, segmentID).Scan(&ownerUserID, &visibility); err != nil {
+	`, segmentID).Scan(&ownerUserID, &visibility, &segmentName); err != nil {
 		return nil, fmt.Errorf("load segment recalculation scope: %w", err)
 	}
 	scope := SegmentRecalculationScope{
@@ -800,7 +865,11 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 		FromAt:          fromAt,
 		UntilAt:         untilAt,
 	}
-	metadata, err := json.Marshal(map[string]any{"source": "segment_version_workflow"})
+	metadata, err := json.Marshal(map[string]any{
+		"source":      "segment_version_workflow",
+		"visibility":  "user_visible",
+		"entity_name": segmentName,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +881,7 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 	return &runID, nil
 }
 
-func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operation, reason string, before, after SegmentVersionSnapshot, affectedFrom, affectedUntil *time.Time, recalcRunID *string, rollbackOfRevisionID *string, operationID string) (*model.SegmentVersionRevision, error) {
+func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operation, reason string, before, after SegmentVersionSnapshot, affectedFrom, affectedUntil *time.Time, recalcRunID *string, rollbackOfRevisionID *string, operationID, operationInputHash string, targetVersionID *string, expectedBeforeSnapshotSHA256 string) (*model.SegmentVersionRevision, error) {
 	beforeRaw, beforeHash, err := canonicalSnapshotJSON(before)
 	if err != nil {
 		return nil, err
@@ -828,13 +897,15 @@ func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, a
 			id, segment_id, actor_user_id, operation, reason,
 			snapshot_schema_key, snapshot_schema_version,
 			before_snapshot, after_snapshot, before_snapshot_sha256, after_snapshot_sha256,
-			affected_from_at, affected_until_at, recalculation_run_id, rollback_of_revision_id
+			affected_from_at, affected_until_at, recalculation_run_id, rollback_of_revision_id,
+			operation_input_hash, target_version_id, expected_before_snapshot_sha256
 		)
 		VALUES (
 			$1, $2, $3, $4, NULLIF($5, ''),
 			$6, 1,
 			$7, $8, $9, $10,
-			$11, $12, $13, $14
+			$11, $12, $13, $14,
+			NULLIF($15, ''), $16, NULLIF($17, '')
 		)
 		ON CONFLICT (id) DO UPDATE
 			SET reason = COALESCE(EXCLUDED.reason, segment_version_revisions.reason)
@@ -844,7 +915,8 @@ func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, a
 		          before_snapshot, after_snapshot, before_snapshot_sha256,
 		          after_snapshot_sha256, created_at
 	`, revisionID, segmentID, actorUserID, operation, reason, segmentVersionRevisionSchemaKey,
-		beforeRaw, afterRaw, beforeHash, afterHash, affectedFrom, affectedUntil, recalcRunID, rollbackOfRevisionID).Scan(
+		beforeRaw, afterRaw, beforeHash, afterHash, affectedFrom, affectedUntil, recalcRunID, rollbackOfRevisionID,
+		operationInputHash, targetVersionID, expectedBeforeSnapshotSHA256).Scan(
 		&revision.ID,
 		&revision.SegmentID,
 		&revision.Operation,
@@ -867,7 +939,7 @@ func insertSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, a
 	return &revision, nil
 }
 
-func loadExistingSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, operation, operationID string) (*model.SegmentVersionRevision, error) {
+func loadExistingSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmentID, operation, operationID, expectedOperationInputHash, expectedBeforeSnapshotSHA256 string, targetVersionID *string) (*model.SegmentVersionRevision, error) {
 	revisionID := stableUUID("segment-version-revision", segmentID, operation, operationID).String()
 	rows, err := tx.Query(ctx, `
 		SELECT id, segment_id, operation, reason,
@@ -875,7 +947,10 @@ func loadExistingSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmen
 		       affected_from_at, affected_until_at,
 		       recalculation_run_id, rollback_of_revision_id,
 		       before_snapshot, after_snapshot,
-		       before_snapshot_sha256, after_snapshot_sha256, created_at
+		       before_snapshot_sha256, after_snapshot_sha256, created_at,
+		       COALESCE(operation_input_hash, ''),
+		       COALESCE(target_version_id::text, ''),
+		       COALESCE(expected_before_snapshot_sha256, '')
 		FROM segment_version_revisions
 		WHERE id = $1 AND segment_id = $2
 	`, revisionID, segmentID)
@@ -883,14 +958,44 @@ func loadExistingSegmentVersionRevisionTx(ctx context.Context, tx pgx.Tx, segmen
 		return nil, fmt.Errorf("load existing segment version revision: %w", err)
 	}
 	defer rows.Close()
-	revisions, err := scanSegmentVersionRevisions(rows)
-	if err != nil {
-		return nil, err
-	}
-	if len(revisions) == 0 {
+	var revision model.SegmentVersionRevision
+	var beforeRaw, afterRaw []byte
+	var existingOperationInputHash, existingTargetVersionID, existingExpectedBeforeHash string
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("load existing segment version revision: %w", err)
+		}
 		return nil, nil
 	}
-	return &revisions[0], nil
+	if err := rows.Scan(
+		&revision.ID, &revision.SegmentID, &revision.Operation, &revision.Reason,
+		&revision.SnapshotSchemaKey, &revision.SnapshotSchemaVersion,
+		&revision.AffectedFromAt, &revision.AffectedUntilAt,
+		&revision.RecalculationRunID, &revision.RollbackOfRevisionID,
+		&beforeRaw, &afterRaw,
+		&revision.BeforeSnapshotSHA256, &revision.AfterSnapshotSHA256, &revision.CreatedAt,
+		&existingOperationInputHash, &existingTargetVersionID, &existingExpectedBeforeHash,
+	); err != nil {
+		return nil, fmt.Errorf("scan existing segment revision: %w", err)
+	}
+	if rows.Next() {
+		return nil, fmt.Errorf("%w: duplicate segment revision operation id", ErrSegmentValidation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("load existing segment version revision: %w", err)
+	}
+	revision.BeforeSnapshot = cloneRawMessage(beforeRaw)
+	revision.AfterSnapshot = cloneRawMessage(afterRaw)
+	if expectedOperationInputHash != "" && existingOperationInputHash != "" && existingOperationInputHash != expectedOperationInputHash {
+		return nil, fmt.Errorf("%w: operation_id was already used with different input", ErrSegmentValidation)
+	}
+	if targetVersionID != nil && existingTargetVersionID != "" && existingTargetVersionID != *targetVersionID {
+		return nil, fmt.Errorf("%w: operation_id was already used for a different target version", ErrSegmentValidation)
+	}
+	if expectedBeforeSnapshotSHA256 != "" && existingExpectedBeforeHash != "" && existingExpectedBeforeHash != expectedBeforeSnapshotSHA256 {
+		return nil, fmt.Errorf("%w: operation_id replay no longer matches current segment state", ErrSegmentValidation)
+	}
+	return &revision, nil
 }
 
 func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVersionSnapshot) error {
@@ -912,6 +1017,9 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 		snapshot.Segment.ClimbType, nullableRawJSON(snapshot.Segment.SegmentTypeMeta))
 	if err != nil {
 		return fmt.Errorf("restore segment metadata: %w", err)
+	}
+	if err := retireVersionsAbsentFromSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
 	}
 	for _, version := range snapshot.Versions {
 		if _, err := tx.Exec(ctx, `
@@ -939,9 +1047,6 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 			return fmt.Errorf("restore segment version %s: %w", version.ID, err)
 		}
 	}
-	if err := retireVersionsAbsentFromSnapshotTx(ctx, tx, snapshot); err != nil {
-		return err
-	}
 	if err := restoreSegmentEquivalenceSnapshotTx(ctx, tx, snapshot); err != nil {
 		return err
 	}
@@ -955,14 +1060,9 @@ func retireVersionsAbsentFromSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot
 	}
 	_, err := tx.Exec(ctx, `
 		UPDATE segment_versions
-		SET valid_until_at = CASE
-				WHEN valid_from_at IS NULL THEN NOW()
-				ELSE GREATEST(valid_from_at + interval '1 microsecond', NOW())
-			END,
-		    validity_basis = 'editor_asserted'
+		SET validity_basis = 'rollback_retired'
 		WHERE segment_id = $1
 		  AND NOT (id = ANY($2::uuid[]))
-		  AND (valid_until_at IS NULL OR valid_until_at > NOW())
 	`, snapshot.SegmentID, versionIDs)
 	if err != nil {
 		return fmt.Errorf("retire segment versions absent from rollback snapshot: %w", err)
@@ -1118,6 +1218,19 @@ func canonicalSnapshotJSON(snapshot SegmentVersionSnapshot) ([]byte, string, err
 	}
 	sum := sha256.Sum256(raw)
 	return raw, hex.EncodeToString(sum[:]), nil
+}
+
+func segmentVersionSnapshotHash(snapshot SegmentVersionSnapshot) (string, error) {
+	_, hash, err := canonicalSnapshotJSON(snapshot)
+	return hash, err
+}
+
+func segmentVersionOperationInputHash(operation string, payload any) (string, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal segment version operation input: %w", err)
+	}
+	return stableOperationHash(operation, string(raw)), nil
 }
 
 func stableUUID(parts ...string) uuid.UUID {
