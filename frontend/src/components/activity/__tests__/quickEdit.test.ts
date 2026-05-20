@@ -44,6 +44,11 @@ function draft(overrides: Partial<ActivityQuickEditDraft> = {}): ActivityQuickEd
     excludeFromHeatmap: false,
     excludeFromStats: false,
     visibility: 'public',
+    hideMap: false,
+    dataVisibility: {
+      heart_rate: true,
+      power: true,
+    },
     workoutRpe: 7,
     workoutFeel: 4,
     tags: ['Indoor', 'E-Bike', 'Neu'],
@@ -103,6 +108,28 @@ describe('activity quick edit helpers', () => {
 
     expect(initial.title).toBe('Auto title')
     expect(buildActivityQuickEditPatch(activity, { ...initial })).not.toHaveProperty('title')
+  })
+
+  it('normalizes detailed privacy settings to supported sensitive fields', () => {
+    const activityWithLegacyVisibility = {
+      ...baseActivity,
+      hide_map: false,
+      data_visibility: { speed: false, heart_rate: true, power: true, cadence: false, temperature: false, altitude: false } as unknown as Activity['data_visibility'],
+    }
+    const initial = activityQuickEditDraftFromActivity(activityWithLegacyVisibility)
+
+    expect(buildActivityQuickEditPatch(activityWithLegacyVisibility, { ...initial })).not.toHaveProperty('data_visibility')
+
+    const patch = buildActivityQuickEditPatch(activityWithLegacyVisibility, {
+      ...initial,
+      hideMap: true,
+      dataVisibility: { ...initial.dataVisibility, power: false },
+    })
+
+    expect(patch).toMatchObject({
+      hide_map: true,
+    })
+    expect(patch.data_visibility).toEqual({ heart_rate: true, power: false })
   })
 
   it('keeps virtual activities heatmap-excluded in the draft', () => {

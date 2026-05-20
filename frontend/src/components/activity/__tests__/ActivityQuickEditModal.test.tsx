@@ -173,4 +173,33 @@ describe('ActivityQuickEditModal', () => {
     expect(unassignActivitiesFromTag).toHaveBeenCalledWith('tag-1', ['act-1'], { deferActivityFileRefresh: true })
     expect(updateActivity).toHaveBeenCalledWith('act-1', {})
   })
+
+  it('keeps detailed privacy controls collapsed until Details is opened and saves them through the modal', async () => {
+    const user = userEvent.setup()
+    const initial = activity({
+      hide_map: false,
+      data_visibility: {
+        heart_rate: true,
+        power: true,
+      },
+    })
+    vi.mocked(fetchActivity).mockResolvedValue(initial)
+    vi.mocked(updateActivity).mockResolvedValue({ ...initial, hide_map: true })
+
+    renderModal(initial)
+
+    expect(await screen.findByLabelText('Sichtbarkeit')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Karte ausblenden')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Details/ }))
+    await user.click(screen.getByLabelText('Karte ausblenden'))
+    expect(screen.queryByLabelText('Geschwindigkeit')).not.toBeInTheDocument()
+    await user.click(screen.getByLabelText('Leistung ausblenden'))
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(updateActivity).toHaveBeenCalledWith('act-1', expect.objectContaining({
+      hide_map: true,
+      data_visibility: expect.objectContaining({ power: false }),
+    }))
+  })
 })
