@@ -758,19 +758,22 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 }
 
 func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdmin bool, update *model.SegmentUpdate) (*model.Segment, error) {
-	// If new_version requested: copy latest segment_version to create a new one
-	newVersionCreated := false
-	if update.NewVersion {
-		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
-			return nil, err
-		}
-		newVersionCreated = true
-	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin segment update tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	// If new_version is requested, copy the active segment_version inside the
+	// same transaction as the projection rebuild so a rebuild failure cannot
+	// leave a version without eligibility rows.
+	newVersionCreated := false
+	if update.NewVersion {
+		if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
+		newVersionCreated = true
+	}
 
 	setClauses := []string{}
 	args := []any{}
@@ -887,8 +890,11 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 
 	if len(setClauses) == 0 {
 		if newVersionCreated {
-			if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
+			if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit segment update tx: %w", err)
 			}
 		}
 		return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
@@ -963,7 +969,23 @@ func segmentPredicatesForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, use
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
 func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) error {
-	_, err := db.Pool.Exec(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin create new segment version tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit create new segment version tx: %w", err)
+	}
+	return nil
+}
+
+// createNewSegmentVersionTx copies the latest segment_version into a new version row.
+func (db *DB) createNewSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	_, err := tx.Exec(ctx, `
 		WITH boundary AS (
 			SELECT NOW() AS at
 		),

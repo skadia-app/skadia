@@ -757,11 +757,36 @@ func insertSegmentEffortTx(
 			(id, activity_id, segment_id, segment_version_id, user_id,
 			 started_at, elapsed_time_s, distance_m, elevation_gain_m,
 			 is_reverse, sport_type, sub_type, in_leaderboard,
-			 is_lift_segment_match, is_method_a_only, is_cable_hold_merge)
+			 is_lift_segment_match, is_method_a_only, is_cable_hold_merge,
+			 activity_trait_bucket_key, eligibility_policy_key, eligibility_policy_version, eligibility_source_hash)
 		SELECT $1, $2, $3, $4, a.user_id, $5, $6, $7, $8, $9,
 			   a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false,
-			   $10, $11, $12
+			   $10, $11, $12,
+			   eligibility.activity_trait_bucket_key, eligibility.policy_key, eligibility.policy_version, eligibility.source_hash
 		FROM activities a
+		LEFT JOIN LATERAL (
+			SELECT cep.activity_trait_bucket_key, cep.policy_key, cep.policy_version, cep.source_hash
+			FROM activity_trait_projection atp
+			JOIN target_course_eligibility_projection cep
+			  ON cep.activity_trait_bucket_key = atp.activity_trait_bucket_key
+			WHERE cep.target_kind = 'segment'
+			  AND cep.target_id = $3
+			  AND cep.target_version_id = $4
+			  AND cep.match_allowed
+			  AND atp.sport_type = CASE
+				WHEN lower(trim(COALESCE(a.sport_type, ''))) IN ('', 'unknown') THEN 'generic'
+				ELSE lower(trim(a.sport_type))
+			  END
+			  AND atp.sub_type = CASE
+				WHEN lower(trim(COALESCE(a.sub_type, ''))) IN ('', 'generic') THEN '_'
+				ELSE lower(trim(a.sub_type))
+			  END
+			  AND atp.is_indoor = COALESCE(a.is_indoor, false)
+			  AND atp.is_virtual = COALESCE(a.is_virtual, false)
+			  AND atp.is_electric = COALESCE(a.is_electric, false)
+			ORDER BY cep.policy_version DESC
+			LIMIT 1
+		) eligibility ON true
 		WHERE a.id = $2 AND a.user_id = $13
 		ON CONFLICT DO NOTHING
 	`, effortID, activityID, osm.SegmentID, osm.SegmentVersionID,
@@ -1042,12 +1067,14 @@ func insertStage3SegmentEffortsBatched(
 			(id, activity_id, segment_id, segment_version_id, user_id,
 			 started_at, elapsed_time_s, distance_m, elevation_gain_m,
 			 is_reverse, sport_type, sub_type, in_leaderboard,
-			 is_lift_segment_match, is_method_a_only, is_cable_hold_merge)
+			 is_lift_segment_match, is_method_a_only, is_cable_hold_merge,
+			 activity_trait_bucket_key, eligibility_policy_key, eligibility_policy_version, eligibility_source_hash)
 		SELECT
 			u.id, u.activity_id, u.segment_id, u.segment_version_id, a.user_id,
 			u.started_at, u.elapsed_time_s, u.distance_m, u.elevation_gain_m,
 			u.is_reverse, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false,
-			true, u.is_method_a_only, false
+			true, u.is_method_a_only, false,
+			eligibility.activity_trait_bucket_key, eligibility.policy_key, eligibility.policy_version, eligibility.source_hash
 		FROM UNNEST(
 			$1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[],
 			$5::timestamptz[], $6::int[], $7::float8[], $8::float8[],
@@ -1056,6 +1083,29 @@ func insertStage3SegmentEffortsBatched(
 		       started_at, elapsed_time_s, distance_m, elevation_gain_m,
 		       is_reverse, is_method_a_only)
 		JOIN activities a ON a.id = u.activity_id AND a.user_id = $11
+		LEFT JOIN LATERAL (
+			SELECT cep.activity_trait_bucket_key, cep.policy_key, cep.policy_version, cep.source_hash
+			FROM activity_trait_projection atp
+			JOIN target_course_eligibility_projection cep
+			  ON cep.activity_trait_bucket_key = atp.activity_trait_bucket_key
+			WHERE cep.target_kind = 'segment'
+			  AND cep.target_id = u.segment_id
+			  AND cep.target_version_id = u.segment_version_id
+			  AND cep.match_allowed
+			  AND atp.sport_type = CASE
+				WHEN lower(trim(COALESCE(a.sport_type, ''))) IN ('', 'unknown') THEN 'generic'
+				ELSE lower(trim(a.sport_type))
+			  END
+			  AND atp.sub_type = CASE
+				WHEN lower(trim(COALESCE(a.sub_type, ''))) IN ('', 'generic') THEN '_'
+				ELSE lower(trim(a.sub_type))
+			  END
+			  AND atp.is_indoor = COALESCE(a.is_indoor, false)
+			  AND atp.is_virtual = COALESCE(a.is_virtual, false)
+			  AND atp.is_electric = COALESCE(a.is_electric, false)
+			ORDER BY cep.policy_version DESC
+			LIMIT 1
+		) eligibility ON true
 		ON CONFLICT DO NOTHING
 	`, ids, activityIDs, segIDs, svIDs,
 		startedAts, durationSs, distanceMs, ascentMs,

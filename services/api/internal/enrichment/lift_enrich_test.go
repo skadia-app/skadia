@@ -71,6 +71,67 @@ func liftTestActivity(t *testing.T, pool *pgxpool.Pool, userID string) string {
 	return activityID
 }
 
+func TestInsertSegmentEffortTxStoresCourseEligibilityProvenance(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash, has_gps)
+		VALUES ($1, $2, 'cycling', $3, $4, $5, false)
+	`, activityID, userID, now, now.Add(30*time.Minute), uuid.New().String()); err != nil {
+		t.Fatalf("insert cycling activity: %v", err)
+	}
+	db := &database.DB{Pool: pool}
+
+	segmentID := uuid.New().String()
+	versionID := uuid.New().String()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type, visibility, elevation_kind)
+		VALUES ($1, $2, $3, 'generic', 'lift', 'private', 'hilly')
+	`, segmentID, userID, "lift provenance "+segmentID); err != nil {
+		t.Fatalf("insert lift segment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
+		VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, $3)
+	`, versionID, segmentID, userID); err != nil {
+		t.Fatalf("insert lift segment version: %v", err)
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	effortID, err := insertSegmentEffortTx(ctx, tx, userID, activityID, lifts.OSMLiftCandidate{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		LengthM:          100,
+	}, time.Now().UTC().Truncate(time.Second), 120, 100, 10, false, true, false, false)
+	if err != nil {
+		t.Fatalf("insertSegmentEffortTx: %v", err)
+	}
+
+	var bucketKey, policyKey, sourceHash *string
+	var policyVersion *int
+	if err := tx.QueryRow(ctx, `
+		SELECT activity_trait_bucket_key, eligibility_policy_key, eligibility_policy_version, eligibility_source_hash
+		FROM segment_efforts
+		WHERE id = $1
+	`, effortID).Scan(&bucketKey, &policyKey, &policyVersion, &sourceHash); err != nil {
+		t.Fatalf("query segment effort eligibility provenance: %v", err)
+	}
+	if bucketKey == nil || *bucketKey == "" || policyKey == nil || *policyKey == "" || policyVersion == nil || sourceHash == nil || *sourceHash == "" {
+		t.Fatalf("eligibility provenance = bucket:%v policy:%v version:%v source:%v, want all populated", bucketKey, policyKey, policyVersion, sourceHash)
+	}
+}
+
 // TestEnrichStreamLifts_NoOSM verifies that enrichStreamLifts returns nil and
 // performs no INSERT when there is no OSM lift data (common in test environments).
 func TestEnrichStreamLifts_NoOSM(t *testing.T) {

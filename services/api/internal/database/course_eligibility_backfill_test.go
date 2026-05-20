@@ -46,8 +46,35 @@ func TestCourseEligibilityPreFlipBackfill_FailsWhenMatchableLegacySegmentHasNoRo
 	if err == nil {
 		t.Fatalf("VerifyCourseEligibilityProjectionCoverage succeeded with missing matchable rows")
 	}
-	if !strings.Contains(err.Error(), "course eligibility projection missing") {
-		t.Fatalf("coverage error = %v, want missing projection rows", err)
+	if !strings.Contains(err.Error(), "course eligibility projection mismatch") {
+		t.Fatalf("coverage error = %v, want projection mismatch", err)
+	}
+}
+
+func TestCourseEligibilityPreFlipBackfill_FailsWhenExpectedBucketRowIsMissing(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertCourseEligibilitySegmentFixture(t, db, userID, "standard", "bike", nil)
+	if err := db.BackfillAndVerifyCourseEligibilityProjections(ctx); err != nil {
+		t.Fatalf("BackfillAndVerifyCourseEligibilityProjections: %v", err)
+	}
+	mountainKey := sport.BuildActivityTraitBucketKey(sport.ActivityTraitBucketInput{SportType: "cycling", SubType: "mountain"})
+	if _, err := db.Pool.Exec(ctx, `
+		DELETE FROM target_course_eligibility_projection
+		WHERE target_kind = 'segment'
+		  AND target_id = $1
+		  AND target_version_id = $2
+		  AND activity_trait_bucket_key = $3
+	`, segmentID, versionID, mountainKey); err != nil {
+		t.Fatalf("delete one expected projection row: %v", err)
+	}
+
+	err := db.VerifyCourseEligibilityProjectionCoverage(ctx)
+	if err == nil {
+		t.Fatalf("VerifyCourseEligibilityProjectionCoverage succeeded with one expected bucket row missing")
+	}
+	if !strings.Contains(err.Error(), "course eligibility projection mismatch") {
+		t.Fatalf("coverage error = %v, want projection mismatch", err)
 	}
 }
 
@@ -77,6 +104,52 @@ func TestCourseEligibilityPreFlipBackfill_FailsWhenActivityTraitsAreMissing(t *t
 	}
 	if !strings.Contains(err.Error(), "activity trait projection missing generated bucket") {
 		t.Fatalf("coverage error = %v, want missing activity trait bucket", err)
+	}
+}
+
+func TestCourseEligibilityCandidateQueryPlanUsesProjectionLookupIndex(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, _ := insertCourseEligibilitySegmentFixture(t, db, userID, "standard", "bike", nil)
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
+		t.Fatalf("RebuildSegmentCourseEligibilityProjection: %v", err)
+	}
+	bucketKey := sport.BuildActivityTraitBucketKey(sport.ActivityTraitBucketInput{SportType: "cycling", SubType: "mountain"})
+	var planText string
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin explain tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatalf("disable seqscan for explain: %v", err)
+	}
+	rows, err := tx.Query(ctx, `
+		EXPLAIN (COSTS OFF)
+		SELECT s.id, sv.id
+		FROM target_course_eligibility_projection cep
+		JOIN segments s ON s.id = cep.target_id
+		JOIN segment_versions sv ON sv.id = cep.target_version_id
+		WHERE cep.activity_trait_bucket_key = $1
+		  AND cep.target_kind = 'segment'
+		  AND cep.match_allowed
+	`, bucketKey)
+	if err != nil {
+		t.Fatalf("explain candidate projection lookup: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan explain row: %v", err)
+		}
+		planText += line + "\n"
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("explain rows: %v", err)
+	}
+	if !strings.Contains(planText, "idx_tcep_candidate_lookup") {
+		t.Fatalf("candidate lookup plan did not use idx_tcep_candidate_lookup:\n%s", planText)
 	}
 }
 

@@ -183,8 +183,12 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 		       'course_gps_v1',
 		       1,
 		       boundary.at
-		FROM active, next_version, next_future, boundary, closed`, segID, userID); err != nil {
+	FROM active, next_version, next_future, boundary, closed`, segID, userID); err != nil {
 		return 0, fmt.Errorf("insert reversed version: %w", err)
+	}
+
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segID); err != nil {
+		return 0, fmt.Errorf("rebuild course eligibility projection: %w", err)
 	}
 
 	if err := database.UpdateSegmentEffortRanksTx(ctx, tx, segID); err != nil {

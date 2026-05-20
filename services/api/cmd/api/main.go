@@ -447,6 +447,10 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
+	if err := db.BackfillAndVerifyCourseEligibilityProjections(ctx); err != nil {
+		slog.Error("failed to prepare course eligibility projections", "error", err)
+		os.Exit(1)
+	}
 	if cfg.ReadonlyDatabaseURL != "" {
 		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
 			if !database.IsReadonlyAuthError(err) {

@@ -50,8 +50,14 @@ func (db *DB) RebuildSegmentCourseEligibilityProjection(ctx context.Context, seg
 }
 
 func (db *DB) RebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
-	if err := rebuildActivityTraitProjectionTx(ctx, tx); err != nil {
-		return err
+	return db.rebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID, true)
+}
+
+func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, tx pgx.Tx, segmentID string, seedActivityTraits bool) error {
+	if seedActivityTraits {
+		if err := rebuildActivityTraitProjectionTx(ctx, tx); err != nil {
+			return err
+		}
 	}
 
 	var (
@@ -192,7 +198,7 @@ func (db *DB) RebuildAllCourseEligibilityProjections(ctx context.Context) error 
 		return fmt.Errorf("list segments for course eligibility projection rebuild: %w", err)
 	}
 	for _, segmentID := range segmentIDs {
-		if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		if err := db.rebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID, false); err != nil {
 			return err
 		}
 	}
@@ -243,19 +249,18 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 	}
 	defer rows.Close()
 
-	missing := 0
-	missingSamples := []string{}
+	mismatches := 0
+	mismatchSamples := []string{}
 	for rows.Next() {
 		var (
-			segmentID        string
-			versionID        string
-			segmentType      string
-			sportGroup       string
-			rawPredicates    []byte
-			bidirectional    bool
-			visibility       string
-			elevationKind    string
-			projectionExists bool
+			segmentID     string
+			versionID     string
+			segmentType   string
+			sportGroup    string
+			rawPredicates []byte
+			bidirectional bool
+			visibility    string
+			elevationKind string
 		)
 		if err := rows.Scan(&segmentID, &versionID, &segmentType, &sportGroup, &rawPredicates,
 			&bidirectional, &visibility, &elevationKind); err != nil {
@@ -279,36 +284,94 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 			AdapterKey:           courseEligibilityAdapterKey,
 			AdapterVersion:       courseEligibilityAdapterVersion,
 		})
-		if len(expected) == 0 {
-			continue
-		}
-		if err := db.Pool.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1
-				FROM target_course_eligibility_projection
-				WHERE target_kind = 'segment'
-				  AND target_id = $1
-				  AND target_version_id = $2
-				  AND match_allowed = true
-			)
-		`, segmentID, versionID).Scan(&projectionExists); err != nil {
-			return fmt.Errorf("verify course eligibility projection row coverage: %w", err)
-		}
-		if projectionExists {
-			continue
-		}
-		missing++
-		if len(missingSamples) < 5 {
-			missingSamples = append(missingSamples, fmt.Sprintf("%s/%s", segmentID, versionID))
+		if err := db.verifyCourseEligibilityProjectionSet(ctx, segmentID, versionID, expected); err != nil {
+			mismatches++
+			if len(mismatchSamples) < 5 {
+				mismatchSamples = append(mismatchSamples, fmt.Sprintf("%s/%s: %v", segmentID, versionID, err))
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("verify course eligibility projection coverage: %w", err)
 	}
-	if missing > 0 {
-		return fmt.Errorf("course eligibility projection missing %d matchable segment version(s), samples=%s", missing, strings.Join(missingSamples, ","))
+	if mismatches > 0 {
+		return fmt.Errorf("course eligibility projection mismatch for %d segment version(s), samples=%s", mismatches, strings.Join(mismatchSamples, ","))
 	}
 	return nil
+}
+
+type courseEligibilityProjectionComparable struct {
+	ActivityTraitBucketKey string
+	PolicyKey              string
+	PolicyVersion          int
+	SourceHash             string
+	CompatibilityPreset    string
+	ActivityGroup          string
+	MatchAllowed           bool
+	CompletionAllowed      bool
+	RankAllowed            bool
+}
+
+func (db *DB) verifyCourseEligibilityProjectionSet(ctx context.Context, segmentID, versionID string, expected []sport.CourseEligibilityProjectionRow) error {
+	actualRows, err := db.Pool.Query(ctx, `
+		SELECT activity_trait_bucket_key, policy_key, policy_version, source_hash,
+		       compatibility_preset, activity_group, match_allowed, completion_allowed, rank_allowed
+		FROM target_course_eligibility_projection
+		WHERE target_kind = 'segment'
+		  AND target_id = $1
+		  AND target_version_id = $2
+	`, segmentID, versionID)
+	if err != nil {
+		return fmt.Errorf("load projection rows: %w", err)
+	}
+	defer actualRows.Close()
+
+	actual := map[string]courseEligibilityProjectionComparable{}
+	for actualRows.Next() {
+		var row courseEligibilityProjectionComparable
+		if err := actualRows.Scan(&row.ActivityTraitBucketKey, &row.PolicyKey, &row.PolicyVersion, &row.SourceHash,
+			&row.CompatibilityPreset, &row.ActivityGroup, &row.MatchAllowed, &row.CompletionAllowed, &row.RankAllowed); err != nil {
+			return fmt.Errorf("scan projection row: %w", err)
+		}
+		actual[courseEligibilityProjectionKey(row.ActivityTraitBucketKey, row.PolicyKey, row.PolicyVersion)] = row
+	}
+	if err := actualRows.Err(); err != nil {
+		return fmt.Errorf("load projection rows: %w", err)
+	}
+
+	expectedMap := map[string]courseEligibilityProjectionComparable{}
+	for _, row := range expected {
+		comparable := courseEligibilityProjectionComparable{
+			ActivityTraitBucketKey: row.ActivityTraitBucketKey,
+			PolicyKey:              courseEligibilityPolicyKey,
+			PolicyVersion:          courseEligibilityPolicyVersion,
+			SourceHash:             row.SourceHash,
+			CompatibilityPreset:    row.CompatibilityPreset,
+			ActivityGroup:          row.ActivityGroup,
+			MatchAllowed:           row.MatchAllowed,
+			CompletionAllowed:      row.CompletionAllowed,
+			RankAllowed:            row.RankAllowed,
+		}
+		expectedMap[courseEligibilityProjectionKey(comparable.ActivityTraitBucketKey, comparable.PolicyKey, comparable.PolicyVersion)] = comparable
+	}
+
+	if len(actual) != len(expectedMap) {
+		return fmt.Errorf("row count=%d want=%d", len(actual), len(expectedMap))
+	}
+	for key, want := range expectedMap {
+		got, ok := actual[key]
+		if !ok {
+			return fmt.Errorf("missing row %s", key)
+		}
+		if got != want {
+			return fmt.Errorf("row %s = %+v want %+v", key, got, want)
+		}
+	}
+	return nil
+}
+
+func courseEligibilityProjectionKey(activityTraitBucketKey, policyKey string, policyVersion int) string {
+	return fmt.Sprintf("%s|%s|%d", activityTraitBucketKey, policyKey, policyVersion)
 }
 
 func rebuildActivityTraitProjectionTx(ctx context.Context, tx pgx.Tx) error {
