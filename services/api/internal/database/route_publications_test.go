@@ -157,6 +157,43 @@ func TestRoutePublicationFreezesGeometry(t *testing.T) {
 	}
 }
 
+func TestRoutePublicationDoesNotCreateGuideContent(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	description := "## Tour notes\n\nThis is route metadata, not a guide article."
+	_, snapshot := createRoutePublicationDescriptionSnapshot(t, db, userID, "metadata only route", description)
+	if snapshot.RouteDescription == nil || *snapshot.RouteDescription != description {
+		t.Fatalf("snapshot route_description = %#v, want metadata copy", snapshot.RouteDescription)
+	}
+
+	publication, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "private",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-no-guide-content",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse: %v", err)
+	}
+
+	var attachmentCount int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM file_attachments
+		WHERE entity_id IN ($1, $2)
+		   OR entity_type IN ('route_guide', 'route_publication_guide', 'tour_report')
+	`, snapshot.ID, publication.ID).Scan(&attachmentCount); err != nil {
+		t.Fatalf("count file_attachments: %v", err)
+	}
+	if attachmentCount != 0 {
+		t.Fatalf("guide/report attachment count = %d, want 0", attachmentCount)
+	}
+}
+
 func createRoutePublicationTestSnapshot(t *testing.T, db *DB, userID, name string) (*model.PlannedRoute, *model.PlannedRouteSnapshot) {
 	t.Helper()
 	subType := "mountain"
@@ -202,6 +239,29 @@ func createRoutePublicationTestSnapshot(t *testing.T, db *DB, userID, name strin
 		t.Fatalf("CreatePlannedRouteSnapshot: %v", err)
 	}
 	return loaded, snapshot
+}
+
+func createRoutePublicationDescriptionSnapshot(t *testing.T, db *DB, userID, name, description string) (*model.PlannedRoute, *model.PlannedRouteSnapshot) {
+	t.Helper()
+	route, _ := createRoutePublicationTestSnapshot(t, db, userID, name)
+	route.Description = &description
+	if err := db.UpdateRoute(context.Background(), route, route.Version); err != nil {
+		t.Fatalf("UpdateRoute description: %v", err)
+	}
+	updated, err := db.GetRoute(context.Background(), route.ID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute with description: %v", err)
+	}
+	snapshot, err := db.CreatePlannedRouteSnapshot(context.Background(), model.CreatePlannedRouteSnapshotInput{
+		RouteID:            route.ID,
+		UserID:             userID,
+		SourceRouteVersion: updated.Version,
+		OperationID:        "publication-description-snapshot-" + route.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlannedRouteSnapshot with description: %v", err)
+	}
+	return updated, snapshot
 }
 
 func routePublicationPtrFloat64(v float64) *float64 {

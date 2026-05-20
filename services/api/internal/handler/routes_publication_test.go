@@ -99,6 +99,59 @@ func TestRoutePublishCourseHandlerCreatesPrivateCourse(t *testing.T) {
 	}
 }
 
+func TestRoutePublicationHandlerDoesNotCreateGuideContent(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := routePublicationRouter(h)
+
+	userID := insertTestUser(t, pool)
+	routeID := insertTestRoute(t, h, userID)
+	snapshotID := createRouteSnapshotViaHandler(t, r, routeID, userID, "handler-no-guide-snapshot")
+
+	var routeDescription *string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT route_description
+		FROM planned_route_snapshots
+		WHERE id = $1
+	`, snapshotID).Scan(&routeDescription); err != nil {
+		t.Fatalf("load route_description: %v", err)
+	}
+	if routeDescription == nil || *routeDescription != "orig-desc" {
+		t.Fatalf("route_description = %#v, want route metadata", routeDescription)
+	}
+
+	body := `{
+		"route_snapshot_id":"` + snapshotID + `",
+		"source_route_version":1,
+		"publish_policy":"new_course",
+		"equivalence_decision":"version_specific",
+		"visibility":"private",
+		"compatibility_preset":"standard",
+		"operation_id":"handler-no-guide-publication"
+	}`
+	rec := performRoutePublicationRequest(t, r, http.MethodPost, "/api/v1/routes/"+routeID+"/publish-course", body, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("publish status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created PublishRouteCourseResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal publish response: %v", err)
+	}
+
+	var attachmentCount int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM file_attachments
+		WHERE entity_id IN ($1, $2)
+		   OR entity_type IN ('route_guide', 'route_publication_guide', 'tour_report')
+	`, snapshotID, created.PublicationID).Scan(&attachmentCount); err != nil {
+		t.Fatalf("count file_attachments: %v", err)
+	}
+	if attachmentCount != 0 {
+		t.Fatalf("guide/report attachment count = %d, want 0", attachmentCount)
+	}
+}
+
 func TestRoutePublishCourseHandlerRejectsForeignSnapshotAndPublicWithoutReview(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
