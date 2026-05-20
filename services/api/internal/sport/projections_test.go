@@ -227,6 +227,14 @@ func TestActivityTraitBucketKeyForActivityPreservesGenericFallback(t *testing.T)
 	}
 }
 
+func TestActivityTraitBucketKeyForActivityTreatsUnknownAsGenericFallback(t *testing.T) {
+	got, ok := ActivityTraitBucketKeyForActivityLegacyCandidate("unknown", "", ActivityModifierState{})
+	want := "atb:v1:sport=generic:sub=_:indoor=0:virtual=0:electric=0"
+	if !ok || got != want {
+		t.Fatalf("unknown fallback bucket = %q/%t, want %q/true", got, ok, want)
+	}
+}
+
 func TestCourseEligibilityPolicySourceHashChangesWhenInputsChange(t *testing.T) {
 	base := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "bike", nil, false))
 	changed := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "foot", nil, false))

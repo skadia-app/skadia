@@ -485,6 +485,9 @@ func ActivityTraitBucketKeyForActivityLegacyCandidate(sportType, subType string,
 	}
 
 	canonicalSport := CanonicalSportTypeID(sportType)
+	if canonicalSport == UnknownSportType {
+		return activityTraitBucketKeyForTuple(GenericSportType, "", state)
+	}
 	if _, ok := registry[canonicalSport]; ok {
 		return activityTraitBucketKeyForTuple(canonicalSport, "", state)
 	}

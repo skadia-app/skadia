@@ -107,6 +107,24 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	if e2Direction != "reverse" || !strings.Contains(e2Identity, ":direction:reverse:") {
 		t.Fatalf("effort 2 metadata = %s/%s, want frozen reverse direction", e2Direction, e2Identity)
 	}
+
+	var projectedRows int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM target_course_eligibility_projection cep
+		JOIN segment_versions sv ON sv.id = cep.target_version_id
+		WHERE cep.target_kind = 'segment'
+		  AND cep.target_id = $1
+		  AND sv.segment_id = $1
+		  AND sv.version_number = (
+			SELECT MAX(version_number) FROM segment_versions WHERE segment_id = $1
+		  )
+	`, segmentID).Scan(&projectedRows); err != nil {
+		t.Fatalf("query reversed-version projection rows: %v", err)
+	}
+	if projectedRows == 0 {
+		t.Fatalf("reverse did not rebuild course eligibility projection for the new version")
+	}
 }
 
 func TestReverseSegmentPreservesSameActivityOppositeDirectionEfforts_DB(t *testing.T) {

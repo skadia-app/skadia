@@ -162,6 +162,42 @@ func TestUpdateSegmentNewVersionRebuildsCourseEligibilityProjection(t *testing.T
 	}
 }
 
+func TestUpdateSegmentNewVersionRollsBackVersionWhenProjectionRebuildFails(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segment := createCourseEligibilitySegment(t, db, userID, "standard", "bike", nil)
+	initialVersions := countSegmentVersions(t, db, segment.ID)
+
+	if _, err := db.Pool.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION fail_course_eligibility_projection_insert()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			RAISE EXCEPTION 'forced projection failure';
+		END;
+		$$;
+		CREATE TRIGGER fail_course_eligibility_projection_insert
+		BEFORE INSERT ON target_course_eligibility_projection
+		FOR EACH ROW EXECUTE FUNCTION fail_course_eligibility_projection_insert();
+	`); err != nil {
+		t.Fatalf("install failing projection trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `
+			DROP TRIGGER IF EXISTS fail_course_eligibility_projection_insert ON target_course_eligibility_projection;
+			DROP FUNCTION IF EXISTS fail_course_eligibility_projection_insert();
+		`)
+	})
+
+	if _, err := db.UpdateSegment(ctx, segment.ID, userID, false, &model.SegmentUpdate{NewVersion: true}); err == nil {
+		t.Fatalf("UpdateSegment new version succeeded despite forced projection failure")
+	}
+	if got := countSegmentVersions(t, db, segment.ID); got != initialVersions {
+		t.Fatalf("segment versions after failed new-version update = %d, want %d", got, initialVersions)
+	}
+}
+
 func TestPublishSegmentRebuildsCourseEligibilityProjection(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -268,6 +304,19 @@ func countProjectedVersions(t *testing.T, db *DB, segmentID string) int {
 		WHERE target_kind = 'segment' AND target_id = $1
 	`, segmentID).Scan(&count); err != nil {
 		t.Fatalf("count projected versions: %v", err)
+	}
+	return count
+}
+
+func countSegmentVersions(t *testing.T, db *DB, segmentID string) int {
+	t.Helper()
+	var count int
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM segment_versions
+		WHERE segment_id = $1
+	`, segmentID).Scan(&count); err != nil {
+		t.Fatalf("count segment versions: %v", err)
 	}
 	return count
 }
