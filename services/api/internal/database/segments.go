@@ -108,7 +108,7 @@ func segmentTypeFilterIncludesLift(segmentType, segmentTypes string) bool {
 	if segmentType == "lift" {
 		return true
 	}
-	for _, t := range strings.Split(segmentTypes, ",") {
+	for t := range strings.SplitSeq(segmentTypes, ",") {
 		if strings.TrimSpace(t) == "lift" {
 			return true
 		}
@@ -297,7 +297,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 	var visibilityClause string
 	if p.VisibilityFilter != "" {
 		parts := make([]string, 0, 2)
-		for _, v := range strings.Split(p.VisibilityFilter, ",") {
+		for v := range strings.SplitSeq(p.VisibilityFilter, ",") {
 			switch strings.TrimSpace(v) {
 			case "public":
 				parts = append(parts, "s.visibility = 'public'")
@@ -1079,7 +1079,7 @@ func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx
 		RETURNING id`, segmentID).Scan(&versionID); err != nil {
 		return "", "", fmt.Errorf("create new segment version: %w", err)
 	}
-	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, actorUserID, operationID, equivalenceDecision, operation, nil); err != nil {
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, "", actorUserID, operationID, equivalenceDecision, operation, nil); err != nil {
 		return "", "", err
 	}
 	after, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)

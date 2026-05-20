@@ -114,6 +114,38 @@ func TestUpdateSegmentVersionValiditySchedulesBoundedRun(t *testing.T) {
 	}
 }
 
+func TestUpdateSegmentVersionValidityPublicSegmentQueuesAllUsers(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	otherUserID := insertTestUser(t, db)
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Validity Public Recalc")
+	activityAt := time.Date(2025, 4, 2, 8, 0, 0, 0, time.UTC)
+	insertVersioningTestActivity(t, db, userID, activityAt)
+	insertVersioningTestActivity(t, db, otherUserID, activityAt)
+
+	revision, err := db.UpdateSegmentVersionValidity(ctx, segmentID, versionID, userID, false, model.SegmentVersionValidityUpdate{
+		OperationID: "validity-public-recalc-" + uuid.NewString(),
+		Recalculate: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateSegmentVersionValidity: %v", err)
+	}
+	if revision.RecalculationRunID == nil {
+		t.Fatal("revision missing recalculation run id")
+	}
+	var queuedUsers int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT count(DISTINCT user_id)
+		FROM segment_recalculation_run_activities
+		WHERE run_id = $1
+	`, *revision.RecalculationRunID).Scan(&queuedUsers); err != nil {
+		t.Fatalf("query queued recalculation users: %v", err)
+	}
+	if queuedUsers != 2 {
+		t.Fatalf("queued users = %d, want owner and second user", queuedUsers)
+	}
+}
+
 func TestUpdateSegmentVersionValidityTreatsNullBoundsAsUnbounded(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -171,6 +203,56 @@ func TestUpdateSegmentGeometryWritesRevisionSnapshotAndSchedulesBoundedRun(t *te
 	}
 	if versions != 2 {
 		t.Fatalf("versions = %d, want 2", versions)
+	}
+}
+
+func TestUpdateSegmentGeometryContinueGroupPromotesVersionSpecificSource(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Geometry Continue Group")
+	oldGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, versionID)
+
+	revision, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
+		OperationID:         "geometry-continue-" + uuid.NewString(),
+		TrackGeoJSON:        json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.01,49.01],[8.02,49.02]]}`),
+		EquivalenceDecision: "continue_group",
+		EquivalenceEvidence: map[string]any{"reason": "minor correction"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSegmentVersionGeometry: %v", err)
+	}
+	var after SegmentVersionSnapshot
+	if err := json.Unmarshal(revision.AfterSnapshot, &after); err != nil {
+		t.Fatalf("decode after snapshot: %v", err)
+	}
+	var newVersionID string
+	for _, version := range after.Versions {
+		if version.ID != versionID {
+			newVersionID = version.ID
+		}
+	}
+	if newVersionID == "" {
+		t.Fatal("new version not found in snapshot")
+	}
+	newGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, newVersionID)
+	continuedOldGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, versionID)
+	if newGroupID == oldGroupID || continuedOldGroupID == oldGroupID || newGroupID != continuedOldGroupID {
+		t.Fatalf("groups old/new/continued-old = %s/%s/%s, want promoted shared group", oldGroupID, newGroupID, continuedOldGroupID)
+	}
+}
+
+func TestUpdateSegmentGeometryValidatesProvidedEndpoints(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Geometry Endpoint Validation")
+
+	_, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
+		OperationID:       "geometry-endpoint-" + uuid.NewString(),
+		TrackGeoJSON:      json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.01,49.01]]}`),
+		StartPointGeoJSON: json.RawMessage(`{"type":"Point","coordinates":[8.5,49.5]}`),
+	})
+	if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("UpdateSegmentVersionGeometry endpoint error = %v, want ErrSegmentValidation", err)
 	}
 }
 
@@ -283,4 +365,21 @@ func insertVersioningTestActivity(t *testing.T, db *DB, userID string, startedAt
 		t.Fatalf("insert activity track: %v", err)
 	}
 	return activityID
+}
+
+func activeTestLeaderboardEquivalenceGroup(t *testing.T, db *DB, segmentID, versionID string) string {
+	t.Helper()
+	var groupID string
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT gv.group_id
+		FROM segment_leaderboard_equivalence_group_versions gv
+		JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+		WHERE gv.segment_version_id = $1
+		  AND gv.leaderboard_surface = 'default'
+		  AND gv.retired_at IS NULL
+		  AND g.segment_id = $2
+	`, versionID, segmentID).Scan(&groupID); err != nil {
+		t.Fatalf("load active equivalence group for version %s: %v", versionID, err)
+	}
+	return groupID
 }

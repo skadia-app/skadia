@@ -57,8 +57,7 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 			//           or explicit pg_try_advisory_xact_lock returning false)
 			//   40001 = serialization_failure (snapshot conflict under REPEATABLE READ /
 			//           SERIALIZABLE isolation)
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 				switch pgErr.Code {
 				case "55P03", "40001":
 					httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "lock conflict, please try again", r.URL.Path)
@@ -71,6 +70,7 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.startSegmentRecalculationRuns("segment-reverse")
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"efforts_updated": effortsUpdated})
 }
 

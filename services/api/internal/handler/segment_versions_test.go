@@ -63,7 +63,7 @@ func TestUpdateSegmentVersionValidityCanScheduleAndListRevision_DB(t *testing.T)
 	r.Patch("/api/v1/segments/{id}/versions/{version_id}/validity", h.UpdateSegmentVersionValidity)
 	r.Get("/api/v1/segments/{id}/versions/revisions", h.ListSegmentVersionRevisions)
 	r.Get("/api/v1/segments/{id}/versions/revisions/{revision_id}", h.GetSegmentVersionRevision)
-	body := `{"operation_id":"validity-handler-ok","valid_from_at":null,"valid_until_at":null,"recalculate":true}`
+	body := `{"operation_id":"validity-handler-ok","valid_from_at":null,"valid_until_at":null}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/segments/"+segmentID+"/versions/"+versionID+"/validity", bytes.NewBufferString(body))
 	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
 	rec := httptest.NewRecorder()

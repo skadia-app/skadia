@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -142,7 +144,15 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 }
 
 func (h *Handler) resumeSegmentRecalculationRuns(ctx context.Context) {
-	shutdown.Go("segment-recalculation-runs", func(ctx context.Context) {
+	h.startSegmentRecalculationRuns("segment-recalculation-resume")
+}
+
+func (h *Handler) startSegmentRecalculationRuns(reason string) {
+	if !h.resumeJobAllowedByCapabilities("segment_recompute") {
+		return
+	}
+	jobID := "segment-recalculation-runs-" + uuid.NewString()
+	shutdown.Go(jobID, func(ctx context.Context) {
 		workerID := "api-segment-recalculation"
 		for {
 			claim, err := h.DB.ClaimNextSegmentRecalculationActivity(ctx, workerID, 5*time.Minute)
@@ -165,6 +175,7 @@ func (h *Handler) resumeSegmentRecalculationRuns(ctx context.Context) {
 			}
 		}
 	})
+	slog.Debug("segment recalculation worker started", "job_id", jobID, "reason", reason)
 }
 
 func (h *Handler) deploymentProfile() string {

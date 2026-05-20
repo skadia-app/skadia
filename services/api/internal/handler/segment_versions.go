@@ -45,6 +45,9 @@ func (h *Handler) UpdateSegmentVersionValidity(w http.ResponseWriter, r *http.Re
 		writeSegmentVersionWorkflowError(w, r, err)
 		return
 	}
+	if revision.RecalculationRunID != nil {
+		h.startSegmentRecalculationRuns("segment-version-validity")
+	}
 	httputil.WriteJSON(w, http.StatusOK, revision)
 }
 
@@ -77,6 +80,9 @@ func (h *Handler) UpdateSegmentVersionGeometry(w http.ResponseWriter, r *http.Re
 		writeSegmentVersionWorkflowError(w, r, err)
 		return
 	}
+	if revision.RecalculationRunID != nil {
+		h.startSegmentRecalculationRuns("segment-version-geometry")
+	}
 	httputil.WriteJSON(w, http.StatusOK, revision)
 }
 
@@ -107,10 +113,16 @@ func (h *Handler) RollbackSegmentVersionRevision(w http.ResponseWriter, r *http.
 		writeSegmentVersionWorkflowError(w, r, err)
 		return
 	}
+	if revision.RecalculationRunID != nil {
+		h.startSegmentRecalculationRuns("segment-version-rollback")
+	}
 	httputil.WriteJSON(w, http.StatusOK, revision)
 }
 
 func (h *Handler) ListSegmentVersionRevisions(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentVersionWorkflow) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -141,6 +153,9 @@ func (h *Handler) ListSegmentVersionRevisions(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) GetSegmentVersionRevision(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentVersionWorkflow) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -209,6 +224,7 @@ func decodeSegmentVersionValidityUpdate(r *http.Request) (model.SegmentVersionVa
 	}
 	update.ValidFromAt = from
 	update.ValidUntilAt = until
+	update.Recalculate = true
 	if v, ok := raw["reason"]; ok {
 		_ = json.Unmarshal(v, &update.Reason)
 	}
@@ -268,8 +284,7 @@ func writeSegmentVersionWorkflowError(w http.ResponseWriter, r *http.Request, er
 	case errors.Is(err, database.ErrSegmentValidation):
 		httputil.WriteError(w, http.StatusUnprocessableEntity, "Unprocessable Entity", err.Error(), r.URL.Path)
 	default:
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			switch pgErr.Code {
 			case "55P03", "40001":
 				httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "lock conflict, please try again", r.URL.Path)
