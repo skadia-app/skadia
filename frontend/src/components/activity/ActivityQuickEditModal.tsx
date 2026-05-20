@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Save, X } from 'lucide-react'
+import { Loader2, Pencil, Save, X } from 'lucide-react'
 import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
 import { assignActivitiesToTag, createTag, fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
 import type { Activity } from '@/api/types'
@@ -77,6 +77,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draftDirty, setDraftDirty] = useState(false)
+  const [privacyDetailsOpen, setPrivacyDetailsOpen] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -84,6 +85,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       setDraftDirty(false)
       setTagSearch('')
       setError(null)
+      setPrivacyDetailsOpen(false)
     }
   }, [activity.id, open])
 
@@ -146,6 +148,14 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   function toggleModifier(modifier: SportModifierKey, selected: boolean) {
     setDraftDirty(true)
     setDraft(prev => quickEditTagDraftAfterModifier(prev, modifier, selected))
+  }
+
+  function toggleDataVisibility(key: keyof ActivityQuickEditDraft['dataVisibility']) {
+    setDraftDirty(true)
+    setDraft(prev => ({
+      ...prev,
+      dataVisibility: { ...prev.dataVisibility, [key]: !prev.dataVisibility[key] },
+    }))
   }
 
   function tagStyle(tagName: string, index: number) {
@@ -252,7 +262,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     .join(' / ')
 
   return (
-    <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] w-[calc(100vw-2rem)] overflow-y-auto">
+    <ModalShell onClose={onClose} maxWidth="max-w-6xl" className="max-h-[92vh] w-[calc(100vw-2rem)] overflow-y-auto">
       <div className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -300,17 +310,45 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               />
             </label>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <QuickEditSection title="Sportart">
+              <SportTuplePicker
+                sportType={draft.sportType}
+                subType={draft.subType}
+                onChange={(sportType, subType) => patchDraft({ sportType, subType })}
+              />
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {quickEditModifierKeys.map((key) => {
+                  const label = modifierLabel(key)
+                  return (
+                    <ToggleRow key={key} label={label}>
+                      <Toggle
+                        checked={quickEditModifierSelected(draft, key)}
+                        onChange={checked => toggleModifier(key, checked)}
+                        size="sm"
+                        aria-label={label}
+                      />
+                    </ToggleRow>
+                  )
+                })}
+              </div>
+            </QuickEditSection>
+
+            <QuickEditSection
+              title="Privatsphäre"
+              action={(
+                <button
+                  type="button"
+                  onClick={() => setPrivacyDetailsOpen(open => !open)}
+                  className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  aria-expanded={privacyDetailsOpen}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Details
+                </button>
+              )}
+            >
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</span>
-                <SportTuplePicker
-                  sportType={draft.sportType}
-                  subType={draft.subType}
-                  onChange={(sportType, subType) => patchDraft({ sportType, subType })}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Sichtbarkeit</span>
+                <span className="sr-only">Sichtbarkeit</span>
                 <select
                   value={draft.visibility}
                   onChange={e => patchDraft({ visibility: e.target.value as Activity['visibility'] })}
@@ -321,42 +359,54 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   ))}
                 </select>
               </label>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              {quickEditModifierKeys.map((key) => {
-                const label = modifierLabel(key)
-                return (
-                <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
-                  <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
-                  <Toggle
-                    checked={quickEditModifierSelected(draft, key)}
-                    onChange={checked => toggleModifier(key, checked)}
-                    size="sm"
-                    aria-label={label}
-                  />
+              {privacyDetailsOpen && (
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  <ToggleRow label="Karte ausblenden">
+                    <Toggle
+                      checked={draft.hideMap}
+                      onChange={checked => patchDraft({ hideMap: checked })}
+                      size="sm"
+                      aria-label="Karte ausblenden"
+                    />
+                  </ToggleRow>
+                  <ToggleRow label="Herzfrequenz ausblenden">
+                    <Toggle
+                      checked={!draft.dataVisibility.heart_rate}
+                      onChange={() => toggleDataVisibility('heart_rate')}
+                      size="sm"
+                      aria-label="Herzfrequenz ausblenden"
+                    />
+                  </ToggleRow>
+                  <ToggleRow label="Leistung ausblenden">
+                    <Toggle
+                      checked={!draft.dataVisibility.power}
+                      onChange={() => toggleDataVisibility('power')}
+                      size="sm"
+                      aria-label="Leistung ausblenden"
+                    />
+                  </ToggleRow>
                 </div>
-                )
-              })}
-            </div>
+              )}
+            </QuickEditSection>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              {([
-                ['excludeFromHeatmap', 'Von Heatmap ausschließen'],
-                ['excludeFromStats', 'Von Statistik ausschließen'],
-              ] as const).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
-                  <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
-                  <Toggle
-                    checked={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual') ? true : draft[key]}
-                    onChange={checked => patchDraft({ [key]: checked })}
-                    size="sm"
-                    disabled={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual')}
-                    aria-label={label}
-                  />
-                </div>
-              ))}
-            </div>
+            <QuickEditSection title="Statistik">
+              <div className="grid gap-2 md:grid-cols-2">
+                {([
+                  ['excludeFromHeatmap', 'Von Heatmap ausschließen'],
+                  ['excludeFromStats', 'Von Statistik ausschließen'],
+                ] as const).map(([key, label]) => (
+                  <ToggleRow key={key} label={label}>
+                    <Toggle
+                      checked={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual') ? true : draft[key]}
+                      onChange={checked => patchDraft({ [key]: checked })}
+                      size="sm"
+                      disabled={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual')}
+                      aria-label={label}
+                    />
+                  </ToggleRow>
+                ))}
+              </div>
+            </QuickEditSection>
 
             <div>
               <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
@@ -487,6 +537,17 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                       </div>
                     </ActivityContextRow>
                   )}
+                  <ActivityContextRow icon={<span className="translate-x-0.5 text-base leading-none text-neutral-400" aria-hidden>&#x25B6;</span>}>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span>{fmtTime(baseActivity.started_at, baseActivity.timezone)}</span>
+                      {baseActivity.ended_at && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="text-base leading-none text-neutral-400" aria-hidden>&#x25A0;</span>
+                          <span>{fmtTime(baseActivity.ended_at, baseActivity.timezone)}</span>
+                        </span>
+                      )}
+                    </div>
+                  </ActivityContextRow>
                 </div>
               )}
             </div>
@@ -537,6 +598,30 @@ function ActivityContextRow({ icon, children }: { icon: ReactNode; children: Rea
     <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
       <span className="flex h-4 w-4 items-center justify-center">{icon}</span>
       <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function QuickEditSection({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function ToggleRow({ label, description, children }: { label: string; description?: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-neutral-200 bg-white px-3 py-2 dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="min-w-0">
+        <div className="text-sm text-neutral-700 dark:text-neutral-300">{label}</div>
+        {description && <div className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{description}</div>}
+      </div>
+      {children}
     </div>
   )
 }

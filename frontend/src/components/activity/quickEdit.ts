@@ -1,4 +1,4 @@
-import type { Activity } from '@/api/types'
+import type { Activity, DataVisibility } from '@/api/types'
 import { editableActivityTitleSeed } from '@/lib/activityTitle'
 import { modifierFromTSField, modifierJSONKey, modifierLabel, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
 import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
@@ -15,6 +15,8 @@ export interface ActivityQuickEditDraft {
   excludeFromHeatmap: boolean
   excludeFromStats: boolean
   visibility: Activity['visibility']
+  hideMap: boolean
+  dataVisibility: DataVisibility
   workoutRpe: number | null
   workoutFeel: number | null
   tags: string[]
@@ -29,6 +31,10 @@ const COUPLED_TAGS = new Set(
 )
 
 const HEATMAP_LOCKING_MODIFIER: SportModifierKey = 'is_virtual'
+const DEFAULT_DATA_VISIBILITY: DataVisibility = {
+  heart_rate: true,
+  power: true,
+}
 
 export interface QuickEditTagCandidate {
   name: string
@@ -68,6 +74,8 @@ export function activityQuickEditDraftFromActivity(activity: Activity): Activity
     excludeFromHeatmap: activity.is_virtual || activity.exclude_from_heatmap,
     excludeFromStats: activity.exclude_from_stats,
     visibility: activity.visibility,
+    hideMap: activity.hide_map ?? false,
+    dataVisibility: dataVisibilityFromActivity(activity.data_visibility),
     workoutRpe: activity.workout_rpe ?? null,
     workoutFeel: activity.workout_feel ?? null,
     tags: uniqueTags(activity.tags ?? []),
@@ -105,6 +113,10 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   if (activity.exclude_from_heatmap !== effectiveExcludeFromHeatmap) patch.exclude_from_heatmap = effectiveExcludeFromHeatmap
   if (activity.exclude_from_stats !== draft.excludeFromStats) patch.exclude_from_stats = draft.excludeFromStats
   if (activity.visibility !== draft.visibility) patch.visibility = draft.visibility
+  if ((activity.hide_map ?? false) !== draft.hideMap) patch.hide_map = draft.hideMap
+  if (!sameDataVisibility(dataVisibilityFromActivity(activity.data_visibility), draft.dataVisibility)) {
+    patch.data_visibility = draft.dataVisibility
+  }
   if ((activity.workout_rpe ?? null) !== draft.workoutRpe) {
     if (draft.workoutRpe == null) patch.clear_workout_rpe = true
     else patch.workout_rpe = draft.workoutRpe
@@ -115,6 +127,10 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   }
 
   return patch
+}
+
+export function defaultDataVisibility(): DataVisibility {
+  return { ...DEFAULT_DATA_VISIBILITY }
 }
 
 export function diffQuickEditTags(currentTags: string[], draftTags: string[]): { add: string[]; remove: string[] } {
@@ -239,4 +255,15 @@ function quickEditModifiersFromActivity(activity: Activity): Partial<Record<Spor
     modifiers[modifierTSField(modifierKey)] = Boolean(activity[jsonKey])
   }
   return modifiers
+}
+
+function dataVisibilityFromActivity(value: DataVisibility | Record<string, unknown> | null | undefined): DataVisibility {
+  return {
+    heart_rate: value?.heart_rate !== false,
+    power: value?.power !== false,
+  }
+}
+
+function sameDataVisibility(a: DataVisibility, b: DataVisibility): boolean {
+  return a.heart_rate === b.heart_rate && a.power === b.power
 }
