@@ -202,6 +202,13 @@ func TestSegmentEffortCurrentReadsIgnoreSupersededRows(t *testing.T) {
 	if len(activityEfforts) != 1 {
 		t.Fatalf("activity efforts = %d, want 1", len(activityEfforts))
 	}
+	history, err := db.GetActivitySegmentEffortHistory(ctx, activityID, segmentID)
+	if err != nil {
+		t.Fatalf("GetActivitySegmentEffortHistory: %v", err)
+	}
+	if len(history) != 2 || history[0].SupersededAt == nil && history[1].SupersededAt == nil {
+		t.Fatalf("activity effort history = %#v, want active and superseded rows", history)
+	}
 	leaderboard, err := db.GetSegmentLeaderboard(ctx, segmentID, "cycling", nil, "", "")
 	if err != nil {
 		t.Fatalf("GetSegmentLeaderboard: %v", err)
@@ -294,6 +301,111 @@ func TestSegmentEffortCountsIncludeCompletedNonLeaderboardRows(t *testing.T) {
 	}
 }
 
+func TestSegmentLeaderboardAggregatesOnlyWithinEquivalenceGroup(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, v1ID, v2ID := insertLeaderboardTwoVersionFixture(t, db, userID)
+	v1GroupID := leaderboardGroupForVersion(t, db, v1ID)
+
+	activity1ID, started1 := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", false, time.Date(2025, 6, 1, 8, 0, 0, 0, time.UTC))
+	activity2ID, started2 := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", false, time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC))
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, v1ID, activity1ID, started1, 80, false)
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, v2ID, activity2ID, started2, 70, false)
+
+	if err := db.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+		t.Fatalf("UpdateSegmentEffortRanks: %v", err)
+	}
+
+	current, err := db.GetSegmentLeaderboard(ctx, segmentID, "cycling", nil, "", "")
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboard current: %v", err)
+	}
+	if len(current) != 1 || current[0].SegmentVersionID != v2ID || current[0].VersionNumber != 2 {
+		t.Fatalf("current leaderboard = %#v, want only version 2", current)
+	}
+
+	historical, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:                     segmentID,
+		SportType:                     "cycling",
+		Scope:                         "equivalence_group",
+		LeaderboardEquivalenceGroupID: v1GroupID,
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery historical: %v", err)
+	}
+	if len(historical) != 1 || historical[0].SegmentVersionID != v1ID || historical[0].VersionNumber != 1 {
+		t.Fatalf("historical leaderboard = %#v, want only version 1", historical)
+	}
+}
+
+func TestSegmentLeaderboardCanRequestSportOverallAcrossVersions(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, v1ID, v2ID := insertLeaderboardTwoVersionFixture(t, db, userID)
+
+	activity1ID, started1 := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", false, time.Date(2025, 7, 1, 8, 0, 0, 0, time.UTC))
+	activity2ID, started2 := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", false, time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC))
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, v1ID, activity1ID, started1, 80, false)
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, v2ID, activity2ID, started2, 70, false)
+
+	overall, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID: segmentID,
+		SportType: "cycling",
+		Scope:     "sport_overall",
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery sport_overall: %v", err)
+	}
+	if len(overall) != 2 {
+		t.Fatalf("sport overall rows = %d, want 2: %#v", len(overall), overall)
+	}
+	if overall[0].SegmentVersionID != v2ID || overall[0].RankOverall == nil || *overall[0].RankOverall != 1 {
+		t.Fatalf("sport overall first = %#v, want v2 rank 1", overall[0])
+	}
+	if overall[1].SegmentVersionID != v1ID || overall[1].VersionNumber != 1 || overall[1].LeaderboardEquivalenceGroupID == "" {
+		t.Fatalf("sport overall second = %#v, want v1 with group context", overall[1])
+	}
+}
+
+func TestSegmentLeaderboardElectricModeFiltersAndDerivesRanks(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+	if _, err := db.Pool.Exec(ctx, `UPDATE activities SET is_electric = false WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("mark base activity non-electric: %v", err)
+	}
+
+	electricActivityID, electricStarted := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", true, startedAt.Add(time.Hour))
+	secondElectricID, secondElectricStarted := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", true, startedAt.Add(2*time.Hour))
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, versionID, activityID, startedAt, 60, false)
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, versionID, electricActivityID, electricStarted, 50, true)
+	insertPreparedLeaderboardEffort(t, db, userID, segmentID, versionID, secondElectricID, secondElectricStarted, 70, true)
+
+	onlyElectric, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:    segmentID,
+		SportType:    "cycling",
+		ElectricMode: "only_electric",
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery only_electric: %v", err)
+	}
+	if len(onlyElectric) != 2 || !onlyElectric[0].IsElectric || onlyElectric[0].RankOverall == nil || *onlyElectric[0].RankOverall != 1 || onlyElectric[1].RankOverall == nil || *onlyElectric[1].RankOverall != 2 {
+		t.Fatalf("only electric leaderboard = %#v, want two electric rows ranked 1/2", onlyElectric)
+	}
+
+	excludeElectric, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:    segmentID,
+		SportType:    "cycling",
+		ElectricMode: "exclude_electric",
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery exclude_electric: %v", err)
+	}
+	if len(excludeElectric) != 1 || excludeElectric[0].IsElectric || excludeElectric[0].RankOverall == nil || *excludeElectric[0].RankOverall != 1 {
+		t.Fatalf("exclude electric leaderboard = %#v, want one non-electric row ranked 1", excludeElectric)
+	}
+}
+
 func insertMatchContractFixture(t *testing.T, db *DB, userID string) (activityID, segmentID, versionID string, startedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()
@@ -325,4 +437,81 @@ func insertMatchContractFixture(t *testing.T, db *DB, userID string) (activityID
 		t.Fatalf("insert version: %v", err)
 	}
 	return activityID, segmentID, versionID, startedAt
+}
+
+func insertLeaderboardTwoVersionFixture(t *testing.T, db *DB, userID string) (segmentID, v1ID, v2ID string) {
+	t.Helper()
+	ctx := context.Background()
+	segmentID = uuid.NewString()
+	v1ID = uuid.NewString()
+	v2ID = uuid.NewString()
+	boundary := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO segments (id, created_by, name, sport_group, segment_type)
+		 VALUES ($1, $2, $3, 'bike', 'standard')`,
+		segmentID, userID, "Leaderboard Version Segment "+segmentID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, valid_until_at, created_by)
+		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, $3, $4)`,
+		v1ID, segmentID, boundary, userID); err != nil {
+		t.Fatalf("insert v1: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, valid_from_at, created_by)
+		 VALUES ($1, $2, 2, ST_GeomFromText('LINESTRING(8 49, 8.02 49.02)', 4326), CURRENT_DATE, $3, $4)`,
+		v2ID, segmentID, boundary, userID); err != nil {
+		t.Fatalf("insert v2: %v", err)
+	}
+	return segmentID, v1ID, v2ID
+}
+
+func insertLeaderboardTestActivity(t *testing.T, db *DB, userID, sportType, subType string, isElectric bool, startedAt time.Time) (string, time.Time) {
+	t.Helper()
+	activityID := uuid.NewString()
+	if _, err := db.Pool.Exec(context.Background(),
+		`INSERT INTO activities (
+			id, user_id, sport_type, sub_type, is_electric, is_indoor, is_virtual,
+			title, started_at, moving_time_s, elapsed_time_s, file_hash, visibility, enrichment_status
+		)
+		 VALUES ($1, $2, $3, $4, $5, false, false,
+		         'Leaderboard Query Test', $6, 60, 60, $7, 'public', 'complete')`,
+		activityID, userID, sportType, subType, isElectric, startedAt, "leaderboard-query-"+activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	return activityID, startedAt
+}
+
+func insertPreparedLeaderboardEffort(t *testing.T, db *DB, userID, segmentID, versionID, activityID string, startedAt time.Time, elapsed int, isElectric bool) {
+	t.Helper()
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     elapsed,
+		SportType:        "cycling",
+		SubType:          "mountain",
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: isElectric})
+	if err := db.InsertSegmentEffort(context.Background(), effort); err != nil {
+		t.Fatalf("insert segment effort: %v", err)
+	}
+}
+
+func leaderboardGroupForVersion(t *testing.T, db *DB, versionID string) string {
+	t.Helper()
+	var groupID string
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT group_id
+		FROM segment_leaderboard_equivalence_group_versions
+		WHERE segment_version_id = $1
+		  AND leaderboard_surface = 'default'
+		  AND retired_at IS NULL
+	`, versionID).Scan(&groupID); err != nil {
+		t.Fatalf("load group for version: %v", err)
+	}
+	return groupID
 }

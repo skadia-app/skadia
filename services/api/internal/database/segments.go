@@ -1189,8 +1189,45 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 }
 
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
+	return db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:    segmentID,
+		SportType:    sportType,
+		IsReverse:    isReverse,
+		GearID:       gearID,
+		OnlyUserID:   onlyUserID,
+		Scope:        "current_version",
+		ElectricMode: "all",
+	})
+}
+
+func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.SegmentLeaderboardQuery) ([]model.SegmentEffort, error) {
+	scope := strings.TrimSpace(q.Scope)
+	if scope == "" {
+		scope = "current_version"
+	}
+	electricMode := strings.TrimSpace(q.ElectricMode)
+	if electricMode == "" {
+		electricMode = "all"
+	}
+	if electricMode != "all" && electricMode != "exclude_electric" && electricMode != "only_electric" {
+		return nil, fmt.Errorf("%w: invalid leaderboard electric mode", ErrSegmentValidation)
+	}
+	groupID := q.LeaderboardEquivalenceGroupID
+	if scope != "sport_overall" {
+		var err error
+		groupID, err = db.resolveSegmentLeaderboardGroup(ctx, q.SegmentID, scope, q.VersionID, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if groupID == "" {
+			return []model.SegmentEffort{}, nil
+		}
+	} else if strings.TrimSpace(q.SportType) == "" {
+		return nil, fmt.Errorf("%w: sport_overall leaderboard requires sport type", ErrSegmentValidation)
+	}
+
 	query := `
-		WITH ranked AS (
+		WITH matching AS (
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
 		       se.is_reverse, se.sport_type, se.sub_type,
@@ -1199,11 +1236,15 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       COALESCE(act.is_electric, false) AS is_electric,
 		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
-		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
+		       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
+		       se.leaderboard_sport_type,
+		       se.leaderboard_direction,
+		       sv.version_number,
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       u.display_name,
 		       g.name AS gear_name,
+		       act.visibility,
 		       ROW_NUMBER() OVER (
 		           PARTITION BY COALESCE(rg.id::text, act.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
 		           ORDER BY
@@ -1217,52 +1258,75 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
 		JOIN users u ON u.id = se.user_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		JOIN activities act ON act.id = se.activity_id
 		LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
 		LEFT JOIN recording_groups rg ON rg.id = rgm.group_id`
 
-	args := []any{segmentID}
+	args := []any{q.SegmentID}
 	argIdx := 2
 
-	if onlyUserID != "" {
-		// "Nur ich": show canonical own efforts including from private activities.
-		query += `
+	query += `
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true
-		  AND se.superseded_at IS NULL
-		  AND se.user_id = $` + fmt.Sprint(argIdx)
-		args = append(args, onlyUserID)
-		argIdx++
-	} else {
-		// "Alle": exclude private activity efforts.
-		query += `
-		WHERE se.segment_id = $1 AND se.in_leaderboard = true
-		  AND act.visibility = 'public'
 		  AND se.superseded_at IS NULL`
+
+	if scope != "sport_overall" {
+		query += fmt.Sprintf(" AND se.leaderboard_equivalence_group_id = $%d", argIdx)
+		args = append(args, groupID)
+		argIdx++
 	}
 
-	if sportType != "" {
+	if q.SportType != "" {
 		query += fmt.Sprintf(" AND se.leaderboard_sport_type = $%d", argIdx)
-		args = append(args, sportType)
+		args = append(args, q.SportType)
 		argIdx++
 	}
-	if isReverse != nil {
+	if q.IsReverse != nil {
 		query += fmt.Sprintf(" AND se.leaderboard_direction = $%d", argIdx)
-		if *isReverse {
+		if *q.IsReverse {
 			args = append(args, "reverse")
 		} else {
 			args = append(args, "forward")
 		}
 		argIdx++
 	}
-	if gearID != "" {
+	if q.GearID != "" {
 		query += fmt.Sprintf(" AND se.gear_id = $%d", argIdx)
-		args = append(args, gearID)
+		args = append(args, q.GearID)
 		argIdx++
+	}
+	switch electricMode {
+	case "exclude_electric":
+		query += " AND COALESCE(act.is_electric, false) = false"
+	case "only_electric":
+		query += " AND COALESCE(act.is_electric, false) = true"
 	}
 
 	query += `
+		),
+		global_ranked AS (
+			SELECT id, started_at,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction
+			           ORDER BY elapsed_time_s ASC
+			       ) AS rank_overall,
+			       (ROW_NUMBER() OVER (
+			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction
+			           ORDER BY elapsed_time_s ASC
+			       ) = 1) AS is_segment_record
+			FROM matching
+			WHERE canonical_rank = 1 AND visibility = 'public'
+		),
+		personal_ranked AS (
+			SELECT id, started_at,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction, user_id
+			           ORDER BY elapsed_time_s ASC
+			       ) AS personal_rank
+			FROM matching
+			WHERE canonical_rank = 1
 		)
 		SELECT id, segment_id, segment_version_id, activity_id,
 		       user_id, started_at, elapsed_time_s,
@@ -1270,13 +1334,29 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       is_indoor, is_virtual, is_electric,
 		       gear_id,
 		       avg_power_w, avg_heart_rate, avg_speed_ms,
-		       rank_overall, is_personal_best, personal_rank, is_segment_record,
+		       gr.rank_overall, COALESCE(pr.personal_rank = 1, false),
+		       CASE WHEN pr.personal_rank <= 3 THEN pr.personal_rank::smallint ELSE NULL END,
+		       COALESCE(gr.is_segment_record, false),
 		       in_leaderboard, created_at,
 		       segment_name,
 		       display_name,
-		       gear_name
-		FROM ranked
-		WHERE canonical_rank = 1
+		       gear_name,
+		       version_number,
+		       leaderboard_equivalence_group_id
+		FROM matching
+		LEFT JOIN global_ranked gr USING (id, started_at)
+		LEFT JOIN personal_ranked pr USING (id, started_at)
+		WHERE canonical_rank = 1`
+
+	if q.OnlyUserID != "" {
+		query += fmt.Sprintf(" AND user_id = $%d", argIdx)
+		args = append(args, q.OnlyUserID)
+		argIdx++
+	} else {
+		query += " AND visibility = 'public'"
+	}
+
+	query += `
 		ORDER BY elapsed_time_s ASC
 		LIMIT 100`
 
@@ -1299,6 +1379,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
+			&e.VersionNumber, &e.LeaderboardEquivalenceGroupID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan effort: %w", err)
@@ -1312,6 +1393,80 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		efforts = []model.SegmentEffort{}
 	}
 	return efforts, nil
+}
+
+func (db *DB) resolveSegmentLeaderboardGroup(ctx context.Context, segmentID, scope, versionID, groupID string) (string, error) {
+	switch scope {
+	case "current_version":
+		err := db.Pool.QueryRow(ctx, `
+			WITH active_version AS (
+				SELECT id
+				FROM segment_versions
+				WHERE segment_id = $1
+				  AND matching_contract_key = 'course_gps_v1'
+				  AND matching_contract_version = 1
+				  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+				  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+				ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+				         version_number DESC
+				LIMIT 1
+			)
+			SELECT gv.group_id
+			FROM segment_leaderboard_equivalence_group_versions gv
+			JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+			WHERE gv.segment_version_id = (SELECT id FROM active_version)
+			  AND gv.leaderboard_surface = 'default'
+			  AND gv.retired_at IS NULL
+			  AND g.segment_id = $1
+		`, segmentID).Scan(&groupID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve current leaderboard group: %w", err)
+		}
+		return groupID, nil
+	case "version":
+		if versionID == "" {
+			return "", fmt.Errorf("%w: version leaderboard scope requires version id", ErrSegmentValidation)
+		}
+		err := db.Pool.QueryRow(ctx, `
+			SELECT gv.group_id
+			FROM segment_leaderboard_equivalence_group_versions gv
+			JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+			WHERE gv.segment_version_id = $2
+			  AND gv.leaderboard_surface = 'default'
+			  AND gv.retired_at IS NULL
+			  AND g.segment_id = $1
+		`, segmentID, versionID).Scan(&groupID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve version leaderboard group: %w", err)
+		}
+		return groupID, nil
+	case "equivalence_group":
+		if groupID == "" {
+			return "", fmt.Errorf("%w: equivalence_group leaderboard scope requires group id", ErrSegmentValidation)
+		}
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM segment_leaderboard_equivalence_groups
+				WHERE id = $2 AND segment_id = $1
+			)
+		`, segmentID, groupID).Scan(&exists); err != nil {
+			return "", fmt.Errorf("verify leaderboard group: %w", err)
+		}
+		if !exists {
+			return "", ErrSegmentNotFound
+		}
+		return groupID, nil
+	default:
+		return "", fmt.Errorf("%w: invalid leaderboard scope", ErrSegmentValidation)
+	}
 }
 
 func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) ([]model.SegmentEffort, error) {
@@ -1384,6 +1539,67 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get activity segment efforts: %w", err)
+	}
+	if efforts == nil {
+		efforts = []model.SegmentEffort{}
+	}
+	return efforts, nil
+}
+
+func (db *DB) GetActivitySegmentEffortHistory(ctx context.Context, activityID, segmentID string) ([]model.SegmentEffort, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT se.id, se.segment_id, se.segment_version_id, sv.version_number, se.activity_id,
+		       se.user_id, se.started_at, se.elapsed_time_s,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(a.is_indoor, false) AS is_indoor,
+		       COALESCE(a.is_virtual, false) AS is_virtual,
+		       COALESCE(a.is_electric, false) AS is_electric,
+		       se.gear_id,
+		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
+		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
+		       se.in_leaderboard, se.created_at,
+		       se.superseded_by_effort_id, se.superseded_at, se.superseded_reason,
+		       se.superseded_by_recalculation_run_id, se.created_by_recalculation_run_id,
+		       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
+		       s.name AS segment_name,
+		       NULL::text AS display_name,
+		       g.name AS gear_name
+		FROM segment_efforts se
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
+		JOIN segments s ON s.id = se.segment_id
+		JOIN activities a ON a.id = se.activity_id
+		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
+		WHERE se.activity_id = $1
+		  AND se.segment_id = $2
+		ORDER BY se.started_at ASC, se.created_at ASC, se.id ASC`, activityID, segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("get activity segment effort history: %w", err)
+	}
+	defer rows.Close()
+
+	var efforts []model.SegmentEffort
+	for rows.Next() {
+		var e model.SegmentEffort
+		if err := rows.Scan(
+			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.VersionNumber, &e.ActivityID,
+			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
+			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
+			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
+			&e.InLeaderboard, &e.CreatedAt,
+			&e.SupersededByEffortID, &e.SupersededAt, &e.SupersededReason,
+			&e.SupersededByRecalculationRunID, &e.CreatedByRecalculationRunID,
+			&e.LeaderboardEquivalenceGroupID,
+			&e.SegmentName, &e.DisplayName, &e.GearName,
+		); err != nil {
+			return nil, fmt.Errorf("scan segment effort history: %w", err)
+		}
+		efforts = append(efforts, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get activity segment effort history: %w", err)
 	}
 	if efforts == nil {
 		efforts = []model.SegmentEffort{}

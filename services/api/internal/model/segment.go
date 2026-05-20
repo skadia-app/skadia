@@ -121,6 +121,7 @@ type SegmentEffort struct {
 	ID                             string     `json:"id"`
 	SegmentID                      string     `json:"segment_id"`
 	SegmentVersionID               string     `json:"segment_version_id"`
+	VersionNumber                  int        `json:"version_number,omitempty"`
 	ActivityID                     string     `json:"activity_id"`
 	UserID                         string     `json:"user_id"`
 	StartedAt                      time.Time  `json:"started_at"`
@@ -177,6 +178,18 @@ type SegmentEffort struct {
 	DisplayName     *string          `json:"display_name,omitempty"`
 	GearName        *string          `json:"gear_name,omitempty"`
 	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
+}
+
+type SegmentLeaderboardQuery struct {
+	SegmentID                     string
+	SportType                     string
+	IsReverse                     *bool
+	GearID                        string
+	OnlyUserID                    string
+	Scope                         string
+	ElectricMode                  string
+	VersionID                     string
+	LeaderboardEquivalenceGroupID string
 }
 
 // SegmentPerformance represents a single effort on a segment with associated activity metadata.
