@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -167,6 +168,9 @@ func (db *DB) RebuildAllCourseEligibilityProjections(ctx context.Context) error 
 		return fmt.Errorf("begin full course eligibility projection rebuild: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('skadia_course_eligibility_projection_rebuild'))`); err != nil {
+		return fmt.Errorf("lock full course eligibility projection rebuild: %w", err)
+	}
 	if err := rebuildActivityTraitProjectionTx(ctx, tx); err != nil {
 		return err
 	}
@@ -198,31 +202,111 @@ func (db *DB) RebuildAllCourseEligibilityProjections(ctx context.Context) error 
 	return nil
 }
 
+func (db *DB) BackfillAndVerifyCourseEligibilityProjections(ctx context.Context) error {
+	if err := db.RebuildAllCourseEligibilityProjections(ctx); err != nil {
+		return err
+	}
+	if err := db.VerifyCourseEligibilityProjectionCoverage(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) error {
-	var missing int
-	if err := db.Pool.QueryRow(ctx, `
-		SELECT count(*)
+	for _, bucket := range sport.ActivityTraitBuckets() {
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM activity_trait_projection
+				WHERE activity_trait_bucket_key = $1
+			)
+		`, bucket.Key).Scan(&exists); err != nil {
+			return fmt.Errorf("verify activity trait projection coverage: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("activity trait projection missing generated bucket %s", bucket.Key)
+		}
+	}
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT s.id, sv.id, s.segment_type, s.sport_group, s.allowed_predicates,
+		       s.bidirectional, s.visibility, s.elevation_kind
 		FROM segments s
 		JOIN segment_versions sv ON sv.segment_id = s.id
-		 AND sv.matching_contract_key = 'course_gps_v1'
-		 AND sv.matching_contract_version = 1
-		WHERE (
-			(s.allowed_predicates IS NULL AND s.segment_type NOT IN ('wintersport', 'wassersport'))
-			OR jsonb_array_length(s.allowed_predicates) > 0
+		WHERE sv.matching_contract_key = 'course_gps_v1'
+		  AND sv.matching_contract_version = 1
+		ORDER BY s.id, sv.version_number, sv.id
+	`)
+	if err != nil {
+		return fmt.Errorf("verify course eligibility projection coverage: %w", err)
+	}
+	defer rows.Close()
+
+	missing := 0
+	missingSamples := []string{}
+	for rows.Next() {
+		var (
+			segmentID        string
+			versionID        string
+			segmentType      string
+			sportGroup       string
+			rawPredicates    []byte
+			bidirectional    bool
+			visibility       string
+			elevationKind    string
+			projectionExists bool
 		)
-		AND NOT EXISTS (
-			SELECT 1
-			FROM target_course_eligibility_projection cep
-			WHERE cep.target_kind = 'segment'
-			  AND cep.target_id = s.id
-			  AND cep.target_version_id = sv.id
-			  AND cep.match_allowed = true
-		)
-	`).Scan(&missing); err != nil {
+		if err := rows.Scan(&segmentID, &versionID, &segmentType, &sportGroup, &rawPredicates,
+			&bidirectional, &visibility, &elevationKind); err != nil {
+			return fmt.Errorf("scan course eligibility coverage row: %w", err)
+		}
+		allowedPredicates, err := decodeSegmentPredicates(rawPredicates)
+		if err != nil {
+			return fmt.Errorf("decode course eligibility coverage predicates: %w", err)
+		}
+		expected := sport.CourseEligibilityRowsForSegment(sport.CourseEligibilityInput{
+			TargetKind:           "segment",
+			TargetID:             segmentID,
+			TargetVersionID:      versionID,
+			SegmentType:          segmentType,
+			SportGroup:           sportGroup,
+			AllowedPredicates:    allowedPredicates,
+			AllowedPredicatesSet: rawPredicates != nil,
+			Bidirectional:        bidirectional,
+			Visibility:           visibility,
+			ElevationKind:        elevationKind,
+			AdapterKey:           courseEligibilityAdapterKey,
+			AdapterVersion:       courseEligibilityAdapterVersion,
+		})
+		if len(expected) == 0 {
+			continue
+		}
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM target_course_eligibility_projection
+				WHERE target_kind = 'segment'
+				  AND target_id = $1
+				  AND target_version_id = $2
+				  AND match_allowed = true
+			)
+		`, segmentID, versionID).Scan(&projectionExists); err != nil {
+			return fmt.Errorf("verify course eligibility projection row coverage: %w", err)
+		}
+		if projectionExists {
+			continue
+		}
+		missing++
+		if len(missingSamples) < 5 {
+			missingSamples = append(missingSamples, fmt.Sprintf("%s/%s", segmentID, versionID))
+		}
+	}
+	if err := rows.Err(); err != nil {
 		return fmt.Errorf("verify course eligibility projection coverage: %w", err)
 	}
 	if missing > 0 {
-		return fmt.Errorf("course eligibility projection missing %d matchable segment version(s)", missing)
+		return fmt.Errorf("course eligibility projection missing %d matchable segment version(s), samples=%s", missing, strings.Join(missingSamples, ","))
 	}
 	return nil
 }
