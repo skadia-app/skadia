@@ -2868,7 +2868,8 @@ export default function MapPage() {
                 onClose={handlePlannerClose}
                 calculationError={planner.calculationError}
                 onClearError={planner.clearError}
-                editingRoute={null}
+                editingRouteId={planner.editingRouteId}
+                editingRouteVersion={planner.editingRouteVersion}
                 isSaving={planner.profile.status === 'ready' && planner.profile.isSaving}
                 lazyFillPendingSave={planner.lazyFillPendingSave}
               />

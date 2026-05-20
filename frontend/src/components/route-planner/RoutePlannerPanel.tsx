@@ -1,6 +1,13 @@
 import { memo, useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
+import {
+  createRouteSnapshot,
+  publishRouteCourse,
+  type PublishRouteCourseResponse,
+  type RoutePublicationVisibility,
+  type RoutePublishPolicy,
+} from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
 import type { ProfileConfig } from '@/lib/routingProfiles'
@@ -269,6 +276,8 @@ export interface RoutePlannerPanelProps {
   onClearError?: () => void
   // Optional: existing route being edited
   editingRoute?: PlannedRoute | null
+  editingRouteId?: string | null
+  editingRouteVersion?: number | null
   isSaving?: boolean
   lazyFillPendingSave?: boolean
 }
@@ -301,6 +310,8 @@ export default function RoutePlannerPanel({
   calculationError,
   onClearError,
   editingRoute,
+  editingRouteId = editingRoute?.id ?? null,
+  editingRouteVersion = editingRoute?.version ?? null,
   isSaving = false,
   lazyFillPendingSave = false,
 }: RoutePlannerPanelProps) {
@@ -314,6 +325,9 @@ export default function RoutePlannerPanel({
   // ── Profile management state ───────────────────────────────────────────
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveProfileName, setSaveProfileName] = useState('')
+  const [publishVisibility, setPublishVisibility] = useState<RoutePublicationVisibility>('private')
+  const [publishPolicy, setPublishPolicy] = useState<RoutePublishPolicy>('new_course')
+  const [compatibilityPreset, setCompatibilityPreset] = useState('standard')
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
   // Fetch all profiles from the API
@@ -355,6 +369,31 @@ export default function RoutePlannerPanel({
     },
     onError: (err: Error) => {
       addToast({ type: 'error', title: 'Profil löschen fehlgeschlagen', message: err.message, duration: 0 })
+    },
+  })
+
+  const publishMutation = useMutation<PublishRouteCourseResponse, Error>({
+    mutationFn: async () => {
+      if (!editingRouteId || !editingRouteVersion) {
+        throw new Error('route must be saved before publication')
+      }
+      const operationBase = crypto.randomUUID()
+      const snapshot = await createRouteSnapshot(editingRouteId, `${operationBase}:snapshot`, editingRouteVersion)
+      return publishRouteCourse(editingRouteId, {
+        route_snapshot_id: snapshot.snapshot_id,
+        source_route_version: snapshot.source_route_version,
+        publish_policy: publishPolicy,
+        equivalence_decision: publishPolicy === 'new_course' ? 'new_group' : 'version_specific',
+        visibility: publishVisibility,
+        compatibility_preset: compatibilityPreset,
+        operation_id: `${operationBase}:publish`,
+      })
+    },
+    onSuccess: () => {
+      addToast({ type: 'success', title: 'Route als Kurs veröffentlicht' })
+    },
+    onError: (err: Error) => {
+      addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', message: err.message, duration: 0 })
     },
   })
 
@@ -912,6 +951,45 @@ export default function RoutePlannerPanel({
                   </svg>
                   Route vorschlagen
                 </button>
+              )}
+
+              {editingRouteId && (
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/60 p-2 space-y-2">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <select
+                      value={publishVisibility}
+                      onChange={e => setPublishVisibility(e.target.value as RoutePublicationVisibility)}
+                      className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      <option value="private">Privat</option>
+                      <option value="public">Öffentlich</option>
+                    </select>
+                    <select
+                      value={compatibilityPreset}
+                      onChange={e => setCompatibilityPreset(e.target.value)}
+                      className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      <option value="standard">Standard</option>
+                      <option value="trail">Trail</option>
+                      <option value="lap">Runde</option>
+                    </select>
+                    <select
+                      value={publishPolicy}
+                      onChange={e => setPublishPolicy(e.target.value as RoutePublishPolicy)}
+                      className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                    >
+                      <option value="new_course">Neu</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => publishMutation.mutate()}
+                    disabled={!hasRoute || !editingRouteVersion || publishMutation.isPending}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-200 hover:bg-white dark:hover:bg-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    {publishMutation.isPending ? 'Veröffentliche...' : 'Als Kurs veröffentlichen'}
+                  </button>
+                </div>
               )}
 
               {/* Save / Clear row */}

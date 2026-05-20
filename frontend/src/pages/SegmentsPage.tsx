@@ -14,7 +14,7 @@ import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
-import { Lock, Trash2, FilterX, ChevronDown, ChevronUp } from 'lucide-react'
+import { Lock, Trash2, FilterX, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { SAC_SCALE_OPTIONS, MTB_SCALE_OPTIONS, SURFACE_DROPDOWN_OPTIONS } from '@/components/segment-editor/constants'
 import { Pill } from '@/components/ui/Pill'
 
@@ -57,10 +57,11 @@ const DEFAULT_SEGMENT_TYPES = ['standard', 'trail', 'wintersport', 'wassersport'
 
 // Canonical list of visibility-filter values. Used both for iteration in the
 // checkbox render and the Set-based toggle handler — single source of truth.
-const VISIBILITY_ALL = ['public', 'private'] as const
+const VISIBILITY_ALL = ['public', 'private', 'shared'] as const
 const VISIBILITY_LABELS: Record<(typeof VISIBILITY_ALL)[number], string> = {
   public: 'Öffentlich',
   private: 'Privat',
+  shared: 'Geteilt',
 }
 
 export function shouldFetchNextSegmentPage({
@@ -650,7 +651,7 @@ export default function SegmentsPage() {
                           if (next.size === 0) return
                           // Both selected == default state → clear filter param (B1: canonical URL #8)
                           if (next.size === VISIBILITY_ALL.length) setFilter('visibility', null)
-                          // Deterministic order: public before private
+                          // Deterministic order: public before private/shared
                           else setFilter('visibility', VISIBILITY_ALL.filter(k => next.has(k)))
                         }}
                         className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
@@ -790,6 +791,7 @@ export default function SegmentsPage() {
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor"><path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} /></svg>
                   <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">{segment.name}</h3>
                   {segment.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
+                  {segment.visibility === 'shared' && <Users className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
                   {['trail', 'wintersport'].includes(segment.segment_type) && (
                     <DifficultyBadge
                       sac={segment.segment_type_meta?.sac_scale as string}
