@@ -872,10 +872,15 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $2)`,
 				activityID, userID)
 			n++
-			// Remove lift segment_efforts so ghost lift counts cannot accumulate across
-			// reprocess runs (candidates were just wiped above; efforts must go too).
-			geoBatch.Queue(`DELETE FROM segment_efforts
+			// Retire active lift segment_efforts so ghost lift counts cannot
+			// accumulate across reprocess runs while historical effort rows remain
+			// auditable.
+			geoBatch.Queue(`UPDATE segment_efforts
+				SET superseded_at = NOW(),
+				    superseded_reason = 'admin_correction',
+				    superseded_by_effort_id = NULL
 				WHERE activity_id = $1
+				AND superseded_at IS NULL
 				AND segment_id IN (SELECT id FROM segments WHERE segment_type = 'lift')
 				AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $2)`,
 				activityID, userID)
@@ -1042,13 +1047,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 	// 8c. Segment-Efforts + Detected Laps recompute (only when segments scope is selected).
 	if data.HasGPS && doSegments {
-		// Collect affected segment IDs before deletion (for rank updates).
+		// Collect affected segment IDs before matching; activity matching
+		// supersedes existing active efforts instead of deleting history.
 		affectedSegIDs, _ := h.DB.GetAffectedSegmentIDs(ctx, activityID)
 
-		// Delete existing efforts and detected laps.
-		if err := h.DB.DeleteSegmentEffortsByActivity(ctx, activityID); err != nil {
-			slog.Error("reprocess: delete segment efforts failed", "id", activityID, "error", err)
-		}
+		// Detected laps are not versioned yet, so they still use replace semantics.
 		if err := h.DB.DeleteDetectedLaps(ctx, activityID); err != nil {
 			slog.Error("reprocess: delete detected laps failed", "id", activityID, "error", err)
 		}

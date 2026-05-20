@@ -602,6 +602,24 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 	if strings.TrimSpace(reason) == "" {
 		reason = "segment version changed"
 	}
+	var existingRunID string
+	var existingTotal int
+	err := tx.QueryRow(ctx, `
+		SELECT id, total_activities
+		FROM segment_recalculation_runs
+		WHERE idempotency_key = $1
+	`, idempotencyKey).Scan(&existingRunID, &existingTotal)
+	if err == nil {
+		return &existingRunID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("lookup existing segment recalculation run: %w", err)
+	}
+
+	var ownerUserID string
+	if err := tx.QueryRow(ctx, `SELECT created_by FROM segments WHERE id = $1`, segmentID).Scan(&ownerUserID); err != nil {
+		return nil, fmt.Errorf("load segment owner for recalculation: %w", err)
+	}
 	var generation int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO segment_recalculation_segment_state (segment_id, generation)
@@ -614,6 +632,17 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 		return nil, fmt.Errorf("advance segment recalculation generation: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		UPDATE segment_recalculation_runs
+		SET status = 'obsolete',
+		    completed_at = NOW()
+		WHERE segment_id = $1
+		  AND status IN ('queued', 'running')
+		  AND ($2::timestamptz IS NULL OR requested_until_at IS NULL OR requested_until_at > $2)
+		  AND ($3::timestamptz IS NULL OR requested_from_at IS NULL OR requested_from_at < $3)
+	`, segmentID, fromAt, untilAt); err != nil {
+		return nil, fmt.Errorf("obsolete overlapping segment recalculation runs: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO segment_recalculation_runs (
 			id, segment_id, actor_user_id, operation_key_hash, idempotency_key,
 			generation, reason, requested_from_at, requested_until_at, metadata
@@ -623,16 +652,7 @@ func createSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, segmentID, 
 	`, runID, segmentID, actorUserID, stableOperationHash(operationID, "operation"), idempotencyKey, generation, reason, fromAt, untilAt); err != nil {
 		return nil, fmt.Errorf("insert segment recalculation run: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO segment_recalculation_run_activities (run_id, activity_id, user_id)
-		SELECT $1, a.id, a.user_id
-		FROM activities a
-		JOIN segments s ON s.id = $2
-		WHERE a.user_id = s.created_by
-		  AND ($3::timestamptz IS NULL OR a.started_at >= $3)
-		  AND ($4::timestamptz IS NULL OR a.started_at < $4)
-		ON CONFLICT (run_id, activity_id) DO NOTHING
-	`, runID, segmentID, fromAt, untilAt); err != nil {
+	if _, err := tx.Exec(ctx, seedSegmentRecalculationActivitiesSQL, runID, segmentID, fromAt, untilAt, false, ownerUserID); err != nil {
 		return nil, fmt.Errorf("seed segment recalculation activities: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `

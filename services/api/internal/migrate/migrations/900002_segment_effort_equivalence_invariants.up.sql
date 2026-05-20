@@ -123,6 +123,11 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    IF NEW.superseded_by_effort_id IS NOT NULL AND NEW.superseded_at IS NULL THEN
+        NEW.superseded_at := COALESCE(NEW.created_at, NOW());
+        NEW.superseded_reason := COALESCE(NEW.superseded_reason, 'legacy_duplicate');
+    END IF;
+
     IF NEW.superseded_at IS NOT NULL THEN
         RETURN NEW;
     END IF;

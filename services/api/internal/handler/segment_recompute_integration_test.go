@@ -259,6 +259,7 @@ func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
 		SELECT COUNT(*)
 		FROM segment_efforts
 		WHERE segment_id = $1 AND activity_id = $2
+		  AND superseded_at IS NULL
 	`, segID, actID).Scan(&count); err != nil {
 		t.Fatalf("count efforts: %v", err)
 	}
@@ -394,7 +395,7 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 		t.Helper()
 		var count int
 		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+			`SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2 AND superseded_at IS NULL`,
 			segID, actID,
 		).Scan(&count); err != nil {
 			t.Fatalf("count segment_efforts: %v", err)
@@ -405,10 +406,10 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 	}
 	assertEffortCount(1)
 
-	// Inject a TxFactory that fails on the DELETE inside the tx.
+	// Inject a TxFactory that fails while retiring old active rows inside the tx.
 	// This simulates any mid-transaction failure that would previously leave
 	// the (segment_id, activity_id) pair with zero efforts.
-	injectedErr := fmt.Errorf("injected: DELETE failure for R2-10 rollback test")
+	injectedErr := fmt.Errorf("injected: supersede failure for R2-10 rollback test")
 	h := &Handler{
 		DB: db,
 		TxFactory: func(txCtx context.Context) (pgx.Tx, error) {
@@ -418,7 +419,7 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 			}
 			return &mockTx{
 				Tx:          realTx,
-				shouldFail:  sqlContains("delete from segment_efforts"),
+				shouldFail:  sqlContains("update segment_efforts"),
 				injectedErr: injectedErr,
 			}, nil
 		},
@@ -430,6 +431,6 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 		t.Fatal("expected error from recomputeSegmentEffortsForActivity, got nil")
 	}
 
-	// The pre-seeded effort must still be present — the DELETE was rolled back.
+	// The pre-seeded effort must still be active — superseding was rolled back.
 	assertEffortCount(1)
 }
