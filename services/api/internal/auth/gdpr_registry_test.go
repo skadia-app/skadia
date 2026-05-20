@@ -545,18 +545,21 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		"health_training_load":      true,
 		"health_readiness_scores":   true,
 		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
-		"user_daily_features":                  true,
-		"llm_user_config":                      true, // no FK at all
-		"segment_efforts":                      true, // user_id NO ACTION
-		"segment_versions":                     true, // created_by NO ACTION
-		"segments":                             true, // created_by NO ACTION
-		"target_course_eligibility_projection": true, // derived segment projection; explicit delete before segment purge
-		"segments_legacy_sub_type_hints":       true, // segment_id handoff table; explicit delete before segment purge
-		"route_photos":                         true, // user_id NO ACTION
-		"planned_routes":                       true, // user_id NO ACTION
-		"heatmap_trail_matches":                true, // user_id NO ACTION
-		"terra_incognita_cache":                true, // user_id TEXT, no FK
-		"background_jobs":                      true, // user_id TEXT, no FK; gdpr_purge row kept as audit
+		"user_daily_features":                    true,
+		"llm_user_config":                        true, // no FK at all
+		"segment_efforts":                        true, // user_id NO ACTION
+		"segment_versions":                       true, // created_by NO ACTION
+		"segments":                               true, // created_by NO ACTION
+		"segment_leaderboard_equivalence_groups": true, // segment-owned rows cascade through explicit segment purge; created_by SET NULL otherwise
+		"segment_leaderboard_equivalence_group_versions": true, // cascades through segment/version/equivalence purge
+		"segment_version_revisions":                      true, // segment-owned rows cascade through explicit segment purge; actor_user_id SET NULL otherwise
+		"target_course_eligibility_projection":           true, // derived segment projection; explicit delete before segment purge
+		"segments_legacy_sub_type_hints":                 true, // segment_id handoff table; explicit delete before segment purge
+		"route_photos":                                   true, // user_id NO ACTION
+		"planned_routes":                                 true, // user_id NO ACTION
+		"heatmap_trail_matches":                          true, // user_id NO ACTION
+		"terra_incognita_cache":                          true, // user_id TEXT, no FK
+		"background_jobs":                                true, // user_id TEXT, no FK; gdpr_purge row kept as audit
 		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
 		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
 		"auth_audit_log": true,
@@ -574,6 +577,11 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		// email_templates: System-wide admin config. updated_by is nulled by the FK
 		// so the instance template remains while the deleted user's identifier is removed.
 		"email_templates": true,
+		// Segment recalculation rows are segment-owned operational state:
+		// own-segment rows cascade through explicit segment purge; actor
+		// references on other segments are nulled by ON DELETE SET NULL.
+		"segment_recalculation_runs":          true,
+		"segment_recalculation_segment_state": true,
 	}
 
 	// Query: which tables are reachable via ON DELETE CASCADE from users?

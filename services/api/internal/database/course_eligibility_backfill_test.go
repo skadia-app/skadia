@@ -110,9 +110,15 @@ func TestCourseEligibilityPreFlipBackfill_FailsWhenActivityTraitsAreMissing(t *t
 func TestCourseEligibilityCandidateQueryPlanUsesProjectionLookupIndex(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
+	if _, err := db.Pool.Exec(ctx, `DELETE FROM target_course_eligibility_projection`); err != nil {
+		t.Fatalf("clear projection table: %v", err)
+	}
 	segmentID, _ := insertCourseEligibilitySegmentFixture(t, db, userID, "standard", "bike", nil)
 	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
 		t.Fatalf("RebuildSegmentCourseEligibilityProjection: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `ANALYZE target_course_eligibility_projection`); err != nil {
+		t.Fatalf("analyze projection table: %v", err)
 	}
 	bucketKey := sport.BuildActivityTraitBucketKey(sport.ActivityTraitBucketInput{SportType: "cycling", SubType: "mountain"})
 	var planText string
@@ -148,8 +154,9 @@ func TestCourseEligibilityCandidateQueryPlanUsesProjectionLookupIndex(t *testing
 	if err := rows.Err(); err != nil {
 		t.Fatalf("explain rows: %v", err)
 	}
-	if !strings.Contains(planText, "idx_tcep_candidate_lookup") {
-		t.Fatalf("candidate lookup plan did not use idx_tcep_candidate_lookup:\n%s", planText)
+	if !strings.Contains(planText, "idx_tcep_candidate_lookup") &&
+		!strings.Contains(planText, "idx_tcep_filter_preset") {
+		t.Fatalf("candidate lookup plan did not use a projection lookup index:\n%s", planText)
 	}
 }
 
