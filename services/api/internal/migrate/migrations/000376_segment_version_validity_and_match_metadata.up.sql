@@ -9,7 +9,14 @@ ALTER TABLE segment_versions
     ADD COLUMN IF NOT EXISTS valid_from_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS valid_until_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS validity_basis TEXT NOT NULL DEFAULT 'unknown_start',
-    ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS eligibility_segment_type TEXT NOT NULL DEFAULT 'standard',
+    ADD COLUMN IF NOT EXISTS eligibility_sport_group TEXT NOT NULL DEFAULT 'generic',
+    ADD COLUMN IF NOT EXISTS eligibility_allowed_predicates JSONB,
+    ADD COLUMN IF NOT EXISTS eligibility_allowed_predicates_set BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS eligibility_bidirectional BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS eligibility_visibility TEXT NOT NULL DEFAULT 'public',
+    ADD COLUMN IF NOT EXISTS eligibility_elevation_kind TEXT NOT NULL DEFAULT 'flat';
 
 ALTER TABLE segment_efforts
     ADD COLUMN IF NOT EXISTS matching_contract_key TEXT NOT NULL DEFAULT 'course_gps_v1',
@@ -130,6 +137,26 @@ CREATE TRIGGER trg_segments_normalize_elevation_kind
 
 ALTER TABLE segments
     ALTER COLUMN elevation_kind SET NOT NULL;
+
+UPDATE segment_versions sv
+SET eligibility_segment_type = s.segment_type,
+    eligibility_sport_group = s.sport_group,
+    eligibility_allowed_predicates = s.allowed_predicates,
+    eligibility_allowed_predicates_set = (s.allowed_predicates IS NOT NULL),
+    eligibility_bidirectional = s.bidirectional,
+    eligibility_visibility = COALESCE(s.visibility, 'public'),
+    eligibility_elevation_kind = s.elevation_kind
+FROM segments s
+WHERE s.id = sv.segment_id
+  AND (
+      sv.eligibility_segment_type IS DISTINCT FROM s.segment_type
+      OR sv.eligibility_sport_group IS DISTINCT FROM s.sport_group
+      OR sv.eligibility_allowed_predicates IS DISTINCT FROM s.allowed_predicates
+      OR sv.eligibility_allowed_predicates_set IS DISTINCT FROM (s.allowed_predicates IS NOT NULL)
+      OR sv.eligibility_bidirectional IS DISTINCT FROM s.bidirectional
+      OR sv.eligibility_visibility IS DISTINCT FROM COALESCE(s.visibility, 'public')
+      OR sv.eligibility_elevation_kind IS DISTINCT FROM s.elevation_kind
+  );
 
 CREATE INDEX IF NOT EXISTS idx_segments_elevation_kind
     ON segments (elevation_kind);
@@ -390,10 +417,70 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     boundary timestamptz;
+    snapshot_segment_type text;
+    snapshot_sport_group text;
+    snapshot_allowed_predicates jsonb;
+    snapshot_bidirectional boolean;
+    snapshot_visibility text;
+    snapshot_elevation_kind text;
+    snapshot_defaults_missing boolean;
 BEGIN
     NEW.matching_contract_key := COALESCE(NULLIF(NEW.matching_contract_key, ''), 'course_gps_v1');
     NEW.matching_contract_version := COALESCE(NEW.matching_contract_version, 1);
     NEW.published_at := COALESCE(NEW.published_at, NOW());
+
+    snapshot_defaults_missing := (
+        NEW.eligibility_segment_type = 'standard'
+        AND NEW.eligibility_sport_group = 'generic'
+        AND NEW.eligibility_allowed_predicates IS NULL
+        AND NEW.eligibility_allowed_predicates_set = false
+        AND NEW.eligibility_bidirectional = true
+        AND NEW.eligibility_visibility = 'public'
+        AND NEW.eligibility_elevation_kind = 'flat'
+    );
+
+    IF snapshot_defaults_missing
+       OR NEW.eligibility_segment_type IS NULL
+       OR NEW.eligibility_sport_group IS NULL
+       OR NEW.eligibility_bidirectional IS NULL
+       OR NEW.eligibility_visibility IS NULL
+       OR NEW.eligibility_elevation_kind IS NULL
+       OR (NEW.eligibility_allowed_predicates IS NULL AND NEW.eligibility_allowed_predicates_set = false) THEN
+        SELECT s.segment_type,
+               s.sport_group,
+               s.allowed_predicates,
+               s.bidirectional,
+               COALESCE(s.visibility, 'public'),
+               s.elevation_kind
+        INTO snapshot_segment_type,
+             snapshot_sport_group,
+             snapshot_allowed_predicates,
+             snapshot_bidirectional,
+             snapshot_visibility,
+             snapshot_elevation_kind
+        FROM segments s
+        WHERE s.id = NEW.segment_id;
+
+        IF snapshot_defaults_missing THEN
+            NEW.eligibility_segment_type := COALESCE(snapshot_segment_type, 'standard');
+            NEW.eligibility_sport_group := COALESCE(snapshot_sport_group, 'generic');
+            NEW.eligibility_bidirectional := COALESCE(snapshot_bidirectional, true);
+            NEW.eligibility_visibility := COALESCE(snapshot_visibility, 'public');
+            NEW.eligibility_elevation_kind := COALESCE(snapshot_elevation_kind, 'flat');
+            NEW.eligibility_allowed_predicates := snapshot_allowed_predicates;
+            NEW.eligibility_allowed_predicates_set := (snapshot_allowed_predicates IS NOT NULL);
+        ELSE
+            NEW.eligibility_segment_type := COALESCE(NEW.eligibility_segment_type, snapshot_segment_type, 'standard');
+            NEW.eligibility_sport_group := COALESCE(NEW.eligibility_sport_group, snapshot_sport_group, 'generic');
+            NEW.eligibility_bidirectional := COALESCE(NEW.eligibility_bidirectional, snapshot_bidirectional, true);
+            NEW.eligibility_visibility := COALESCE(NEW.eligibility_visibility, snapshot_visibility, 'public');
+            NEW.eligibility_elevation_kind := COALESCE(NEW.eligibility_elevation_kind, snapshot_elevation_kind, 'flat');
+            IF NEW.eligibility_allowed_predicates IS NULL AND NEW.eligibility_allowed_predicates_set = false THEN
+                NEW.eligibility_allowed_predicates := snapshot_allowed_predicates;
+                NEW.eligibility_allowed_predicates_set := (snapshot_allowed_predicates IS NOT NULL);
+            END IF;
+        END IF;
+    END IF;
 
     IF NEW.version_number = 1 AND NEW.valid_from_at IS NULL THEN
         NEW.validity_basis := COALESCE(NULLIF(NEW.validity_basis, ''), 'unknown_start');
@@ -448,6 +535,16 @@ BEGIN
         ALTER TABLE segment_versions
             ADD CONSTRAINT segment_versions_validity_order_chk
             CHECK (valid_until_at IS NULL OR valid_from_at IS NULL OR valid_until_at > valid_from_at);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'segment_versions_eligibility_segment_type_chk') THEN
+        ALTER TABLE segment_versions
+            ADD CONSTRAINT segment_versions_eligibility_segment_type_chk
+            CHECK (eligibility_segment_type IN ('standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'segment_versions_eligibility_elevation_kind_chk') THEN
+        ALTER TABLE segment_versions
+            ADD CONSTRAINT segment_versions_eligibility_elevation_kind_chk
+            CHECK (eligibility_elevation_kind IN ('flat', 'hilly', 'uphill', 'downhill'));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'segment_efforts_matching_contract_chk') THEN
         ALTER TABLE segment_efforts

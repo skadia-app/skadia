@@ -242,6 +242,58 @@ func TestSegmentEffortCurrentReadsIgnoreSupersededRows(t *testing.T) {
 	}
 }
 
+func TestSegmentEffortCountsIncludeCompletedNonLeaderboardRows(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:                segmentID,
+		SegmentVersionID:         versionID,
+		ActivityID:               activityID,
+		UserID:                   userID,
+		StartedAt:                startedAt,
+		ElapsedTimeS:             60,
+		SportType:                "cycling",
+		SubType:                  "mountain",
+		ActivityTraitBucketKey:   "cycling:mountain:real:outdoor:acoustic",
+		EligibilityPolicyKey:     courseEligibilityPolicyKey,
+		EligibilityPolicyVersion: courseEligibilityPolicyVersion,
+		EligibilitySourceHash:    "test-non-rankable",
+		InLeaderboard:            false,
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("insert non-leaderboard effort: %v", err)
+	}
+	if err := db.UpdateSegmentEffortRanks(ctx, segmentID); err != nil {
+		t.Fatalf("UpdateSegmentEffortRanks: %v", err)
+	}
+
+	var effortCount, athleteCount int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT effort_count, athlete_count FROM segments WHERE id = $1`,
+		segmentID).Scan(&effortCount, &athleteCount); err != nil {
+		t.Fatalf("query segment counts: %v", err)
+	}
+	if effortCount != 1 || athleteCount != 1 {
+		t.Fatalf("segment counts = %d/%d, want completed traversal counts 1/1", effortCount, athleteCount)
+	}
+
+	var rankOverall *int
+	var isPersonalBest, isSegmentRecord bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT rank_overall, is_personal_best, is_segment_record
+		FROM segment_efforts
+		WHERE segment_id = $1 AND activity_id = $2
+	`, segmentID, activityID).Scan(&rankOverall, &isPersonalBest, &isSegmentRecord); err != nil {
+		t.Fatalf("query effort rank flags: %v", err)
+	}
+	if rankOverall != nil || isPersonalBest || isSegmentRecord {
+		t.Fatalf("non-leaderboard effort was ranked: rank=%v pb=%t record=%t", rankOverall, isPersonalBest, isSegmentRecord)
+	}
+}
+
 func insertMatchContractFixture(t *testing.T, db *DB, userID string) (activityID, segmentID, versionID string, startedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()

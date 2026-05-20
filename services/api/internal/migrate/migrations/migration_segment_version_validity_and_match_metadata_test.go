@@ -41,6 +41,13 @@ func TestMigration_SegmentVersionValidityAndMatchMetadata_ColumnsIndexesAndCheck
 			"valid_until_at",
 			"validity_basis",
 			"published_at",
+			"eligibility_segment_type",
+			"eligibility_sport_group",
+			"eligibility_allowed_predicates",
+			"eligibility_allowed_predicates_set",
+			"eligibility_bidirectional",
+			"eligibility_visibility",
+			"eligibility_elevation_kind",
 		},
 		"segment_efforts": {
 			"matching_contract_key",
@@ -116,6 +123,8 @@ func TestMigration_SegmentVersionValidityAndMatchMetadata_ColumnsIndexesAndCheck
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_versions SET matching_contract_key = 'other' WHERE id = $1`, versionID)
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_versions SET matching_contract_version = 2 WHERE id = $1`, versionID)
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_versions SET validity_basis = 'guess' WHERE id = $1`, versionID)
+	assertCheckRejects(t, ctx, pool, `UPDATE segment_versions SET eligibility_segment_type = 'checkpoint' WHERE id = $1`, versionID)
+	assertCheckRejects(t, ctx, pool, `UPDATE segment_versions SET eligibility_elevation_kind = 'rolling' WHERE id = $1`, versionID)
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_efforts SET matching_contract_key = 'other' WHERE activity_id = $1`, activityID)
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_efforts SET matching_contract_version = 2 WHERE activity_id = $1`, activityID)
 	assertCheckRejects(t, ctx, pool, `UPDATE segment_efforts SET match_source_type = 'manual' WHERE activity_id = $1`, activityID)
@@ -203,6 +212,59 @@ func TestMigration_SegmentVersionValidityAndMatchMetadata_LegacyDirectEffortInse
 		assist != "electric" || indoor != "indoor" || virtual != "virtual" || electric != "electric" || direction != "forward" {
 		t.Fatalf("unexpected defaults: version=%d sport=%s/%s assist=%s indoor=%s virtual=%s electric=%s direction=%s",
 			contractVersion, lbSport, lbSub, assist, indoor, virtual, electric, direction)
+	}
+}
+
+func TestMigration_SegmentVersionValidityAndMatchMetadata_SegmentVersionSnapshotsEligibility(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID := insertSegmentValidityUser(t, ctx, pool)
+	segmentID := uuid.NewString()
+	versionID := uuid.NewString()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segments (
+			id, created_by, name, sport_group, segment_type, allowed_predicates,
+			bidirectional, visibility, elevation_kind
+		)
+		VALUES ($1, $2, 'eligibility snapshot segment', 'foot', 'trail',
+		        '[{"sport":"running"}]'::jsonb, false, 'private', 'hilly')
+	`, segmentID, userID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions (
+			id, segment_id, version_number, track, valid_from, created_by
+		)
+		VALUES (
+			$1, $2, 1,
+			ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326),
+			'2026-01-01',
+			$3
+		)
+	`, versionID, segmentID, userID); err != nil {
+		t.Fatalf("insert segment version: %v", err)
+	}
+
+	var segmentType, sportGroup, predicates, visibility, elevationKind string
+	var predicatesSet, bidirectional bool
+	if err := pool.QueryRow(ctx, `
+		SELECT eligibility_segment_type,
+		       eligibility_sport_group,
+		       eligibility_allowed_predicates::text,
+		       eligibility_allowed_predicates_set,
+		       eligibility_bidirectional,
+		       eligibility_visibility,
+		       eligibility_elevation_kind
+		FROM segment_versions
+		WHERE id = $1
+	`, versionID).Scan(&segmentType, &sportGroup, &predicates, &predicatesSet, &bidirectional, &visibility, &elevationKind); err != nil {
+		t.Fatalf("query segment version snapshot: %v", err)
+	}
+	if segmentType != "trail" || sportGroup != "foot" || predicates != `[{"sport": "running"}]` ||
+		!predicatesSet || bidirectional || visibility != "private" || elevationKind != "hilly" {
+		t.Fatalf("snapshot = type:%s group:%s predicates:%s set:%t bidirectional:%t visibility:%s elevation:%s",
+			segmentType, sportGroup, predicates, predicatesSet, bidirectional, visibility, elevationKind)
 	}
 }
 
