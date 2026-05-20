@@ -30,15 +30,16 @@ function WeatherBadgeCard({ reading, displayFields, timezone, variant = 'inline'
 
   return (
     <div
-      className={`${variant === 'context' ? 'flex w-full' : 'inline-flex'} flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50`}
+      className={`${variant === 'context' ? 'flex w-full py-2' : 'inline-flex rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800/50'} flex-col gap-0.5 text-sm`}
       title={reading.model ? `Datenquelle: ${reading.model}` : undefined}
     >
       {/* Label (Berg / Start etc.) + Uhrzeit */}
       {(reading.label || reading.recorded_at) && (
-        <div className="flex items-center gap-3 text-xs font-medium text-neutral-500 dark:text-neutral-400 leading-none mb-0.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400 leading-none mb-0.5">
           {reading.label && <span>{reading.label}</span>}
+          {reading.label && reading.recorded_at && <span className="font-normal text-neutral-300 dark:text-neutral-600">·</span>}
           {reading.recorded_at && (
-            <span className="font-normal tabular-nums">
+            <span className="font-medium tabular-nums">
               {fmtTime(reading.recorded_at, timezone)}
             </span>
           )}
@@ -112,7 +113,7 @@ export default function WeatherBadge({ readings, displayFields, className, timez
   if (!readings || readings.length === 0) return null
 
   return (
-    <div className={`${variant === 'context' ? 'flex flex-col' : 'flex flex-wrap'} gap-2${className ? ` ${className}` : ''}`}>
+    <div className={`${variant === 'context' ? 'flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800' : 'flex flex-wrap gap-1.5'}${className ? ` ${className}` : ''}`}>
       {readings.map((r) => (
         <WeatherBadgeCard key={r.id} reading={r} displayFields={displayFields} timezone={timezone} variant={variant} />
       ))}

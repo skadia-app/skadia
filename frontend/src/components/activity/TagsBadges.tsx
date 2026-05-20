@@ -140,76 +140,77 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
 
   return (
     <>
-      {/* Add tag button — left of first tag */}
-      <div className="relative" ref={popoverRef}>
-        <button
-          onClick={() => setAddOpen(!addOpen)}
-          className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium cursor-pointer
-                     bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 transition-colors"
-          title="Tag hinzufügen"
-        >
-          +
-        </button>
-
-        {addOpen && (
-          <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg">
-            <div className="p-2">
-              <input
-                ref={searchRef}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tag suchen..."
-                className="w-full px-2 py-1.5 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
-              />
-            </div>
-            <div className="max-h-48 overflow-y-auto">
-              {filtered.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => addMut.mutate(t.name)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer flex items-center justify-between"
-                >
-                  <span>{t.name}</span>
-                  <span className="text-xs text-neutral-400">{t.activity_count}</span>
-                </button>
-              ))}
-              {showCreate && (
-                <button
-                  onClick={() => createAndAddMut.mutate(searchTrimmed)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-accent-600 dark:text-orange-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
-                >
-                  &ldquo;{searchTrimmed}&rdquo; erstellen
-                </button>
-              )}
-              {filtered.length === 0 && !showCreate && (
-                <div className="px-3 py-2 text-sm text-neutral-400">Keine Tags gefunden</div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {tags.map((tag, i) => {
-        const isHardcoded = tag === 'virtuell' && isVirtual
-        return (
-          <span
-            key={tag}
-            className="group inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-            style={getTagStyle(tag, i)}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Add tag button — left of first tag */}
+        <div className="relative inline-flex" ref={popoverRef}>
+          <button
+            onClick={() => setAddOpen(!addOpen)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+            title="Tag hinzufügen"
           >
-            {tag}
-            {!isHardcoded && (
-              <button
-                onClick={() => removeMut.mutate(tag)}
-                className="text-xs ml-1.5 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
-                title={`Tag "${tag}" entfernen`}
-              >
-                &times;
-              </button>
-            )}
-          </span>
-        )
-      })}
+            +
+          </button>
+
+          {addOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+              <div className="p-2">
+                <input
+                  ref={searchRef}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Tag suchen..."
+                  className="w-full rounded border border-neutral-200 bg-transparent px-2 py-1.5 text-sm text-neutral-900 outline-none focus:border-accent-400 dark:border-neutral-700 dark:text-neutral-100"
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => addMut.mutate(t.name)}
+                    className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    <span>{t.name}</span>
+                    <span className="text-xs text-neutral-400">{t.activity_count}</span>
+                  </button>
+                ))}
+                {showCreate && (
+                  <button
+                    onClick={() => createAndAddMut.mutate(searchTrimmed)}
+                    className="w-full px-3 py-1.5 text-left text-sm text-accent-600 hover:bg-neutral-100 dark:text-orange-400 dark:hover:bg-neutral-800"
+                  >
+                    &ldquo;{searchTrimmed}&rdquo; erstellen
+                  </button>
+                )}
+                {filtered.length === 0 && !showCreate && (
+                  <div className="px-3 py-2 text-sm text-neutral-400">Keine Tags gefunden</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {tags.map((tag, i) => {
+          const isHardcoded = tag === 'virtuell' && isVirtual
+          return (
+            <span
+              key={tag}
+              className="group inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+              style={getTagStyle(tag, i)}
+            >
+              {tag}
+              {!isHardcoded && (
+                <button
+                  onClick={() => removeMut.mutate(tag)}
+                  className="ml-1.5 text-xs opacity-0 transition-opacity group-hover:opacity-100"
+                  title={`Tag "${tag}" entfernen`}
+                >
+                  &times;
+                </button>
+              )}
+            </span>
+          )
+        })}
+      </div>
 
       {showCommuteModal && (
         <CommuteModal

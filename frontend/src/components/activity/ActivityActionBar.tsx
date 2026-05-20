@@ -49,6 +49,21 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
   const isReprocessing = reprocessState === 'loading'
   const hasActiveRecomputeJob = isJobActiveForEntity(activity.id)
   const prevHadJob = useRef(false)
+  const menuButtonIcon = isReprocessing ? (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50 20" />
+    </svg>
+  ) : reprocessState === 'success' ? (
+    <svg className="h-4 w-4 text-green-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143z" clipRule="evenodd" />
+    </svg>
+  ) : reprocessState === 'error' ? (
+    <svg className="h-4 w-4 text-red-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path fillRule="evenodd" d="M18 10A8 8 0 1 1 2 10a8 8 0 0 1 16 0ZM9.25 5.75a.75.75 0 0 1 1.5 0v4.5a.75.75 0 0 1-1.5 0v-4.5ZM10 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+    </svg>
+  ) : (
+    <MoreHorizontal className="h-4 w-4" />
+  )
 
   useClickOutside(menuRef, () => {
     setMenuOpen(false)
@@ -214,11 +229,16 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
       </div>
       <div className="relative">
         <button
-          onClick={() => setMenuOpen(v => !v)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+          onClick={() => {
+            if (isReprocessing) return
+            setMenuOpen(v => !v)
+          }}
+          disabled={isReprocessing}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-neutral-700 dark:hover:bg-neutral-800"
           aria-label="Weitere Aktionen"
+          title={isReprocessing ? 'Aktivität wird neu berechnet' : 'Weitere Aktionen'}
         >
-          <MoreHorizontal className="h-4 w-4" />
+          {menuButtonIcon}
         </button>
         {menuOpen && (
           <div ref={menuRef} className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
@@ -330,7 +350,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                   await reprocessActivity(activity.id, ['streams'])
                   queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                   queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                  addToast({ type: 'success', title: 'Originaldaten wiederhergestellt' })
+                  addToast({ type: 'success', title: 'Trackdaten aus Originaldatei wiederhergestellt' })
                 } catch {
                   addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
                 } finally {
@@ -338,10 +358,11 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 }
               }}
               disabled={smoothing !== 'idle'}
+              title="Setzt die Track-Streams aus der Originaldatei zurück, inklusive geglätteter Geschwindigkeitsdaten."
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
             >
               <RotateCcw className="h-4 w-4" />
-              Originaldaten wiederherstellen
+              Trackdaten aus Originaldatei wiederherstellen
             </button>
             <button
               onClick={() => {

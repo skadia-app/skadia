@@ -24,6 +24,11 @@ export default function ActivityOverview({
   nearMisses,
   weatherDisplayFields,
 }: ActivityOverviewProps) {
+  const sourceCount = recordingGroup?.members.length ?? 1
+  const subtitle = sourceCount > 1
+    ? `Primäre Aktivität mit ${sourceCount} gruppierten Quellen`
+    : 'Einzelne Aktivität'
+
   return (
     <section className="grid gap-4 lg:grid-cols-[290px_minmax(0,1fr)]">
       <ActivityContextCard
@@ -36,7 +41,7 @@ export default function ActivityOverview({
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Messwerte</h2>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">Primäre Aktivität mit gruppierten Quellen</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{subtitle}</p>
           </div>
           <ActivityActionBar activity={activity} />
         </div>
