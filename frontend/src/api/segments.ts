@@ -31,6 +31,9 @@ export interface Segment {
 export interface SegmentEffort {
   id: string
   segment_id: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   activity_id: string
   started_at: string
   elapsed_time_s: number
@@ -51,6 +54,9 @@ export interface SegmentEffort {
 export interface LeaderboardEntry {
   id: string
   segment_id: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   activity_id: string
   user_id: string
   elapsed_time_s: number
@@ -62,6 +68,66 @@ export interface LeaderboardEntry {
   started_at: string
   display_name: string
   gear_name?: string
+}
+
+export type SegmentLeaderboardQuery = {
+  sport_type?: string
+  is_reverse?: boolean
+  scope?: 'current_version' | 'version' | 'equivalence_group' | 'sport_overall'
+  electric_mode?: 'all' | 'exclude_electric' | 'only_electric'
+  gear_id?: string
+  only_mine?: boolean
+  version_id?: string
+  leaderboard_equivalence_group_id?: string
+}
+
+export type SegmentVersionValidityUpdate = {
+  operation_id: string
+  valid_from_at: string | null
+  valid_until_at: string | null
+  reason?: string
+  recalculate: boolean
+  equivalence_decision?: 'continue_group' | 'new_group' | 'version_specific'
+}
+
+export type SegmentGeometryUpdate = {
+  operation_id: string
+  track_geojson: unknown
+  start_point_geojson: unknown
+  end_point_geojson: unknown
+  reason?: string
+  recalculate: boolean
+  equivalence_decision?: 'continue_group' | 'new_group' | 'version_specific'
+  equivalence_evidence?: Record<string, unknown>
+}
+
+export type SegmentVersionRevision = {
+  id: string
+  segment_id: string
+  operation: string
+  reason?: string
+  affected_from_at?: string
+  affected_until_at?: string
+  recalculation_run_id?: string
+  rollback_of_revision_id?: string
+  before_snapshot?: unknown
+  after_snapshot?: unknown
+  before_snapshot_sha256?: string
+  after_snapshot_sha256?: string
+  created_at: string
+}
+
+export type SegmentVersionRevisionSummary = Omit<
+  SegmentVersionRevision,
+  'before_snapshot' | 'after_snapshot' | 'before_snapshot_sha256' | 'after_snapshot_sha256'
+> & {
+  has_snapshots: boolean
+}
+
+export type SegmentVersionRevisionsResponse = {
+  revisions: SegmentVersionRevisionSummary[]
+  limit: number
+  offset: number
 }
 
 export interface CreateSegmentPayload {
@@ -150,12 +216,26 @@ export interface UpdateSegmentPayload {
 
 export async function fetchSegmentLeaderboard(
   segmentId: string,
-  isReverse?: boolean,
+  isReverseOrQuery?: boolean | SegmentLeaderboardQuery,
   onlyMine?: boolean,
 ): Promise<LeaderboardEntry[]> {
   const qs = new URLSearchParams()
-  if (isReverse !== undefined) qs.set('is_reverse', String(isReverse))
-  if (onlyMine) qs.set('only_mine', 'true')
+  if (typeof isReverseOrQuery === 'object' && isReverseOrQuery !== null) {
+    const query = isReverseOrQuery
+    if (query.sport_type) qs.set('sport_type', query.sport_type)
+    if (query.is_reverse !== undefined) qs.set('is_reverse', String(query.is_reverse))
+    if (query.scope) qs.set('scope', query.scope)
+    if (query.electric_mode) qs.set('electric_mode', query.electric_mode)
+    if (query.gear_id) qs.set('gear_id', query.gear_id)
+    if (query.only_mine) qs.set('only_mine', 'true')
+    if (query.version_id) qs.set('version_id', query.version_id)
+    if (query.leaderboard_equivalence_group_id) {
+      qs.set('leaderboard_equivalence_group_id', query.leaderboard_equivalence_group_id)
+    }
+  } else {
+    if (isReverseOrQuery !== undefined) qs.set('is_reverse', String(isReverseOrQuery))
+    if (onlyMine) qs.set('only_mine', 'true')
+  }
   const q = qs.toString()
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
@@ -198,6 +278,57 @@ export async function recomputeSegment(segmentId: string): Promise<void> {
 
 export async function publishSegment(id: string): Promise<{ status: string; job_id: string }> {
   return apiClient<{ status: string; job_id: string }>(`/segments/${id}/publish`, { method: 'POST' })
+}
+
+export async function updateSegmentVersionValidity(
+  segmentId: string,
+  versionId: string,
+  payload: SegmentVersionValidityUpdate,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/${versionId}/validity`, {
+    method: 'PATCH',
+    body: payload,
+  })
+}
+
+export async function updateSegmentVersionGeometry(
+  segmentId: string,
+  versionId: string,
+  payload: SegmentGeometryUpdate,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/${versionId}/geometry`, {
+    method: 'PATCH',
+    body: payload,
+  })
+}
+
+export async function fetchSegmentVersionRevisions(
+  segmentId: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<SegmentVersionRevisionsResponse> {
+  const qs = new URLSearchParams()
+  if (opts.limit !== undefined) qs.set('limit', String(opts.limit))
+  if (opts.offset !== undefined) qs.set('offset', String(opts.offset))
+  const q = qs.toString()
+  return apiClient<SegmentVersionRevisionsResponse>(`/segments/${segmentId}/versions/revisions${q ? `?${q}` : ''}`)
+}
+
+export async function fetchSegmentVersionRevision(
+  segmentId: string,
+  revisionId: string,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/revisions/${revisionId}`)
+}
+
+export async function rollbackSegmentVersionRevision(
+  segmentId: string,
+  revisionId: string,
+  reason?: string,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/revisions/${revisionId}/rollback`, {
+    method: 'POST',
+    body: { reason },
+  })
 }
 
 export async function exportSegment(id: string, format: 'gpx' | 'geojson'): Promise<{ blob: Blob; filename?: string }> {

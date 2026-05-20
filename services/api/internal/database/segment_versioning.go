@@ -398,6 +398,111 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 	return revision, nil
 }
 
+func (db *DB) ListSegmentVersionRevisions(ctx context.Context, segmentID, actorUserID string, isAdmin bool, limit, offset int) ([]model.SegmentVersionRevision, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin list segment revisions: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id, segment_id, operation, reason,
+		       snapshot_schema_key, snapshot_schema_version,
+		       affected_from_at, affected_until_at,
+		       recalculation_run_id, rollback_of_revision_id,
+		       before_snapshot, after_snapshot,
+		       before_snapshot_sha256, after_snapshot_sha256, created_at
+		FROM segment_version_revisions
+		WHERE segment_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3
+	`, segmentID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list segment revisions: %w", err)
+	}
+	defer rows.Close()
+	revisions, err := scanSegmentVersionRevisions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit list segment revisions: %w", err)
+	}
+	return revisions, nil
+}
+
+func (db *DB) GetSegmentVersionRevision(ctx context.Context, segmentID, revisionID, actorUserID string, isAdmin bool) (*model.SegmentVersionRevision, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin get segment revision: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := authorizeSegmentOwnerTx(ctx, tx, segmentID, actorUserID, isAdmin); err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id, segment_id, operation, reason,
+		       snapshot_schema_key, snapshot_schema_version,
+		       affected_from_at, affected_until_at,
+		       recalculation_run_id, rollback_of_revision_id,
+		       before_snapshot, after_snapshot,
+		       before_snapshot_sha256, after_snapshot_sha256, created_at
+		FROM segment_version_revisions
+		WHERE segment_id = $1 AND id = $2
+	`, segmentID, revisionID)
+	if err != nil {
+		return nil, fmt.Errorf("get segment revision: %w", err)
+	}
+	defer rows.Close()
+	revisions, err := scanSegmentVersionRevisions(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(revisions) == 0 {
+		return nil, ErrSegmentNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit get segment revision: %w", err)
+	}
+	return &revisions[0], nil
+}
+
+func scanSegmentVersionRevisions(rows pgx.Rows) ([]model.SegmentVersionRevision, error) {
+	var revisions []model.SegmentVersionRevision
+	for rows.Next() {
+		var revision model.SegmentVersionRevision
+		var beforeRaw, afterRaw []byte
+		if err := rows.Scan(
+			&revision.ID, &revision.SegmentID, &revision.Operation, &revision.Reason,
+			&revision.SnapshotSchemaKey, &revision.SnapshotSchemaVersion,
+			&revision.AffectedFromAt, &revision.AffectedUntilAt,
+			&revision.RecalculationRunID, &revision.RollbackOfRevisionID,
+			&beforeRaw, &afterRaw,
+			&revision.BeforeSnapshotSHA256, &revision.AfterSnapshotSHA256, &revision.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan segment revision: %w", err)
+		}
+		revision.BeforeSnapshot = cloneRawMessage(beforeRaw)
+		revision.AfterSnapshot = cloneRawMessage(afterRaw)
+		revisions = append(revisions, revision)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("segment revision rows: %w", err)
+	}
+	if revisions == nil {
+		revisions = []model.SegmentVersionRevision{}
+	}
+	return revisions, nil
+}
+
 func (db *DB) ReverseActiveSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operationID string) (string, string, error) {
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
 	if err != nil {
