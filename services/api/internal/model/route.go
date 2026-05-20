@@ -319,6 +319,35 @@ type RouteCourseProfileProjection struct {
 	GeneratedAt                time.Time `json:"generated_at"`
 }
 
+type PublishedRouteCourse struct {
+	PublicationID              string    `json:"publication_id"`
+	RouteID                    *string   `json:"route_id,omitempty"`
+	RouteSnapshotID            string    `json:"route_snapshot_id"`
+	CourseSegmentID            string    `json:"course_segment_id"`
+	CourseSegmentVersionID     string    `json:"course_segment_version_id"`
+	Name                       string    `json:"name"`
+	Visibility                 string    `json:"visibility"`
+	AccessScopeID              *string   `json:"access_scope_id,omitempty"`
+	SportType                  string    `json:"sport_type"`
+	SubType                    *string   `json:"sub_type,omitempty"`
+	IsElectric                 bool      `json:"is_electric"`
+	IsIndoor                   bool      `json:"is_indoor"`
+	IsVirtual                  bool      `json:"is_virtual"`
+	IsCommute                  bool      `json:"is_commute"`
+	DistanceM                  *float64  `json:"distance_m,omitempty"`
+	ElevationGainM             *float64  `json:"elevation_gain_m,omitempty"`
+	ElevationLossM             *float64  `json:"elevation_loss_m,omitempty"`
+	SACMaxRank                 *int      `json:"sac_max_rank,omitempty"`
+	MTBMaxRank                 *int      `json:"mtb_max_rank,omitempty"`
+	ViaFerrataMaxRank          *int      `json:"via_ferrata_max_rank,omitempty"`
+	PrimarySurface             *string   `json:"primary_surface,omitempty"`
+	PrimaryWayType             *string   `json:"primary_way_type,omitempty"`
+	HasVariants                bool      `json:"has_variants"`
+	PublishedAt                time.Time `json:"published_at"`
+	CurrentSegmentVersionID    *string   `json:"current_segment_version_id,omitempty"`
+	CurrentSegmentVersionValid bool      `json:"current_segment_version_valid"`
+}
+
 type RoutePublicationEvent struct {
 	ID                 string          `json:"id"`
 	ActorUserID        *string         `json:"actor_user_id,omitempty"`
