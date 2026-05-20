@@ -86,7 +86,7 @@ describe('ActivityActionBar', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Originaldaten wiederherstellen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Trackdaten aus Originaldatei wiederherstellen' }))
 
     await waitFor(() => {
       expect(mockReprocessActivity).toHaveBeenCalledWith('activity-1', ['streams'])

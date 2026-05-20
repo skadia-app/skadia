@@ -17,7 +17,6 @@ import {
 import { getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
 import GeoTagsList from '@/components/GeoTagsList'
-import GearSelector from '@/components/GearSelector'
 import ActivityPhotoSection from '@/components/ActivityPhotoSection'
 import { uploadActivityPhoto } from '@/api/activityPhotos'
 import LapTable from '@/components/LapTable'
@@ -49,7 +48,6 @@ import { RunningDynamicsStats } from '@/components/activity/RunningDynamicsStats
 import { DiveStats } from '@/components/activity/DiveStats'
 import { DiveGasTable } from '@/components/activity/DiveGasTable'
 import { DataCorrectionsSection } from '@/components/activity/DataCorrections'
-import { VisibilitySettings } from '@/components/activity/VisibilitySettings'
 import { StrengthSetsTable } from '@/components/activity/StrengthSetsTable'
 import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
 import { BallSportStats } from '@/components/activity/BallSportStats'
@@ -1067,12 +1065,6 @@ export default function ActivityDetailPage() {
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (
         <ZoneDistributionChart distribution={zoneDistribution} />
       )}
-
-      {/* Gear */}
-      <GearSelector activityId={activity.id} currentGearId={activity.gear_id} />
-
-      {/* Visibility & Privacy */}
-      <VisibilitySettings activity={activity} />
 
       {/* Sensors */}
       {sensors && sensors.length > 0 && <SensorList sensors={sensors} />}

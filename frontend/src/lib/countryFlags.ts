@@ -13,7 +13,11 @@ export function countryCodeToFlag(code: string | null | undefined): string | nul
 export function activityCountryCodes(activity: {
   visited_country_codes?: string[] | null
   start_country_code?: string | null
+  end_country_code?: string | null
+  location_country_code?: string | null
 }): string[] {
-  const raw = activity.visited_country_codes?.length ? activity.visited_country_codes : [activity.start_country_code ?? '']
+  const raw = activity.visited_country_codes?.length
+    ? activity.visited_country_codes
+    : [activity.start_country_code, activity.end_country_code, activity.location_country_code]
   return [...new Set(raw.map(normalizeCountryCode).filter((v): v is string => Boolean(v)))]
 }
