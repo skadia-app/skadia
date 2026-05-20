@@ -152,35 +152,38 @@ type ObjectAccessPrincipalRef struct {
 }
 
 type PlannedRouteSnapshot struct {
-	ID                    string          `json:"id"`
-	RouteID               *string         `json:"route_id,omitempty"`
-	UserID                *string         `json:"user_id,omitempty"`
-	SourceRouteVersion    int64           `json:"source_route_version"`
-	SnapshotSchemaKey     string          `json:"snapshot_schema_key"`
-	SnapshotSchemaVersion int             `json:"snapshot_schema_version"`
-	RouteName             string          `json:"route_name"`
-	RouteDescription      *string         `json:"route_description,omitempty"`
-	SportType             string          `json:"sport_type"`
-	SubType               *string         `json:"sub_type,omitempty"`
-	IsElectric            bool            `json:"is_electric"`
-	IsIndoor              bool            `json:"is_indoor"`
-	IsVirtual             bool            `json:"is_virtual"`
-	IsCommute             bool            `json:"is_commute"`
-	Profile               string          `json:"profile"`
-	RoutingEngine         *string         `json:"routing_engine,omitempty"`
-	RouteSchemaVersion    int16           `json:"route_schema_version"`
-	GeometryGeoJSON       string          `json:"geometry_geojson,omitempty"`
-	Waypoints             json.RawMessage `json:"waypoints"`
-	Segments              json.RawMessage `json:"segments"`
-	ElevationProfile      json.RawMessage `json:"elevation_profile,omitempty"`
-	Enrichment            json.RawMessage `json:"enrichment,omitempty"`
-	TotalDistanceM        *float64        `json:"total_distance_m,omitempty"`
-	TotalElevationGain    *float64        `json:"total_elevation_gain,omitempty"`
-	TotalElevationLoss    *float64        `json:"total_elevation_loss,omitempty"`
-	EstimatedTimeMin      *int            `json:"estimated_time_min,omitempty"`
-	GeometryHash          string          `json:"geometry_hash"`
-	SnapshotHash          string          `json:"snapshot_hash"`
-	CreatedAt             time.Time       `json:"created_at"`
+	ID                    string  `json:"id"`
+	RouteID               *string `json:"route_id,omitempty"`
+	UserID                *string `json:"user_id,omitempty"`
+	SourceRouteVersion    int64   `json:"source_route_version"`
+	SnapshotSchemaKey     string  `json:"snapshot_schema_key"`
+	SnapshotSchemaVersion int     `json:"snapshot_schema_version"`
+	RouteName             string  `json:"route_name"`
+	// RouteDescription is route metadata copied into the immutable route-state
+	// snapshot. Long-form guide content belongs to optional publication-domain
+	// rows anchored by RouteCoursePublication.ID, not to this hot-path snapshot.
+	RouteDescription   *string         `json:"route_description,omitempty"`
+	SportType          string          `json:"sport_type"`
+	SubType            *string         `json:"sub_type,omitempty"`
+	IsElectric         bool            `json:"is_electric"`
+	IsIndoor           bool            `json:"is_indoor"`
+	IsVirtual          bool            `json:"is_virtual"`
+	IsCommute          bool            `json:"is_commute"`
+	Profile            string          `json:"profile"`
+	RoutingEngine      *string         `json:"routing_engine,omitempty"`
+	RouteSchemaVersion int16           `json:"route_schema_version"`
+	GeometryGeoJSON    string          `json:"geometry_geojson,omitempty"`
+	Waypoints          json.RawMessage `json:"waypoints"`
+	Segments           json.RawMessage `json:"segments"`
+	ElevationProfile   json.RawMessage `json:"elevation_profile,omitempty"`
+	Enrichment         json.RawMessage `json:"enrichment,omitempty"`
+	TotalDistanceM     *float64        `json:"total_distance_m,omitempty"`
+	TotalElevationGain *float64        `json:"total_elevation_gain,omitempty"`
+	TotalElevationLoss *float64        `json:"total_elevation_loss,omitempty"`
+	EstimatedTimeMin   *int            `json:"estimated_time_min,omitempty"`
+	GeometryHash       string          `json:"geometry_hash"`
+	SnapshotHash       string          `json:"snapshot_hash"`
+	CreatedAt          time.Time       `json:"created_at"`
 }
 
 type CreatePlannedRouteSnapshotInput struct {
@@ -192,9 +195,14 @@ type CreatePlannedRouteSnapshotInput struct {
 }
 
 type RouteCoursePublication struct {
-	ID                           string          `json:"id"`
-	RouteID                      *string         `json:"route_id,omitempty"`
-	RouteSnapshotID              string          `json:"route_snapshot_id"`
+	// ID is also the future public guide-page anchor. Optional guide content
+	// and tour reports stay in separate domain tables outside course hot paths.
+	ID      string  `json:"id"`
+	RouteID *string `json:"route_id,omitempty"`
+	// RouteSnapshotID is the immutable route-state anchor used by matching,
+	// profile projection, export, and deletion. It is not an attachment bucket.
+	RouteSnapshotID string `json:"route_snapshot_id"`
+	// CourseSegmentID/CourseSegmentVersionID anchor the rankable course object.
 	CourseSegmentID              string          `json:"course_segment_id"`
 	CourseSegmentVersionID       string          `json:"course_segment_version_id"`
 	PublicationState             string          `json:"publication_state"`
