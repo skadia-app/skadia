@@ -73,6 +73,128 @@ func (db *DB) CreateObjectAccessScope(ctx context.Context, input model.ObjectAcc
 	return scope, nil
 }
 
+func (db *DB) ListObjectAccessScopes(ctx context.Context, ownerUserID string) ([]model.ObjectAccessScope, error) {
+	if strings.TrimSpace(ownerUserID) == "" {
+		return nil, fmt.Errorf("%w: owner user is required", ErrObjectAccessValidation)
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, owner_kind, owner_user_id, owner_ref, scope_kind, label,
+		       created_by, created_at, revoked_at, metadata
+		FROM object_access_scopes
+		WHERE owner_kind = 'user'
+		  AND owner_user_id = $1
+		ORDER BY created_at DESC, id DESC
+	`, ownerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("list object access scopes: %w", err)
+	}
+	defer rows.Close()
+
+	scopes := []model.ObjectAccessScope{}
+	scopeIndex := map[string]int{}
+	for rows.Next() {
+		var scope model.ObjectAccessScope
+		if err := rows.Scan(
+			&scope.ID, &scope.OwnerKind, &scope.OwnerUserID, &scope.OwnerRef,
+			&scope.ScopeKind, &scope.Label, &scope.CreatedBy,
+			&scope.CreatedAt, &scope.RevokedAt, &scope.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		scopeIndex[scope.ID] = len(scopes)
+		scopes = append(scopes, scope)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(scopes) == 0 {
+		return scopes, nil
+	}
+
+	ids := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		ids = append(ids, scope.ID)
+	}
+	grantRows, err := db.Pool.Query(ctx, `
+		SELECT id, access_scope_id, principal_kind, principal_user_id, principal_ref,
+		       principal_selector, principal_selector_hash, link_token_hash,
+		       permission, created_at, revoked_at
+		FROM object_access_grants
+		WHERE access_scope_id = ANY($1::uuid[])
+		ORDER BY created_at ASC, id ASC
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list object access grants: %w", err)
+	}
+	defer grantRows.Close()
+
+	for grantRows.Next() {
+		var grant model.ObjectAccessGrant
+		if err := grantRows.Scan(
+			&grant.ID, &grant.AccessScopeID, &grant.PrincipalKind,
+			&grant.PrincipalUserID, &grant.PrincipalRef,
+			&grant.PrincipalSelector, &grant.PrincipalSelectorHash,
+			&grant.LinkTokenHash, &grant.Permission,
+			&grant.CreatedAt, &grant.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		if idx, ok := scopeIndex[grant.AccessScopeID]; ok {
+			scopes[idx].Grants = append(scopes[idx].Grants, grant)
+		}
+	}
+	if err := grantRows.Err(); err != nil {
+		return nil, err
+	}
+	return scopes, nil
+}
+
+func (db *DB) RevokeObjectAccessScope(ctx context.Context, scopeID, ownerUserID string) error {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(ownerUserID) == "" {
+		return fmt.Errorf("%w: scope and owner are required", ErrObjectAccessValidation)
+	}
+	tag, err := db.Pool.Exec(ctx, `
+		UPDATE object_access_scopes
+		SET revoked_at = COALESCE(revoked_at, NOW())
+		WHERE id = $1
+		  AND owner_kind = 'user'
+		  AND owner_user_id = $2
+	`, scopeID, ownerUserID)
+	if err != nil {
+		return fmt.Errorf("revoke object access scope: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrObjectAccessNotFound
+	}
+	return nil
+}
+
+func (db *DB) RevokeObjectAccessGrants(ctx context.Context, scopeID, ownerUserID string, grantIDs []string) error {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(ownerUserID) == "" {
+		return fmt.Errorf("%w: scope and owner are required", ErrObjectAccessValidation)
+	}
+	if len(grantIDs) == 0 {
+		return nil
+	}
+	tag, err := db.Pool.Exec(ctx, `
+		UPDATE object_access_grants g
+		SET revoked_at = COALESCE(g.revoked_at, NOW())
+		FROM object_access_scopes s
+		WHERE g.access_scope_id = s.id
+		  AND g.access_scope_id = $1
+		  AND s.owner_kind = 'user'
+		  AND s.owner_user_id = $2
+		  AND g.id = ANY($3::uuid[])
+	`, scopeID, ownerUserID, grantIDs)
+	if err != nil {
+		return fmt.Errorf("revoke object access grants: %w", err)
+	}
+	if tag.RowsAffected() != int64(len(grantIDs)) {
+		return ErrObjectAccessNotFound
+	}
+	return nil
+}
+
 func insertObjectAccessGrant(ctx context.Context, q Querier, scopeID string, input model.ObjectAccessGrantInput) (*model.ObjectAccessGrant, error) {
 	kind := strings.TrimSpace(input.PrincipalKind)
 	if kind == "" {
