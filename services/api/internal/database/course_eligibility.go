@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -53,6 +52,59 @@ func (db *DB) RebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 	return db.rebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID, true)
 }
 
+func syncActiveSegmentVersionEligibilitySnapshotTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	_, err := tx.Exec(ctx, `
+		WITH current_segment AS (
+			SELECT segment_type,
+			       sport_group,
+			       allowed_predicates,
+			       (allowed_predicates IS NOT NULL) AS allowed_predicates_set,
+			       bidirectional,
+			       COALESCE(visibility, 'public') AS visibility,
+			       elevation_kind
+			FROM segments
+			WHERE id = $1
+		),
+		active_version AS (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		)
+		UPDATE segment_versions sv
+		SET eligibility_segment_type = cs.segment_type,
+		    eligibility_sport_group = cs.sport_group,
+		    eligibility_allowed_predicates = cs.allowed_predicates,
+		    eligibility_allowed_predicates_set = cs.allowed_predicates_set,
+		    eligibility_bidirectional = cs.bidirectional,
+		    eligibility_visibility = cs.visibility,
+		    eligibility_elevation_kind = cs.elevation_kind
+		FROM current_segment cs, active_version av
+		WHERE sv.id = av.id
+	`, segmentID)
+	if err != nil {
+		return fmt.Errorf("sync active segment version eligibility snapshot: %w", err)
+	}
+	return nil
+}
+
+type segmentCourseEligibilitySnapshot struct {
+	VersionID            string
+	SegmentType          string
+	SportGroup           string
+	RawPredicates        []byte
+	AllowedPredicatesSet bool
+	Bidirectional        bool
+	Visibility           string
+	ElevationKind        string
+}
+
 func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, tx pgx.Tx, segmentID string, seedActivityTraits bool) error {
 	if seedActivityTraits {
 		if err := rebuildActivityTraitProjectionTx(ctx, tx); err != nil {
@@ -60,33 +112,24 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 		}
 	}
 
-	var (
-		segmentType   string
-		sportGroup    string
-		rawPredicates []byte
-		bidirectional bool
-		visibility    string
-		elevationKind string
-	)
-	err := tx.QueryRow(ctx, `
-		SELECT segment_type, sport_group, allowed_predicates, bidirectional, visibility, elevation_kind
-		FROM segments
-		WHERE id = $1
-	`, segmentID).Scan(&segmentType, &sportGroup, &rawPredicates, &bidirectional, &visibility, &elevationKind)
+	var segmentExists bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM segments WHERE id = $1)`, segmentID).Scan(&segmentExists)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return fmt.Errorf("load segment for course eligibility projection: %w", err)
+		return fmt.Errorf("check segment for course eligibility projection: %w", err)
 	}
-	allowedPredicates, err := decodeSegmentPredicates(rawPredicates)
-	if err != nil {
-		return fmt.Errorf("decode segment predicates for course eligibility projection: %w", err)
+	if !segmentExists {
+		return nil
 	}
-	allowedPredicatesSet := rawPredicates != nil
 
 	rows, err := tx.Query(ctx, `
-		SELECT id
+		SELECT id,
+		       eligibility_segment_type,
+		       eligibility_sport_group,
+		       eligibility_allowed_predicates,
+		       eligibility_allowed_predicates_set,
+		       eligibility_bidirectional,
+		       eligibility_visibility,
+		       eligibility_elevation_kind
 		FROM segment_versions
 		WHERE segment_id = $1
 		  AND matching_contract_key = 'course_gps_v1'
@@ -96,14 +139,15 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("load segment versions for course eligibility projection: %w", err)
 	}
-	versionIDs := []string{}
+	snapshots := []segmentCourseEligibilitySnapshot{}
 	for rows.Next() {
-		var versionID string
-		if err := rows.Scan(&versionID); err != nil {
+		var snapshot segmentCourseEligibilitySnapshot
+		if err := rows.Scan(&snapshot.VersionID, &snapshot.SegmentType, &snapshot.SportGroup, &snapshot.RawPredicates,
+			&snapshot.AllowedPredicatesSet, &snapshot.Bidirectional, &snapshot.Visibility, &snapshot.ElevationKind); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan segment version for course eligibility projection: %w", err)
 		}
-		versionIDs = append(versionIDs, versionID)
+		snapshots = append(snapshots, snapshot)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -117,18 +161,26 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 		return fmt.Errorf("delete course eligibility projection rows: %w", err)
 	}
 
-	for _, versionID := range versionIDs {
+	for _, snapshot := range snapshots {
+		rawPredicates := snapshot.RawPredicates
+		if !snapshot.AllowedPredicatesSet {
+			rawPredicates = nil
+		}
+		allowedPredicates, err := decodeSegmentPredicates(rawPredicates)
+		if err != nil {
+			return fmt.Errorf("decode segment version predicates for course eligibility projection: %w", err)
+		}
 		projectedRows := sport.CourseEligibilityRowsForSegment(sport.CourseEligibilityInput{
 			TargetKind:           "segment",
 			TargetID:             segmentID,
-			TargetVersionID:      versionID,
-			SegmentType:          segmentType,
-			SportGroup:           sportGroup,
+			TargetVersionID:      snapshot.VersionID,
+			SegmentType:          snapshot.SegmentType,
+			SportGroup:           snapshot.SportGroup,
 			AllowedPredicates:    allowedPredicates,
-			AllowedPredicatesSet: allowedPredicatesSet,
-			Bidirectional:        bidirectional,
-			Visibility:           visibility,
-			ElevationKind:        elevationKind,
+			AllowedPredicatesSet: snapshot.AllowedPredicatesSet,
+			Bidirectional:        snapshot.Bidirectional,
+			Visibility:           snapshot.Visibility,
+			ElevationKind:        snapshot.ElevationKind,
 			AdapterKey:           courseEligibilityAdapterKey,
 			AdapterVersion:       courseEligibilityAdapterVersion,
 		})
@@ -158,7 +210,7 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 					completion_allowed = EXCLUDED.completion_allowed,
 					rank_allowed = EXCLUDED.rank_allowed,
 					leaderboard_partition_template = EXCLUDED.leaderboard_partition_template
-			`, segmentID, versionID, row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
+			`, segmentID, snapshot.VersionID, row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
 				row.SourceHash, row.CompatibilityPreset, row.ActivityGroup, row.MatchAllowed, row.CompletionAllowed,
 				row.RankAllowed, template); err != nil {
 				return fmt.Errorf("insert course eligibility projection row: %w", err)
@@ -236,13 +288,19 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 	}
 
 	rows, err := db.Pool.Query(ctx, `
-		SELECT s.id, sv.id, s.segment_type, s.sport_group, s.allowed_predicates,
-		       s.bidirectional, s.visibility, s.elevation_kind
-		FROM segments s
-		JOIN segment_versions sv ON sv.segment_id = s.id
+		SELECT sv.segment_id,
+		       sv.id,
+		       sv.eligibility_segment_type,
+		       sv.eligibility_sport_group,
+		       sv.eligibility_allowed_predicates,
+		       sv.eligibility_allowed_predicates_set,
+		       sv.eligibility_bidirectional,
+		       sv.eligibility_visibility,
+		       sv.eligibility_elevation_kind
+		FROM segment_versions sv
 		WHERE sv.matching_contract_key = 'course_gps_v1'
 		  AND sv.matching_contract_version = 1
-		ORDER BY s.id, sv.version_number, sv.id
+		ORDER BY sv.segment_id, sv.version_number, sv.id
 	`)
 	if err != nil {
 		return fmt.Errorf("verify course eligibility projection coverage: %w", err)
@@ -258,13 +316,17 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 			segmentType   string
 			sportGroup    string
 			rawPredicates []byte
+			predicatesSet bool
 			bidirectional bool
 			visibility    string
 			elevationKind string
 		)
 		if err := rows.Scan(&segmentID, &versionID, &segmentType, &sportGroup, &rawPredicates,
-			&bidirectional, &visibility, &elevationKind); err != nil {
+			&predicatesSet, &bidirectional, &visibility, &elevationKind); err != nil {
 			return fmt.Errorf("scan course eligibility coverage row: %w", err)
+		}
+		if !predicatesSet {
+			rawPredicates = nil
 		}
 		allowedPredicates, err := decodeSegmentPredicates(rawPredicates)
 		if err != nil {
@@ -277,7 +339,7 @@ func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) err
 			SegmentType:          segmentType,
 			SportGroup:           sportGroup,
 			AllowedPredicates:    allowedPredicates,
-			AllowedPredicatesSet: rawPredicates != nil,
+			AllowedPredicatesSet: predicatesSet,
 			Bidirectional:        bidirectional,
 			Visibility:           visibility,
 			ElevationKind:        elevationKind,

@@ -17,6 +17,8 @@ ALTER TABLE segment_efforts
 ALTER TABLE segment_versions
     DROP CONSTRAINT IF EXISTS segment_versions_validity_order_chk,
     DROP CONSTRAINT IF EXISTS segment_versions_validity_basis_chk,
+    DROP CONSTRAINT IF EXISTS segment_versions_eligibility_elevation_kind_chk,
+    DROP CONSTRAINT IF EXISTS segment_versions_eligibility_segment_type_chk,
     DROP CONSTRAINT IF EXISTS segment_versions_matching_contract_chk;
 
 ALTER TABLE segments
@@ -54,6 +56,13 @@ ALTER TABLE segment_efforts
     DROP COLUMN IF EXISTS matching_contract_key;
 
 ALTER TABLE segment_versions
+    DROP COLUMN IF EXISTS eligibility_elevation_kind,
+    DROP COLUMN IF EXISTS eligibility_visibility,
+    DROP COLUMN IF EXISTS eligibility_bidirectional,
+    DROP COLUMN IF EXISTS eligibility_allowed_predicates_set,
+    DROP COLUMN IF EXISTS eligibility_allowed_predicates,
+    DROP COLUMN IF EXISTS eligibility_sport_group,
+    DROP COLUMN IF EXISTS eligibility_segment_type,
     DROP COLUMN IF EXISTS published_at,
     DROP COLUMN IF EXISTS validity_basis,
     DROP COLUMN IF EXISTS valid_until_at,

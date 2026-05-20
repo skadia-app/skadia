@@ -42,7 +42,7 @@ func TestGetSegmentPerformancesCollapsesRecordingGroupAndDuplicateEfforts(t *tes
 	}
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
-		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, $3)`,
+		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(-179 -80, -178.99 -79.99)', 4326), CURRENT_DATE, $3)`,
 		versionID, segmentID, userID,
 	); err != nil {
 		t.Fatalf("insert segment version: %v", err)
@@ -93,14 +93,23 @@ func TestGetSegmentPerformancesCollapsesRecordingGroupAndDuplicateEfforts(t *tes
 	}
 	for _, activityID := range []string{primaryID, secondaryID} {
 		for _, effortStart := range effortStarts {
-			for range 3 {
+			activeEffortID := uuid.NewString()
+			if _, err := pool.Exec(ctx,
+				`INSERT INTO segment_efforts
+				 (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type)
+				 VALUES ($1, $2, $3, $4, $5, $6, 60, false, 'cycling', 'mountain')`,
+				activeEffortID, segmentID, versionID, activityID, userID, effortStart,
+			); err != nil {
+				t.Fatalf("insert active segment effort: %v", err)
+			}
+			for range 2 {
 				if _, err := pool.Exec(ctx,
 					`INSERT INTO segment_efforts
-					 (segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type)
-					 VALUES ($1, $2, $3, $4, $5, 60, false, 'cycling', 'mountain')`,
-					segmentID, versionID, activityID, userID, effortStart,
+					 (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type, superseded_by_effort_id, in_leaderboard)
+					 VALUES ($1, $2, $3, $4, $5, $6, 60, false, 'cycling', 'mountain', $7, false)`,
+					uuid.NewString(), segmentID, versionID, activityID, userID, effortStart, activeEffortID,
 				); err != nil {
-					t.Fatalf("insert segment effort: %v", err)
+					t.Fatalf("insert superseded segment effort: %v", err)
 				}
 			}
 		}
@@ -186,7 +195,7 @@ func TestListActivityIDsForSegmentRecomputeIncludesExistingEfforts(t *testing.T)
 	}
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
-		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, $3)`,
+		 VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(-179 -80, -178.99 -79.99)', 4326), CURRENT_DATE, $3)`,
 		versionID, segmentID, userID,
 	); err != nil {
 		t.Fatalf("insert segment version: %v", err)

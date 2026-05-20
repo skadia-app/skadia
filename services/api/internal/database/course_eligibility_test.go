@@ -56,7 +56,8 @@ func TestRebuildSegmentCourseEligibilityProjectionEmptyPredicatesDeletesRows(t *
 		t.Fatalf("initial rebuild produced no rows")
 	}
 
-	if _, err := db.Pool.Exec(ctx, `UPDATE segments SET allowed_predicates = '[]'::jsonb WHERE id = $1`, segmentID); err != nil {
+	emptyPredicates := json.RawMessage(`[]`)
+	if _, err := db.UpdateSegment(ctx, segmentID, userID, false, &model.SegmentUpdate{AllowedPredicates: emptyPredicates}); err != nil {
 		t.Fatalf("set empty predicates: %v", err)
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segmentID); err != nil {
@@ -97,7 +98,7 @@ func TestRebuildSegmentCourseEligibilityProjectionUpdatesAfterSegmentTypeChange(
 
 	var rankAllowed bool
 	if err := db.Pool.QueryRow(ctx, `
-		SELECT bool_or(rank_allowed)
+		SELECT COALESCE(bool_or(rank_allowed), false)
 		FROM target_course_eligibility_projection
 		WHERE target_kind = 'segment' AND target_id = $1 AND compatibility_preset = 'lift'
 	`, segmentID).Scan(&rankAllowed); err != nil {
@@ -159,6 +160,38 @@ func TestUpdateSegmentNewVersionRebuildsCourseEligibilityProjection(t *testing.T
 	}
 	if got := countProjectedVersions(t, db, segment.ID); got != 2 {
 		t.Fatalf("projected versions after new version = %d, want 2", got)
+	}
+}
+
+func TestUpdateSegmentNewVersionSnapshotsEligibilityAtVersionBoundary(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segment := createCourseEligibilitySegment(t, db, userID, "standard", "bike", nil)
+
+	liftType := "lift"
+	if _, err := db.UpdateSegment(ctx, segment.ID, userID, false, &model.SegmentUpdate{
+		NewVersion:  true,
+		SegmentType: &liftType,
+	}); err != nil {
+		t.Fatalf("UpdateSegment new lift version: %v", err)
+	}
+
+	v1 := segmentVersionIDByNumber(t, db, segment.ID, 1)
+	v2 := segmentVersionIDByNumber(t, db, segment.ID, 2)
+	if !courseEligibilityPresetExists(t, db, segment.ID, v1, "standard") {
+		t.Fatalf("version 1 lost standard eligibility snapshot")
+	}
+	if courseEligibilityPresetExists(t, db, segment.ID, v1, "lift") {
+		t.Fatalf("version 1 was rebuilt from later lift metadata")
+	}
+	if !courseEligibilityPresetExists(t, db, segment.ID, v2, "lift") {
+		t.Fatalf("version 2 did not snapshot lift eligibility")
+	}
+	if courseEligibilityPresetExists(t, db, segment.ID, v2, "standard") {
+		t.Fatalf("version 2 kept previous standard eligibility")
+	}
+	if courseEligibilityAnyRankAllowed(t, db, segment.ID, v2, "lift") {
+		t.Fatalf("lift eligibility snapshot allowed ranking")
 	}
 }
 
@@ -337,4 +370,51 @@ func courseEligibilityRowExists(t *testing.T, db *DB, segmentID, bucketKey strin
 		t.Fatalf("query course eligibility row: %v", err)
 	}
 	return exists
+}
+
+func courseEligibilityPresetExists(t *testing.T, db *DB, segmentID, versionID, preset string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT EXISTS (
+			SELECT 1
+			FROM target_course_eligibility_projection
+			WHERE target_kind = 'segment'
+			  AND target_id = $1
+			  AND target_version_id = $2
+			  AND compatibility_preset = $3
+		)
+	`, segmentID, versionID, preset).Scan(&exists); err != nil {
+		t.Fatalf("query course eligibility preset: %v", err)
+	}
+	return exists
+}
+
+func courseEligibilityAnyRankAllowed(t *testing.T, db *DB, segmentID, versionID, preset string) bool {
+	t.Helper()
+	var allowed bool
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT COALESCE(bool_or(rank_allowed), false)
+		FROM target_course_eligibility_projection
+		WHERE target_kind = 'segment'
+		  AND target_id = $1
+		  AND target_version_id = $2
+		  AND compatibility_preset = $3
+	`, segmentID, versionID, preset).Scan(&allowed); err != nil {
+		t.Fatalf("query course eligibility rank_allowed: %v", err)
+	}
+	return allowed
+}
+
+func segmentVersionIDByNumber(t *testing.T, db *DB, segmentID string, versionNumber int) string {
+	t.Helper()
+	var versionID string
+	if err := db.Pool.QueryRow(context.Background(), `
+		SELECT id
+		FROM segment_versions
+		WHERE segment_id = $1 AND version_number = $2
+	`, segmentID, versionNumber).Scan(&versionID); err != nil {
+		t.Fatalf("query segment version %d: %v", versionNumber, err)
+	}
+	return versionID
 }

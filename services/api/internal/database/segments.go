@@ -764,17 +764,6 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 	defer tx.Rollback(ctx)
 
-	// If new_version is requested, copy the active segment_version inside the
-	// same transaction as the projection rebuild so a rebuild failure cannot
-	// leave a version without eligibility rows.
-	newVersionCreated := false
-	if update.NewVersion {
-		if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
-			return nil, err
-		}
-		newVersionCreated = true
-	}
-
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -889,7 +878,10 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 
 	if len(setClauses) == 0 {
-		if newVersionCreated {
+		if update.NewVersion {
+			if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+				return nil, err
+			}
 			if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 				return nil, err
 			}
@@ -918,6 +910,15 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, nil
+	}
+	if update.NewVersion {
+		if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
@@ -1125,6 +1126,9 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 	}
 	if tag.RowsAffected() == 0 {
 		return false, nil
+	}
+	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+		return false, err
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return false, err
