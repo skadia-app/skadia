@@ -38,7 +38,6 @@ import { throwOnApiResponse } from '@/api/client'
 import type { GeoTag, ActivityStop, LiftCandidate } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
-import type { TrackSummaryGeoTagItem, TrackSummaryWaterItem } from '@/api/trackSummary'
 import MultisportSection from '@/components/MultisportSection'
 import { MultisportMap, type MultisportMapHandle } from '@/components/activity/MultisportMap'
 import MultisportEnrichments from '@/components/activity/MultisportEnrichments'
@@ -57,6 +56,7 @@ import { RadarDensityChart } from '@/components/activity/RadarDensityChart'
 import { SensorList } from '@/components/activity/SensorList'
 import ActivityOverview from '@/components/activity/ActivityOverview'
 import TrackMap, { type HighlightedPoi, type HighlightedPoiHoverKind, type SurfaceHighlightKey } from '@/components/activity/TrackMap'
+import { resolveTrackSummaryPoiCoords } from '@/components/activity/highlightedPois'
 import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import type { HighlightKind } from '@/hooks/useStickyHighlight'
 import ZoneDistributionChart from '@/components/activity/ZoneDistributionChart'
@@ -468,19 +468,9 @@ export default function ActivityDetailPage() {
     const summary = trackSummaryQuery.data
     if (!summary || activity?.sport_type === 'multisport') return []
 
-    const resolveCoords = (item: TrackSummaryGeoTagItem | TrackSummaryWaterItem) => {
-      if (item.track_pos != null && gpsStreams.length > 0) {
-        const idx = Math.max(0, Math.min(gpsStreams.length - 1, Math.round(item.track_pos * (gpsStreams.length - 1))))
-        const point = gpsStreams[idx]
-        if (point) return { lat: point.lat, lng: point.lng }
-      }
-      if (item.lat != null && item.lng != null) return { lat: item.lat, lng: item.lng }
-      return null
-    }
-
     const pois: HighlightedPoi[] = []
     for (const item of summary.summits ?? []) {
-      const coords = resolveCoords(item)
+      const coords = resolveTrackSummaryPoiCoords(item, gpsStreams)
       if (!coords) continue
       const category = item.category === 'pass' ? 'pass' : 'summit'
       pois.push({
@@ -495,7 +485,7 @@ export default function ActivityDetailPage() {
       })
     }
     for (const item of summary.waters ?? []) {
-      const coords = resolveCoords(item)
+      const coords = resolveTrackSummaryPoiCoords(item, gpsStreams)
       if (!coords) continue
       pois.push({
         id: `summary-water-${item.id}`,
@@ -509,7 +499,7 @@ export default function ActivityDetailPage() {
       })
     }
     for (const item of summary.settlements ?? []) {
-      const coords = resolveCoords(item)
+      const coords = resolveTrackSummaryPoiCoords(item, gpsStreams)
       if (!coords) continue
       pois.push({
         id: `summary-settlement-${item.id}`,
