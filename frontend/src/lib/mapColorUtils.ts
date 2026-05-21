@@ -294,6 +294,7 @@ export interface DownsampleResult {
   points: StreamPoint[]
   streamIndices: number[]     // streamIndices[i] = original index of points[i]
   strides: number[]            // strides[i] = count of original points the segment i→i+1 covers
+  connects?: boolean[]          // false when viewport filtering removed GPS points between endpoints
   /**
    * Aggregated metric value per segment (length = strides.length).
    * Linear mode: window mean. Zones mode: majority zone index.
@@ -305,6 +306,11 @@ export interface DownsampleResult {
 
 export interface LngLatBoundsLike {
   west: number; south: number; east: number; north: number
+}
+
+function pointInBounds(s: StreamPoint, bounds: LngLatBoundsLike): boolean {
+  if (s.lat == null || s.lng == null) return false
+  return s.lng >= bounds.west && s.lng <= bounds.east && s.lat >= bounds.south && s.lat <= bounds.north
 }
 
 /**
@@ -330,8 +336,7 @@ export function downsampleUniform(
     const s = streams[i]
     if (s.lat == null || s.lng == null) continue
     if (viewportBounds) {
-      if (s.lng < viewportBounds.west || s.lng > viewportBounds.east) continue
-      if (s.lat < viewportBounds.south || s.lat > viewportBounds.north) continue
+      if (!pointInBounds(s, viewportBounds)) continue
     }
     filteredIdx.push(i)
   }
@@ -344,8 +349,9 @@ export function downsampleUniform(
     const points = filteredIdx.map(i => streams[i])
     const streamIndices = [...filteredIdx]
     const strides = points.slice(0, -1).map((_, i) => streamIndices[i + 1] - streamIndices[i])
+    const connects = buildViewportConnects(streams, streamIndices, viewportBounds)
     const aggregated = aggregateSegments(streams, streamIndices, strides, metric, mode, zoneHighs)
-    return { points, streamIndices, strides, aggregated }
+    return { points, streamIndices, strides, connects, aggregated }
   }
 
   // Stride-based downsampling (ceil so stride >= len/target → result <= target)
@@ -364,8 +370,25 @@ export function downsampleUniform(
     streamIndices.push(lastOrigIdx)
   }
   const strides = points.slice(0, -1).map((_, i) => streamIndices[i + 1] - streamIndices[i])
+  const connects = buildViewportConnects(streams, streamIndices, viewportBounds)
   const aggregated = aggregateSegments(streams, streamIndices, strides, metric, mode, zoneHighs)
-  return { points, streamIndices, strides, aggregated }
+  return { points, streamIndices, strides, connects, aggregated }
+}
+
+function buildViewportConnects(
+  streams: StreamPoint[],
+  streamIndices: number[],
+  viewportBounds?: LngLatBoundsLike,
+): boolean[] | undefined {
+  if (!viewportBounds) return undefined
+  return streamIndices.slice(0, -1).map((startIdx, i) => {
+    const endIdx = streamIndices[i + 1]
+    for (let j = startIdx + 1; j < endIdx; j++) {
+      const s = streams[j]
+      if (s.lat != null && s.lng != null && !pointInBounds(s, viewportBounds)) return false
+    }
+    return true
+  })
 }
 
 /** Collect raw values in each stride window and aggregate via aggregateWindow. */
@@ -423,6 +446,7 @@ export function buildSegmentFeatures(
 ): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = []
   for (let i = 0; i < ds.points.length - 1; i++) {
+    if (ds.connects?.[i] === false) continue
     const a = ds.points[i]
     const b = ds.points[i + 1]
     if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) continue
