@@ -1755,6 +1755,38 @@ func main() {
 			r.Get("/access-scopes", h.ListObjectAccessScopes)
 			r.Patch("/access-scopes/{id}", h.UpdateObjectAccessScope)
 
+			// Target objects
+			r.Get("/target-places", h.ListTargetPlaces)
+			r.Post("/target-places", h.CreateTargetPlace)
+			r.Get("/target-places/{id}", h.GetTargetPlace)
+			r.Patch("/target-places/{id}", h.UpdateTargetPlace)
+			r.Delete("/target-places/{id}", h.DeleteTargetPlace)
+
+			r.Get("/target-regions", h.ListTargetRegions)
+			r.Post("/target-regions", h.CreateTargetRegion)
+			r.Get("/target-regions/{id}", h.GetTargetRegion)
+			r.Patch("/target-regions/{id}", h.UpdateTargetRegion)
+			r.Delete("/target-regions/{id}", h.DeleteTargetRegion)
+
+			r.Get("/target-collections", h.ListTargetCollections)
+			r.Post("/target-collections", h.CreateTargetCollection)
+			r.Get("/target-collections/{id}", h.GetTargetCollection)
+			r.Patch("/target-collections/{id}", h.UpdateTargetCollection)
+			r.Delete("/target-collections/{id}", h.DeleteTargetCollection)
+			r.Post("/target-collections/{id}/members", h.AddTargetCollectionMember)
+			r.Patch("/target-collections/{id}/members/{member_id}", h.UpdateTargetCollectionMember)
+			r.Delete("/target-collections/{id}/members/{member_id}", h.DeleteTargetCollectionMember)
+
+			r.Get("/governance-scopes", h.ListGovernanceScopes)
+			r.Post("/governance-scopes", h.CreateGovernanceScope)
+			r.Get("/governance-scopes/{id}", h.GetGovernanceScope)
+			r.Patch("/governance-scopes/{id}", h.UpdateGovernanceScope)
+			r.Post("/governance-scopes/{id}/roles", h.AddGovernanceRole)
+			r.Patch("/governance-scopes/{id}/roles/{role_id}", h.UpdateGovernanceRole)
+			r.Post("/governance-scopes/{id}/bindings", h.AddGovernanceBinding)
+			r.Patch("/governance-scopes/{id}/bindings/{binding_id}", h.UpdateGovernanceBinding)
+			r.Get("/governance/effective-targets", h.ListGovernanceEffectiveTargets)
+
 			// Segments
 			r.Get("/segment-prs", h.GetSegmentPRs)
 			r.Get("/segment-prs/global-top", h.GetGlobalTopSegmentEfforts)
