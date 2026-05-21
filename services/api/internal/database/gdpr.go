@@ -555,6 +555,70 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		recordPurgeFailure("phase2_governance_creator", err.Error())
 		return fmt.Errorf("GDPR: anonymize governance scope creators: %w", err)
 	}
+	userOverlaySubjectWhere := `
+		(overlay_subject_kind = 'course' AND subject_id IN (SELECT id FROM segments WHERE created_by = $1))
+		OR (overlay_subject_kind = 'route_publication' AND subject_id IN (
+			SELECT id FROM route_course_publications
+			WHERE actor_user_id = $1
+			   OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+			   OR route_snapshot_id IN (
+					SELECT id FROM planned_route_snapshots
+					WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+			   )
+			   OR course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		))
+		OR (overlay_subject_kind = 'place' AND subject_id IN (
+			SELECT id FROM target_places WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+		OR (overlay_subject_kind = 'region' AND subject_id IN (
+			SELECT id FROM target_regions WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+		OR (overlay_subject_kind = 'collection' AND subject_id IN (
+			SELECT id FROM target_collections WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+	`
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_activity_observations
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_activity_observations", err.Error())
+		return fmt.Errorf("GDPR: delete target activity observations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_reports
+		WHERE author_user_id = $1
+		   OR source_activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_reports", err.Error())
+		return fmt.Errorf("GDPR: delete target reports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE target_report_status_events
+		SET actor_user_id = NULL
+		WHERE actor_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_report_status_events", err.Error())
+		return fmt.Errorf("GDPR: anonymize target report status events: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_user_content
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_user_content", err.Error())
+		return fmt.Errorf("GDPR: delete target user content: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_overlay_summary_projection
+		WHERE %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_overlay_summaries", err.Error())
+		return fmt.Errorf("GDPR: delete target overlay summaries: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `UPDATE target_change_events SET actor_user_id = NULL WHERE actor_user_id = $1`, userID); err != nil {
 		recordPurgeFailure("phase2_target_change_events_actor", err.Error())
 		return fmt.Errorf("GDPR: anonymize target change events: %w", err)
@@ -564,7 +628,21 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 			SELECT id
 			FROM target_revision_snapshots
 			WHERE redaction_policy = 'owner_private'
-			  AND created_by = $1
+			  AND (
+				created_by = $1
+				OR (subject_type = 'place' AND subject_id IN (
+					SELECT id FROM target_places
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'region' AND subject_id IN (
+					SELECT id FROM target_regions
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'collection' AND subject_id IN (
+					SELECT id FROM target_collections
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+			  )
 		)
 		UPDATE target_change_events
 		SET before_snapshot_id = NULL
@@ -578,7 +656,21 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 			SELECT id
 			FROM target_revision_snapshots
 			WHERE redaction_policy = 'owner_private'
-			  AND created_by = $1
+			  AND (
+				created_by = $1
+				OR (subject_type = 'place' AND subject_id IN (
+					SELECT id FROM target_places
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'region' AND subject_id IN (
+					SELECT id FROM target_regions
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'collection' AND subject_id IN (
+					SELECT id FROM target_collections
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+			  )
 		)
 		UPDATE target_change_events
 		SET after_snapshot_id = NULL
@@ -590,7 +682,21 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM target_revision_snapshots
 		WHERE redaction_policy = 'owner_private'
-		  AND created_by = $1
+		  AND (
+			created_by = $1
+			OR (subject_type = 'place' AND subject_id IN (
+				SELECT id FROM target_places
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+			OR (subject_type = 'region' AND subject_id IN (
+				SELECT id FROM target_regions
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+			OR (subject_type = 'collection' AND subject_id IN (
+				SELECT id FROM target_collections
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+		  )
 	`, userID); err != nil {
 		recordPurgeFailure("phase2_target_revision_snapshots", err.Error())
 		return fmt.Errorf("GDPR: delete private target revision snapshots: %w", err)

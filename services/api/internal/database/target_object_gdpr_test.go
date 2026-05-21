@@ -41,6 +41,68 @@ func TestGDPRDeletesPrivateTargetObjectsAndCollections(t *testing.T) {
 	assertTargetObjectProjectionAccessState(t, db, "place", remainingSharedPlaceID, "private", false)
 }
 
+func TestGDPRDeletesTargetOverlayRows(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "gdpr overlay place", "private", nil, `[8,49]`)
+
+	reportID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_reports (
+			id, overlay_subject_kind, subject_id, author_user_id, report_type,
+			visibility, attribution_mode, description, observed_at, moderation_state
+		)
+		VALUES ($1, 'place', $2, $3, 'condition', 'private', 'named', 'owner report', NOW(), 'visible')
+	`, reportID, place.ID, userID); err != nil {
+		t.Fatalf("insert target report fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_report_status_events (report_id, actor_user_id, status, reason)
+		VALUES ($1, $2, 'open', 'created')
+	`, reportID, userID); err != nil {
+		t.Fatalf("insert target report status fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_activity_observations (
+			overlay_subject_kind, subject_id, user_id, observation_type,
+			source_type, source_id, source_occurrence_key, visibility,
+			visibility_snapshot, occurred_at
+		)
+		VALUES ('place', $1, $2, 'visit', 'manual', 'visit-1', 'once', 'private', 'private', NOW())
+	`, place.ID, userID); err != nil {
+		t.Fatalf("insert target observation fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_user_content (
+			overlay_subject_kind, subject_id, user_id, content_kind, payload, visibility
+		)
+		VALUES ('place', $1, $2, 'comment', '{"text":"fixture"}'::jsonb, 'private')
+	`, place.ID, userID); err != nil {
+		t.Fatalf("insert target user content fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_overlay_summary_projection (
+			overlay_subject_kind, subject_id, visibility_scope, public_open_report_count
+		)
+		VALUES ('place', $1, 'public', 1)
+	`, place.ID); err != nil {
+		t.Fatalf("insert target overlay summary fixture: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `UPDATE users SET deleted_at = NOW() WHERE id = $1`, userID); err != nil {
+		t.Fatalf("mark user deleted: %v", err)
+	}
+	if err := db.DeleteUserData(ctx, userID, nil); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
+	}
+
+	assertTargetObjectGDPRCount(t, db, "target_activity_observations", `SELECT COUNT(*) FROM target_activity_observations WHERE subject_id = $1 OR user_id = $2`, place.ID, userID)
+	assertTargetObjectGDPRCount(t, db, "target_reports", `SELECT COUNT(*) FROM target_reports WHERE subject_id = $1 OR author_user_id = $2`, place.ID, userID)
+	assertTargetObjectGDPRCount(t, db, "target_report_status_events", `SELECT COUNT(*) FROM target_report_status_events WHERE report_id = $1 OR actor_user_id = $2`, reportID, userID)
+	assertTargetObjectGDPRCount(t, db, "target_user_content", `SELECT COUNT(*) FROM target_user_content WHERE subject_id = $1 OR user_id = $2`, place.ID, userID)
+	assertTargetObjectGDPRCount(t, db, "target_overlay_summary_projection", `SELECT COUNT(*) FROM target_overlay_summary_projection WHERE subject_id = $1`, place.ID)
+}
+
 func TestGDPRAnonymizesTargetChangeEvents(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -49,7 +111,7 @@ func TestGDPRAnonymizesTargetChangeEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin target audit fixture: %v", err)
 	}
-	if err := writeTargetChangeEventTx(ctx, tx, "place", place.ID, objectAccessPtrString("place"), &place.ID, nil, userID, "update_place", place); err != nil {
+	if err := writeTargetChangeEventTx(ctx, tx, "place", place.ID, objectAccessPtrString("place"), &place.ID, nil, userID, "update_place", nil, place); err != nil {
 		tx.Rollback(ctx) //nolint:errcheck
 		t.Fatalf("write target audit fixture: %v", err)
 	}
@@ -95,6 +157,37 @@ func TestGDPRAnonymizesTargetChangeEvents(t *testing.T) {
 	if remainingEvents == 0 {
 		t.Fatal("GDPR purge deleted target change history instead of anonymizing it")
 	}
+}
+
+func TestGDPRDeletesPrivateTargetSnapshotsBySubjectOwner(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	adminID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, userID, "gdpr admin snapshot place", "private", nil, `[8,49]`)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin target audit fixture: %v", err)
+	}
+	if err := writeTargetChangeEventTx(ctx, tx, "place", place.ID, objectAccessPtrString("place"), &place.ID, nil, adminID, "admin_update_place", nil, place); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("write target audit fixture: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit target audit fixture: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `UPDATE users SET deleted_at = NOW() WHERE id = $1`, userID); err != nil {
+		t.Fatalf("mark user deleted: %v", err)
+	}
+	if err := db.DeleteUserData(ctx, userID, nil); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
+	}
+
+	assertTargetObjectGDPRCount(t, db, "owner-private snapshots for deleted-user private place written by admin", `
+		SELECT COUNT(*)
+		FROM target_revision_snapshots
+		WHERE subject_type = 'place' AND subject_id = $1 AND redaction_policy = 'owner_private'
+	`, place.ID)
 }
 
 func TestGDPRRemovesGovernanceRolesAndBindings(t *testing.T) {
