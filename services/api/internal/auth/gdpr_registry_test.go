@@ -271,6 +271,39 @@ func TestSystemCacheTablesExplicitlyRegistered(t *testing.T) {
 	}
 }
 
+func TestCheckpointCourseTablesHaveGDPRContract(t *testing.T) {
+	expected := map[string]TableCategory{
+		"course_version_controls":           Export,
+		"checkpoint_course_effort_controls": Derived,
+		"checkpoint_course_projection":      Derived,
+	}
+	for table, want := range expected {
+		got, ok := GDPRRegistry[table]
+		if !ok {
+			t.Fatalf("%s missing from GDPRRegistry", table)
+		}
+		if got != want {
+			t.Fatalf("%s category = %v, want %v", table, got, want)
+		}
+	}
+
+	exported := false
+	for _, spec := range gdprExportTables() {
+		if spec.table == "course_version_controls" {
+			exported = true
+			if spec.where != "segment_id IN (SELECT id FROM segments WHERE created_by = $1) ORDER BY segment_version_id, sequence_index" {
+				t.Fatalf("course_version_controls export where = %q", spec.where)
+			}
+		}
+		if spec.table == "checkpoint_course_projection" {
+			t.Fatal("derived checkpoint projection must not be exported as user-authored content")
+		}
+	}
+	if !exported {
+		t.Fatal("course_version_controls missing from gdprExportTables")
+	}
+}
+
 func TestCourseEligibilityProjectionGDPRClassification(t *testing.T) {
 	if got := GDPRRegistry["target_course_eligibility_projection"]; got != Derived {
 		t.Fatalf("target_course_eligibility_projection category = %v, want Derived", got)
@@ -545,12 +578,15 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		"health_training_load":      true,
 		"health_readiness_scores":   true,
 		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
-		"user_daily_features":                    true,
-		"llm_user_config":                        true, // no FK at all
-		"segment_efforts":                        true, // user_id NO ACTION
-		"segment_versions":                       true, // created_by NO ACTION
-		"segments":                               true, // created_by NO ACTION
-		"segment_leaderboard_equivalence_groups": true, // segment-owned rows cascade through explicit segment purge; created_by SET NULL otherwise
+		"user_daily_features":                            true,
+		"llm_user_config":                                true, // no FK at all
+		"segment_efforts":                                true, // user_id NO ACTION
+		"segment_versions":                               true, // created_by NO ACTION
+		"segments":                                       true, // created_by NO ACTION
+		"course_version_controls":                        true, // segment-owned rows cascade through explicit segment purge
+		"checkpoint_course_effort_controls":              true, // derived effort evidence cascades through explicit effort/segment purge
+		"checkpoint_course_projection":                   true, // derived segment projection cascades through explicit segment purge
+		"segment_leaderboard_equivalence_groups":         true, // segment-owned rows cascade through explicit segment purge; created_by SET NULL otherwise
 		"segment_leaderboard_equivalence_group_versions": true, // cascades through segment/version/equivalence purge
 		"segment_version_revisions":                      true, // segment-owned rows cascade through explicit segment purge; actor_user_id SET NULL otherwise
 		"target_course_eligibility_projection":           true, // derived segment projection; explicit delete before segment purge

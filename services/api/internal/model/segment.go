@@ -8,49 +8,55 @@ import (
 )
 
 type Segment struct {
-	ID                string            `json:"id" db:"id"`
-	CreatedBy         string            `json:"created_by" db:"created_by"`
-	Name              string            `json:"name" db:"name"`
-	Description       *string           `json:"description,omitempty" db:"description"`
-	SportGroup        string            `json:"sport_group" db:"sport_group"`
-	AllowedPredicates []sport.Predicate `json:"allowed_predicates" db:"allowed_predicates"`
-	SegmentType       string            `json:"segment_type" db:"segment_type"`
-	SegmentTypeMeta   json.RawMessage   `json:"segment_type_meta" db:"segment_type_meta"`
-	SourceActivityID  *string           `json:"source_activity_id,omitempty" db:"source_activity_id"`
-	OsmLiftID         *int64            `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
-	DistanceM         *float64          `json:"distance_m,omitempty" db:"distance_m"`
-	ElevationGainM    *float64          `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
-	EffortCount       int               `json:"effort_count" db:"effort_count"`
-	AthleteCount      int               `json:"athlete_count" db:"athlete_count"`
-	RiddenCount       int               `json:"ridden_count" db:"ridden_count"`
-	IsFavorite        bool              `json:"is_favorite" db:"is_favorite"`
-	Visibility        string            `json:"visibility" db:"visibility"`
-	AccessScopeID     *string           `json:"access_scope_id,omitempty" db:"access_scope_id"`
-	RouteHash         *string           `json:"route_hash,omitempty" db:"route_hash"`
-	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
-	TerrainType       *string           `json:"terrain_type,omitempty" db:"terrain_type"`
-	ClimbType         *string           `json:"climb_type,omitempty" db:"climb_type"`
-	ElevationKind     string            `json:"elevation_kind" db:"elevation_kind"`
-	Bidirectional     bool              `json:"bidirectional" db:"bidirectional"`
+	ID                 string                        `json:"id" db:"id"`
+	CreatedBy          string                        `json:"created_by" db:"created_by"`
+	Name               string                        `json:"name" db:"name"`
+	Description        *string                       `json:"description,omitempty" db:"description"`
+	SportGroup         string                        `json:"sport_group" db:"sport_group"`
+	AllowedPredicates  []sport.Predicate             `json:"allowed_predicates" db:"allowed_predicates"`
+	SegmentType        string                        `json:"segment_type" db:"segment_type"`
+	SegmentTypeMeta    json.RawMessage               `json:"segment_type_meta" db:"segment_type_meta"`
+	SourceActivityID   *string                       `json:"source_activity_id,omitempty" db:"source_activity_id"`
+	OsmLiftID          *int64                        `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
+	DistanceM          *float64                      `json:"distance_m,omitempty" db:"distance_m"`
+	ElevationGainM     *float64                      `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
+	EffortCount        int                           `json:"effort_count" db:"effort_count"`
+	AthleteCount       int                           `json:"athlete_count" db:"athlete_count"`
+	RiddenCount        int                           `json:"ridden_count" db:"ridden_count"`
+	IsFavorite         bool                          `json:"is_favorite" db:"is_favorite"`
+	Visibility         string                        `json:"visibility" db:"visibility"`
+	AccessScopeID      *string                       `json:"access_scope_id,omitempty" db:"access_scope_id"`
+	RouteHash          *string                       `json:"route_hash,omitempty" db:"route_hash"`
+	CreatedAt          time.Time                     `json:"created_at" db:"created_at"`
+	TerrainType        *string                       `json:"terrain_type,omitempty" db:"terrain_type"`
+	ClimbType          *string                       `json:"climb_type,omitempty" db:"climb_type"`
+	ElevationKind      string                        `json:"elevation_kind" db:"elevation_kind"`
+	Bidirectional      bool                          `json:"bidirectional" db:"bidirectional"`
+	CourseKind         string                        `json:"course_kind" db:"course_kind"`
+	ControlSummary     *CheckpointControlSummary     `json:"control_summary,omitempty" db:"control_summary"`
+	ControlMapFeatures []CheckpointControlMapFeature `json:"control_map_features,omitempty" db:"control_map_features"`
+	Controls           []CheckpointControl           `json:"controls,omitempty"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }
 
 type SegmentCreate struct {
-	Name              string            `json:"name"`
-	SportGroup        string            `json:"sport_group"`
-	SegmentType       string            `json:"segment_type"`
-	SegmentTypeMeta   json.RawMessage   `json:"segment_type_meta,omitempty"`
-	GeoJSONTrack      string            `json:"geojson_track"`
-	SourceActivityID  *string           `json:"source_activity_id,omitempty"`
-	Description       *string           `json:"description,omitempty"`
-	TerrainType       string            `json:"terrain_type"`
-	ClimbType         string            `json:"climb_type"`
-	ElevationKind     *string           `json:"elevation_kind,omitempty"`
-	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private" | "shared"; default "public"
-	AccessScopeID     *string           `json:"access_scope_id,omitempty"`    // required for shared, forbidden for public/private
-	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"` // nil = legacy match-all inside stored sport_group; [] = none; entries = tuple predicates
-	Bidirectional     *bool             `json:"bidirectional,omitempty"`      // nil = use sport-group default
+	Name              string              `json:"name"`
+	SportGroup        string              `json:"sport_group"`
+	SegmentType       string              `json:"segment_type"`
+	SegmentTypeMeta   json.RawMessage     `json:"segment_type_meta,omitempty"`
+	GeoJSONTrack      string              `json:"geojson_track"`
+	SourceActivityID  *string             `json:"source_activity_id,omitempty"`
+	Description       *string             `json:"description,omitempty"`
+	TerrainType       string              `json:"terrain_type"`
+	ClimbType         string              `json:"climb_type"`
+	ElevationKind     *string             `json:"elevation_kind,omitempty"`
+	Visibility        string              `json:"visibility,omitempty"`         // "public" | "private" | "shared"; default "public"
+	AccessScopeID     *string             `json:"access_scope_id,omitempty"`    // required for shared, forbidden for public/private
+	AllowedPredicates []sport.Predicate   `json:"allowed_predicates,omitempty"` // nil = legacy match-all inside stored sport_group; [] = none; entries = tuple predicates
+	Bidirectional     *bool               `json:"bidirectional,omitempty"`      // nil = use sport-group default
+	CourseKind        string              `json:"course_kind,omitempty"`
+	Controls          []CheckpointControl `json:"controls,omitempty"`
 }
 
 type SegmentUpdate struct {
@@ -177,10 +183,102 @@ type SegmentEffort struct {
 	InLeaderboard                  bool      `json:"in_leaderboard"`
 	CreatedAt                      time.Time `json:"created_at"`
 	// Joined fields
-	SegmentName     *string          `json:"segment_name,omitempty"`
-	DisplayName     *string          `json:"display_name,omitempty"`
-	GearName        *string          `json:"gear_name,omitempty"`
-	SegmentTypeMeta *json.RawMessage `json:"segment_type_meta,omitempty"`
+	SegmentName     *string                   `json:"segment_name,omitempty"`
+	DisplayName     *string                   `json:"display_name,omitempty"`
+	GearName        *string                   `json:"gear_name,omitempty"`
+	SegmentTypeMeta *json.RawMessage          `json:"segment_type_meta,omitempty"`
+	CourseKind      string                    `json:"course_kind,omitempty"`
+	ControlSummary  *CheckpointControlSummary `json:"control_summary,omitempty"`
+}
+
+type CourseKind string
+
+const (
+	CourseKindLine               CourseKind = "line"
+	CourseKindCheckpointSequence CourseKind = "checkpoint_sequence"
+)
+
+type CheckpointControlRole string
+
+const (
+	CheckpointControlStart      CheckpointControlRole = "start"
+	CheckpointControlCheckpoint CheckpointControlRole = "checkpoint"
+	CheckpointControlFinish     CheckpointControlRole = "finish"
+)
+
+type CheckpointControlPrimitive string
+
+const (
+	CheckpointControlPoint CheckpointControlPrimitive = "point"
+	CheckpointControlArea  CheckpointControlPrimitive = "area"
+)
+
+type CheckpointControlGeometryShape string
+
+const (
+	CheckpointControlGeometryPoint        CheckpointControlGeometryShape = "point"
+	CheckpointControlGeometryCircle       CheckpointControlGeometryShape = "circle"
+	CheckpointControlGeometryPolygon      CheckpointControlGeometryShape = "polygon"
+	CheckpointControlGeometryMultiPolygon CheckpointControlGeometryShape = "multipolygon"
+)
+
+type CheckpointControl struct {
+	ID            string                         `json:"id,omitempty" db:"id"`
+	SequenceIndex int                            `json:"sequence_index" db:"sequence_index"`
+	Role          CheckpointControlRole          `json:"role" db:"role"`
+	Primitive     CheckpointControlPrimitive     `json:"primitive" db:"primitive"`
+	GeometryShape CheckpointControlGeometryShape `json:"geometry_shape" db:"geometry_shape"`
+	Label         string                         `json:"label,omitempty" db:"label"`
+	Geometry      json.RawMessage                `json:"geometry" db:"geometry"`
+	HitRadiusM    *float64                       `json:"hit_radius_m,omitempty" db:"hit_radius_m"`
+	AreaRadiusM   *float64                       `json:"area_radius_m,omitempty" db:"area_radius_m"`
+	Required      bool                           `json:"required" db:"required"`
+}
+
+type CheckpointControlSummary struct {
+	ControlCount         int      `json:"control_count"`
+	RequiredControlCount int      `json:"required_control_count"`
+	PrimitiveKinds       []string `json:"primitive_kinds"`
+	Labels               []string `json:"labels,omitempty"`
+}
+
+type CheckpointControlMapFeature struct {
+	SequenceIndex int                            `json:"sequence_index"`
+	Role          CheckpointControlRole          `json:"role"`
+	Primitive     CheckpointControlPrimitive     `json:"primitive"`
+	GeometryShape CheckpointControlGeometryShape `json:"geometry_shape"`
+	Label         string                         `json:"label,omitempty"`
+	Centroid      json.RawMessage                `json:"centroid"`
+	Geometry      json.RawMessage                `json:"geometry,omitempty"`
+	HitRadiusM    *float64                       `json:"hit_radius_m,omitempty"`
+	AreaRadiusM   *float64                       `json:"area_radius_m,omitempty"`
+	Required      bool                           `json:"required"`
+}
+
+type CheckpointControlHit struct {
+	ControlID           string     `json:"control_id"`
+	SequenceIndex       int        `json:"sequence_index"`
+	EnteredAt           time.Time  `json:"entered_at"`
+	ExitedAt            *time.Time `json:"exited_at,omitempty"`
+	ActivityStreamIndex int        `json:"activity_stream_index"`
+	NearestDistanceM    *float64   `json:"nearest_distance_m,omitempty"`
+	EvidenceHash        string     `json:"evidence_hash"`
+}
+
+type CheckpointCourseCreate struct {
+	Name              string              `json:"name"`
+	Description       *string             `json:"description,omitempty"`
+	SportGroup        string              `json:"sport_group"`
+	Visibility        string              `json:"visibility,omitempty"`
+	AccessScopeID     *string             `json:"access_scope_id,omitempty"`
+	AllowedPredicates []sport.Predicate   `json:"allowed_predicates,omitempty"`
+	Controls          []CheckpointControl `json:"controls"`
+	SourceActivityID  *string             `json:"source_activity_id,omitempty"`
+}
+
+type CheckpointMatchedEffort struct {
+	Effort      *SegmentEffort         `json:"-"`
+	ControlHits []CheckpointControlHit `json:"-"`
 }
 
 type SegmentLeaderboardQuery struct {
@@ -253,6 +351,13 @@ type ListSegmentsParams struct {
 	ElevationKind    string // "flat" | "hilly" | "uphill" | "downhill"
 	VisibilityFilter string // comma-separated: "public", "shared", "private", combinations, "" (= visible to caller)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
+	// VisibleAccessScopeIDs is a pre-resolved viewer scope set for link-token or
+	// dynamic-audience reads. Search queries use it as an indexed UUID array and
+	// do not resolve social/link rules themselves.
+	VisibleAccessScopeIDs     []string
+	CourseKind                string
+	CourseKinds               []string
+	IncludeControlMapFeatures bool
 }
 
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.

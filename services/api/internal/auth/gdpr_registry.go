@@ -68,6 +68,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"route_tags":                        Export,
 	"routing_profiles":                  Export,
 	"segments":                          Export,
+	"course_version_controls":           Export,
 	"segment_versions":                  Export, // Enthält die Geometrie (track, start_point, end_point); ohne diese ist ein importiertes Segment unbrauchbar. Purge via DELETE in gdpr.go (created_by NO ACTION).
 	"segment_favorites":                 Export, // Kann fremde Segment-IDs referenzieren → Importer muss skip+warn
 	"tag_zones":                         Export,
@@ -144,6 +145,8 @@ var GDPRRegistry = map[string]TableCategory{
 	"heatmap_trail_matches":                          Derived,
 	"pmc_daily":                                      Derived,
 	"segment_efforts":                                Derived,
+	"checkpoint_course_effort_controls":              Derived,
+	"checkpoint_course_projection":                   Derived,
 	"segment_leaderboard_equivalence_groups":         Derived,
 	"segment_leaderboard_equivalence_group_versions": Derived,
 	"segment_version_revisions":                      Derived,
@@ -211,6 +214,7 @@ var ExportedTables = []string{
 	"gear",
 	"tags",
 	"segments",
+	"course_version_controls",
 	"segment_versions",
 	"planned_routes",
 	"planned_route_snapshots",
