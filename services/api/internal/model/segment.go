@@ -36,6 +36,7 @@ type Segment struct {
 	ControlSummary     *CheckpointControlSummary     `json:"control_summary,omitempty" db:"control_summary"`
 	ControlMapFeatures []CheckpointControlMapFeature `json:"control_map_features,omitempty" db:"control_map_features"`
 	Controls           []CheckpointControl           `json:"controls,omitempty"`
+	OverlaySummary     *TargetOverlaySummary         `json:"overlay_summary,omitempty"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }

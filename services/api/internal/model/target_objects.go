@@ -6,26 +6,27 @@ import (
 )
 
 type TargetPlace struct {
-	ID                    string          `json:"id"`
-	OwnerUserID           *string         `json:"owner_user_id,omitempty"`
-	LifecycleOwnerKind    string          `json:"lifecycle_owner_kind"`
-	LifecycleOwnerRef     *string         `json:"lifecycle_owner_ref,omitempty"`
-	Name                  string          `json:"name"`
-	Description           *string         `json:"description,omitempty"`
-	PlaceKind             string          `json:"place_kind"`
-	GeometryGeoJSON       string          `json:"geometry,omitempty"`
-	Visibility            string          `json:"visibility"`
-	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
-	OriginKey             string          `json:"origin_key"`
-	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
-	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
-	ExternalRef           *string         `json:"external_ref,omitempty"`
-	ExternalRefVisibility string          `json:"external_ref_visibility"`
-	Metadata              json.RawMessage `json:"metadata,omitempty"`
-	CreatedBy             *string         `json:"created_by,omitempty"`
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
-	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
+	ID                    string                `json:"id"`
+	OwnerUserID           *string               `json:"owner_user_id,omitempty"`
+	LifecycleOwnerKind    string                `json:"lifecycle_owner_kind"`
+	LifecycleOwnerRef     *string               `json:"lifecycle_owner_ref,omitempty"`
+	Name                  string                `json:"name"`
+	Description           *string               `json:"description,omitempty"`
+	PlaceKind             string                `json:"place_kind"`
+	GeometryGeoJSON       string                `json:"geometry,omitempty"`
+	Visibility            string                `json:"visibility"`
+	AccessScopeID         *string               `json:"access_scope_id,omitempty"`
+	OriginKey             string                `json:"origin_key"`
+	ExternalRefKind       *string               `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string               `json:"external_ref_id,omitempty"`
+	ExternalRef           *string               `json:"external_ref,omitempty"`
+	ExternalRefVisibility string                `json:"external_ref_visibility"`
+	Metadata              json.RawMessage       `json:"metadata,omitempty"`
+	CreatedBy             *string               `json:"created_by,omitempty"`
+	OverlaySummary        *TargetOverlaySummary `json:"overlay_summary,omitempty"`
+	CreatedAt             time.Time             `json:"created_at"`
+	UpdatedAt             time.Time             `json:"updated_at"`
+	ArchivedAt            *time.Time            `json:"archived_at,omitempty"`
 }
 
 type TargetPlaceCreate struct {
@@ -58,26 +59,27 @@ type TargetPlaceUpdate struct {
 }
 
 type TargetRegion struct {
-	ID                    string          `json:"id"`
-	OwnerUserID           *string         `json:"owner_user_id,omitempty"`
-	LifecycleOwnerKind    string          `json:"lifecycle_owner_kind"`
-	LifecycleOwnerRef     *string         `json:"lifecycle_owner_ref,omitempty"`
-	Name                  string          `json:"name"`
-	Description           *string         `json:"description,omitempty"`
-	RegionKind            string          `json:"region_kind"`
-	GeometryGeoJSON       string          `json:"geometry,omitempty"`
-	Visibility            string          `json:"visibility"`
-	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
-	OriginKey             string          `json:"origin_key"`
-	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
-	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
-	ExternalRef           *string         `json:"external_ref,omitempty"`
-	ExternalRefVisibility string          `json:"external_ref_visibility"`
-	Metadata              json.RawMessage `json:"metadata,omitempty"`
-	CreatedBy             *string         `json:"created_by,omitempty"`
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
-	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
+	ID                    string                `json:"id"`
+	OwnerUserID           *string               `json:"owner_user_id,omitempty"`
+	LifecycleOwnerKind    string                `json:"lifecycle_owner_kind"`
+	LifecycleOwnerRef     *string               `json:"lifecycle_owner_ref,omitempty"`
+	Name                  string                `json:"name"`
+	Description           *string               `json:"description,omitempty"`
+	RegionKind            string                `json:"region_kind"`
+	GeometryGeoJSON       string                `json:"geometry,omitempty"`
+	Visibility            string                `json:"visibility"`
+	AccessScopeID         *string               `json:"access_scope_id,omitempty"`
+	OriginKey             string                `json:"origin_key"`
+	ExternalRefKind       *string               `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string               `json:"external_ref_id,omitempty"`
+	ExternalRef           *string               `json:"external_ref,omitempty"`
+	ExternalRefVisibility string                `json:"external_ref_visibility"`
+	Metadata              json.RawMessage       `json:"metadata,omitempty"`
+	CreatedBy             *string               `json:"created_by,omitempty"`
+	OverlaySummary        *TargetOverlaySummary `json:"overlay_summary,omitempty"`
+	CreatedAt             time.Time             `json:"created_at"`
+	UpdatedAt             time.Time             `json:"updated_at"`
+	ArchivedAt            *time.Time            `json:"archived_at,omitempty"`
 }
 
 type TargetRegionCreate struct {
@@ -110,27 +112,28 @@ type TargetRegionUpdate struct {
 }
 
 type TargetCollection struct {
-	ID                    string          `json:"id"`
-	OwnerUserID           *string         `json:"owner_user_id,omitempty"`
-	LifecycleOwnerKind    string          `json:"lifecycle_owner_kind"`
-	LifecycleOwnerRef     *string         `json:"lifecycle_owner_ref,omitempty"`
-	Name                  string          `json:"name"`
-	Description           *string         `json:"description,omitempty"`
-	CollectionKind        string          `json:"collection_kind"`
-	Visibility            string          `json:"visibility"`
-	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
-	DisplayStyle          string          `json:"display_style"`
-	DefaultSort           string          `json:"default_sort"`
-	OriginKey             string          `json:"origin_key"`
-	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
-	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
-	ExternalRef           *string         `json:"external_ref,omitempty"`
-	ExternalRefVisibility string          `json:"external_ref_visibility"`
-	Metadata              json.RawMessage `json:"metadata,omitempty"`
-	CreatedBy             *string         `json:"created_by,omitempty"`
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
-	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
+	ID                    string                `json:"id"`
+	OwnerUserID           *string               `json:"owner_user_id,omitempty"`
+	LifecycleOwnerKind    string                `json:"lifecycle_owner_kind"`
+	LifecycleOwnerRef     *string               `json:"lifecycle_owner_ref,omitempty"`
+	Name                  string                `json:"name"`
+	Description           *string               `json:"description,omitempty"`
+	CollectionKind        string                `json:"collection_kind"`
+	Visibility            string                `json:"visibility"`
+	AccessScopeID         *string               `json:"access_scope_id,omitempty"`
+	DisplayStyle          string                `json:"display_style"`
+	DefaultSort           string                `json:"default_sort"`
+	OriginKey             string                `json:"origin_key"`
+	ExternalRefKind       *string               `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string               `json:"external_ref_id,omitempty"`
+	ExternalRef           *string               `json:"external_ref,omitempty"`
+	ExternalRefVisibility string                `json:"external_ref_visibility"`
+	Metadata              json.RawMessage       `json:"metadata,omitempty"`
+	CreatedBy             *string               `json:"created_by,omitempty"`
+	OverlaySummary        *TargetOverlaySummary `json:"overlay_summary,omitempty"`
+	CreatedAt             time.Time             `json:"created_at"`
+	UpdatedAt             time.Time             `json:"updated_at"`
+	ArchivedAt            *time.Time            `json:"archived_at,omitempty"`
 }
 
 type TargetCollectionCreate struct {
@@ -165,23 +168,24 @@ type TargetCollectionUpdate struct {
 }
 
 type TargetCollectionSummary struct {
-	ID                 string          `json:"id"`
-	OwnerUserID        *string         `json:"owner_user_id,omitempty"`
-	LifecycleOwnerKind string          `json:"lifecycle_owner_kind"`
-	LifecycleOwnerRef  *string         `json:"lifecycle_owner_ref,omitempty"`
-	Name               string          `json:"name"`
-	CollectionKind     string          `json:"collection_kind"`
-	Visibility         string          `json:"visibility"`
-	AccessScopeID      *string         `json:"access_scope_id,omitempty"`
-	BoundsGeoJSON      *string         `json:"bounds,omitempty"`
-	OwnerMemberCount   int             `json:"owner_member_count,omitempty"`
-	PublicMemberCount  int             `json:"public_member_count,omitempty"`
-	OwnerCountsByKind  json.RawMessage `json:"owner_counts_by_kind,omitempty"`
-	OwnerCountsByRole  json.RawMessage `json:"owner_counts_by_role,omitempty"`
-	PublicCountsByKind json.RawMessage `json:"public_counts_by_kind,omitempty"`
-	PublicCountsByRole json.RawMessage `json:"public_counts_by_role,omitempty"`
-	UpdatedAt          time.Time       `json:"updated_at"`
-	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
+	ID                 string                `json:"id"`
+	OwnerUserID        *string               `json:"owner_user_id,omitempty"`
+	LifecycleOwnerKind string                `json:"lifecycle_owner_kind"`
+	LifecycleOwnerRef  *string               `json:"lifecycle_owner_ref,omitempty"`
+	Name               string                `json:"name"`
+	CollectionKind     string                `json:"collection_kind"`
+	Visibility         string                `json:"visibility"`
+	AccessScopeID      *string               `json:"access_scope_id,omitempty"`
+	BoundsGeoJSON      *string               `json:"bounds,omitempty"`
+	OwnerMemberCount   int                   `json:"owner_member_count,omitempty"`
+	PublicMemberCount  int                   `json:"public_member_count,omitempty"`
+	OwnerCountsByKind  json.RawMessage       `json:"owner_counts_by_kind,omitempty"`
+	OwnerCountsByRole  json.RawMessage       `json:"owner_counts_by_role,omitempty"`
+	PublicCountsByKind json.RawMessage       `json:"public_counts_by_kind,omitempty"`
+	PublicCountsByRole json.RawMessage       `json:"public_counts_by_role,omitempty"`
+	OverlaySummary     *TargetOverlaySummary `json:"overlay_summary,omitempty"`
+	UpdatedAt          time.Time             `json:"updated_at"`
+	ArchivedAt         *time.Time            `json:"archived_at,omitempty"`
 }
 
 type TargetCollectionDetail struct {
