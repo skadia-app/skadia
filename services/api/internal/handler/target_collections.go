@@ -58,6 +58,13 @@ func (h *Handler) GetTargetCollection(w http.ResponseWriter, r *http.Request) {
 	if handleTargetHandlerErr(w, r, err) {
 		return
 	}
+	if r.URL.Query().Get("include_overlay_summary") == "true" && collection != nil {
+		summary, err := h.DB.GetTargetOverlaySummary(r.Context(), "collection", collection.ID, nil)
+		if handleTargetHandlerErr(w, r, err) {
+			return
+		}
+		collection.OverlaySummary = summary
+	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"collection": collection})
 }
 

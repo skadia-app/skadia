@@ -62,6 +62,13 @@ func (h *Handler) GetTargetPlace(w http.ResponseWriter, r *http.Request) {
 	if handleTargetHandlerErr(w, r, err) {
 		return
 	}
+	if r.URL.Query().Get("include_overlay_summary") == "true" && place != nil {
+		summary, err := h.DB.GetTargetOverlaySummary(r.Context(), "place", place.ID, nil)
+		if handleTargetHandlerErr(w, r, err) {
+			return
+		}
+		place.OverlaySummary = summary
+	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"place": place})
 }
 
@@ -139,6 +146,13 @@ func (h *Handler) GetTargetRegion(w http.ResponseWriter, r *http.Request) {
 	region, err := h.DB.GetTargetRegion(r.Context(), userID, chi.URLParam(r, "id"), scopes)
 	if handleTargetHandlerErr(w, r, err) {
 		return
+	}
+	if r.URL.Query().Get("include_overlay_summary") == "true" && region != nil {
+		summary, err := h.DB.GetTargetOverlaySummary(r.Context(), "region", region.ID, nil)
+		if handleTargetHandlerErr(w, r, err) {
+			return
+		}
+		region.OverlaySummary = summary
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"region": region})
 }

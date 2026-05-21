@@ -457,10 +457,12 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 
 	includeGeoJSON := r.URL.Query().Get("include_geojson") == "true"
 	includeControls := r.URL.Query().Get("include_controls") == "true"
+	includeOverlaySummary := r.URL.Query().Get("include_overlay_summary") == "true"
 
 	segment, err := h.DB.GetSegmentWithOptions(r.Context(), id, userID, isAdmin, database.GetSegmentOptions{
-		IncludeGeoJSON:  includeGeoJSON,
-		IncludeControls: includeControls,
+		IncludeGeoJSON:        includeGeoJSON,
+		IncludeControls:       includeControls,
+		IncludeOverlaySummary: includeOverlaySummary,
 	})
 
 	if err != nil {

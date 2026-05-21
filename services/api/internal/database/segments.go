@@ -815,8 +815,9 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 }
 
 type GetSegmentOptions struct {
-	IncludeGeoJSON  bool
-	IncludeControls bool
+	IncludeGeoJSON        bool
+	IncludeControls       bool
+	IncludeOverlaySummary bool
 }
 
 func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool, includeGeoJSON bool) (*model.Segment, error) {
@@ -943,16 +944,23 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 	if opts.IncludeControls {
 		if s.CourseKind != string(model.CourseKindCheckpointSequence) {
 			s.Controls = []model.CheckpointControl{}
-			return &s, nil
+		} else {
+			if activeSegmentVersionID == nil || *activeSegmentVersionID == "" {
+				return nil, fmt.Errorf("%w: checkpoint course has no active version", ErrSegmentValidation)
+			}
+			controls, err := db.GetCheckpointControls(ctx, *activeSegmentVersionID)
+			if err != nil {
+				return nil, err
+			}
+			s.Controls = controls
 		}
-		if activeSegmentVersionID == nil || *activeSegmentVersionID == "" {
-			return nil, fmt.Errorf("%w: checkpoint course has no active version", ErrSegmentValidation)
-		}
-		controls, err := db.GetCheckpointControls(ctx, *activeSegmentVersionID)
+	}
+	if opts.IncludeOverlaySummary {
+		summary, err := db.GetTargetOverlaySummary(ctx, "course", s.ID, nil)
 		if err != nil {
 			return nil, err
 		}
-		s.Controls = controls
+		s.OverlaySummary = summary
 	}
 	return &s, nil
 }

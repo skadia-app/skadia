@@ -1777,6 +1777,16 @@ func main() {
 			r.Patch("/target-collections/{id}/members/{member_id}", h.UpdateTargetCollectionMember)
 			r.Delete("/target-collections/{id}/members/{member_id}", h.DeleteTargetCollectionMember)
 
+			r.Get("/target-overlays/summary", h.GetTargetOverlaySummary)
+			r.Get("/target-overlays/observations", h.ListTargetObservations)
+			r.Get("/target-overlays/reports", h.ListTargetReports)
+			r.Post("/target-overlays/reports", h.CreateTargetReport)
+			r.Get("/target-overlays/reports/{id}", h.GetTargetReport)
+			r.Post("/target-overlays/reports/{id}/status", h.AddTargetReportStatus)
+			r.Get("/target-overlays/content", h.ListTargetUserContent)
+			r.Post("/target-overlays/content", h.CreateTargetUserContent)
+			r.Delete("/target-overlays/content/{id}", h.DeleteTargetUserContent)
+
 			r.Get("/governance-scopes", h.ListGovernanceScopes)
 			r.Post("/governance-scopes", h.CreateGovernanceScope)
 			r.Get("/governance-scopes/{id}", h.GetGovernanceScope)
