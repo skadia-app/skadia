@@ -356,6 +356,11 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 	// enriched/replaced are successful operations — mark as completed
 	if result.Status == "enriched" || result.Status == "replaced" {
 		slog.Info("import_url: activity enriched/replaced", "status", result.Status, "id", result.ActivityID)
+		if result.ShouldPostProcess() {
+			if postErr := h.ImportService.PostProcess(ctx, userID, result.ActivityID, actData, "", format, filename); postErr != nil {
+				slog.Error("import_url: post-process enriched/replaced failed", "id", result.ActivityID, "error", postErr)
+			}
+		}
 		tracker.Completed(ctx, result.ActivityID)
 		return &importBytesResult{Duplicate: true}, nil
 	}

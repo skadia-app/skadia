@@ -210,9 +210,17 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if fitResult.Status != "created" && !fitResult.ShouldPostProcess() {
+			tracker.Completed(r.Context(), fitResult.ActivityID)
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
+				"status":      fitResult.Status,
+				"activity_id": fitResult.ActivityID,
+			})
+			return
+		}
 
-		// For created/enriched/replaced: upload to ShadowFS.
-		// Look up existing file_id before Put so we can archive it on replace/enrich.
+		// For created/replaced: upload to ShadowFS.
+		// Look up existing file_id before Put so we can archive it on replacement.
 		var fitOldFileID string
 		if fitResult.Status != "created" {
 			_ = h.DB.Pool.QueryRow(r.Context(),
@@ -355,9 +363,17 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if gpxResult.Status != "created" && !gpxResult.ShouldPostProcess() {
+		tracker.Completed(r.Context(), gpxResult.ActivityID)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status":      gpxResult.Status,
+			"activity_id": gpxResult.ActivityID,
+		})
+		return
+	}
 
-	// For created/enriched/replaced: upload to ShadowFS.
-	// Look up existing file_id before Put so we can archive it on replace/enrich.
+	// For created/replaced: upload to ShadowFS.
+	// Look up existing file_id before Put so we can archive it on replacement.
 	var gpxOldFileID string
 	if gpxResult.Status != "created" {
 		_ = h.DB.Pool.QueryRow(r.Context(),

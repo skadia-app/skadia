@@ -196,6 +196,10 @@ func (s *Service) PostProcess(
 		return err
 	}
 
+	if err := s.clearPostProcessData(ctx, activityID); err != nil {
+		return err
+	}
+
 	// ── Phase 0 (sequential, MUST run first) ──────────────────────────────
 	// RunStage1 + ApplyRulesToActivity set metadata used by subsequent steps.
 
@@ -736,6 +740,51 @@ func (s *Service) runWeatherStreamRefinement(activityID, userID string, data *mo
 	}
 }
 
+func (s *Service) clearPostProcessData(ctx context.Context, activityID string) error {
+	cleanups := []struct {
+		name string
+		fn   func(context.Context, string) error
+	}{
+		{"heatmap data", s.DB.DeleteHeatmapData},
+		{"segment efforts", s.DB.DeleteSegmentEffortsByActivity},
+		{"streams", s.DB.DeleteStreams},
+		{"track", s.DB.DeleteTrack},
+		{"sensors", s.DB.DeleteSensors},
+		{"developer apps", s.DB.DeleteDeveloperApps},
+		{"laps", s.DB.DeleteLaps},
+		{"splits", s.DB.DeleteSplits},
+		{"split summaries", s.DB.DeleteSplitSummaries},
+		{"lengths", s.DB.DeleteLengths},
+		{"climb pro events", s.DB.DeleteClimbProEvents},
+		{"events", s.DB.DeleteActivityEvents},
+		{"sets", s.DB.DeleteActivitySets},
+		{"jumps", s.DB.DeleteActivityJumps},
+		{"hr data", s.DB.DeleteActivityHrData},
+		{"segment laps", s.DB.DeleteActivitySegmentLaps},
+	}
+	for _, cleanup := range cleanups {
+		if err := cleanup.fn(ctx, activityID); err != nil {
+			return fmt.Errorf("clear %s: %w", cleanup.name, err)
+		}
+	}
+
+	deletes := []struct {
+		name string
+		sql  string
+	}{
+		{"rr intervals", `DELETE FROM activity_rr_intervals WHERE activity_id = $1`},
+		{"time in zones", `DELETE FROM activity_time_in_zone WHERE activity_id = $1`},
+		{"dive gases", `DELETE FROM activity_dive_gases WHERE activity_id = $1`},
+		{"dive settings", `DELETE FROM activity_dive_settings WHERE activity_id = $1`},
+	}
+	for _, del := range deletes {
+		if _, err := s.DB.Pool.Exec(ctx, del.sql, activityID); err != nil {
+			return fmt.Errorf("clear %s: %w", del.name, err)
+		}
+	}
+	return nil
+}
+
 // ProcessActivity is the central entry point for all cross-platform imports.
 // It runs duplicate detection (Tier 1), then either enriches/replaces an existing
 // activity or inserts a new one. Platform IDs are backfilled in all cases.
@@ -787,6 +836,7 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 				ActivityID:            match.ExistingActivityID,
 				Status:                "replaced",
 				PlatformIDsBackfilled: backfilled,
+				PostProcessRequired:   true,
 			}, nil
 
 		default: // enrich_missing
@@ -815,6 +865,7 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 				ActivityID:            match.ExistingActivityID,
 				Status:                status,
 				PlatformIDsBackfilled: backfilled,
+				PostProcessRequired:   streamsReplaced,
 			}, nil
 		}
 	}
@@ -843,8 +894,9 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 	s.backfillPlatformIDs(ctx, inserted.ID, meta) //nolint:errcheck
 
 	return &ActivityResult{
-		ActivityID: inserted.ID,
-		Status:     "created",
+		ActivityID:          inserted.ID,
+		Status:              "created",
+		PostProcessRequired: true,
 	}, nil
 }
 

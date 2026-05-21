@@ -284,8 +284,10 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// For enriched/replaced the file already exists in storage — uploading again creates
 		// duplicate ShadowFS records (M20).
 		if actResult.Status != "created" {
-			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, "", format, ref.fileName); postErr != nil {
-				slog.Warn("garmin activities: PostProcess failed (enriched/replaced)", "file", ref.fileName, "error", postErr)
+			if actResult.ShouldPostProcess() {
+				if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, "", format, ref.fileName); postErr != nil {
+					slog.Warn("garmin activities: PostProcess failed (enriched/replaced)", "file", ref.fileName, "error", postErr)
+				}
 			}
 			result.Skipped++
 			tracker.Completed(ctx, actResult.ActivityID)

@@ -17,6 +17,11 @@ type ActivityResult struct {
 	ActivityID            string
 	Status                string   // "created" | "enriched" | "replaced" | "skipped"
 	PlatformIDsBackfilled []string // e.g. ["strava_activity_id"]
+	PostProcessRequired   bool     // true when imported child data must be written for this result
+}
+
+func (r *ActivityResult) ShouldPostProcess() bool {
+	return r != nil && r.PostProcessRequired
 }
 
 // PhotoMetadata carries information about a photo being imported.
