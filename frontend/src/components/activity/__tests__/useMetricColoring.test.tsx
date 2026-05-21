@@ -309,4 +309,41 @@ describe('teleport-filter pipeline (no-false-gaps regression)', () => {
     }
     expect(discontinuities).toBe(1) // exactly one teleport boundary
   })
+
+  it('does not connect viewport-visible track parts across an outside-viewport gap', async () => {
+    const { downsampleUniform, buildSegmentFeatures, resolveScale } = await import('@/lib/mapColorUtils')
+    const { motionProfileForSport } = await import('@/lib/colorScaleRanges')
+
+    const streams: StreamPoint[] = [
+      { time: '2026-01-01T00:00:00Z', lat: 47.001, lng: 11.001, heart_rate: 120 },
+      { time: '2026-01-01T00:00:01Z', lat: 47.002, lng: 11.002, heart_rate: 121 },
+      { time: '2026-01-01T00:00:02Z', lat: 47.100, lng: 11.100, heart_rate: 122 },
+      { time: '2026-01-01T00:00:03Z', lat: 47.003, lng: 11.003, heart_rate: 123 },
+      { time: '2026-01-01T00:00:04Z', lat: 47.004, lng: 11.004, heart_rate: 124 },
+    ]
+
+    const motionProfile = motionProfileForSport('running', null)
+    const scale = resolveScale('hr', motionProfile, streams, null, 'linear', { sportColor: '#000' })
+    const ds = downsampleUniform(
+      streams,
+      'hr',
+      2000,
+      { west: 11.0, south: 47.0, east: 11.01, north: 47.01 },
+      'linear',
+    )
+
+    const features = buildSegmentFeatures(ds, 'hr', scale)
+
+    expect(features.map(f => {
+      const props = f.properties as { segStartIdx: number; segEndIdx: number }
+      return { segStartIdx: props.segStartIdx, segEndIdx: props.segEndIdx }
+    })).toEqual([
+      { segStartIdx: 0, segEndIdx: 0 },
+      { segStartIdx: 3, segEndIdx: 3 },
+    ])
+    for (const feature of features) {
+      const coords = (feature.geometry as GeoJSON.LineString).coordinates
+      expect(coords).not.toEqual([[11.002, 47.002], [11.003, 47.003]])
+    }
+  })
 })
