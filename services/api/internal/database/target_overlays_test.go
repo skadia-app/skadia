@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,6 +280,37 @@ func TestTargetOverlaySummaryRebuildDoesNotTouchSegmentSearch(t *testing.T) {
 	}
 	if found.OverlaySummary != nil {
 		t.Fatalf("ListSegments included overlay summary without opt-in: %#v", found.OverlaySummary)
+	}
+
+	detail, err := db.GetSegmentWithOptions(ctx, segmentID, userID, false, GetSegmentOptions{IncludeOverlaySummary: true})
+	if err != nil {
+		t.Fatalf("GetSegmentWithOptions with overlay summary: %v", err)
+	}
+	if detail == nil || detail.OverlaySummary == nil || detail.OverlaySummary.PublicOpenReportCount != 1 {
+		t.Fatalf("overlay opt-in summary = %#v", detail)
+	}
+}
+
+func TestTargetOverlayHotPathSQLDoesNotUseOverlayDetailTables(t *testing.T) {
+	for _, path := range []string{
+		"segments.go",
+		"../handler/segments.go",
+		"../handler/segment_matching.go",
+		"route_publications.go",
+	} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		source := string(body)
+		for _, forbidden := range []string{"target_reports", "target_activity_observations", "target_user_content"} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("%s references %s in a segment/course hot path", path, forbidden)
+			}
+		}
+		if strings.Contains(source, "target_overlay_summary_projection") {
+			t.Fatalf("%s reads target_overlay_summary_projection directly; use explicit overlay summary helpers only", path)
+		}
 	}
 }
 
