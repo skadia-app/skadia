@@ -14,6 +14,8 @@ import { SegmentSidebar, type SegmentMetadata } from './segment-editor/SegmentSi
 import { TrackModeBottomBar, type TrackPoint } from './segment-editor/TrackModeBottomBar'
 import { DrawModeBottomBar } from './segment-editor/DrawModeBottomBar'
 import { LapModeBottomBar } from './segment-editor/LapModeBottomBar'
+import { CheckpointModeBottomBar } from './segment-editor/CheckpointModeBottomBar'
+import { CheckpointControlsList } from './segment-editor/CheckpointControlsList'
 import { BIDIRECTIONAL_DEFAULT, deriveTrailDifficultyColor, type SegType } from './segment-editor/constants'
 import { cn } from '@/lib/utils'
 import { haversineM } from '@/lib/geoUtils'
@@ -30,13 +32,13 @@ import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
-import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
+import { createCheckpointCourse, createSegment, suggestSegmentEnrichment, type CheckpointControl } from '@/api/segments'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import { buildNewSegmentSportPatch } from './segment-editor/segmentSave'
 
 export interface SegmentEditorModalProps {
-  mode: 'track' | 'draw' | 'lap'
+  mode: 'track' | 'draw' | 'lap' | 'checkpoint'
   trackPoints?: TrackPoint[]
   sourceActivityId?: string
   onSuccess: (segmentId?: string) => void
@@ -71,6 +73,22 @@ function addArrowLayer(m: maplibregl.Map) {
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg)
 }
 
+function checkpointPointRadiusGeometry(coord: [number, number], radiusM: number): GeoJSON.Polygon {
+  const steps = 48
+  const latRad = coord[1] * Math.PI / 180
+  const latDelta = radiusM / 111_320
+  const lngDelta = radiusM / (111_320 * Math.max(Math.cos(latRad), 0.01))
+  const ring: [number, number][] = []
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI * 2
+    ring.push([
+      coord[0] + Math.cos(angle) * lngDelta,
+      coord[1] + Math.sin(angle) * latDelta,
+    ])
+  }
+  return { type: 'Polygon', coordinates: [ring] }
+}
+
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
   const navigate = useNavigate()
@@ -93,7 +111,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     difficultyColor: null,
     bidirectional: BIDIRECTIONAL_DEFAULT[(mode === 'lap' ? 'lap' : 'standard') as SegType],
     userEditedBidirectional: false,
-    isPublic: true,
+    isPublic: !(mode === 'checkpoint' && !!sourceActivityId),
   }))
 
   const patchMeta = useCallback((patch: Partial<SegmentMetadata>) => {
@@ -195,6 +213,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   // Lap detection: runs when map loads in lap mode (click-to-place finish line)
   // is handled via the map click handler below.
+  const [checkpointControls, setCheckpointControls] = useState<CheckpointControl[]>([])
 
   // ── Enrichment state ─────────────────────────────────────────────────────
   const [enrichmentSources, setEnrichmentSources] = useState<
@@ -252,6 +271,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     if (mode === 'track' && range[0] === range[1]) return 'Keine Auswahl'
     if (mode === 'draw' && drawnCoords.length < 2) return 'Weniger als 2 Punkte'
     if (mode === 'lap') return 'Im Rundkurs-Modus nicht verfügbar'
+    if (mode === 'checkpoint') return 'Im Checkpoint-Modus nicht verfügbar'
     return undefined
   }, [segmentEnrichmentSuggestUnavailable, meta.segType, mode, range, drawnCoords.length])
 
@@ -278,6 +298,19 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // ── Save mutation ─────────────────────────────────────────────────────────
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (mode === 'checkpoint') {
+        const { userEditedBidirectional, ...savePayload } = meta
+        void userEditedBidirectional
+        const sportPatch = buildNewSegmentSportPatch('standard', savePayload.sportTypes)
+        return createCheckpointCourse({
+          name: savePayload.name,
+          sport_group: sportPatch.sport_group,
+          allowed_predicates: sportPatch.allowed_predicates,
+          visibility: savePayload.isPublic ? 'public' : 'private',
+          controls: checkpointControls,
+          source_activity_id: sourceActivityId,
+        })
+      }
       // Build coordinates array (note: editedTrackPoints includes reverse)
       const coords =
         mode === 'track'
@@ -739,6 +772,39 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return () => { map.off('click', handler) }
   }, [mode, lapCrossings.length, trackPoints])
 
+  useEffect(() => {
+    if (mode !== 'checkpoint') return
+    const map = mapRef.current
+    if (!map) return
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      setCheckpointControls(prev => {
+        const nextIndex = prev.length
+        const role: 'start' | 'finish' = nextIndex === 0 ? 'start' : 'finish'
+        const controls: CheckpointControl[] = prev.map((control, idx) => ({
+          ...control,
+          role: idx === 0 ? 'start' as const : 'checkpoint' as const,
+          sequence_index: idx,
+        }))
+        controls.push({
+          sequence_index: nextIndex,
+          role,
+          primitive: 'point',
+          geometry_shape: 'point',
+          geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] },
+          hit_radius_m: 30,
+          required: true,
+        })
+        return controls.map((control, idx, all) => ({
+          ...control,
+          sequence_index: idx,
+          role: idx === 0 ? 'start' : idx === all.length - 1 ? 'finish' : 'checkpoint',
+        }))
+      })
+    }
+    map.on('click', handler)
+    return () => { map.off('click', handler) }
+  }, [mode])
+
   // ── Track-mode: commit range → fitBounds ─────────────────────────────────
   const commitRangeToMap = useCallback((r: [number, number]) => {
     const map = mapRef.current
@@ -750,6 +816,97 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     map.fitBounds(bounds, { padding: 40, duration: 300 })
   }, [mode, editedTrackPoints])
 
+  useEffect(() => {
+    if (mode !== 'checkpoint') return
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const sourceID = 'checkpoint-controls'
+    const lineID = 'checkpoint-display-line'
+    const radiusID = 'checkpoint-control-radii'
+    const circleID = 'checkpoint-control-circles'
+    const labelID = 'checkpoint-control-labels'
+    const coords = checkpointControls
+      .map(control => {
+        const geometry = control.geometry as { type?: string; coordinates?: unknown }
+        return geometry.type === 'Point' && Array.isArray(geometry.coordinates) ? geometry.coordinates as [number, number] : null
+      })
+      .filter((coord): coord is [number, number] => Array.isArray(coord) && coord.length >= 2)
+    const data = {
+      type: 'FeatureCollection' as const,
+      features: [
+        ...(coords.length >= 2 ? [{
+          type: 'Feature' as const,
+          properties: { kind: 'connector' },
+          geometry: { type: 'LineString' as const, coordinates: coords },
+        }] : []),
+        ...checkpointControls.flatMap((control, idx) => {
+          const coord = coords[idx]
+          if (!coord || control.primitive !== 'point') return []
+          return [{
+            type: 'Feature' as const,
+            properties: { kind: 'radius' },
+            geometry: checkpointPointRadiusGeometry(coord, control.hit_radius_m ?? 30),
+          }]
+        }),
+        ...coords.map((coord, idx) => ({
+          type: 'Feature' as const,
+          properties: {
+            kind: 'control',
+            label: idx === 0 ? 'Start' : idx === coords.length - 1 ? 'Ziel' : String(idx + 1),
+          },
+          geometry: { type: 'Point' as const, coordinates: coord },
+        })),
+      ],
+    }
+    if (!map.getSource(sourceID)) {
+      map.addSource(sourceID, { type: 'geojson', data })
+    } else {
+      ;(map.getSource(sourceID) as maplibregl.GeoJSONSource).setData(data)
+    }
+    if (!map.getLayer(lineID)) {
+      map.addLayer({
+        id: lineID,
+        type: 'line',
+        source: sourceID,
+        filter: ['==', ['get', 'kind'], 'connector'],
+        paint: { 'line-color': '#525252', 'line-width': 2, 'line-dasharray': [2, 2], 'line-opacity': 0.65 },
+      })
+    }
+    if (!map.getLayer(radiusID)) {
+      map.addLayer({
+        id: radiusID,
+        type: 'fill',
+        source: sourceID,
+        filter: ['==', ['get', 'kind'], 'radius'],
+        paint: { 'fill-color': '#f97316', 'fill-opacity': 0.13 },
+      })
+    }
+    if (!map.getLayer(circleID)) {
+      map.addLayer({
+        id: circleID,
+        type: 'circle',
+        source: sourceID,
+        filter: ['==', ['get', 'kind'], 'control'],
+        paint: {
+          'circle-radius': 13,
+          'circle-color': '#ffffff',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#f97316',
+        },
+      })
+    }
+    if (!map.getLayer(labelID)) {
+      map.addLayer({
+        id: labelID,
+        type: 'symbol',
+        source: sourceID,
+        filter: ['==', ['get', 'kind'], 'control'],
+        layout: { 'text-field': ['get', 'label'], 'text-size': 11 },
+        paint: { 'text-color': '#111827' },
+      })
+    }
+  }, [mode, checkpointControls, styleVersion])
+
   const handleRangeReset = useCallback(() => {
     setRange(initialRange)
     setHasUserSelection(false)
@@ -760,6 +917,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const handleFullReset = useCallback(() => {
     setRange(initialRange)
     setHasUserSelection(false)
+    setCheckpointControls([])
     setMeta({
       name: '',
       segType: (mode === 'lap' ? 'lap' : 'standard') as SegType,
@@ -889,8 +1047,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       addToast({ type: 'warning', title: 'Segment zu kurz', message: 'Zeichne mindestens 2 Punkte.' })
       return
     }
+    if (mode === 'checkpoint' && checkpointControls.length < 2) {
+      addToast({ type: 'warning', title: 'Start und Ziel erforderlich', message: 'Setze mindestens zwei Checkpoints.' })
+      return
+    }
     saveMutation.mutate()
-  }, [meta.name, mode, range, drawnCoords.length, saveMutation, addToast])
+  }, [meta.name, mode, range, drawnCoords.length, checkpointControls.length, saveMutation, addToast])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
   // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
@@ -904,7 +1066,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     return (
       metaChanged ||
       (mode === 'track' && (range[0] !== initialRange[0] || range[1] !== initialRange[1])) ||
-      (mode === 'draw' && drawnCoords.length > 0)
+      (mode === 'draw' && drawnCoords.length > 0) ||
+      (mode === 'checkpoint' && checkpointControls.length > 0)
     )
   })()
 
@@ -967,7 +1130,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       {/* Top-Bar (B1-B4) */}
       <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-4 py-2.5 text-sm">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
-          {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : 'Rundkurs definieren'}
+          {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : mode === 'checkpoint' ? 'Checkpoints' : 'Rundkurs definieren'}
         </h2>
         <div className="flex-1" />
 
@@ -1023,7 +1186,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         {/* Sidebar — always editable (Vorschau-Phase-Lock entfernt). */}
         {/* min-h-0 is required so that div participates in flex shrinking and
             allows the child SegmentSidebar's overflow-y-auto to actually scroll. */}
-        <div className="flex min-h-0 w-72 shrink-0">
+        <div className="flex min-h-0 w-72 shrink-0 flex-col">
           <SegmentSidebar
             mode={mode}
             meta={meta}
@@ -1037,6 +1200,16 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             enrichmentDisabledReason={enrichmentDisabledReason}
             enrichmentStatus={enrichmentStatus}
           />
+          {mode === 'checkpoint' && (
+            <CheckpointControlsList
+              controls={checkpointControls}
+              onRemove={(index) => setCheckpointControls(prev => prev.filter((_, i) => i !== index).map((control, idx, all) => ({
+                ...control,
+                sequence_index: idx,
+                role: idx === 0 ? 'start' : idx === all.length - 1 ? 'finish' : 'checkpoint',
+              })))}
+            />
+          )}
         </div>
 
         {/* Right column: Map (flex-1) + BottomBar (intrinsic height) */}
@@ -1087,6 +1260,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 // Reset lap state so user can reclick the finish line
                 setLapCrossings([])
               }}
+              onPreviewOrSave={handleSave}
+            />
+          )}
+          {mode === 'checkpoint' && (
+            <CheckpointModeBottomBar
+              controlCount={checkpointControls.length}
+              onClear={() => setCheckpointControls([])}
               onPreviewOrSave={handleSave}
             />
           )}

@@ -150,6 +150,9 @@ func TestRouteProfileUnknownRangesAndMissingEnrichment(t *testing.T) {
 	if scales["sac"].MaxLevelRank != nil || scales["mtb"].MaxLevelRank != nil || scales["via_ferrata"].MaxLevelRank != nil {
 		t.Fatalf("missing enrichment emitted ranks: %#v", scales)
 	}
+	if scales["sac"].UnknownDistanceM <= 0 || scales["mtb"].UnknownDistanceM <= 0 || scales["via_ferrata"].UnknownDistanceM <= 0 {
+		t.Fatalf("missing enrichment should keep unknown distance explicit: %#v", scales)
+	}
 }
 
 func createRouteProfileTestSnapshot(t *testing.T, db *DB, userID string, enrichment json.RawMessage) *model.PlannedRouteSnapshot {

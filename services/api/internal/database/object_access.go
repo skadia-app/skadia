@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 var (
@@ -153,7 +154,12 @@ func (db *DB) RevokeObjectAccessScope(ctx context.Context, scopeID, ownerUserID 
 	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(ownerUserID) == "" {
 		return fmt.Errorf("%w: scope and owner are required", ErrObjectAccessValidation)
 	}
-	tag, err := db.Pool.Exec(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin revoke object access scope: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
 		UPDATE object_access_scopes
 		SET revoked_at = COALESCE(revoked_at, NOW())
 		WHERE id = $1
@@ -166,6 +172,12 @@ func (db *DB) RevokeObjectAccessScope(ctx context.Context, scopeID, ownerUserID 
 	if tag.RowsAffected() == 0 {
 		return ErrObjectAccessNotFound
 	}
+	if err := db.demoteSharedObjectsForScopeTx(ctx, tx, scopeID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit revoke object access scope: %w", err)
+	}
 	return nil
 }
 
@@ -176,7 +188,12 @@ func (db *DB) RevokeObjectAccessGrants(ctx context.Context, scopeID, ownerUserID
 	if len(grantIDs) == 0 {
 		return nil
 	}
-	tag, err := db.Pool.Exec(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin revoke object access grants: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
 		UPDATE object_access_grants g
 		SET revoked_at = COALESCE(g.revoked_at, NOW())
 		FROM object_access_scopes s
@@ -191,6 +208,66 @@ func (db *DB) RevokeObjectAccessGrants(ctx context.Context, scopeID, ownerUserID
 	}
 	if tag.RowsAffected() != int64(len(grantIDs)) {
 		return ErrObjectAccessNotFound
+	}
+	var liveGrantCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM object_access_grants
+		WHERE access_scope_id = $1
+		  AND permission = 'view'
+		  AND revoked_at IS NULL
+	`, scopeID).Scan(&liveGrantCount); err != nil {
+		return fmt.Errorf("count live object access grants: %w", err)
+	}
+	if liveGrantCount == 0 {
+		if err := db.demoteSharedObjectsForScopeTx(ctx, tx, scopeID); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit revoke object access grants: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) demoteSharedObjectsForScopeTx(ctx context.Context, tx pgx.Tx, scopeID string) error {
+	rows, err := tx.Query(ctx, `
+		UPDATE segments
+		SET visibility = 'private',
+		    access_scope_id = NULL
+		WHERE visibility = 'shared'
+		  AND access_scope_id = $1
+		RETURNING id
+	`, scopeID)
+	if err != nil {
+		return fmt.Errorf("demote shared segments for revoked scope: %w", err)
+	}
+	defer rows.Close()
+
+	var segmentIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		segmentIDs = append(segmentIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(segmentIDs) == 0 {
+		return nil
+	}
+	for _, segmentID := range segmentIDs {
+		if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+			return err
+		}
+		if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+			return err
+		}
+		if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -364,28 +441,47 @@ func (db *DB) ResolveVisibleAccessScopes(ctx context.Context, viewerUserID strin
 }
 
 func visibleSegmentAccessSQL(alias, userExpr, adminExpr string) string {
+	return visibleSegmentAccessWithScopesSQL(alias, userExpr, adminExpr, "")
+}
+
+func visibleSegmentAccessWithScopesSQL(alias, userExpr, adminExpr, resolvedScopesExpr string) string {
+	scopeClause := ""
+	if strings.TrimSpace(resolvedScopesExpr) != "" {
+		scopeClause = fmt.Sprintf(" OR %s.access_scope_id = ANY(%s)", alias, resolvedScopesExpr)
+	}
 	return fmt.Sprintf(`(
 		%s.visibility = 'public'
 		OR %s.created_by = %s
 		OR %s = true
 		OR (
 			%s.visibility = 'shared'
-			AND EXISTS (
-				SELECT 1
-				FROM object_access_scopes oas
-				JOIN object_access_grants oag ON oag.access_scope_id = oas.id
-				WHERE oas.id = %s.access_scope_id
-				  AND oas.revoked_at IS NULL
-				  AND oag.revoked_at IS NULL
-				  AND oag.permission = 'view'
-				  AND oag.principal_kind = 'user'
-				  AND oag.principal_user_id = %s
+			AND (
+				EXISTS (
+					SELECT 1
+					FROM object_access_scopes oas
+					JOIN object_access_grants oag ON oag.access_scope_id = oas.id
+					WHERE oas.id = %s.access_scope_id
+					  AND oas.revoked_at IS NULL
+					  AND oag.revoked_at IS NULL
+					  AND oag.permission = 'view'
+					  AND oag.principal_kind = 'user'
+					  AND oag.principal_user_id = %s
+				)
+				%s
 			)
 		)
-	)`, alias, alias, userExpr, adminExpr, alias, alias, userExpr)
+	)`, alias, alias, userExpr, adminExpr, alias, alias, userExpr, scopeClause)
 }
 
 func sharedSegmentAccessSQL(alias, userExpr, adminExpr string) string {
+	return sharedSegmentAccessWithScopesSQL(alias, userExpr, adminExpr, "")
+}
+
+func sharedSegmentAccessWithScopesSQL(alias, userExpr, adminExpr, resolvedScopesExpr string) string {
+	scopeClause := ""
+	if strings.TrimSpace(resolvedScopesExpr) != "" {
+		scopeClause = fmt.Sprintf(" OR %s.access_scope_id = ANY(%s)", alias, resolvedScopesExpr)
+	}
 	return fmt.Sprintf(`(
 		%s.visibility = 'shared'
 		AND (
@@ -402,8 +498,9 @@ func sharedSegmentAccessSQL(alias, userExpr, adminExpr string) string {
 				  AND oag.principal_kind = 'user'
 				  AND oag.principal_user_id = %s
 			)
+			%s
 		)
-	)`, alias, alias, userExpr, adminExpr, alias, userExpr)
+	)`, alias, alias, userExpr, adminExpr, alias, userExpr, scopeClause)
 }
 
 func visibleSegmentExportSQL(alias, userExpr string) string {

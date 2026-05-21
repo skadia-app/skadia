@@ -88,12 +88,16 @@ func TestRouteRelationshipOwnership(t *testing.T) {
 	otherUserID := insertObjectAccessTestUser(t, db)
 	source := createRouteRelationshipTestRoute(t, db, userID, "owned source")
 	other := createRouteRelationshipTestRoute(t, db, otherUserID, "other target")
+	target := createRouteRelationshipTestRoute(t, db, userID, "owned target")
 
 	if _, err := db.CreateRouteRelationship(ctx, source.ID, source.ID, userID, "variant_of", "self-op", "hash:self"); !errors.Is(err, ErrRoutePublicationValidation) {
 		t.Fatalf("self relation error = %v, want ErrRoutePublicationValidation", err)
 	}
 	if _, err := db.CreateRouteRelationship(ctx, source.ID, other.ID, userID, "variant_of", "foreign-op", "hash:foreign"); !errors.Is(err, ErrRoutePublicationValidation) {
 		t.Fatalf("foreign relation error = %v, want ErrRoutePublicationValidation", err)
+	}
+	if _, err := db.CreateRouteRelationship(ctx, source.ID, target.ID, userID, "fork_of", "manual-fork-op", "hash:manual-fork"); !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("manual fork_of relation error = %v, want ErrRoutePublicationValidation", err)
 	}
 }
 

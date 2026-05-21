@@ -39,7 +39,7 @@ export interface LiveInfo {
 }
 
 export interface SegmentSidebarProps {
-  mode: 'track' | 'draw' | 'lap'
+  mode: 'track' | 'draw' | 'lap' | 'checkpoint'
   meta: SegmentMetadata
   onMetaChange: (patch: Partial<SegmentMetadata>) => void
   info: LiveInfo | null

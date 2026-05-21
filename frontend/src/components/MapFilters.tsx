@@ -526,6 +526,32 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                     ))}
                   </div>
                 </div>
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kurse:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {([
+                      { id: 'line', label: 'Linien' },
+                      { id: 'checkpoint_sequence', label: 'Checkpoint-Kurse' },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => onSegmentFiltersChange({
+                          ...segmentFilters,
+                          courseKinds: segmentFilters.courseKinds.includes(id)
+                            ? segmentFilters.courseKinds.filter(k => k !== id)
+                            : [...segmentFilters.courseKinds, id],
+                        })}
+                        className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                          segmentFilters.courseKinds.includes(id)
+                            ? 'bg-accent-DEFAULT text-white border-transparent'
+                            : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                   <input type="checkbox" checked={segmentFilters.riddenOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, riddenOnly: e.target.checked })} className="rounded" />
                   <span>Nur gefahrene</span>

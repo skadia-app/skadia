@@ -253,9 +253,9 @@ func TestMigration_RoutePublicationCoursesAndVariants_TablesColumnsIndexesAndChe
 			media_pointer_state, overall_state, review_hash
 		)
 		VALUES ($1, 'snapshot-hash', 'public',
-		        'safe', 'redacted', 'safe',
+		        'safe', 'requires_confirmation', 'safe',
 		        'safe', 'safe', 'safe',
-		        'safe', 'redacted', 'review-hash')
+		        'safe', 'confirmed', 'review-hash')
 	`, snapshotID); err != nil {
 		t.Fatalf("insert privacy review: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestMigration_RoutePublicationCoursesAndVariants_DownRestoresLegacySegmentV
 	}
 	defer tx.Rollback(ctx)
 
-	downSQL, err := os.ReadFile("900001_route_publication_courses_and_variants.down.sql")
+	downSQL, err := os.ReadFile("000381_route_publication_courses_and_variants.down.sql")
 	if err != nil {
 		t.Fatalf("read down migration: %v", err)
 	}

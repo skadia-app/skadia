@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -133,6 +134,26 @@ func activeCourseGPSV1VersionLateral(joinKind, segmentIDExpr, atExpr, selectList
 		) sv ON true`, joinKind, selectList, segmentIDExpr, atExpr, atExpr)
 }
 
+func activeSegmentCourseVersionLateral(joinKind, segmentIDExpr, courseKindExpr, atExpr, selectList string) string {
+	return fmt.Sprintf(`
+		%s LATERAL (
+			SELECT %s
+			FROM segment_versions
+			WHERE segment_id = %s
+			  AND matching_contract_key = CASE
+			      WHEN %s = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+			      ELSE 'course_gps_v1'
+			  END
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= %s)
+			  AND (valid_until_at IS NULL OR %s < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true`, joinKind, selectList, segmentIDExpr, courseKindExpr, atExpr, atExpr)
+}
+
 func defaultSegmentPredicatesForType(segmentType string) ([]sport.Predicate, error) {
 	if !segmentTypeUsesDerivedDefaultPredicates(segmentType) {
 		return nil, nil
@@ -243,7 +264,11 @@ func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*mo
 	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
 	// visibility clause actually references it — otherwise pgx passes an orphan param
 	// and PG raises 42P18 "could not determine data type of parameter $2".
-	args := []any{p.UserID}
+	userArg := any(p.UserID)
+	if strings.TrimSpace(p.UserID) == "" {
+		userArg = nil
+	}
+	args := []any{userArg}
 	argIdx := 2
 
 	// --- CTE: user_favs ---
@@ -271,8 +296,22 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
 		selectCols += `
        NULL::text AS track_geojson,`
 	}
-	selectCols += `
-       s.terrain_type, s.climb_type, s.elevation_kind`
+	needsCheckpointProjection := p.CourseKind == string(model.CourseKindCheckpointSequence) ||
+		slices.Contains(p.CourseKinds, string(model.CourseKindCheckpointSequence))
+	hasLineCourseFilter := len(p.CourseKinds) == 0 && p.CourseKind != string(model.CourseKindCheckpointSequence)
+	if p.CourseKind == string(model.CourseKindLine) || slices.Contains(p.CourseKinds, string(model.CourseKindLine)) {
+		hasLineCourseFilter = true
+	}
+	hasCheckpointCourseFilter := needsCheckpointProjection
+	if needsCheckpointProjection {
+		selectCols += `
+       s.terrain_type, s.climb_type, s.elevation_kind,
+       s.course_kind, cp.control_summary, COALESCE(cp.control_map_features, '[]'::jsonb)`
+	} else {
+		selectCols += `
+       s.terrain_type, s.climb_type, s.elevation_kind,
+       s.course_kind, NULL::jsonb AS control_summary, '[]'::jsonb AS control_map_features`
+	}
 
 	// --- FROM + JOINs ---
 	from := `
@@ -305,7 +344,27 @@ LEFT JOIN LATERAL (
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 
 	if p.IncludeGeoJSON {
-		from += activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track")
+		from += `
+LEFT JOIN LATERAL (
+    SELECT track
+    FROM segment_versions
+    WHERE segment_id = s.id
+      AND matching_contract_key = CASE
+          WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+          ELSE 'course_gps_v1'
+      END
+      AND matching_contract_version = 1
+      AND validity_basis <> 'rollback_retired'
+      AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+      AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+    ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+             version_number DESC
+    LIMIT 1
+) sv ON true`
+	}
+	if needsCheckpointProjection {
+		from += `
+LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 	}
 
 	// --- WHERE ---
@@ -325,6 +384,12 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 		}
 		return fmt.Sprintf("$%d", isAdminPlaceholderIdx)
 	}
+	resolvedScopesExpr := "NULL::uuid[]"
+	if len(p.VisibleAccessScopeIDs) > 0 {
+		args = append(args, p.VisibleAccessScopeIDs)
+		resolvedScopesExpr = fmt.Sprintf("$%d::uuid[]", argIdx)
+		argIdx++
+	}
 
 	var visibilityClause string
 	if p.VisibilityFilter != "" {
@@ -336,7 +401,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			case "private":
 				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
 			case "shared":
-				parts = append(parts, sharedSegmentAccessSQL("s", "$1", isAdminPlaceholder()))
+				parts = append(parts, sharedSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr))
 			}
 		}
 		switch len(parts) {
@@ -348,7 +413,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			visibilityClause = "(" + strings.Join(parts, " OR ") + ")"
 		}
 	} else {
-		visibilityClause = visibleSegmentAccessSQL("s", "$1", isAdminPlaceholder())
+		visibilityClause = visibleSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr)
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
@@ -356,6 +421,21 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
 		args = append(args, p.SportGroup)
 		argIdx++
+	}
+	if len(p.CourseKinds) > 0 {
+		placeholders := make([]string, len(p.CourseKinds))
+		for i, kind := range p.CourseKinds {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, kind)
+			argIdx++
+		}
+		where += " AND s.course_kind IN (" + strings.Join(placeholders, ", ") + ")"
+	} else if p.CourseKind != "" {
+		where += fmt.Sprintf(" AND s.course_kind = $%d", argIdx)
+		args = append(args, p.CourseKind)
+		argIdx++
+	} else {
+		where += " AND s.course_kind = 'line'"
 	}
 	if p.SegmentTypes != "" {
 		types := strings.Split(p.SegmentTypes, ",")
@@ -365,11 +445,21 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			args = append(args, strings.TrimSpace(t))
 			argIdx++
 		}
-		where += " AND s.segment_type IN (" + strings.Join(placeholders, ", ") + ")"
+		typeFilter := "s.segment_type IN (" + strings.Join(placeholders, ", ") + ")"
+		if hasCheckpointCourseFilter {
+			where += " AND (s.course_kind <> 'line' OR " + typeFilter + ")"
+		} else {
+			where += " AND " + typeFilter
+		}
 	} else if p.SegmentType != "" {
-		where += fmt.Sprintf(" AND s.segment_type = $%d", argIdx)
+		typeFilter := fmt.Sprintf("s.segment_type = $%d", argIdx)
 		args = append(args, p.SegmentType)
 		argIdx++
+		if hasCheckpointCourseFilter {
+			where += " AND (s.course_kind <> 'line' OR " + typeFilter + ")"
+		} else {
+			where += " AND " + typeFilter
+		}
 	}
 	if p.Name != "" {
 		where += fmt.Sprintf(" AND s.name ILIKE $%d", argIdx)
@@ -379,16 +469,27 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 	if p.BBox != "" {
 		parts := strings.Split(p.BBox, ",")
 		if len(parts) == 4 {
-			// Wir nutzen sv wenn vorhanden, sonst sv_bbox (redundant aber funktional korrekt getrennt)
-			bboxTable := "sv"
-			if !p.IncludeGeoJSON {
-				bboxTable = "sv_bbox"
-				from += `
+			if hasCheckpointCourseFilter && !hasLineCourseFilter {
+				where += fmt.Sprintf(
+					` AND cp.display_bounds IS NOT NULL AND ST_Intersects(cp.display_bounds, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+					argIdx, argIdx+1, argIdx+2, argIdx+3,
+				)
+				args = append(args, parts[0], parts[1], parts[2], parts[3])
+				argIdx += 4
+			} else {
+				// Wir nutzen sv wenn vorhanden, sonst sv_bbox (redundant aber funktional korrekt getrennt)
+				bboxTable := "sv"
+				if !p.IncludeGeoJSON {
+					bboxTable = "sv_bbox"
+					from += `
 	LEFT JOIN LATERAL (
 		SELECT track
 		FROM segment_versions
 		WHERE segment_id = s.id
-		  AND matching_contract_key = 'course_gps_v1'
+		  AND matching_contract_key = CASE
+		      WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+		      ELSE 'course_gps_v1'
+		  END
 		  AND matching_contract_version = 1
 		  AND validity_basis <> 'rollback_retired'
 		  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
@@ -397,13 +498,25 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 		         version_number DESC
 		LIMIT 1
 	) sv_bbox ON true`
+				}
+				if hasCheckpointCourseFilter {
+					where += fmt.Sprintf(
+						` AND (
+							(s.course_kind = 'line' AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326)))
+							OR (s.course_kind = 'checkpoint_sequence' AND cp.display_bounds IS NOT NULL AND ST_Intersects(cp.display_bounds, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326)))
+						)`,
+						bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
+						argIdx, argIdx+1, argIdx+2, argIdx+3,
+					)
+				} else {
+					where += fmt.Sprintf(
+						` AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+						bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
+					)
+				}
+				args = append(args, parts[0], parts[1], parts[2], parts[3])
+				argIdx += 4
 			}
-			where += fmt.Sprintf(
-				` AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
-				bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
-			)
-			args = append(args, parts[0], parts[1], parts[2], parts[3])
-			argIdx += 4
 		}
 	}
 	if p.CompletedOnly {
@@ -504,6 +617,8 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 	for rows.Next() {
 		var s model.Segment
 		var allowedPredicatesJSON []byte
+		var controlSummaryJSON []byte
+		var controlMapFeaturesJSON []byte
 		err := rows.Scan(
 			&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 			&allowedPredicatesJSON,
@@ -515,6 +630,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
 			&s.TerrainType, &s.ClimbType, &s.ElevationKind,
+			&s.CourseKind, &controlSummaryJSON, &controlMapFeaturesJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan segment: %w", err)
@@ -522,6 +638,18 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 		s.AllowedPredicates, err = decodeSegmentPredicates(allowedPredicatesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("decode segment predicates: %w", err)
+		}
+		if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+			var summary model.CheckpointControlSummary
+			if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+				return nil, fmt.Errorf("decode checkpoint control summary: %w", err)
+			}
+			s.ControlSummary = &summary
+		}
+		if len(controlMapFeaturesJSON) > 0 && string(controlMapFeaturesJSON) != "null" {
+			if err := json.Unmarshal(controlMapFeaturesJSON, &s.ControlMapFeatures); err != nil {
+				return nil, fmt.Errorf("decode checkpoint control map features: %w", err)
+			}
 		}
 		segments = append(segments, s)
 	}
@@ -673,11 +801,22 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
+type GetSegmentOptions struct {
+	IncludeGeoJSON  bool
+	IncludeControls bool
+}
+
 func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool, includeGeoJSON bool) (*model.Segment, error) {
+	return db.GetSegmentWithOptions(ctx, segmentID, userID, isAdmin, GetSegmentOptions{
+		IncludeGeoJSON: includeGeoJSON,
+	})
+}
+
+func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID string, isAdmin bool, opts GetSegmentOptions) (*model.Segment, error) {
 	var s model.Segment
 
 	trackSelect := "NULL::text"
-	if includeGeoJSON {
+	if opts.IncludeGeoJSON {
 		trackSelect = "ST_AsGeoJSON(sv.track)"
 	}
 
@@ -740,16 +879,21 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                        ) AS is_favorite,
                        s.visibility, s.access_scope_id, s.route_hash, s.created_at,
                        %s AS track_geojson,
-                       s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional
+                       s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional,
+                       s.course_kind, sv.id::text AS active_segment_version_id,
+                       cp.control_summary
                 FROM segments s
                 %s
+                LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id
                 WHERE s.id = $1
                   AND `+visibleSegmentAccessSQL("s", "NULLIF($2::text, '')::uuid", "$3"),
 		trackSelect,
-		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
+		activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id, track"),
 	)
 
 	var allowedPredicatesJSON []byte
+	var activeSegmentVersionID *string
+	var controlSummaryJSON []byte
 	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&allowedPredicatesJSON,
@@ -761,6 +905,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType, &s.ElevationKind, &s.Bidirectional,
+		&s.CourseKind, &activeSegmentVersionID, &controlSummaryJSON,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -772,6 +917,27 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 	s.AllowedPredicates, err = decodeSegmentPredicates(allowedPredicatesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("decode segment predicates: %w", err)
+	}
+	if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+		var summary model.CheckpointControlSummary
+		if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+			return nil, fmt.Errorf("decode checkpoint control summary: %w", err)
+		}
+		s.ControlSummary = &summary
+	}
+	if opts.IncludeControls {
+		if s.CourseKind != string(model.CourseKindCheckpointSequence) {
+			s.Controls = []model.CheckpointControl{}
+			return &s, nil
+		}
+		if activeSegmentVersionID == nil || *activeSegmentVersionID == "" {
+			return nil, fmt.Errorf("%w: checkpoint course has no active version", ErrSegmentValidation)
+		}
+		controls, err := db.GetCheckpointControls(ctx, *activeSegmentVersionID)
+		if err != nil {
+			return nil, err
+		}
+		s.Controls = controls
 	}
 	return &s, nil
 }
@@ -1080,6 +1246,13 @@ func (db *DB) createNewSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentI
 
 func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operation, equivalenceDecision string) (string, string, error) {
 	operationID := stableOperationHash(segmentID, actorUserID, operation, time.Now().UTC().Format(time.RFC3339Nano))
+	isCheckpoint, err := segmentIsCheckpointCourseTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	if isCheckpoint {
+		return "", "", fmt.Errorf("%w: checkpoint course controls require a checkpoint version operation", ErrSegmentValidation)
+	}
 	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
 	if err != nil {
 		return "", "", err
@@ -1237,6 +1410,9 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 		return false, fmt.Errorf("begin publish segment tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
 	var tag pgconn.CommandTag
 	if isAdmin {
 		tag, err = tx.Exec(ctx,
@@ -1277,6 +1453,9 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 		return false, "", 0, fmt.Errorf("begin publish segment tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
 
 	var ownerID, name string
 	var query string
@@ -1343,6 +1522,24 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 	return true, runID, total, nil
 }
 
+func ensureSegmentPublishAllowedTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	var routeDerived bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM route_course_publications
+			WHERE course_segment_id = $1
+			  AND publication_state = 'published'
+		)
+	`, segmentID).Scan(&routeDerived); err != nil {
+		return fmt.Errorf("check route-derived segment publish: %w", err)
+	}
+	if routeDerived {
+		return fmt.Errorf("%w: route-derived courses must be published through route publication", ErrRoutePublicationValidation)
+	}
+	return nil
+}
+
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
 	return db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
 		SegmentID:    segmentID,
@@ -1367,8 +1564,44 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 	if electricMode != "all" && electricMode != "exclude_electric" && electricMode != "only_electric" {
 		return nil, fmt.Errorf("%w: invalid leaderboard electric mode", ErrSegmentValidation)
 	}
+	var courseKind string
+	var activeVersionID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT s.course_kind, COALESCE(sv.id::text, '')
+		FROM segments s
+		`+activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id")+`
+		WHERE s.id = $1
+	`, q.SegmentID).Scan(&courseKind, &activeVersionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSegmentNotFound
+		}
+		return nil, fmt.Errorf("load segment leaderboard course kind: %w", err)
+	}
 	groupID := q.LeaderboardEquivalenceGroupID
-	if scope != "sport_overall" {
+	useVersionFilter := false
+	versionFilterID := ""
+	if courseKind == string(model.CourseKindCheckpointSequence) {
+		switch scope {
+		case "current_version":
+			if activeVersionID == "" {
+				return []model.SegmentEffort{}, nil
+			}
+			useVersionFilter = true
+			versionFilterID = activeVersionID
+		case "version":
+			if strings.TrimSpace(q.VersionID) == "" {
+				return nil, fmt.Errorf("%w: version leaderboard scope requires version id", ErrSegmentValidation)
+			}
+			useVersionFilter = true
+			versionFilterID = q.VersionID
+		case "sport_overall":
+			if strings.TrimSpace(q.SportType) == "" {
+				return nil, fmt.Errorf("%w: sport_overall leaderboard requires sport type", ErrSegmentValidation)
+			}
+		default:
+			return nil, fmt.Errorf("%w: unsupported checkpoint leaderboard scope", ErrSegmentValidation)
+		}
+	} else if scope != "sport_overall" {
 		var err error
 		groupID, err = db.resolveSegmentLeaderboardGroup(ctx, q.SegmentID, scope, q.VersionID, groupID)
 		if err != nil {
@@ -1427,10 +1660,19 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		WHERE se.segment_id = $1 AND se.in_leaderboard = true
 		  AND se.superseded_at IS NULL`
 
-	if scope != "sport_overall" {
+	if useVersionFilter {
+		query += fmt.Sprintf(" AND se.segment_version_id = $%d", argIdx)
+		args = append(args, versionFilterID)
+		argIdx++
+	} else if scope != "sport_overall" {
 		query += fmt.Sprintf(" AND se.leaderboard_equivalence_group_id = $%d", argIdx)
 		args = append(args, groupID)
 		argIdx++
+	}
+	if courseKind == string(model.CourseKindCheckpointSequence) {
+		query += " AND se.leaderboard_contract_key = 'checkpoint_sequence_v1'"
+	} else {
+		query += " AND se.leaderboard_contract_key = 'course_gps_v1'"
 	}
 
 	if q.SportType != "" {
@@ -1642,12 +1884,15 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       NULL::text AS display_name,
 		       g.name AS gear_name,
 		       s.segment_type_meta,
+		       s.course_kind,
+		       cp.control_summary,
 		       ROW_NUMBER() OVER (
 		           PARTITION BY se.segment_id, se.started_at, se.elapsed_time_s, se.is_reverse
 		           ORDER BY se.created_at ASC, se.id ASC
 		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id
 		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1
@@ -1664,7 +1909,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       segment_name,
 		       display_name,
 		       gear_name,
-		       segment_type_meta
+		       segment_type_meta,
+		       course_kind,
+		       control_summary
 		FROM ranked
 		WHERE canonical_rank = 1
 		ORDER BY started_at ASC`, activityID)
@@ -1676,6 +1923,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 	var efforts []model.SegmentEffort
 	for rows.Next() {
 		var e model.SegmentEffort
+		var controlSummaryJSON []byte
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
@@ -1687,9 +1935,17 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
 			&e.SegmentTypeMeta,
+			&e.CourseKind, &controlSummaryJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan effort: %w", err)
+		}
+		if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+			var summary model.CheckpointControlSummary
+			if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+				return nil, fmt.Errorf("decode effort checkpoint summary: %w", err)
+			}
+			e.ControlSummary = &summary
 		}
 		efforts = append(efforts, e)
 	}
@@ -1967,6 +2223,11 @@ type CandidateSegment struct {
 	EligibilitySourceHash  string
 }
 
+type CheckpointCandidateSegment struct {
+	CandidateSegment
+	Controls []model.CheckpointControl
+}
+
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
 // filtered by the course eligibility projection. Uses ST_DWithin with GIST
 // index for fast spatial pre-filtering after indexed eligibility lookup.
@@ -2023,6 +2284,78 @@ func ApplyCandidateEligibilityToEffort(e *model.SegmentEffort, candidate Candida
 	e.EligibilityPolicyVersion = courseEligibilityPolicyVersion
 	e.EligibilitySourceHash = candidate.EligibilitySourceHash
 	e.InLeaderboard = candidate.RankAllowed
+}
+
+func (db *DB) GetCheckpointCandidateSegments(ctx context.Context, activityID, userID, activityTraitBucketKey string, activityDate time.Time) ([]CheckpointCandidateSegment, error) {
+	query := `
+		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
+		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
+		       s.bidirectional,
+		       cep.activity_trait_bucket_key, cep.rank_allowed,
+		       cep.completion_allowed, cep.source_hash
+		FROM segments s
+		` + activeSegmentCourseVersionLateral("JOIN", "s.id", "s.course_kind", "$4", "id") + `
+		JOIN checkpoint_course_projection cp ON cp.segment_id = s.id AND cp.active_segment_version_id = sv.id
+		JOIN target_course_eligibility_projection cep
+		  ON cep.target_kind = 'segment'
+		 AND cep.target_id = s.id
+		 AND cep.target_version_id = sv.id
+		 AND cep.activity_trait_bucket_key = $3
+		 AND cep.match_allowed = true
+		JOIN activity_tracks at ON at.activity_id = $1
+		WHERE s.course_kind = 'checkpoint_sequence'
+		  AND ` + visibleSegmentExportSQL("s", "$2") + `
+		  AND at.track_full IS NOT NULL
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM course_version_controls c
+		      WHERE c.segment_version_id = sv.id
+		        AND c.required = true
+		        AND NOT (
+		            (
+		                c.geometry_shape IN ('point', 'circle')
+		                AND ST_DWithin(
+		                    at.track_full::geography,
+		                    c.geom::geography,
+		                    GREATEST(COALESCE(c.hit_radius_m, c.area_radius_m, 0), 1)
+		                )
+		            )
+		            OR (
+		                c.geometry_shape IN ('polygon', 'multipolygon')
+		                AND ST_Intersects(at.track_full, c.geom)
+		            )
+		        )
+		  )`
+	rows, err := db.Pool.Query(ctx, query, activityID, userID, activityTraitBucketKey, activityDate)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint candidate segments: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CheckpointCandidateSegment
+	for rows.Next() {
+		var c CheckpointCandidateSegment
+		var rawMeta json.RawMessage
+		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
+			&c.SegmentType, &rawMeta, &c.Bidirectional,
+			&c.ActivityTraitBucketKey, &c.RankAllowed, &c.CompletionAllowed,
+			&c.EligibilitySourceHash); err != nil {
+			return nil, fmt.Errorf("scan checkpoint candidate segment: %w", err)
+		}
+		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
+			_ = json.Unmarshal(rawMeta, &c.TypeMeta)
+		}
+		controls, err := db.GetCheckpointControls(ctx, c.VersionID)
+		if err != nil {
+			return nil, err
+		}
+		c.Controls = controls
+		result = append(result, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get checkpoint candidate segments: %w", err)
+	}
+	return result, nil
 }
 
 func (db *DB) GetSegmentMatchActivityContext(ctx context.Context, activityID string) (SegmentMatchActivityContext, error) {
@@ -2971,31 +3304,21 @@ func encodeCursor(t time.Time, id string) string {
 // GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
 // Only returns segments the user can access (own or public).
 func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string) ([]model.Segment, error) {
-	query := fmt.Sprintf(`
-		SELECT s.id, s.name, s.distance_m, s.elevation_gain_m,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
-		FROM segments s
-		%s
-		WHERE s.id = ANY($1)
-		  AND `+visibleSegmentExportSQL("s", "$2")+`
-		  AND sv.track IS NOT NULL`,
-		activeCourseGPSV1VersionLateral("LEFT JOIN", "s.id", "NOW()", "track"),
-	)
-	rows, err := db.Pool.Query(ctx, query, ids, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []model.Segment
-	for rows.Next() {
-		var seg model.Segment
-		if err := rows.Scan(&seg.ID, &seg.Name, &seg.DistanceM, &seg.ElevationGainM, &seg.TrackGeoJSON); err != nil {
+	result := make([]model.Segment, 0, len(ids))
+	for _, id := range ids {
+		seg, err := db.GetSegmentWithOptions(ctx, id, userID, false, GetSegmentOptions{
+			IncludeGeoJSON:  true,
+			IncludeControls: true,
+		})
+		if err != nil {
 			return nil, err
 		}
-		result = append(result, seg)
+		if seg == nil || seg.TrackGeoJSON == nil {
+			continue
+		}
+		result = append(result, *seg)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func decodeCursor(cursor string) (time.Time, string, error) {

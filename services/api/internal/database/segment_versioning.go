@@ -30,6 +30,7 @@ type SegmentMetadataSnapshotRow struct {
 	CreatedBy         string          `json:"created_by"`
 	Name              string          `json:"name"`
 	SegmentType       string          `json:"segment_type"`
+	CourseKind        string          `json:"course_kind"`
 	SportGroup        string          `json:"sport_group"`
 	AllowedPredicates json.RawMessage `json:"allowed_predicates,omitempty"`
 	Bidirectional     bool            `json:"bidirectional"`
@@ -41,23 +42,24 @@ type SegmentMetadataSnapshotRow struct {
 }
 
 type SegmentVersionSnapshotRow struct {
-	ID                              string          `json:"id"`
-	VersionNumber                   int             `json:"version_number"`
-	ValidFromAt                     *time.Time      `json:"valid_from_at,omitempty"`
-	ValidUntilAt                    *time.Time      `json:"valid_until_at,omitempty"`
-	ValidityBasis                   string          `json:"validity_basis"`
-	MatchingContractKey             string          `json:"matching_contract_key"`
-	MatchingContractVersion         int             `json:"matching_contract_version"`
-	TrackGeoJSON                    string          `json:"track_geojson"`
-	StartPointGeoJSON               string          `json:"start_point_geojson"`
-	EndPointGeoJSON                 string          `json:"end_point_geojson"`
-	EligibilitySegmentType          string          `json:"eligibility_segment_type"`
-	EligibilitySportGroup           string          `json:"eligibility_sport_group"`
-	EligibilityAllowedPredicates    json.RawMessage `json:"eligibility_allowed_predicates,omitempty"`
-	EligibilityAllowedPredicatesSet bool            `json:"eligibility_allowed_predicates_set"`
-	EligibilityBidirectional        bool            `json:"eligibility_bidirectional"`
-	EligibilityVisibility           string          `json:"eligibility_visibility"`
-	EligibilityElevationKind        string          `json:"eligibility_elevation_kind"`
+	ID                              string                    `json:"id"`
+	VersionNumber                   int                       `json:"version_number"`
+	ValidFromAt                     *time.Time                `json:"valid_from_at,omitempty"`
+	ValidUntilAt                    *time.Time                `json:"valid_until_at,omitempty"`
+	ValidityBasis                   string                    `json:"validity_basis"`
+	MatchingContractKey             string                    `json:"matching_contract_key"`
+	MatchingContractVersion         int                       `json:"matching_contract_version"`
+	TrackGeoJSON                    string                    `json:"track_geojson"`
+	StartPointGeoJSON               string                    `json:"start_point_geojson"`
+	EndPointGeoJSON                 string                    `json:"end_point_geojson"`
+	EligibilitySegmentType          string                    `json:"eligibility_segment_type"`
+	EligibilitySportGroup           string                    `json:"eligibility_sport_group"`
+	EligibilityAllowedPredicates    json.RawMessage           `json:"eligibility_allowed_predicates,omitempty"`
+	EligibilityAllowedPredicatesSet bool                      `json:"eligibility_allowed_predicates_set"`
+	EligibilityBidirectional        bool                      `json:"eligibility_bidirectional"`
+	EligibilityVisibility           string                    `json:"eligibility_visibility"`
+	EligibilityElevationKind        string                    `json:"eligibility_elevation_kind"`
+	Controls                        []model.CheckpointControl `json:"controls,omitempty"`
 }
 
 type SegmentEquivalenceSnapshotRow struct {
@@ -79,7 +81,7 @@ func LoadSegmentVersionSnapshotTx(ctx context.Context, tx pgx.Tx, segmentID stri
 
 	var allowedPredicates, segmentTypeMeta []byte
 	if err := tx.QueryRow(ctx, `
-		SELECT id, created_by, name, segment_type, sport_group,
+		SELECT id, created_by, name, segment_type, course_kind, sport_group,
 		       COALESCE(allowed_predicates, 'null'::jsonb),
 		       bidirectional, COALESCE(visibility, 'public'), elevation_kind,
 		       terrain_type, climb_type, COALESCE(segment_type_meta, '{}'::jsonb)
@@ -90,6 +92,7 @@ func LoadSegmentVersionSnapshotTx(ctx context.Context, tx pgx.Tx, segmentID stri
 		&snapshot.Segment.CreatedBy,
 		&snapshot.Segment.Name,
 		&snapshot.Segment.SegmentType,
+		&snapshot.Segment.CourseKind,
 		&snapshot.Segment.SportGroup,
 		&allowedPredicates,
 		&snapshot.Segment.Bidirectional,
@@ -154,6 +157,16 @@ func LoadSegmentVersionSnapshotTx(ctx context.Context, tx pgx.Tx, segmentID stri
 	}
 	if err := rows.Err(); err != nil {
 		return snapshot, fmt.Errorf("segment version snapshot rows: %w", err)
+	}
+	for i := range snapshot.Versions {
+		if snapshot.Versions[i].MatchingContractKey != CheckpointSequenceV1Key {
+			continue
+		}
+		controls, err := getCheckpointControlsTx(ctx, tx, snapshot.Versions[i].ID)
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot.Versions[i].Controls = controls
 	}
 
 	groupRows, err := tx.Query(ctx, `
@@ -257,6 +270,15 @@ func (db *DB) UpdateSegmentVersionValidity(ctx context.Context, segmentID, versi
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
+	isCheckpoint, err := segmentIsCheckpointCourseTx(ctx, tx, segmentID)
+	if err != nil {
+		return nil, err
+	}
+	if isCheckpoint {
+		if err := rebuildCheckpointCourseProjectionTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
+	}
 	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, "", actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, nil); err != nil {
 		return nil, err
 	}
@@ -305,6 +327,9 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	oldVersion, ok := findSnapshotVersion(before, versionID)
 	if !ok {
 		return nil, ErrSegmentNotFound
+	}
+	if oldVersion.MatchingContractKey == CheckpointSequenceV1Key {
+		return nil, fmt.Errorf("%w: checkpoint course controls require a checkpoint version operation", ErrSegmentValidation)
 	}
 	inputHash, err := segmentVersionOperationInputHash("geometry_update", map[string]any{
 		"version_id":           versionID,
@@ -449,6 +474,15 @@ func (db *DB) RollbackSegmentVersionRevision(ctx context.Context, segmentID, rev
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
+	}
+	isCheckpoint, err := segmentIsCheckpointCourseTx(ctx, tx, segmentID)
+	if err != nil {
+		return nil, err
+	}
+	if isCheckpoint {
+		if err := rebuildCheckpointCourseProjectionTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
 	}
 	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, operationID, reason, affectedFrom, affectedUntil, true)
 	if err != nil {
@@ -1002,16 +1036,17 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 	_, err := tx.Exec(ctx, `
 		UPDATE segments
 		SET segment_type = $2,
-		    sport_group = $3,
-		    allowed_predicates = $4,
-		    bidirectional = $5,
-		    visibility = $6,
-		    elevation_kind = $7,
-		    terrain_type = $8,
-		    climb_type = $9,
-		    segment_type_meta = $10
+		    course_kind = $3,
+		    sport_group = $4,
+		    allowed_predicates = $5,
+		    bidirectional = $6,
+		    visibility = $7,
+		    elevation_kind = $8,
+		    terrain_type = $9,
+		    climb_type = $10,
+		    segment_type_meta = $11
 		WHERE id = $1
-	`, snapshot.Segment.ID, snapshot.Segment.SegmentType, snapshot.Segment.SportGroup,
+	`, snapshot.Segment.ID, snapshot.Segment.SegmentType, snapshot.Segment.CourseKind, snapshot.Segment.SportGroup,
 		nullableRawJSON(snapshot.Segment.AllowedPredicates), snapshot.Segment.Bidirectional,
 		snapshot.Segment.Visibility, snapshot.Segment.ElevationKind, snapshot.Segment.TerrainType,
 		snapshot.Segment.ClimbType, nullableRawJSON(snapshot.Segment.SegmentTypeMeta))
@@ -1020,6 +1055,9 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 	}
 	if err := retireVersionsAbsentFromSnapshotTx(ctx, tx, snapshot); err != nil {
 		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM course_version_controls WHERE segment_id = $1`, snapshot.SegmentID); err != nil {
+		return fmt.Errorf("clear checkpoint controls before restore: %w", err)
 	}
 	for _, version := range snapshot.Versions {
 		if _, err := tx.Exec(ctx, `
@@ -1036,15 +1074,34 @@ func restoreSegmentSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot SegmentVe
 			    eligibility_allowed_predicates_set = $11,
 			    eligibility_bidirectional = $12,
 			    eligibility_visibility = $13,
-			    eligibility_elevation_kind = $14
+			    eligibility_elevation_kind = $14,
+			    matching_contract_key = $15,
+			    matching_contract_version = $16
 			WHERE id = $1
 		`, version.ID, version.ValidFromAt, version.ValidUntilAt, version.ValidityBasis,
 			version.TrackGeoJSON, version.StartPointGeoJSON, version.EndPointGeoJSON,
 			version.EligibilitySegmentType, version.EligibilitySportGroup,
 			nullableRawJSON(version.EligibilityAllowedPredicates),
 			version.EligibilityAllowedPredicatesSet, version.EligibilityBidirectional,
-			version.EligibilityVisibility, version.EligibilityElevationKind); err != nil {
+			version.EligibilityVisibility, version.EligibilityElevationKind,
+			version.MatchingContractKey, version.MatchingContractVersion); err != nil {
 			return fmt.Errorf("restore segment version %s: %w", version.ID, err)
+		}
+		for _, control := range version.Controls {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO course_version_controls (
+					id, segment_id, segment_version_id, sequence_index, role, primitive,
+					geometry_shape, label, geom, hit_radius_m, area_radius_m, required
+				)
+				VALUES (
+					COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5, $6,
+					$7, $8, ST_SetSRID(ST_GeomFromGeoJSON($9), 4326), $10, $11, $12
+				)
+			`, control.ID, snapshot.SegmentID, version.ID, control.SequenceIndex, control.Role,
+				control.Primitive, control.GeometryShape, control.Label, string(control.Geometry),
+				control.HitRadiusM, control.AreaRadiusM, control.Required); err != nil {
+				return fmt.Errorf("restore checkpoint control %s/%d: %w", version.ID, control.SequenceIndex, err)
+			}
 		}
 	}
 	if err := restoreSegmentEquivalenceSnapshotTx(ctx, tx, snapshot); err != nil {

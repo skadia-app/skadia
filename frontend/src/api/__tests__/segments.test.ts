@@ -9,7 +9,14 @@ vi.mock('@/api/client', () => ({
   apiDownload: vi.fn(),
 }))
 
-import { fetchSegments, suggestSegmentEnrichment } from '@/api/segments'
+import {
+  createCheckpointCourse,
+  fetchActivitySegments,
+  fetchSegment,
+  fetchSegments,
+  importCheckpointCourseGeoJSON,
+  suggestSegmentEnrichment,
+} from '@/api/segments'
 
 describe('segment API', () => {
   beforeEach(() => {
@@ -22,6 +29,81 @@ describe('segment API', () => {
     await fetchSegments({ elevation_kind: 'uphill' })
 
     expect(apiClientMock).toHaveBeenCalledWith('/segments?elevation_kind=uphill')
+  })
+
+  it('adds checkpoint course list query parameters', async () => {
+    apiClientMock.mockResolvedValueOnce({ segments: [], has_more: false })
+
+    await fetchSegments({ course_kind: 'checkpoint_sequence', include_control_map_features: true })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments?course_kind=checkpoint_sequence&include_control_map_features=true')
+  })
+
+  it('adds multi course kind query parameters', async () => {
+    apiClientMock.mockResolvedValueOnce({ segments: [], has_more: false })
+
+    await fetchSegments({ course_kinds: ['line', 'checkpoint_sequence'] })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments?course_kinds=line%2Ccheckpoint_sequence')
+  })
+
+  it('adds include_controls on segment detail requests', async () => {
+    apiClientMock.mockResolvedValueOnce({ id: 'seg-1' })
+
+    await fetchSegment('seg-1', { includeGeoJSON: true, includeControls: true })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments/seg-1?include_geojson=true&include_controls=true')
+  })
+
+  it('posts checkpoint course creation payloads through the segment endpoint', async () => {
+    apiClientMock.mockResolvedValueOnce({ id: 'seg-1' })
+    const control = {
+      sequence_index: 0,
+      role: 'start' as const,
+      primitive: 'point' as const,
+      geometry_shape: 'point' as const,
+      geometry: { type: 'Point', coordinates: [8, 49] },
+      hit_radius_m: 30,
+      required: true,
+    }
+
+    await createCheckpointCourse({
+      name: 'Checkpoint',
+      sport_group: 'bike',
+      controls: [control],
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments', {
+      method: 'POST',
+      body: {
+        name: 'Checkpoint',
+        sport_group: 'bike',
+        controls: [control],
+        course_kind: 'checkpoint_sequence',
+        segment_type: 'standard',
+        geojson_track: '',
+      },
+    })
+  })
+
+  it('posts checkpoint GeoJSON imports to the segment import endpoint', async () => {
+    apiClientMock.mockResolvedValueOnce({ id: 'seg-1' })
+    const payload = { type: 'FeatureCollection', features: [] }
+
+    await importCheckpointCourseGeoJSON(payload)
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments/import', {
+      method: 'POST',
+      body: payload,
+    })
+  })
+
+  it('fetches activity segment efforts with checkpoint metadata support', async () => {
+    apiClientMock.mockResolvedValueOnce([])
+
+    await fetchActivitySegments('activity-1')
+
+    expect(apiClientMock).toHaveBeenCalledWith('/activities/activity-1/segments')
   })
 
   it('posts segment geometry to the enrichment suggestion endpoint', async () => {

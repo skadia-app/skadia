@@ -329,8 +329,8 @@ type RouteCourseProfileProjection struct {
 
 type PublishedRouteCourse struct {
 	PublicationID              string    `json:"publication_id"`
-	RouteID                    *string   `json:"route_id,omitempty"`
-	RouteSnapshotID            string    `json:"route_snapshot_id"`
+	RouteID                    *string   `json:"-"`
+	RouteSnapshotID            string    `json:"-"`
 	CourseSegmentID            string    `json:"course_segment_id"`
 	CourseSegmentVersionID     string    `json:"course_segment_version_id"`
 	Name                       string    `json:"name"`

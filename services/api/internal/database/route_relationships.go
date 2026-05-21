@@ -62,7 +62,7 @@ func (db *DB) ForkRoute(ctx context.Context, sourceRouteID, userID, name, operat
 		)
 		VALUES ($1, 'fork_route', $2, $3, 'route_relationship', $4, $5, jsonb_build_object('source_route_id', $6::text, 'target_route_id', $7::text))
 		ON CONFLICT (actor_user_id, operation_id, operation) DO NOTHING
-	`, userID, operationID, operationInputHash, relationshipID, operationInputHash, newID, sourceRouteID); err != nil {
+	`, userID, operationID, operationInputHash, relationshipID, routeRelationshipEventHash("fork_of", newID, sourceRouteID), newID, sourceRouteID); err != nil {
 		return nil, "", fmt.Errorf("insert fork route event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -79,7 +79,7 @@ func (db *DB) CreateRouteRelationship(ctx context.Context, sourceRouteID, target
 	if sourceRouteID == targetRouteID {
 		return "", fmt.Errorf("%w: route relationship source and target must differ", ErrRoutePublicationValidation)
 	}
-	if relationType != "variant_of" && relationType != "derived_from" && relationType != "fork_of" {
+	if relationType != "variant_of" && relationType != "derived_from" {
 		return "", fmt.Errorf("%w: unsupported route relationship %q", ErrRoutePublicationValidation, relationType)
 	}
 	tx, err := db.Pool.Begin(ctx)
@@ -112,7 +112,7 @@ func (db *DB) CreateRouteRelationship(ctx context.Context, sourceRouteID, target
 		)
 		VALUES ($1, 'relate_route', $2, $3, 'route_relationship', $4, $5, jsonb_build_object('relation_type', $6::text))
 		ON CONFLICT (actor_user_id, operation_id, operation) DO NOTHING
-	`, userID, operationID, operationInputHash, relationshipID, operationInputHash, relationType); err != nil {
+	`, userID, operationID, operationInputHash, relationshipID, routeRelationshipEventHash(relationType, sourceRouteID, targetRouteID), relationType); err != nil {
 		return "", fmt.Errorf("insert route relationship event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -182,13 +182,17 @@ func (db *DB) CreateRouteCourseRelationship(ctx context.Context, sourcePublicati
 		)
 		VALUES ($1, 'relate_course', $2, $3, 'route_course_relationship', $4, $5, jsonb_build_object('relation_type', $6::text))
 		ON CONFLICT (actor_user_id, operation_id, operation) DO NOTHING
-	`, userID, operationID, operationInputHash, relationshipID, operationInputHash, relationType); err != nil {
+	`, userID, operationID, operationInputHash, relationshipID, routeRelationshipEventHash(relationType, source.CourseSegmentID, target.CourseSegmentID), relationType); err != nil {
 		return "", fmt.Errorf("insert route course relationship event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("commit route course relationship: %w", err)
 	}
 	return relationshipID, nil
+}
+
+func routeRelationshipEventHash(relationType, sourceID, targetID string) string {
+	return stableHashBytes([]byte(relationType + "\x00" + sourceID + "\x00" + targetID))
 }
 
 func insertRouteRelationshipTx(ctx context.Context, tx pgx.Tx, sourceRouteID, targetRouteID, userID, relationType, operationID, operationInputHash string) (string, error) {

@@ -96,14 +96,16 @@ func syncActiveSegmentVersionEligibilitySnapshotTx(ctx context.Context, tx pgx.T
 }
 
 type segmentCourseEligibilitySnapshot struct {
-	VersionID            string
-	SegmentType          string
-	SportGroup           string
-	RawPredicates        []byte
-	AllowedPredicatesSet bool
-	Bidirectional        bool
-	Visibility           string
-	ElevationKind        string
+	VersionID               string
+	MatchingContractKey     string
+	MatchingContractVersion int
+	SegmentType             string
+	SportGroup              string
+	RawPredicates           []byte
+	AllowedPredicatesSet    bool
+	Bidirectional           bool
+	Visibility              string
+	ElevationKind           string
 }
 
 func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, tx pgx.Tx, segmentID string, seedActivityTraits bool) error {
@@ -124,6 +126,8 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 
 	rows, err := tx.Query(ctx, `
 		SELECT id,
+		       matching_contract_key,
+		       matching_contract_version,
 		       eligibility_segment_type,
 		       eligibility_sport_group,
 		       eligibility_allowed_predicates,
@@ -133,8 +137,10 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 		       eligibility_elevation_kind
 		FROM segment_versions
 		WHERE segment_id = $1
-		  AND matching_contract_key = 'course_gps_v1'
-		  AND matching_contract_version = 1
+		  AND (
+		      (matching_contract_key = 'course_gps_v1' AND matching_contract_version = 1)
+		      OR (matching_contract_key = 'checkpoint_sequence_v1' AND matching_contract_version = 1)
+		  )
 		  AND validity_basis <> 'rollback_retired'
 		ORDER BY version_number, id
 	`, segmentID)
@@ -144,7 +150,8 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 	snapshots := []segmentCourseEligibilitySnapshot{}
 	for rows.Next() {
 		var snapshot segmentCourseEligibilitySnapshot
-		if err := rows.Scan(&snapshot.VersionID, &snapshot.SegmentType, &snapshot.SportGroup, &snapshot.RawPredicates,
+		if err := rows.Scan(&snapshot.VersionID, &snapshot.MatchingContractKey, &snapshot.MatchingContractVersion,
+			&snapshot.SegmentType, &snapshot.SportGroup, &snapshot.RawPredicates,
 			&snapshot.AllowedPredicatesSet, &snapshot.Bidirectional, &snapshot.Visibility, &snapshot.ElevationKind); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan segment version for course eligibility projection: %w", err)
@@ -197,9 +204,9 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 					activity_trait_bucket_key, policy_key, policy_version, source_hash, compatibility_preset,
 					activity_group, match_allowed, completion_allowed, rank_allowed, leaderboard_partition_template
 				)
-				VALUES ('segment', $1, $2, 'course_gps_v1', 1,
-				        $3, $4, $5, $6, $7,
-				        $8, $9, $10, $11, $12::jsonb)
+				VALUES ('segment', $1, $2, $3, $4,
+				        $5, $6, $7, $8, $9,
+				        $10, $11, $12, $13, $14::jsonb)
 				ON CONFLICT (target_kind, target_id, target_version_id, activity_trait_bucket_key, policy_key, policy_version)
 				DO UPDATE SET
 					matching_contract_key = EXCLUDED.matching_contract_key,
@@ -212,7 +219,8 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 					completion_allowed = EXCLUDED.completion_allowed,
 					rank_allowed = EXCLUDED.rank_allowed,
 					leaderboard_partition_template = EXCLUDED.leaderboard_partition_template
-			`, segmentID, snapshot.VersionID, row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
+			`, segmentID, snapshot.VersionID, snapshot.MatchingContractKey, snapshot.MatchingContractVersion,
+				row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
 				row.SourceHash, row.CompatibilityPreset, row.ActivityGroup, row.MatchAllowed, row.CompletionAllowed,
 				row.RankAllowed, template); err != nil {
 				return fmt.Errorf("insert course eligibility projection row: %w", err)

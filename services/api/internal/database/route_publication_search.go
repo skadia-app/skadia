@@ -9,17 +9,18 @@ import (
 )
 
 type PublishedCourseFilters struct {
-	SportType         string
-	SubType           string
-	SACMaxRank        *int
-	MTBMaxRank        *int
-	ViaFerrataMaxRank *int
-	MinDistanceM      *float64
-	MaxDistanceM      *float64
-	MinElevationGainM *float64
-	MaxElevationGainM *float64
-	HasVariants       *bool
-	VisibilityMode    string
+	SportType             string
+	SubType               string
+	SACMaxRank            *int
+	MTBMaxRank            *int
+	ViaFerrataMaxRank     *int
+	MinDistanceM          *float64
+	MaxDistanceM          *float64
+	MinElevationGainM     *float64
+	MaxElevationGainM     *float64
+	HasVariants           *bool
+	VisibilityMode        string
+	VisibleAccessScopeIDs []string
 }
 
 func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limit, offset int, filter PublishedCourseFilters) ([]model.PublishedRouteCourse, error) {
@@ -29,7 +30,16 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 	if offset < 0 {
 		offset = 0
 	}
-	args := []any{userID, limit, offset}
+	userArg := any(userID)
+	if strings.TrimSpace(userID) == "" {
+		userArg = nil
+	}
+	args := []any{userArg, limit, offset}
+	scopeExpr := "NULL::uuid[]"
+	if len(filter.VisibleAccessScopeIDs) > 0 {
+		args = append(args, filter.VisibleAccessScopeIDs)
+		scopeExpr = fmt.Sprintf("$%d::uuid[]", len(args))
+	}
 	where := []string{
 		"p.subject_kind = 'published_course'",
 		"rcp.publication_state = 'published'",
@@ -38,15 +48,18 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 	}
 	switch strings.TrimSpace(filter.VisibilityMode) {
 	case "", "visible_to_me":
-		where = append(where, visibleSegmentAccessSQL("s", "$1", "false"))
+		where = append(where, visibleSegmentAccessWithScopesSQL("s", "$1", "false", scopeExpr))
 	case "public", "public_only":
 		where = append(where, "s.visibility = 'public'")
 	case "owner", "owner_private":
 		where = append(where, "s.created_by = $1")
+		if strings.TrimSpace(filter.VisibilityMode) == "owner_private" {
+			where = append(where, "s.visibility = 'private'")
+		}
 	case "shared":
 		where = append(where, "s.created_by = $1 AND s.visibility = 'shared'")
 	case "shared_visible_to_me":
-		where = append(where, sharedSegmentAccessSQL("s", "$1", "false"))
+		where = append(where, sharedSegmentAccessWithScopesSQL("s", "$1", "false", scopeExpr))
 	default:
 		return nil, fmt.Errorf("%w: invalid published-course visibility mode", ErrRoutePublicationValidation)
 	}
@@ -136,7 +149,8 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 					rcr.source_course_segment_id = rcp.course_segment_id
 					OR rcr.target_course_segment_id = rcp.course_segment_id
 				)
-				  AND `+visibleSegmentAccessSQL("related_s", "$1", "false")+`
+				  AND rcr.relation_type = 'variant_of'
+				  AND `+visibleSegmentAccessWithScopesSQL("related_s", "$1", "false", scopeExpr)+`
 			) AS has_variants
 		) variants ON true
 		WHERE %s

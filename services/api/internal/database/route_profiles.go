@@ -291,9 +291,10 @@ func buildRouteProfileSnapshot(snapshot *routeProfileSourceSnapshot) (*routeProf
 		builder.ProtectedPct = routeProfileClampPct(enrichment.ProtectedPct)
 	}
 
-	builder.SAC = routeProfileBuildScale(enrichment.SACRanges, nil, routeProfileSACRanks, coords)
-	builder.MTB = routeProfileBuildScale(enrichment.MTBRanges, nil, routeProfileMTBRanks, coords)
-	builder.ViaFerrata = routeProfileBuildScale(enrichment.VFRanges, enrichment.VFUnknownRanges, routeProfileViaFerrataRanks, coords)
+	totalDistance := routeProfileTotalDistanceM(coords)
+	builder.SAC = routeProfileBuildScale(enrichment.SACRanges, nil, routeProfileSACRanks, coords, totalDistance)
+	builder.MTB = routeProfileBuildScale(enrichment.MTBRanges, nil, routeProfileMTBRanks, coords, totalDistance)
+	builder.ViaFerrata = routeProfileBuildScale(enrichment.VFRanges, enrichment.VFUnknownRanges, routeProfileViaFerrataRanks, coords, totalDistance)
 
 	surfaceDistribution, wayDistribution, primarySurface, primaryWay := routeProfileSurfaceWayDistribution(segments)
 	builder.PrimarySurface = primarySurface
@@ -373,7 +374,7 @@ func routeProfileCoordinateBasis(segments []model.RouteSegment) [][]float64 {
 	return coords
 }
 
-func routeProfileBuildScale(ranges map[string][]routeProfileCoordRange, unknownRanges []routeProfileCoordRange, ranks map[string]int, coords [][]float64) routeProfileScaleSummary {
+func routeProfileBuildScale(ranges map[string][]routeProfileCoordRange, unknownRanges []routeProfileCoordRange, ranks map[string]int, coords [][]float64, totalDistanceM float64) routeProfileScaleSummary {
 	summary := routeProfileScaleSummary{
 		Distribution: map[string]routeProfileDistributionEntry{},
 		Ranges:       map[string][]routeProfileCoordRange{},
@@ -409,11 +410,24 @@ func routeProfileBuildScale(ranges map[string][]routeProfileCoordRange, unknownR
 	for _, r := range unknownRanges {
 		summary.UnknownDistanceM += routeProfileRangeDistanceM(coords, r)
 	}
+	if totalDistanceM > 0 && summary.KnownDistanceM+summary.UnknownDistanceM <= 0 {
+		summary.UnknownDistanceM = totalDistanceM
+	}
+	if summary.KnownDistanceM <= 0 && summary.UnknownDistanceM > 0 {
+		summary.State = "unknown"
+	}
 	if summary.KnownDistanceM > 0 {
 		mean := weightedSum / summary.KnownDistanceM
 		summary.WeightedMeanRank = &mean
 	}
 	return summary
+}
+
+func routeProfileTotalDistanceM(coords [][]float64) float64 {
+	if len(coords) < 2 {
+		return 0
+	}
+	return routeProfileRangeDistanceM(coords, routeProfileCoordRange{From: 0, To: len(coords) - 1})
 }
 
 func routeProfileRangeDistanceM(coords [][]float64, r routeProfileCoordRange) float64 {

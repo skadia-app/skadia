@@ -270,6 +270,53 @@ candidate_activity AS (
 
     UNION
 
+    SELECT DISTINCT ea.id, ea.user_id
+    FROM eligible_activity ea
+    JOIN activity_tracks at ON at.activity_id = ea.id
+    JOIN segments s ON s.id = $2 AND s.course_kind = 'checkpoint_sequence'
+    JOIN LATERAL (
+        SELECT id
+        FROM segment_versions
+        WHERE segment_id = $2
+          AND matching_contract_key = 'checkpoint_sequence_v1'
+          AND matching_contract_version = 1
+          AND validity_basis <> 'rollback_retired'
+          AND (valid_from_at IS NULL OR valid_from_at <= ea.started_at)
+          AND (valid_until_at IS NULL OR ea.started_at < valid_until_at)
+        ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+                 version_number DESC
+        LIMIT 1
+    ) sv ON true
+    JOIN target_course_eligibility_projection cep
+      ON cep.target_kind = 'segment'
+     AND cep.target_id = $2
+     AND cep.target_version_id = sv.id
+     AND cep.activity_trait_bucket_key = ea.activity_trait_bucket_key
+     AND cep.match_allowed = true
+    WHERE at.track_full IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM course_version_controls c
+          WHERE c.segment_version_id = sv.id
+            AND c.required = true
+            AND NOT (
+                (
+                    c.geometry_shape IN ('point', 'circle')
+                    AND ST_DWithin(
+                        at.track_full::geography,
+                        c.geom::geography,
+                        GREATEST(COALESCE(c.hit_radius_m, c.area_radius_m, 0), 1)
+                    )
+                )
+                OR (
+                    c.geometry_shape IN ('polygon', 'multipolygon')
+                    AND ST_Intersects(at.track_full, c.geom)
+                )
+            )
+      )
+
+    UNION
+
     SELECT se.activity_id, se.user_id
     FROM segment_efforts se
     JOIN activities a ON a.id = se.activity_id
@@ -581,13 +628,17 @@ func (db *DB) ListActiveSegmentRecalculationJobs(ctx context.Context, userID str
 // inactive first so the partial active match-identity index cannot reject the
 // replacement rows.
 func (db *DB) SupersedeSegmentEffortsForActivitySegments(ctx context.Context, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort, runID *string, fromAt, untilAt *time.Time) (SegmentEffortSupersedeResult, error) {
+	return db.SupersedeSegmentEffortsForActivitySegmentsWithCheckpoint(ctx, activityID, userID, segmentIDs, efforts, nil, runID, fromAt, untilAt)
+}
+
+func (db *DB) SupersedeSegmentEffortsForActivitySegmentsWithCheckpoint(ctx context.Context, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort, checkpointMatches []model.CheckpointMatchedEffort, runID *string, fromAt, untilAt *time.Time) (SegmentEffortSupersedeResult, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return SegmentEffortSupersedeResult{}, fmt.Errorf("begin supersede segment efforts: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	result, err := SupersedeSegmentEffortsForActivitySegmentsTx(ctx, tx, activityID, userID, segmentIDs, efforts, runID, fromAt, untilAt)
+	result, err := SupersedeSegmentEffortsForActivitySegmentsWithCheckpointTx(ctx, tx, activityID, userID, segmentIDs, efforts, checkpointMatches, runID, fromAt, untilAt)
 	if err != nil {
 		return SegmentEffortSupersedeResult{}, err
 	}
@@ -598,6 +649,10 @@ func (db *DB) SupersedeSegmentEffortsForActivitySegments(ctx context.Context, ac
 }
 
 func SupersedeSegmentEffortsForActivitySegmentsTx(ctx context.Context, tx pgx.Tx, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort, runID *string, fromAt, untilAt *time.Time) (SegmentEffortSupersedeResult, error) {
+	return SupersedeSegmentEffortsForActivitySegmentsWithCheckpointTx(ctx, tx, activityID, userID, segmentIDs, efforts, nil, runID, fromAt, untilAt)
+}
+
+func SupersedeSegmentEffortsForActivitySegmentsWithCheckpointTx(ctx context.Context, tx pgx.Tx, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort, checkpointMatches []model.CheckpointMatchedEffort, runID *string, fromAt, untilAt *time.Time) (SegmentEffortSupersedeResult, error) {
 	if len(segmentIDs) == 0 {
 		return SegmentEffortSupersedeResult{}, nil
 	}
@@ -627,6 +682,24 @@ func SupersedeSegmentEffortsForActivitySegmentsTx(ctx context.Context, tx pgx.Tx
 		effort.SupersededByEffortID = nil
 		filteredEfforts = append(filteredEfforts, effort)
 	}
+	filteredCheckpoint := make([]model.CheckpointMatchedEffort, 0, len(checkpointMatches))
+	for _, match := range checkpointMatches {
+		if match.Effort == nil {
+			continue
+		}
+		if _, ok := segmentSet[match.Effort.SegmentID]; !ok {
+			continue
+		}
+		if !timeInOptionalRange(match.Effort.StartedAt, fromAt, untilAt) {
+			continue
+		}
+		match.Effort.CreatedByRecalculationRunID = runID
+		match.Effort.SupersededAt = nil
+		match.Effort.SupersededReason = nil
+		match.Effort.SupersededByRecalculationRunID = nil
+		match.Effort.SupersededByEffortID = nil
+		filteredCheckpoint = append(filteredCheckpoint, match)
+	}
 
 	superseded, err := markActiveSegmentEffortsSupersededTx(ctx, tx, activityID, userID, segmentIDs, runID, fromAt, untilAt)
 	if err != nil {
@@ -639,7 +712,10 @@ func SupersedeSegmentEffortsForActivitySegmentsTx(ctx context.Context, tx pgx.Tx
 	if err := linkSupersededReplacementEffortsTx(ctx, tx, superseded, inserted, runID); err != nil {
 		return SegmentEffortSupersedeResult{}, err
 	}
-	return SegmentEffortSupersedeResult{Superseded: len(superseded), Inserted: len(inserted)}, nil
+	if err := InsertCheckpointMatchedEffortsTx(ctx, tx, filteredCheckpoint); err != nil {
+		return SegmentEffortSupersedeResult{}, err
+	}
+	return SegmentEffortSupersedeResult{Superseded: len(superseded), Inserted: len(inserted) + len(filteredCheckpoint)}, nil
 }
 
 func timeInOptionalRange(value time.Time, fromAt, untilAt *time.Time) bool {

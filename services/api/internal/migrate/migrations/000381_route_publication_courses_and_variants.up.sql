@@ -165,14 +165,14 @@ CREATE TABLE route_publication_privacy_reviews (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (route_snapshot_id, snapshot_hash, audience_class),
     CHECK (audience_class IN ('public', 'shared')),
-    CHECK (route_name_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (description_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (waypoints_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (source_metadata_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (geometry_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (enrichment_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (media_pointer_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review')),
-    CHECK (overall_state IN ('unknown', 'safe', 'redacted', 'blocked', 'needs_owner_review'))
+    CHECK (route_name_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (description_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (waypoints_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (source_metadata_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (geometry_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (enrichment_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (media_pointer_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked')),
+    CHECK (overall_state IN ('unknown', 'safe', 'requires_confirmation', 'confirmed', 'blocked'))
 );
 
 CREATE INDEX idx_route_publication_privacy_reviews_snapshot

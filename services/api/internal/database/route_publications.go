@@ -223,14 +223,21 @@ func (db *DB) publishRouteSnapshotAsCourseTx(ctx context.Context, tx pgx.Tx, inp
 	if err := insertPublishedCourseProfileProjectionTx(ctx, tx, snapshot, profile, publicationID, segmentID, versionID, visibility, input.AccessScopeID); err != nil {
 		return nil, err
 	}
+	eventOperation := "publish_course"
+	var beforeSnapshotHash *string
+	if target != nil {
+		eventOperation = "republish_course"
+		before := stableHashBytes([]byte(target.CourseSegmentVersionID))
+		beforeSnapshotHash = &before
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO route_publication_events (
 			actor_user_id, operation, operation_id, operation_input_hash,
-			subject_kind, subject_id, after_snapshot_hash, metadata
+			subject_kind, subject_id, before_snapshot_hash, after_snapshot_hash, metadata
 		)
-		VALUES ($1, 'publish_course', $2, $3, 'route_course_publication', $4, $5, jsonb_build_object('course_segment_id', $6::text, 'course_segment_version_id', $7::text))
+		VALUES ($1, $2, $3, $4, 'route_course_publication', $5, $6, $7, jsonb_build_object('course_segment_id', $8::text, 'course_segment_version_id', $9::text, 'publish_policy', $10::text))
 		ON CONFLICT (actor_user_id, operation_id, operation) DO NOTHING
-	`, input.ActorUserID, input.OperationID, inputHash, publicationID, snapshot.SnapshotHash, segmentID, versionID); err != nil {
+	`, input.ActorUserID, eventOperation, input.OperationID, inputHash, publicationID, beforeSnapshotHash, snapshot.SnapshotHash, segmentID, versionID, publishPolicy); err != nil {
 		return nil, fmt.Errorf("insert route publication event: %w", err)
 	}
 	return loadRoutePublicationByIDTx(ctx, tx, publicationID)
@@ -579,9 +586,11 @@ func validateRoutePublicationPrivacyGateTx(ctx context.Context, tx pgx.Tx, snaps
 		return nil
 	}
 	states := make([]string, 8)
+	var ownerApprovedAt *string
 	err := tx.QueryRow(ctx, `
 		SELECT route_name_state, description_state, waypoints_state, source_metadata_state,
-		       geometry_state, enrichment_state, media_pointer_state, overall_state
+		       geometry_state, enrichment_state, media_pointer_state, overall_state,
+		       owner_approved_at::text
 		FROM route_publication_privacy_reviews
 		WHERE route_snapshot_id = $1
 		  AND snapshot_hash = $2
@@ -589,6 +598,7 @@ func validateRoutePublicationPrivacyGateTx(ctx context.Context, tx pgx.Tx, snaps
 	`, snapshotID, snapshotHash, visibility).Scan(
 		&states[0], &states[1], &states[2], &states[3],
 		&states[4], &states[5], &states[6], &states[7],
+		&ownerApprovedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("%w: publication privacy review is required", ErrRoutePublicationValidation)
@@ -596,10 +606,18 @@ func validateRoutePublicationPrivacyGateTx(ctx context.Context, tx pgx.Tx, snaps
 	if err != nil {
 		return fmt.Errorf("load route publication privacy review: %w", err)
 	}
+	needsOwnerConfirmation := false
 	for _, state := range states {
-		if state != "safe" {
+		switch state {
+		case "safe", "confirmed":
+		case "requires_confirmation":
+			needsOwnerConfirmation = true
+		default:
 			return fmt.Errorf("%w: %s privacy review is not publishable", ErrRoutePublicationValidation, visibility)
 		}
+	}
+	if needsOwnerConfirmation && ownerApprovedAt == nil {
+		return fmt.Errorf("%w: %s privacy review requires owner confirmation", ErrRoutePublicationValidation, visibility)
 	}
 	return nil
 }

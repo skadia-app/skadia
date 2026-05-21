@@ -85,6 +85,7 @@ export default function SegmentsPage() {
     () => segmentTypesParam === null ? DEFAULT_SEGMENT_TYPES : segmentTypesParam.split(',').filter(Boolean),
     [segmentTypesParam],
   )
+  const includeCheckpointCourses = searchParams.get('checkpoint_courses') === 'true'
   const showAllSegments = searchParams.get('show_all_segments') === 'true'
   const search = searchParams.get('search') ?? ''
   // B3: Stable array references via useMemo — without this, every render creates a new
@@ -143,7 +144,7 @@ export default function SegmentsPage() {
   const { data: capabilities } = useCapabilities()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [searchInput, setSearchInput] = useState(search)
-  const [editorMode, setEditorMode] = useState<'draw' | null>(null)
+  const [editorMode, setEditorMode] = useState<'draw' | 'checkpoint' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
@@ -193,18 +194,21 @@ export default function SegmentsPage() {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
   }, [])
 
-  const hasExplicitEmptySegmentTypes = segmentTypesParam !== null && terrainFilter.length === 0
+  const hasExplicitEmptySegmentTypes = segmentTypesParam !== null && terrainFilter.length === 0 && !includeCheckpointCourses
+  const includeLineCourses = !(segmentTypesParam !== null && terrainFilter.length === 0)
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
     search: search || undefined,
-    segment_types: hasExplicitEmptySegmentTypes ? undefined : terrainFilter.join(','),
+    segment_types: includeLineCourses ? terrainFilter.join(',') : undefined,
     completed_only: !showAllSegments ? true : undefined,
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
     visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
     difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? ('any' as const) : undefined,
-  }), [sportGroup, search, hasExplicitEmptySegmentTypes, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
+    ...(includeCheckpointCourses && includeLineCourses ? { course_kinds: ['line' as const, 'checkpoint_sequence' as const] } : {}),
+    ...(includeCheckpointCourses && !includeLineCourses ? { course_kind: 'checkpoint_sequence' as const } : {}),
+  }), [sportGroup, search, includeLineCourses, includeCheckpointCourses, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
 
   const {
     data,
@@ -394,7 +398,7 @@ export default function SegmentsPage() {
     )
   }
 
-  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0))
+  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0) + (includeCheckpointCourses ? 1 : 0))
   const completedOnlyEmpty = segments.length === 0 && !showAllSegments && !hasExplicitEmptySegmentTypes
 
   return (
@@ -408,6 +412,9 @@ export default function SegmentsPage() {
           </Link>
           <button onClick={() => setEditorMode('draw')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors">
             Segment zeichnen
+          </button>
+          <button onClick={() => setEditorMode('checkpoint')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors">
+            Checkpoints
           </button>
           <button
             onClick={() => { setSelectionMode(m => !m); setSelectedIds(new Set()) }}
@@ -457,6 +464,15 @@ export default function SegmentsPage() {
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
               </label>
             ))}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+              <input
+                type="checkbox"
+                checked={includeCheckpointCourses}
+                onChange={e => setFilter('checkpoint_courses', e.target.checked ? 'true' : null)}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-700 dark:text-neutral-300">Checkpoint-Kurse</span>
+            </label>
             <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
               <input
                 type="checkbox"
@@ -792,7 +808,7 @@ export default function SegmentsPage() {
                   <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">{segment.name}</h3>
                   {segment.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
                   {segment.visibility === 'shared' && <Users className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
-                  {['trail', 'wintersport'].includes(segment.segment_type) && (
+                  {segment.course_kind !== 'checkpoint_sequence' && ['trail', 'wintersport'].includes(segment.segment_type) && (
                     <DifficultyBadge
                       sac={segment.segment_type_meta?.sac_scale as string}
                       mtb={segment.segment_type_meta?.mtb_scale as string}
@@ -810,13 +826,13 @@ export default function SegmentsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                     </svg>
                   </button>
-                  {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
+                  {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
                     <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                   )}
                   {segmentRecomputeAvailable && (
                     <button title="Matching neu berechnen" onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                   )}
-                  {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
+                  {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
                     <button onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
@@ -837,13 +853,20 @@ export default function SegmentsPage() {
                 {!!segment.segment_type_meta?.surface && (
                   <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
                 )}
+                {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
+                  <span>{segment.control_summary.control_count} Checkpoints</span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 mt-2">
                 <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
                   {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
                 </span>
-                {segment.segment_type !== 'standard' && (
+                {segment.course_kind === 'checkpoint_sequence' ? (
+                  <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    Checkpoint-Kurs
+                  </span>
+                ) : segment.segment_type !== 'standard' && (
                   <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
                     {SEGMENT_TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
                   </span>
