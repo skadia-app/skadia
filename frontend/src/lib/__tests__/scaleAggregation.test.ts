@@ -3,11 +3,11 @@ import { aggregateScaleLevels } from '../scaleAggregation'
 import type { CoordRange } from '@/api/routes'
 
 // NOTE: range.to is EXCLUSIVE (matches backend route_ranges.go API convention).
-// The range [from, to) spans coord indices from..to-1.
-// Number of segments = max(0, to - from - 1):
-//   { from: 0, to: 1 } = 0 segments (single point, no distance)
-//   { from: 0, to: 2 } = 1 segment  (coords[0] → coords[1])
-//   { from: 0, to: 3 } = 2 segments (coords[0] → coords[1] → coords[2])
+// The range [from, to) spans edge indices from..to-1.
+// Number of segments = max(0, to - from):
+//   { from: 0, to: 1 } = 1 segment  (coords[0] → coords[1])
+//   { from: 0, to: 2 } = 2 segments (coords[0] → coords[1] → coords[2])
+//   { from: 0, to: 3 } = 3 segments (coords[0] → coords[1] → coords[2] → coords[3])
 // Equivalently: from==to also yields 0 segments (empty range).
 
 describe('aggregateScaleLevels', () => {
@@ -63,10 +63,10 @@ describe('aggregateScaleLevels', () => {
     expect(breakdown).toEqual([])
   })
 
-  // Anti-regression: to=from+2 produces exactly 1 segment (exclusive: [from, to) spans 2 indices)
-  it('to=from+2 produces exactly 1 segment', () => {
+  // Anti-regression: to=from+2 produces exactly 2 segments (exclusive edge range)
+  it('to=from+2 produces a non-empty edge range', () => {
     const ranges: Record<string, CoordRange[]> = {
-      // exclusive: [1, 3) → coords[1] and coords[2] → 1 segment (coords[1]→coords[2])
+      // exclusive edge range [1, 3) → coords[1]→coords[2] and coords[2]→coords[3]
       T2: [{ from: 1, to: 3 }],
     }
     const { maxLevel, breakdown } = aggregateScaleLevels(ranges, coords, 'sac')

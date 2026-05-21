@@ -962,7 +962,6 @@ export default function RoutePlannerPanel({
                       className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                     >
                       <option value="private">Privat</option>
-                      <option value="public">Öffentlich</option>
                     </select>
                     <select
                       value={compatibilityPreset}
