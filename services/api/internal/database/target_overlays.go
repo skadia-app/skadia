@@ -107,6 +107,41 @@ func (db *DB) CanViewTargetOverlaySubject(ctx context.Context, userID, subjectKi
 	}
 }
 
+func (db *DB) CanManageTargetReports(ctx context.Context, userID, subjectKind, subjectID, permission string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	subjectKind = strings.TrimSpace(subjectKind)
+	subjectID = strings.TrimSpace(subjectID)
+	if userID == "" || subjectKind == "" || subjectID == "" {
+		return false, nil
+	}
+	if permission == "" {
+		permission = "manage_reports"
+	}
+	switch subjectKind {
+	case "course":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM segments WHERE id = $1 AND created_by = $2)`, subjectID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	case "route_publication":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM route_course_publications
+				WHERE id = $1 AND actor_user_id = $2 AND retired_at IS NULL
+			)
+		`, subjectID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	case "place", "region", "collection":
+		return db.CanEditTarget(ctx, userID, subjectKind, subjectID, permission)
+	default:
+		return false, nil
+	}
+}
+
 func (db *DB) CreateTargetReport(ctx context.Context, userID string, input model.CreateTargetReportInput) (*model.TargetReport, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -307,12 +342,27 @@ func (db *DB) GetTargetReport(ctx context.Context, userID, reportID string, visi
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := db.canReadOverlayRow(ctx, userID, report.SubjectKind, report.SubjectID, report.Visibility, report.AccessScopeID, visibleScopes); err != nil {
+	if ok, err := db.canReadOverlayRow(ctx, userID, report.SubjectKind, report.SubjectID, report.Visibility, report.AccessScopeID, report.AuthorUserID, visibleScopes); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, ErrTargetNotFound
 	}
 	redactTargetReportForViewer(report, userID, false)
+	return report, nil
+}
+
+func (db *DB) GetTargetReportForManagement(ctx context.Context, reportID string) (*model.TargetReport, error) {
+	reportID = strings.TrimSpace(reportID)
+	if reportID == "" {
+		return nil, fmt.Errorf("%w: report id is required", ErrTargetOverlayValidation)
+	}
+	report, err := scanTargetReportRow(db.Pool.QueryRow(ctx, targetReportSelectSQL()+` WHERE r.id = $1`, reportID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
 	return report, nil
 }
 
@@ -677,22 +727,18 @@ func (db *DB) DeleteTargetUserContent(ctx context.Context, userID, contentID str
 	}
 	var subjectKind, subjectID string
 	var targetVersionID *string
-	tag, err := db.Pool.Exec(ctx, `
+	if err := db.Pool.QueryRow(ctx, `
 		UPDATE target_user_content
 		SET deleted_at = COALESCE(deleted_at, NOW()), updated_at = NOW()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		RETURNING overlay_subject_kind, subject_id, target_version_id
-	`, contentID, userID)
-	if err != nil {
+	`, contentID, userID).Scan(&subjectKind, &subjectID, &targetVersionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrTargetNotFound
+		}
 		return fmt.Errorf("delete target user content: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrTargetNotFound
-	}
-	if err := db.Pool.QueryRow(ctx, `SELECT overlay_subject_kind, subject_id, target_version_id FROM target_user_content WHERE id = $1`, contentID).Scan(&subjectKind, &subjectID, &targetVersionID); err == nil {
-		return db.RebuildTargetOverlaySummary(ctx, subjectKind, subjectID, targetVersionID)
-	}
-	return nil
+	return db.RebuildTargetOverlaySummary(ctx, subjectKind, subjectID, targetVersionID)
 }
 
 func (db *DB) RebuildTargetOverlaySummary(ctx context.Context, subjectKind, subjectID string, targetVersionID *string) error {
@@ -854,7 +900,7 @@ func (db *DB) GetTargetOverlaySummary(ctx context.Context, subjectKind, subjectI
 	return summary, nil
 }
 
-func (db *DB) canReadOverlayRow(ctx context.Context, userID, subjectKind, subjectID, visibility string, accessScopeID *string, visibleScopes []string) (bool, error) {
+func (db *DB) canReadOverlayRow(ctx context.Context, userID, subjectKind, subjectID, visibility string, accessScopeID, ownerUserID *string, visibleScopes []string) (bool, error) {
 	targetVisible, err := db.CanViewTargetOverlaySubject(ctx, userID, subjectKind, subjectID, visibleScopes)
 	if err != nil || !targetVisible {
 		return targetVisible, err
@@ -892,7 +938,7 @@ func (db *DB) canReadOverlayRow(ctx context.Context, userID, subjectKind, subjec
 		}
 		return exists, nil
 	case "private":
-		return strings.TrimSpace(userID) != "", nil
+		return ownerUserID != nil && strings.TrimSpace(userID) != "" && strings.TrimSpace(*ownerUserID) == strings.TrimSpace(userID), nil
 	default:
 		return false, nil
 	}
