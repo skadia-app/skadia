@@ -89,6 +89,44 @@ func TestSharedTargetObjectsRequireResolvedScope(t *testing.T) {
 	assertTargetPlaceIDs(t, withScope, sharedPlace.ID)
 }
 
+func TestTargetObjectExternalRefsAreViewerRedacted(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	refKind := "source"
+	refID := uuid.NewString()
+	refValue := "source:private"
+	place, err := db.CreateTargetPlace(ctx, ownerID, model.TargetPlaceCreate{
+		Name:                  "redacted place",
+		PlaceKind:             "custom",
+		GeometryGeoJSON:       `{"type":"Point","coordinates":[8,49]}`,
+		Visibility:            "public",
+		OriginKey:             "manual",
+		ExternalRefKind:       &refKind,
+		ExternalRefID:         &refID,
+		ExternalRef:           &refValue,
+		ExternalRefVisibility: "owner_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTargetPlace: %v", err)
+	}
+
+	publicPlace, err := db.GetTargetPlace(ctx, "", place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetPlace public: %v", err)
+	}
+	if publicPlace.ExternalRefKind != nil || publicPlace.ExternalRefID != nil || publicPlace.ExternalRef != nil {
+		t.Fatalf("public place leaked external refs: %#v", publicPlace)
+	}
+
+	ownerPlace, err := db.GetTargetPlace(ctx, ownerID, place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetPlace owner: %v", err)
+	}
+	if ownerPlace.ExternalRefKind == nil || ownerPlace.ExternalRefID == nil || ownerPlace.ExternalRef == nil {
+		t.Fatalf("owner place refs were redacted: %#v", ownerPlace)
+	}
+}
+
 func TestArchiveTargetPlaceAndRegionRemovesFromProjection(t *testing.T) {
 	db, ownerID := segmentPRTestDB(t)
 	ctx := context.Background()

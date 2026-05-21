@@ -120,6 +120,51 @@ func TestGovernanceMutationWritesAuditEvents(t *testing.T) {
 	}
 }
 
+func TestGovernanceUpdateWritesBeforeAndAfterAuditSnapshots(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, ownerID, "audit update place", "public", nil, `[8,49]`)
+	scope := createGovernanceScopeFixture(t, db, ownerID, "place", place.ID)
+	role := addGovernanceRoleFixture(t, db, ownerID, scope.ID, ownerID, []string{"manage_roles"})
+	binding := addGovernanceBindingFixture(t, db, ownerID, scope.ID, "place", place.ID, "metadata")
+
+	roleName := "maintainer"
+	if _, err := db.UpdateGovernanceActorRole(ctx, ownerID, scope.ID, role.ID, model.GovernanceActorRoleUpdate{
+		Role: &roleName,
+	}); err != nil {
+		t.Fatalf("UpdateGovernanceActorRole: %v", err)
+	}
+	permissionScope := "full"
+	if _, err := db.UpdateGovernanceScopeTargetBinding(ctx, ownerID, scope.ID, binding.ID, model.GovernanceScopeTargetBindingUpdate{
+		PermissionsScope: &permissionScope,
+	}); err != nil {
+		t.Fatalf("UpdateGovernanceScopeTargetBinding: %v", err)
+	}
+
+	for _, tc := range []struct {
+		subjectType string
+		subjectID   string
+	}{
+		{subjectType: "governance_actor_role", subjectID: role.ID},
+		{subjectType: "governance_scope_target_binding", subjectID: binding.ID},
+	} {
+		var beforeCount, afterCount int
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT
+				COUNT(*) FILTER (WHERE s.snapshot_role = 'before'),
+				COUNT(*) FILTER (WHERE s.snapshot_role = 'after')
+			FROM target_change_events e
+			JOIN target_revision_snapshots s ON s.change_event_id = e.id
+			WHERE e.subject_type = $1 AND e.subject_id = $2
+		`, tc.subjectType, tc.subjectID).Scan(&beforeCount, &afterCount); err != nil {
+			t.Fatalf("count %s audit snapshots: %v", tc.subjectType, err)
+		}
+		if beforeCount == 0 || afterCount == 0 {
+			t.Fatalf("%s audit snapshots before=%d after=%d, want both non-zero", tc.subjectType, beforeCount, afterCount)
+		}
+	}
+}
+
 func TestGovernanceRejectsUnauthorizedScopeBootstrap(t *testing.T) {
 	db, ownerID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -134,6 +179,22 @@ func TestGovernanceRejectsUnauthorizedScopeBootstrap(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("non-owner created governance scope for foreign target")
+	}
+}
+
+func TestGovernanceRejectsUnauthorizedCollectionScopeBootstrap(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	otherID := insertObjectAccessTestUser(t, db)
+	collection := createTargetCollectionFixture(t, db, ownerID, "foreign collection scope", "public", nil)
+	_, err := db.CreateGovernanceScope(ctx, otherID, model.GovernanceScopeCreate{
+		Kind:               "collection_scope",
+		AnchorCollectionID: &collection.ID,
+		OwnerScope:         "user",
+		OriginKey:          "manual",
+	})
+	if err == nil {
+		t.Fatal("non-owner created governance scope for foreign collection")
 	}
 }
 
@@ -171,6 +232,26 @@ func TestGovernanceRejectsBindingWithoutManageRoles(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("actor without manage_roles added governance binding")
+	}
+}
+
+func TestGovernanceRejectsBindingToForeignTarget(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	otherID := insertObjectAccessTestUser(t, db)
+	ownPlace := createTargetPlaceFixture(t, db, ownerID, "owned binding place", "public", nil, `[8,49]`)
+	foreignPlace := createTargetPlaceFixture(t, db, otherID, "foreign binding place", "public", nil, `[8.1,49.1]`)
+	scope := createGovernanceScopeFixture(t, db, ownerID, "place", ownPlace.ID)
+
+	_, err := db.AddGovernanceScopeTargetBinding(ctx, ownerID, scope.ID, model.GovernanceScopeTargetBindingCreate{
+		TargetKind:       "place",
+		TargetID:         foreignPlace.ID,
+		BindingReason:    "manual_delegation",
+		PermissionsScope: "metadata",
+		Source:           "owner_assignment",
+	})
+	if err == nil {
+		t.Fatal("scope owner bound governance permissions to a foreign target")
 	}
 }
 
