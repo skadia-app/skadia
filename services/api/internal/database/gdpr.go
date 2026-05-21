@@ -577,6 +577,54 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 			SELECT id FROM target_collections WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
 		))
 	`
+	type overlaySummarySubject struct {
+		kind      string
+		id        string
+		versionID *string
+	}
+	affectedOverlaySubjects := map[string]overlaySummarySubject{}
+	affectedRows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_activity_observations
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+		UNION
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_reports
+		WHERE author_user_id = $1
+		   OR source_activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+		UNION
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_user_content
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere, userOverlaySubjectWhere, userOverlaySubjectWhere), userID)
+	if err != nil {
+		recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+		return fmt.Errorf("GDPR: collect target overlay summary subjects: %w", err)
+	}
+	for affectedRows.Next() {
+		var subject overlaySummarySubject
+		if err := affectedRows.Scan(&subject.kind, &subject.id, &subject.versionID); err != nil {
+			affectedRows.Close()
+			recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+			return fmt.Errorf("GDPR: scan target overlay summary subjects: %w", err)
+		}
+		key := subject.kind + "\x00" + subject.id
+		if subject.versionID != nil {
+			key += "\x00" + *subject.versionID
+		}
+		affectedOverlaySubjects[key] = subject
+	}
+	if err := affectedRows.Err(); err != nil {
+		affectedRows.Close()
+		recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+		return fmt.Errorf("GDPR: scan target overlay summary subjects: %w", err)
+	}
+	affectedRows.Close()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		DELETE FROM target_activity_observations
 		WHERE user_id = $1
@@ -611,6 +659,12 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	`, userOverlaySubjectWhere), userID); err != nil {
 		recordPurgeFailure("phase2_target_user_content", err.Error())
 		return fmt.Errorf("GDPR: delete target user content: %w", err)
+	}
+	for _, subject := range affectedOverlaySubjects {
+		if err := rebuildTargetOverlaySummaryTx(ctx, tx, subject.kind, subject.id, subject.versionID); err != nil {
+			recordPurgeFailure("phase2_target_overlay_summaries", err.Error())
+			return fmt.Errorf("GDPR: rebuild target overlay summary: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		DELETE FROM target_overlay_summary_projection

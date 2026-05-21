@@ -75,6 +75,22 @@ func validateUserContentKind(kind string) error {
 	}
 }
 
+func validateRatingPayload(payload json.RawMessage) error {
+	var body struct {
+		Rating *float64 `json:"rating"`
+	}
+	if err := json.Unmarshal(rawOrDefault(payload, `{}`), &body); err != nil {
+		return fmt.Errorf("%w: rating payload must be valid JSON", ErrTargetOverlayValidation)
+	}
+	if body.Rating == nil {
+		return fmt.Errorf("%w: rating payload requires rating", ErrTargetOverlayValidation)
+	}
+	if *body.Rating < 1 || *body.Rating > 5 {
+		return fmt.Errorf("%w: rating must be between 1 and 5", ErrTargetOverlayValidation)
+	}
+	return nil
+}
+
 func validateAttributionMode(mode string) error {
 	switch strings.TrimSpace(mode) {
 	case "", "named", "anonymous_public", "moderator_only", "hidden":
@@ -82,6 +98,43 @@ func validateAttributionMode(mode string) error {
 	default:
 		return fmt.Errorf("%w: invalid attribution mode %q", ErrTargetOverlayValidation, mode)
 	}
+}
+
+func validateTargetOverlayVersion(ctx context.Context, q Querier, subjectKind, subjectID string, targetVersionID *string) error {
+	if targetVersionID == nil || strings.TrimSpace(*targetVersionID) == "" {
+		return nil
+	}
+	switch strings.TrimSpace(subjectKind) {
+	case "course":
+		var exists bool
+		if err := q.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM segment_versions
+				WHERE id = $1 AND segment_id = $2
+			)
+		`, *targetVersionID, subjectID).Scan(&exists); err != nil {
+			return fmt.Errorf("validate target overlay course version: %w", err)
+		}
+		if !exists {
+			return ErrTargetNotFound
+		}
+	case "route_publication":
+		var exists bool
+		if err := q.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM route_course_publications
+				WHERE id = $1 AND course_segment_version_id = $2 AND retired_at IS NULL
+			)
+		`, subjectID, *targetVersionID).Scan(&exists); err != nil {
+			return fmt.Errorf("validate target overlay route publication version: %w", err)
+		}
+		if !exists {
+			return ErrTargetNotFound
+		}
+	default:
+		return fmt.Errorf("%w: target_version_id is only valid for course and route publication overlays", ErrTargetOverlayValidation)
+	}
+	return nil
 }
 
 func (db *DB) CanViewTargetOverlaySubject(ctx context.Context, userID, subjectKind, subjectID string, visibleScopes []string) (bool, error) {
@@ -107,6 +160,20 @@ func (db *DB) CanViewTargetOverlaySubject(ctx context.Context, userID, subjectKi
 	}
 }
 
+func (db *DB) targetOverlayVisibleScopesForUser(ctx context.Context, userID string) ([]string, error) {
+	if strings.TrimSpace(userID) == "" {
+		return []string{}, nil
+	}
+	scopes, err := db.ResolveVisibleAccessScopes(ctx, userID, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if scopes == nil {
+		return []string{}, nil
+	}
+	return scopes, nil
+}
+
 func (db *DB) CanManageTargetReports(ctx context.Context, userID, subjectKind, subjectID, permission string) (bool, error) {
 	userID = strings.TrimSpace(userID)
 	subjectKind = strings.TrimSpace(subjectKind)
@@ -123,7 +190,10 @@ func (db *DB) CanManageTargetReports(ctx context.Context, userID, subjectKind, s
 		if err := db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM segments WHERE id = $1 AND created_by = $2)`, subjectID, userID).Scan(&exists); err != nil {
 			return false, err
 		}
-		return exists, nil
+		if exists {
+			return true, nil
+		}
+		return db.userHasTargetGovernancePermission(ctx, userID, subjectKind, subjectID, permission)
 	case "route_publication":
 		var exists bool
 		if err := db.Pool.QueryRow(ctx, `
@@ -134,12 +204,31 @@ func (db *DB) CanManageTargetReports(ctx context.Context, userID, subjectKind, s
 		`, subjectID, userID).Scan(&exists); err != nil {
 			return false, err
 		}
-		return exists, nil
+		if exists {
+			return true, nil
+		}
+		return db.userHasTargetGovernancePermission(ctx, userID, subjectKind, subjectID, permission)
 	case "place", "region", "collection":
 		return db.CanEditTarget(ctx, userID, subjectKind, subjectID, permission)
 	default:
 		return false, nil
 	}
+}
+
+func (db *DB) userHasTargetGovernancePermission(ctx context.Context, userID, targetKind, targetID, permission string) (bool, error) {
+	targets, err := db.ListGovernanceEffectiveTargets(ctx, model.GovernanceActor{
+		ActorType:   "user",
+		ActorUserID: &userID,
+	}, model.GovernanceEffectiveTargetFilter{
+		TargetKind: targetKind,
+		TargetID:   targetID,
+		Permission: permission,
+		Limit:      1,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(targets) > 0, nil
 }
 
 func (db *DB) CreateTargetReport(ctx context.Context, userID string, input model.CreateTargetReportInput) (*model.TargetReport, error) {
@@ -150,12 +239,26 @@ func (db *DB) CreateTargetReport(ctx context.Context, userID string, input model
 	if err := validateCreateTargetReportInput(input); err != nil {
 		return nil, err
 	}
-	visible, err := db.CanViewTargetOverlaySubject(ctx, userID, input.SubjectKind, input.SubjectID, nil)
+	scopes, err := db.targetOverlayVisibleScopesForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	visible, err := db.CanViewTargetOverlaySubject(ctx, userID, input.SubjectKind, input.SubjectID, scopes)
 	if err != nil {
 		return nil, err
 	}
 	if !visible {
 		return nil, ErrTargetNotFound
+	}
+	if input.SourceActivityID != nil {
+		if owns, err := db.userOwnsActivity(ctx, userID, *input.SourceActivityID); err != nil {
+			return nil, err
+		} else if !owns {
+			return nil, ErrTargetNotFound
+		}
+	}
+	if err := validateTargetOverlayVersion(ctx, db.Pool, input.SubjectKind, input.SubjectID, input.TargetVersionID); err != nil {
+		return nil, err
 	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -277,6 +380,15 @@ func (db *DB) AddTargetReportStatus(ctx context.Context, userID string, reportID
 		}
 		return nil, fmt.Errorf("load target report for status: %w", err)
 	}
+	if status == "redacted" {
+		if _, err := tx.Exec(ctx, `
+			UPDATE target_reports
+			SET moderation_state = 'redacted', updated_at = NOW()
+			WHERE id = $1
+		`, reportID); err != nil {
+			return nil, fmt.Errorf("redact target report: %w", err)
+		}
+	}
 	event, err := insertTargetReportStatusTx(ctx, tx, userID, reportID, status, input.Reason)
 	if err != nil {
 		return nil, err
@@ -347,7 +459,12 @@ func (db *DB) GetTargetReport(ctx context.Context, userID, reportID string, visi
 	} else if !ok {
 		return nil, ErrTargetNotFound
 	}
-	redactTargetReportForViewer(report, userID, false)
+	if !canReadTargetReportAfterModeration(report, userID, false) {
+		return nil, ErrTargetNotFound
+	}
+	if err := db.redactTargetReportForViewer(ctx, report, userID, false); err != nil {
+		return nil, err
+	}
 	return report, nil
 }
 
@@ -367,6 +484,11 @@ func (db *DB) GetTargetReportForManagement(ctx context.Context, reportID string)
 }
 
 func (db *DB) ListTargetReports(ctx context.Context, params model.ListTargetReportsParams) ([]model.TargetReport, error) {
+	if strings.TrimSpace(params.ReportType) != "" {
+		if err := validateReportType(params.ReportType); err != nil {
+			return nil, err
+		}
+	}
 	if ok, err := db.CanViewTargetOverlaySubject(ctx, params.UserID, params.SubjectKind, params.SubjectID, params.VisibleAccessScopeIDs); err != nil {
 		return nil, err
 	} else if !ok {
@@ -377,6 +499,9 @@ func (db *DB) ListTargetReports(ctx context.Context, params model.ListTargetRepo
 	if params.ReportType != "" {
 		args = append(args, params.ReportType)
 		where += fmt.Sprintf(" AND r.report_type = $%d", len(args))
+	}
+	if !params.Admin {
+		where += " AND r.moderation_state = 'visible'"
 	}
 	where += overlayVisibilitySQL("r", "author_user_id", params.UserID, params.VisibleAccessScopeIDs, params.Admin, &args)
 	rows, err := db.Pool.Query(ctx, targetReportSelectSQL()+`
@@ -394,7 +519,9 @@ func (db *DB) ListTargetReports(ctx context.Context, params model.ListTargetRepo
 		if err != nil {
 			return nil, err
 		}
-		redactTargetReportForViewer(report, params.UserID, params.Admin)
+		if err := db.redactTargetReportForViewer(ctx, report, params.UserID, params.Admin); err != nil {
+			return nil, err
+		}
 		reports = append(reports, *report)
 	}
 	return reports, rows.Err()
@@ -408,7 +535,11 @@ func (db *DB) CreateTargetActivityObservation(ctx context.Context, actor model.T
 		if strings.TrimSpace(actor.UserID) == "" {
 			return nil, fmt.Errorf("%w: actor is required", ErrTargetOverlayValidation)
 		}
-		visible, err := db.CanViewTargetOverlaySubject(ctx, actor.UserID, input.SubjectKind, input.SubjectID, nil)
+		scopes, err := db.targetOverlayVisibleScopesForUser(ctx, actor.UserID)
+		if err != nil {
+			return nil, err
+		}
+		visible, err := db.CanViewTargetOverlaySubject(ctx, actor.UserID, input.SubjectKind, input.SubjectID, scopes)
 		if err != nil {
 			return nil, err
 		}
@@ -425,6 +556,9 @@ func (db *DB) CreateTargetActivityObservation(ctx context.Context, actor model.T
 		if input.UserID != nil && *input.UserID != actor.UserID {
 			return nil, fmt.Errorf("%w: user_id must match actor", ErrTargetOverlayValidation)
 		}
+	}
+	if err := validateTargetOverlayVersion(ctx, db.Pool, input.SubjectKind, input.SubjectID, input.TargetVersionID); err != nil {
+		return nil, err
 	}
 	userID := input.UserID
 	if userID == nil && strings.TrimSpace(actor.UserID) != "" {
@@ -447,8 +581,13 @@ func (db *DB) CreateTargetActivityObservation(ctx context.Context, actor model.T
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create target activity observation: %w", err)
+	}
+	defer tx.Rollback(ctx)
 	observation := &model.TargetActivityObservation{}
-	if err := db.Pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO target_activity_observations (
 			overlay_subject_kind, subject_id, target_version_id, activity_id, user_id,
 			observation_type, source_type, source_id, source_occurrence_key,
@@ -480,8 +619,11 @@ func (db *DB) CreateTargetActivityObservation(ctx context.Context, actor model.T
 	); err != nil {
 		return nil, fmt.Errorf("insert target activity observation: %w", err)
 	}
-	if err := db.RebuildTargetOverlaySummary(ctx, observation.SubjectKind, observation.SubjectID, observation.TargetVersionID); err != nil {
+	if err := rebuildTargetOverlaySummaryTx(ctx, tx, observation.SubjectKind, observation.SubjectID, observation.TargetVersionID); err != nil {
 		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create target activity observation: %w", err)
 	}
 	return observation, nil
 }
@@ -598,10 +740,17 @@ func (db *DB) CreateTargetUserContent(ctx context.Context, userID string, input 
 	if err := validateCreateTargetUserContentInput(input); err != nil {
 		return nil, err
 	}
-	if ok, err := db.CanViewTargetOverlaySubject(ctx, userID, input.SubjectKind, input.SubjectID, nil); err != nil {
+	scopes, err := db.targetOverlayVisibleScopesForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if ok, err := db.CanViewTargetOverlaySubject(ctx, userID, input.SubjectKind, input.SubjectID, scopes); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, ErrTargetNotFound
+	}
+	if err := validateTargetOverlayVersion(ctx, db.Pool, input.SubjectKind, input.SubjectID, input.TargetVersionID); err != nil {
+		return nil, err
 	}
 	if input.ActivityID != nil {
 		if owns, err := db.userOwnsActivity(ctx, userID, *input.ActivityID); err != nil {
@@ -610,12 +759,20 @@ func (db *DB) CreateTargetUserContent(ctx context.Context, userID string, input 
 			return nil, ErrTargetNotFound
 		}
 	}
-	content, err := db.upsertTargetUserContent(ctx, userID, input)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create target user content: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	content, err := upsertTargetUserContentTx(ctx, tx, userID, input)
 	if err != nil {
 		return nil, err
 	}
-	if err := db.RebuildTargetOverlaySummary(ctx, content.SubjectKind, content.SubjectID, content.TargetVersionID); err != nil {
+	if err := rebuildTargetOverlaySummaryTx(ctx, tx, content.SubjectKind, content.SubjectID, content.TargetVersionID); err != nil {
 		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create target user content: %w", err)
 	}
 	return content, nil
 }
@@ -630,10 +787,19 @@ func validateCreateTargetUserContentInput(input model.CreateTargetUserContentInp
 	if err := validateUserContentKind(input.ContentKind); err != nil {
 		return err
 	}
+	if strings.TrimSpace(input.ContentKind) == "rating" {
+		if err := validateRatingPayload(input.Payload); err != nil {
+			return err
+		}
+	}
 	return validateOverlayVisibility(targetOverlayVisibilityOrDefault(input.Visibility), input.AccessScopeID)
 }
 
 func (db *DB) upsertTargetUserContent(ctx context.Context, userID string, input model.CreateTargetUserContentInput) (*model.TargetUserContent, error) {
+	return upsertTargetUserContentTx(ctx, db.Pool, userID, input)
+}
+
+func upsertTargetUserContentTx(ctx context.Context, q Querier, userID string, input model.CreateTargetUserContentInput) (*model.TargetUserContent, error) {
 	visibility := targetOverlayVisibilityOrDefault(input.Visibility)
 	payload := rawOrDefault(input.Payload, `{}`)
 	activityTuple := rawOrDefault(input.ActivityTuple, `{}`)
@@ -665,7 +831,7 @@ func (db *DB) upsertTargetUserContent(ctx context.Context, userID string, input 
 		          content_kind, activity_id, activity_tuple, payload, visibility,
 		          access_scope_id, moderation_state, created_at, updated_at, deleted_at`
 	content := &model.TargetUserContent{}
-	if err := db.Pool.QueryRow(ctx, query,
+	if err := q.QueryRow(ctx, query,
 		input.SubjectKind, input.SubjectID, input.TargetVersionID, userID, kind,
 		input.ActivityID, activityTuple, payload, visibility, input.AccessScopeID,
 	).Scan(
@@ -679,6 +845,11 @@ func (db *DB) upsertTargetUserContent(ctx context.Context, userID string, input 
 }
 
 func (db *DB) ListTargetUserContent(ctx context.Context, params model.ListTargetUserContentParams) ([]model.TargetUserContent, error) {
+	if strings.TrimSpace(params.ContentKind) != "" {
+		if err := validateUserContentKind(params.ContentKind); err != nil {
+			return nil, err
+		}
+	}
 	if ok, err := db.CanViewTargetOverlaySubject(ctx, params.UserID, params.SubjectKind, params.SubjectID, params.VisibleAccessScopeIDs); err != nil {
 		return nil, err
 	} else if !ok {
@@ -689,6 +860,9 @@ func (db *DB) ListTargetUserContent(ctx context.Context, params model.ListTarget
 	if params.ContentKind != "" {
 		args = append(args, params.ContentKind)
 		where += fmt.Sprintf(" AND c.content_kind = $%d", len(args))
+	}
+	if !params.Admin {
+		where += " AND c.moderation_state = 'visible'"
 	}
 	where += overlayVisibilitySQL("c", "user_id", params.UserID, params.VisibleAccessScopeIDs, params.Admin, &args)
 	rows, err := db.Pool.Query(ctx, `
@@ -727,7 +901,12 @@ func (db *DB) DeleteTargetUserContent(ctx context.Context, userID, contentID str
 	}
 	var subjectKind, subjectID string
 	var targetVersionID *string
-	if err := db.Pool.QueryRow(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete target user content: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := tx.QueryRow(ctx, `
 		UPDATE target_user_content
 		SET deleted_at = COALESCE(deleted_at, NOW()), updated_at = NOW()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
@@ -738,7 +917,10 @@ func (db *DB) DeleteTargetUserContent(ctx context.Context, userID, contentID str
 		}
 		return fmt.Errorf("delete target user content: %w", err)
 	}
-	return db.RebuildTargetOverlaySummary(ctx, subjectKind, subjectID, targetVersionID)
+	if err := rebuildTargetOverlaySummaryTx(ctx, tx, subjectKind, subjectID, targetVersionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (db *DB) RebuildTargetOverlaySummary(ctx context.Context, subjectKind, subjectID string, targetVersionID *string) error {
@@ -814,7 +996,12 @@ func rebuildTargetOverlaySummaryTx(ctx context.Context, tx pgx.Tx, subjectKind, 
 			(SELECT MAX(occurred_at) FROM public_observations),
 			(SELECT COUNT(*)::int FROM public_content WHERE content_kind = 'comment'),
 			(SELECT COUNT(*)::int FROM public_content WHERE content_kind = 'rating'),
-			(SELECT AVG(NULLIF(payload->>'rating', '')::double precision) FROM public_content WHERE content_kind = 'rating' AND payload ? 'rating'),
+			(
+				SELECT AVG((payload->>'rating')::double precision)
+				FROM public_content
+				WHERE content_kind = 'rating'
+				  AND jsonb_typeof(payload->'rating') = 'number'
+			),
 			(SELECT COUNT(*)::int FROM public_content WHERE content_kind = 'completion'),
 			(SELECT COUNT(*)::int FROM public_content WHERE content_kind = 'check_in')
 	`, subjectKind, subjectID, targetVersionID).Scan(
@@ -898,6 +1085,15 @@ func (db *DB) GetTargetOverlaySummary(ctx context.Context, subjectKind, subjectI
 		return nil, fmt.Errorf("get target overlay summary: %w", err)
 	}
 	return summary, nil
+}
+
+func (db *DB) GetTargetOverlaySummaryForViewer(ctx context.Context, userID, subjectKind, subjectID string, targetVersionID *string, visibleScopes []string) (*model.TargetOverlaySummary, error) {
+	if ok, err := db.CanViewTargetOverlaySubject(ctx, userID, subjectKind, subjectID, visibleScopes); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrTargetNotFound
+	}
+	return db.GetTargetOverlaySummary(ctx, subjectKind, subjectID, targetVersionID)
 }
 
 func (db *DB) canReadOverlayRow(ctx context.Context, userID, subjectKind, subjectID, visibility string, accessScopeID, ownerUserID *string, visibleScopes []string) (bool, error) {
@@ -1042,16 +1238,60 @@ func scanTargetReportRows(rows pgx.Rows) (*model.TargetReport, error) {
 	return scanTargetReportRow(rows)
 }
 
-func redactTargetReportForViewer(report *model.TargetReport, userID string, admin bool) {
-	if report == nil || admin {
-		return
+func canReadTargetReportAfterModeration(report *model.TargetReport, userID string, admin bool) bool {
+	if report == nil {
+		return false
 	}
-	isAuthor := report.AuthorUserID != nil && *report.AuthorUserID == userID
+	if admin {
+		return true
+	}
+	isAuthor := report.AuthorUserID != nil && strings.TrimSpace(*report.AuthorUserID) == strings.TrimSpace(userID)
+	return isAuthor || report.ModerationState == "visible"
+}
+
+func (db *DB) redactTargetReportForViewer(ctx context.Context, report *model.TargetReport, userID string, admin bool) error {
+	if report == nil || admin {
+		return nil
+	}
+	isAuthor := report.AuthorUserID != nil && strings.TrimSpace(*report.AuthorUserID) == strings.TrimSpace(userID)
 	if !isAuthor && report.AttributionMode != "named" {
 		report.AuthorUserID = nil
 	}
-	if report.ModerationState == "redacted" && !isAuthor {
+	if report.SourceActivityID != nil && !isAuthor {
+		visible, err := db.canViewOverlaySourceActivity(ctx, userID, *report.SourceActivityID)
+		if err != nil {
+			return err
+		}
+		if !visible {
+			report.SourceActivityID = nil
+		}
+	}
+	latestStatus := ""
+	if report.LatestStatus != nil {
+		latestStatus = *report.LatestStatus
+	}
+	if (report.ModerationState == "redacted" || latestStatus == "redacted") && !isAuthor {
 		report.Description = ""
 		report.MediaRefs = json.RawMessage(`[]`)
 	}
+	return nil
+}
+
+func (db *DB) canViewOverlaySourceActivity(ctx context.Context, userID, activityID string) (bool, error) {
+	var userArg any
+	if strings.TrimSpace(userID) != "" {
+		userArg = strings.TrimSpace(userID)
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM activities
+			WHERE id = $1
+			  AND (visibility = 'public' OR user_id = $2::uuid)
+		)
+	`, strings.TrimSpace(activityID), userArg).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }

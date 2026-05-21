@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,8 +14,13 @@ import (
 )
 
 func (h *Handler) GetTargetOverlaySummary(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	scopes := h.resolveTargetVisibleScopes(w, r, userID)
+	if scopes == nil && strings.TrimSpace(userID) != "" {
+		return
+	}
 	subjectKind, subjectID, targetVersionID := targetOverlayQuery(r)
-	summary, err := h.DB.GetTargetOverlaySummary(r.Context(), subjectKind, subjectID, targetVersionID)
+	summary, err := h.DB.GetTargetOverlaySummaryForViewer(r.Context(), userID, subjectKind, subjectID, targetVersionID, scopes)
 	if handleTargetOverlayErr(w, r, err) {
 		return
 	}
