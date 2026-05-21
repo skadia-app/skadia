@@ -92,6 +92,9 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 	if err := rebuildTargetPlaceProjectionTx(ctx, tx, id); err != nil {
 		return nil, err
 	}
+	if err := rebuildCollectionsForMemberSourceTx(ctx, tx, "place", id); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit update target place: %w", err)
 	}
@@ -225,6 +228,9 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 		return nil, err
 	}
 	if err := rebuildTargetRegionProjectionTx(ctx, tx, id); err != nil {
+		return nil, err
+	}
+	if err := rebuildCollectionsForMemberSourceTx(ctx, tx, "region", id); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -447,6 +453,9 @@ func (db *DB) archiveTargetObject(ctx context.Context, table, projectionKind, us
 		return ErrTargetNotFound
 	}
 	if err := rebuild(ctx, tx, id); err != nil {
+		return err
+	}
+	if err := rebuildCollectionsForMemberSourceTx(ctx, tx, projectionKind, id); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
