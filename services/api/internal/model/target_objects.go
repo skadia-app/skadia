@@ -268,6 +268,28 @@ type GovernanceScope struct {
 	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
 }
 
+type GovernanceScopeCreate struct {
+	Kind               string          `json:"kind"`
+	AnchorTargetKind   *string         `json:"anchor_target_kind,omitempty"`
+	AnchorTargetID     *string         `json:"anchor_target_id,omitempty"`
+	AnchorCollectionID *string         `json:"anchor_collection_id,omitempty"`
+	OwnerScope         string          `json:"owner_scope"`
+	OwnerRef           *string         `json:"owner_ref,omitempty"`
+	Visibility         string          `json:"visibility,omitempty"`
+	OriginKey          string          `json:"origin_key"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	ValidFrom          *time.Time      `json:"valid_from,omitempty"`
+	ValidUntil         *time.Time      `json:"valid_until,omitempty"`
+}
+
+type GovernanceScopeUpdate struct {
+	Visibility *string          `json:"visibility,omitempty"`
+	Metadata   *json.RawMessage `json:"metadata,omitempty"`
+	ValidFrom  *time.Time       `json:"valid_from,omitempty"`
+	ValidUntil *time.Time       `json:"valid_until,omitempty"`
+	ArchivedAt *time.Time       `json:"archived_at,omitempty"`
+}
+
 type GovernanceActorRole struct {
 	ID           string          `json:"id"`
 	ScopeID      string          `json:"scope_id"`
@@ -283,6 +305,28 @@ type GovernanceActorRole struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	RevokedAt    *time.Time      `json:"revoked_at,omitempty"`
 	Metadata     json.RawMessage `json:"metadata,omitempty"`
+}
+
+type GovernanceActorRoleCreate struct {
+	ActorType    string          `json:"actor_type"`
+	ActorUserID  *string         `json:"actor_user_id,omitempty"`
+	ActorRef     *string         `json:"actor_ref,omitempty"`
+	Role         string          `json:"role"`
+	Permissions  []string        `json:"permissions"`
+	PublicCredit string          `json:"public_credit,omitempty"`
+	ValidFrom    *time.Time      `json:"valid_from,omitempty"`
+	ValidUntil   *time.Time      `json:"valid_until,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+}
+
+type GovernanceActorRoleUpdate struct {
+	Role         *string          `json:"role,omitempty"`
+	Permissions  []string         `json:"permissions,omitempty"`
+	PublicCredit *string          `json:"public_credit,omitempty"`
+	ValidFrom    *time.Time       `json:"valid_from,omitempty"`
+	ValidUntil   *time.Time       `json:"valid_until,omitempty"`
+	RevokedAt    *time.Time       `json:"revoked_at,omitempty"`
+	Metadata     *json.RawMessage `json:"metadata,omitempty"`
 }
 
 type GovernanceScopeTargetBinding struct {
@@ -303,6 +347,29 @@ type GovernanceScopeTargetBinding struct {
 	Metadata         json.RawMessage `json:"metadata,omitempty"`
 }
 
+type GovernanceScopeTargetBindingCreate struct {
+	TargetKind       string          `json:"target_kind"`
+	TargetID         string          `json:"target_id"`
+	TargetVersionID  *string         `json:"target_version_id,omitempty"`
+	BindingReason    string          `json:"binding_reason"`
+	PermissionsScope string          `json:"permissions_scope"`
+	Source           string          `json:"source"`
+	ValidFrom        *time.Time      `json:"valid_from,omitempty"`
+	ValidUntil       *time.Time      `json:"valid_until,omitempty"`
+	Metadata         json.RawMessage `json:"metadata,omitempty"`
+}
+
+type GovernanceScopeTargetBindingUpdate struct {
+	TargetVersionID  *string          `json:"target_version_id,omitempty"`
+	BindingReason    *string          `json:"binding_reason,omitempty"`
+	PermissionsScope *string          `json:"permissions_scope,omitempty"`
+	Source           *string          `json:"source,omitempty"`
+	ValidFrom        *time.Time       `json:"valid_from,omitempty"`
+	ValidUntil       *time.Time       `json:"valid_until,omitempty"`
+	RevokedAt        *time.Time       `json:"revoked_at,omitempty"`
+	Metadata         *json.RawMessage `json:"metadata,omitempty"`
+}
+
 type GovernanceActorTarget struct {
 	ActorType        string     `json:"actor_type"`
 	ActorUserID      *string    `json:"actor_user_id,omitempty"`
@@ -314,6 +381,21 @@ type GovernanceActorTarget struct {
 	PermissionsScope string     `json:"permissions_scope"`
 	ValidFrom        *time.Time `json:"valid_from,omitempty"`
 	ValidUntil       *time.Time `json:"valid_until,omitempty"`
+}
+
+type GovernanceActor struct {
+	ActorType   string  `json:"actor_type"`
+	ActorUserID *string `json:"actor_user_id,omitempty"`
+	ActorRef    *string `json:"actor_ref,omitempty"`
+}
+
+type GovernanceEffectiveTargetFilter struct {
+	TargetKind       string
+	TargetID         string
+	Permission       string
+	PermissionsScope string
+	Limit            int
+	Offset           int
 }
 
 type GeoBBox struct {
