@@ -362,6 +362,16 @@ func (e *Engine) prepareRow(
 		out["token_expiry"] = nil
 		out["status"] = "reconnection_required"
 	}
+	switch spec.Name {
+	case "target_places", "target_regions", "target_collections":
+		out["lifecycle_owner_kind"] = "user"
+		out["lifecycle_owner_ref"] = nil
+		out["created_by"] = userID
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+	case "target_collection_members":
+		out["added_by"] = userID
+	}
 
 	return out
 }
