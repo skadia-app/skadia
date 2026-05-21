@@ -133,6 +133,63 @@ type TargetCollection struct {
 	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
 }
 
+type TargetCollectionCreate struct {
+	Name                  string          `json:"name"`
+	Description           *string         `json:"description,omitempty"`
+	CollectionKind        string          `json:"collection_kind"`
+	Visibility            string          `json:"visibility"`
+	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
+	DisplayStyle          string          `json:"display_style"`
+	DefaultSort           string          `json:"default_sort"`
+	OriginKey             string          `json:"origin_key"`
+	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
+	ExternalRef           *string         `json:"external_ref,omitempty"`
+	ExternalRefVisibility string          `json:"external_ref_visibility"`
+	Metadata              json.RawMessage `json:"metadata,omitempty"`
+}
+
+type TargetCollectionUpdate struct {
+	Name                  *string          `json:"name,omitempty"`
+	Description           *string          `json:"description,omitempty"`
+	CollectionKind        *string          `json:"collection_kind,omitempty"`
+	Visibility            *string          `json:"visibility,omitempty"`
+	AccessScopeID         *string          `json:"access_scope_id,omitempty"`
+	DisplayStyle          *string          `json:"display_style,omitempty"`
+	DefaultSort           *string          `json:"default_sort,omitempty"`
+	ExternalRefKind       *string          `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string          `json:"external_ref_id,omitempty"`
+	ExternalRef           *string          `json:"external_ref,omitempty"`
+	ExternalRefVisibility *string          `json:"external_ref_visibility,omitempty"`
+	Metadata              *json.RawMessage `json:"metadata,omitempty"`
+}
+
+type TargetCollectionSummary struct {
+	ID                 string          `json:"id"`
+	OwnerUserID        *string         `json:"owner_user_id,omitempty"`
+	LifecycleOwnerKind string          `json:"lifecycle_owner_kind"`
+	LifecycleOwnerRef  *string         `json:"lifecycle_owner_ref,omitempty"`
+	Name               string          `json:"name"`
+	CollectionKind     string          `json:"collection_kind"`
+	Visibility         string          `json:"visibility"`
+	AccessScopeID      *string         `json:"access_scope_id,omitempty"`
+	BoundsGeoJSON      *string         `json:"bounds,omitempty"`
+	OwnerMemberCount   int             `json:"owner_member_count,omitempty"`
+	PublicMemberCount  int             `json:"public_member_count,omitempty"`
+	OwnerCountsByKind  json.RawMessage `json:"owner_counts_by_kind,omitempty"`
+	OwnerCountsByRole  json.RawMessage `json:"owner_counts_by_role,omitempty"`
+	PublicCountsByKind json.RawMessage `json:"public_counts_by_kind,omitempty"`
+	PublicCountsByRole json.RawMessage `json:"public_counts_by_role,omitempty"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
+}
+
+type TargetCollectionDetail struct {
+	TargetCollection
+	Members           []TargetCollectionMember `json:"members,omitempty"`
+	HiddenMemberCount int                      `json:"hidden_member_count,omitempty"`
+}
+
 type TargetCollectionMember struct {
 	ID                       string          `json:"id"`
 	CollectionID             string          `json:"collection_id"`
@@ -156,6 +213,40 @@ type TargetCollectionMember struct {
 	AddedBy                  *string         `json:"added_by,omitempty"`
 	AddedAt                  time.Time       `json:"added_at"`
 	RemovedAt                *time.Time      `json:"removed_at,omitempty"`
+}
+
+type TargetCollectionMemberCreate struct {
+	MemberKind               string          `json:"member_kind"`
+	MemberID                 *string         `json:"member_id,omitempty"`
+	MemberRef                *string         `json:"member_ref,omitempty"`
+	BindingMode              *string         `json:"binding_mode,omitempty"`
+	PinnedTargetVersionID    *string         `json:"pinned_target_version_id,omitempty"`
+	PinnedSnapshotID         *string         `json:"pinned_snapshot_id,omitempty"`
+	MemberOwnerScope         string          `json:"member_owner_scope,omitempty"`
+	MemberVisibilitySnapshot string          `json:"member_visibility_snapshot,omitempty"`
+	MembershipVisibility     string          `json:"membership_visibility,omitempty"`
+	OriginKey                string          `json:"origin_key"`
+	Role                     string          `json:"role,omitempty"`
+	SortOrder                int             `json:"sort_order,omitempty"`
+	DisplayNameOverride      *string         `json:"display_name_override,omitempty"`
+	Metadata                 json.RawMessage `json:"metadata,omitempty"`
+	ValidFrom                *time.Time      `json:"valid_from,omitempty"`
+	ValidUntil               *time.Time      `json:"valid_until,omitempty"`
+}
+
+type TargetCollectionMemberUpdate struct {
+	BindingMode              *string          `json:"binding_mode,omitempty"`
+	PinnedTargetVersionID    *string          `json:"pinned_target_version_id,omitempty"`
+	PinnedSnapshotID         *string          `json:"pinned_snapshot_id,omitempty"`
+	MemberOwnerScope         *string          `json:"member_owner_scope,omitempty"`
+	MemberVisibilitySnapshot *string          `json:"member_visibility_snapshot,omitempty"`
+	MembershipVisibility     *string          `json:"membership_visibility,omitempty"`
+	Role                     *string          `json:"role,omitempty"`
+	SortOrder                *int             `json:"sort_order,omitempty"`
+	DisplayNameOverride      *string          `json:"display_name_override,omitempty"`
+	Metadata                 *json.RawMessage `json:"metadata,omitempty"`
+	ValidFrom                *time.Time       `json:"valid_from,omitempty"`
+	ValidUntil               *time.Time       `json:"valid_until,omitempty"`
 }
 
 type GovernanceScope struct {
