@@ -590,7 +590,22 @@ func (db *DB) CanEditTarget(ctx context.Context, userID, targetKind, targetID, p
 	`, targetID, userID).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check target owner edit permission: %w", err)
 	}
-	return exists, nil
+	if exists {
+		return true, nil
+	}
+	targets, err := db.ListGovernanceEffectiveTargets(ctx, model.GovernanceActor{
+		ActorType:   "user",
+		ActorUserID: &userID,
+	}, model.GovernanceEffectiveTargetFilter{
+		TargetKind: targetKind,
+		TargetID:   targetID,
+		Permission: permission,
+		Limit:      1,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(targets) > 0, nil
 }
 
 func (db *DB) listTargetCollectionMembers(ctx context.Context, collectionID, userID string, visibleScopes []string, ownerView bool) ([]model.TargetCollectionMember, int, error) {
