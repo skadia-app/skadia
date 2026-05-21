@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { MessageSquare, Send, Star } from 'lucide-react'
-import { createTargetUserContent, type OverlaySubjectKind, type TargetUserContent } from '@/api/targetOverlays'
+import { createTargetUserContent, type OverlaySubjectKind, type OverlayVisibility, type TargetUserContent } from '@/api/targetOverlays'
 
 type Props = {
   subjectKind: OverlaySubjectKind
@@ -14,6 +14,7 @@ type Props = {
 
 export default function UserContentPanel({ subjectKind, subjectId, targetVersionId, content, loading, canWrite, onChanged }: Props) {
   const [text, setText] = useState('')
+  const [visibility, setVisibility] = useState<OverlayVisibility>('private')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,7 +32,7 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
         subject_id: subjectId,
         target_version_id: targetVersionId,
         content_kind: 'comment',
-        visibility: 'public',
+        visibility,
         payload: { text: value },
       })
       setText('')
@@ -55,6 +56,15 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
               className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
               placeholder="Kommentar"
             />
+            <select
+              value={visibility}
+              onChange={(event) => setVisibility(event.target.value as OverlayVisibility)}
+              disabled={busy}
+              className="rounded-md border border-neutral-300 bg-white px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            >
+              <option value="private">Privat</option>
+              <option value="public">Öffentlich</option>
+            </select>
             <button
               type="button"
               onClick={submitComment}

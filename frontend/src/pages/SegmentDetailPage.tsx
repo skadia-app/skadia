@@ -321,6 +321,7 @@ export default function SegmentDetailPage() {
         subjectKind="course"
         subjectId={segment.id}
         canWrite={Boolean(me)}
+        canManageReports={Boolean(me?.is_admin || me?.user_id === segment.created_by)}
       />
 
       {/* Edit Modal */}

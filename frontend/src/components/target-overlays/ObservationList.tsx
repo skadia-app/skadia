@@ -29,10 +29,7 @@ export default function ObservationList({ observations, loading }: { observation
             <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               {OBSERVATION_LABELS[observation.observation_type] ?? observation.observation_type}
             </p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              {formatDateTime(observation.occurred_at)}
-              {observation.visibility_snapshot && ` · ${observation.visibility_snapshot}`}
-            </p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(observation.occurred_at)}</p>
           </div>
         </div>
       ))}

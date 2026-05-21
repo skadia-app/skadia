@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Send } from 'lucide-react'
-import { createTargetReport, type CreateTargetReportRequest, type OverlaySubjectKind, type TargetReportType } from '@/api/targetOverlays'
+import { createTargetReport, type CreateTargetReportRequest, type OverlaySubjectKind, type OverlayVisibility, type TargetReport, type TargetReportType } from '@/api/targetOverlays'
 
 const REPORT_TYPES: Array<{ value: TargetReportType; label: string }> = [
   { value: 'condition', label: 'Zustand' },
@@ -21,6 +21,8 @@ type Props = {
 
 export default function ReportComposer({ subjectKind, subjectId, targetVersionId, disabled, onCreated }: Props) {
   const [reportType, setReportType] = useState<TargetReportType>('condition')
+  const [visibility, setVisibility] = useState<OverlayVisibility>('private')
+  const [attributionMode, setAttributionMode] = useState<TargetReport['attribution_mode']>('hidden')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,8 +38,8 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
         subject_id: subjectId,
         target_version_id: targetVersionId,
         report_type: reportType,
-        visibility: 'public',
-        attribution_mode: 'named',
+        visibility,
+        attribution_mode: attributionMode,
         description: text,
         observed_at: new Date().toISOString(),
       }
@@ -61,6 +63,25 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
           className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950"
         >
           {REPORT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+        </select>
+        <select
+          value={visibility}
+          onChange={(event) => setVisibility(event.target.value as OverlayVisibility)}
+          disabled={disabled || busy}
+          className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+        >
+          <option value="private">Privat</option>
+          <option value="public">Öffentlich</option>
+        </select>
+        <select
+          value={attributionMode}
+          onChange={(event) => setAttributionMode(event.target.value as TargetReport['attribution_mode'])}
+          disabled={disabled || busy}
+          className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+        >
+          <option value="hidden">Ohne Namen</option>
+          <option value="named">Mit Namen</option>
+          <option value="anonymous_public">Anonym</option>
         </select>
         <textarea
           value={description}

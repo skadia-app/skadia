@@ -19,6 +19,7 @@ type TargetOverlayTabsProps = {
   subjectId: string
   targetVersionId?: string
   canWrite?: boolean
+  canManageReports?: boolean
 }
 
 type TabKey = 'activity' | 'reports' | 'content'
@@ -29,7 +30,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof Activity }> = [
   { key: 'content', label: 'Kommentare', icon: MessageSquare },
 ]
 
-export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersionId, canWrite = true }: TargetOverlayTabsProps) {
+export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersionId, canWrite = false, canManageReports = false }: TargetOverlayTabsProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('activity')
   const queryClient = useQueryClient()
   const baseQuery = useMemo(() => ({
@@ -138,7 +139,7 @@ export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersio
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm text-neutral-700 dark:text-neutral-300">{report.description}</p>
                     <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(report.observed_at)}</p>
                   </div>
-                  {canWrite && report.latest_status === 'open' && (
+                  {canManageReports && report.latest_status === 'open' && (
                     <button
                       type="button"
                       onClick={() => resolveReport.mutate(report)}

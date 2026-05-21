@@ -66,6 +66,7 @@ export interface TargetReport {
   condition_state?: string | null
   condition_severity?: number | null
   description: string
+  source_activity_id?: string | null
   observed_at: string
   valid_from?: string | null
   valid_until?: string | null
