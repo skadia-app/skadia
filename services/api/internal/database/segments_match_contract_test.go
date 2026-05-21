@@ -44,6 +44,18 @@ func TestBuildCourseGPSV1MatchIdentityIsStable(t *testing.T) {
 	}
 }
 
+func TestCheckpointSequenceV1Constants(t *testing.T) {
+	if CheckpointSequenceV1Key != "checkpoint_sequence_v1" {
+		t.Fatalf("CheckpointSequenceV1Key = %q", CheckpointSequenceV1Key)
+	}
+	if CheckpointSequenceV1Version != 1 {
+		t.Fatalf("CheckpointSequenceV1Version = %d", CheckpointSequenceV1Version)
+	}
+	if CheckpointSequencePolicyKey != "checkpoint_sequence_current_version" {
+		t.Fatalf("CheckpointSequencePolicyKey = %q", CheckpointSequencePolicyKey)
+	}
+}
+
 func TestPrepareCourseGPSV1EffortMetadataFreezesPartition(t *testing.T) {
 	effort := &model.SegmentEffort{
 		SegmentID:        "seg-1",

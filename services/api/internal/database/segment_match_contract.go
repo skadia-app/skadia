@@ -8,9 +8,12 @@ import (
 )
 
 const (
-	CourseGPSV1Key           = "course_gps_v1"
-	CourseGPSV1Version       = 1
-	courseGPSV1InstantLayout = "2006-01-02T15:04:05.000000Z"
+	CourseGPSV1Key              = "course_gps_v1"
+	CourseGPSV1Version          = 1
+	CheckpointSequenceV1Key     = "checkpoint_sequence_v1"
+	CheckpointSequenceV1Version = 1
+	CheckpointSequencePolicyKey = "checkpoint_sequence_current_version"
+	courseGPSV1InstantLayout    = "2006-01-02T15:04:05.000000Z"
 )
 
 type SegmentMatchActivityContext struct {
