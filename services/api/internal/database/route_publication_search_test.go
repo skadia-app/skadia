@@ -107,14 +107,15 @@ func TestPublishedCourseVariantsRespectRelatedVisibility(t *testing.T) {
 	viewerID := insertObjectAccessTestUser(t, db)
 	publicCourse := publishSearchTestCourse(t, db, ownerID, "public variant", "search-public-variant")
 	privateVariant := publishSearchTestCourse(t, db, ownerID, "private variant", "search-private-variant")
+	sportType := "test_search_variant_visibility_" + publicCourse.ID[:8]
 	if _, err := db.Pool.Exec(ctx, `UPDATE segments SET visibility = 'public' WHERE id = $1`, publicCourse.CourseSegmentID); err != nil {
 		t.Fatalf("make course public: %v", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `
 		UPDATE route_course_profile_projection
-		SET sport_type = 'test_search_variant_visibility'
+		SET sport_type = $2
 		WHERE publication_id = ANY($1::uuid[])
-	`, []string{publicCourse.ID, privateVariant.ID}); err != nil {
+	`, []string{publicCourse.ID, privateVariant.ID}, sportType); err != nil {
 		t.Fatalf("tag variant projections: %v", err)
 	}
 	tx, err := db.Pool.Begin(ctx)
@@ -134,7 +135,7 @@ func TestPublishedCourseVariantsRespectRelatedVisibility(t *testing.T) {
 
 	got, err := db.ListPublishedRouteCourses(ctx, viewerID, 20, 0, PublishedCourseFilters{
 		VisibilityMode: "public_only",
-		SportType:      "test_search_variant_visibility",
+		SportType:      sportType,
 	})
 	if err != nil {
 		t.Fatalf("ListPublishedRouteCourses viewer: %v", err)
@@ -144,6 +145,106 @@ func TestPublishedCourseVariantsRespectRelatedVisibility(t *testing.T) {
 	}
 	if got[0].HasVariants {
 		t.Fatalf("has_variants leaked private variant: %#v", got[0])
+	}
+}
+
+func TestPublishedCourseHasVariantsIgnoresDerivedFrom(t *testing.T) {
+	db, ownerID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	first := publishSearchTestCourse(t, db, ownerID, "derived source", "search-derived-source")
+	second := publishSearchTestCourse(t, db, ownerID, "derived target", "search-derived-target")
+	if _, err := db.CreateRouteCourseRelationship(ctx, first.ID, second.ID, ownerID, "derived_from", "search-derived-rel", "hash-derived-rel"); err != nil {
+		t.Fatalf("CreateRouteCourseRelationship derived_from: %v", err)
+	}
+
+	got, err := db.ListPublishedRouteCourses(ctx, ownerID, 20, 0, PublishedCourseFilters{VisibilityMode: "owner"})
+	if err != nil {
+		t.Fatalf("ListPublishedRouteCourses: %v", err)
+	}
+	for _, course := range got {
+		if course.PublicationID == first.ID && course.HasVariants {
+			t.Fatalf("derived_from relationship set has_variants: %#v", course)
+		}
+	}
+}
+
+func TestPublishedCourseVisibilityModesAreSpecific(t *testing.T) {
+	db, ownerID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	privateCourse := publishSearchTestCourse(t, db, ownerID, "private course", "search-private-mode")
+	publicCourse := publishSearchTestCourse(t, db, ownerID, "public course", "search-public-mode")
+	if _, err := db.Pool.Exec(ctx, `UPDATE segments SET visibility = 'public' WHERE id = $1`, publicCourse.CourseSegmentID); err != nil {
+		t.Fatalf("make course public: %v", err)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin sync projection: %v", err)
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, publicCourse.CourseSegmentID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("sync public projection: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit sync projection: %v", err)
+	}
+
+	got, err := db.ListPublishedRouteCourses(ctx, ownerID, 20, 0, PublishedCourseFilters{VisibilityMode: "owner_private"})
+	if err != nil {
+		t.Fatalf("ListPublishedRouteCourses owner_private: %v", err)
+	}
+	if len(got) != 1 || got[0].PublicationID != privateCourse.ID {
+		t.Fatalf("owner_private result = %#v, want private course only", got)
+	}
+}
+
+func TestPublishedCourseSharedSearchAcceptsResolvedAccessScopes(t *testing.T) {
+	db, ownerID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	linkHash := "sha256:published-course-link-token"
+	scope, err := db.CreateObjectAccessScope(ctx, model.ObjectAccessScopeInput{
+		OwnerUserID: ownerID,
+		ScopeKind:   "link",
+		CreatedBy:   ownerID,
+		Grants:      []model.ObjectAccessGrantInput{{PrincipalKind: "link_token", LinkTokenHash: &linkHash}},
+	})
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	_, snapshot := createRoutePublicationTestSnapshot(t, db, ownerID, "link shared course")
+	sportType := "test_search_link_" + scope.ID[:8]
+	insertRoutePublicationPrivacyReview(t, db, snapshot.ID, snapshot.SnapshotHash, "shared")
+	publication, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         ownerID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "shared",
+		AccessScopeID:       &scope.ID,
+		CompatibilityPreset: "standard",
+		OperationID:         "search-link-shared-course",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse shared: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET sport_type = $2
+		WHERE publication_id = $1
+	`, publication.ID, sportType); err != nil {
+		t.Fatalf("tag shared projection: %v", err)
+	}
+	resolved, err := db.ResolveVisibleAccessScopes(ctx, "", &linkHash, nil)
+	if err != nil {
+		t.Fatalf("ResolveVisibleAccessScopes: %v", err)
+	}
+
+	got, err := db.ListPublishedRouteCourses(ctx, "", 20, 0, PublishedCourseFilters{VisibilityMode: "shared_visible_to_me", SportType: sportType, VisibleAccessScopeIDs: resolved})
+	if err != nil {
+		t.Fatalf("ListPublishedRouteCourses with scope: %v", err)
+	}
+	if len(got) != 1 || got[0].PublicationID != publication.ID {
+		t.Fatalf("shared link result = %#v, want %s", got, publication.ID)
 	}
 }
 

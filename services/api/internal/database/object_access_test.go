@@ -180,6 +180,45 @@ func TestSegmentSharedVisibilityListDetailAndExport(t *testing.T) {
 	}
 }
 
+func TestSegmentSharedVisibilityAcceptsResolvedAccessScopes(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	linkHash := "sha256:segment-link-token"
+	scope, err := db.CreateObjectAccessScope(ctx, model.ObjectAccessScopeInput{
+		OwnerUserID: ownerID,
+		ScopeKind:   "link",
+		CreatedBy:   ownerID,
+		Grants:      []model.ObjectAccessGrantInput{{PrincipalKind: "link_token", LinkTokenHash: &linkHash}},
+	})
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	segment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("link shared segment", "shared", &scope.ID))
+	if err != nil {
+		t.Fatalf("CreateSegment shared: %v", err)
+	}
+	resolved, err := db.ResolveVisibleAccessScopes(ctx, "", &linkHash, nil)
+	if err != nil {
+		t.Fatalf("ResolveVisibleAccessScopes: %v", err)
+	}
+
+	withoutScope, err := db.ListSegments(ctx, model.ListSegmentsParams{Limit: -1, VisibilityFilter: "shared"})
+	if err != nil {
+		t.Fatalf("ListSegments without scope: %v", err)
+	}
+	if objectAccessSegmentListContains(withoutScope.Segments, segment.ID) {
+		t.Fatalf("shared segment visible without resolved scope: %#v", withoutScope.Segments)
+	}
+
+	withScope, err := db.ListSegments(ctx, model.ListSegmentsParams{Limit: -1, VisibilityFilter: "shared", VisibleAccessScopeIDs: resolved})
+	if err != nil {
+		t.Fatalf("ListSegments with scope: %v", err)
+	}
+	if !objectAccessSegmentListContains(withScope.Segments, segment.ID) {
+		t.Fatalf("resolved-scope list did not include shared segment %s", segment.ID)
+	}
+}
+
 func TestSegmentSharedAccessScopePairing(t *testing.T) {
 	db, ownerID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -218,6 +257,39 @@ func TestSegmentSharedAccessScopePairing(t *testing.T) {
 	_, err = db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("shared with foreign scope", "shared", &otherScope.ID))
 	if !errors.Is(err, ErrSegmentValidation) {
 		t.Fatalf("shared with foreign access scope error = %v, want ErrSegmentValidation", err)
+	}
+}
+
+func TestObjectAccessRevokingLastGrantDemotesSharedSegments(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	viewerID := insertObjectAccessTestUser(t, db)
+	scope, err := db.CreateObjectAccessScope(ctx, model.ObjectAccessScopeInput{
+		OwnerUserID: ownerID,
+		ScopeKind:   "manual",
+		CreatedBy:   ownerID,
+		Grants:      []model.ObjectAccessGrantInput{{PrincipalKind: "user", PrincipalUserID: &viewerID}},
+	})
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	segment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("demoted shared segment", "shared", &scope.ID))
+	if err != nil {
+		t.Fatalf("CreateSegment shared: %v", err)
+	}
+	if err := db.RevokeObjectAccessGrants(ctx, scope.ID, ownerID, []string{scope.Grants[0].ID}); err != nil {
+		t.Fatalf("RevokeObjectAccessGrants: %v", err)
+	}
+
+	loaded, err := db.GetSegment(ctx, segment.ID, ownerID, false, false)
+	if err != nil {
+		t.Fatalf("GetSegment owner: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("owner lost segment after grant revoke")
+	}
+	if loaded.Visibility != "private" || loaded.AccessScopeID != nil {
+		t.Fatalf("segment access state = %s/%v, want private/nil", loaded.Visibility, loaded.AccessScopeID)
 	}
 }
 

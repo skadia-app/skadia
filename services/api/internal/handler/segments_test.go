@@ -33,6 +33,141 @@ func TestCreateSegmentRejectsInvalidSegmentTypeBeforeDB(t *testing.T) {
 	}
 }
 
+func TestCreateCheckpointCourseAPI_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+	r.Get("/api/v1/segments", h.ListSegments)
+	r.Get("/api/v1/segments/{id}", h.GetSegment)
+
+	userID := insertTestUser(t, pool)
+	body := `{
+		"name":"api-checkpoint-course",
+		"sport_group":"bike",
+		"course_kind":"checkpoint_sequence",
+		"visibility":"private",
+		"controls":[
+			{"sequence_index":0,"role":"start","primitive":"point","geometry_shape":"point","geometry":{"type":"Point","coordinates":[8,49]},"hit_radius_m":30,"required":true},
+			{"sequence_index":1,"role":"finish","primitive":"point","geometry_shape":"point","geometry":{"type":"Point","coordinates":[8.02,49.02]},"hit_radius_m":30,"required":true}
+		]
+	}`
+	rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", body, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var seg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if seg.CourseKind != "checkpoint_sequence" {
+		t.Fatalf("course_kind = %q", seg.CourseKind)
+	}
+	if seg.ControlSummary == nil || seg.ControlSummary.ControlCount != 2 {
+		t.Fatalf("control_summary = %#v", seg.ControlSummary)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM segments WHERE id = $1`, seg.ID)
+	})
+
+	rec = performSegmentRequest(t, r, http.MethodGet, "/api/v1/segments?course_kind=checkpoint_sequence&include_control_map_features=true&limit=-1", "", userID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var list model.ListSegmentsResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	if !segmentListContains(list.Segments, seg.ID) {
+		t.Fatalf("checkpoint list did not include %s: %#v", seg.ID, list.Segments)
+	}
+
+	rec = performSegmentRequest(t, r, http.MethodGet, "/api/v1/segments/"+seg.ID+"?include_geojson=true&include_controls=true", "", userID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var detail model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal detail response: %v", err)
+	}
+	if detail.CourseKind != "checkpoint_sequence" {
+		t.Fatalf("detail course_kind = %q", detail.CourseKind)
+	}
+	if detail.TrackGeoJSON == nil || !strings.Contains(*detail.TrackGeoJSON, "LineString") {
+		t.Fatalf("detail display line missing: %#v", detail.TrackGeoJSON)
+	}
+	if len(detail.Controls) != 2 {
+		t.Fatalf("detail controls count = %d, want 2", len(detail.Controls))
+	}
+	if detail.Controls[0].Role != model.CheckpointControlStart || detail.Controls[1].Role != model.CheckpointControlFinish {
+		t.Fatalf("detail control roles = %#v", detail.Controls)
+	}
+
+	rec = performSegmentRequest(t, r, http.MethodGet, "/api/v1/segments?include_controls=true", "", userID)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("list include_controls status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestExportImportCheckpointCourseAPI_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+	r.Get("/api/v1/segments/{id}/export", h.ExportSegment)
+	r.Post("/api/v1/segments/import", h.ImportSegment)
+
+	userID := insertTestUser(t, pool)
+	body := `{
+		"name":"api-checkpoint-export",
+		"sport_group":"bike",
+		"course_kind":"checkpoint_sequence",
+		"visibility":"private",
+		"controls":[
+			{"sequence_index":0,"role":"start","primitive":"point","geometry_shape":"point","label":"A","geometry":{"type":"Point","coordinates":[8,49]},"hit_radius_m":30,"required":true},
+			{"sequence_index":1,"role":"finish","primitive":"area","geometry_shape":"circle","label":"B","geometry":{"type":"Point","coordinates":[8.02,49.02]},"area_radius_m":80,"required":true}
+		]
+	}`
+	rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", body, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var seg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM segments WHERE name IN ('api-checkpoint-export', 'api-checkpoint-export-imported')`)
+	})
+
+	rec = performSegmentRequest(t, r, http.MethodGet, "/api/v1/segments/"+seg.ID+"/export?format=geojson", "", userID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"display_only":true`) || !strings.Contains(rec.Body.String(), `"checkpoint_sequence_v1"`) {
+		t.Fatalf("export body missing checkpoint contract/display marker: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"area_radius_m":80`) {
+		t.Fatalf("export body missing area radius: %s", rec.Body.String())
+	}
+
+	importBody := strings.Replace(rec.Body.String(), "api-checkpoint-export", "api-checkpoint-export-imported", 1)
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments/import", importBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("import status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var imported model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &imported); err != nil {
+		t.Fatalf("unmarshal import response: %v", err)
+	}
+	if imported.CourseKind != "checkpoint_sequence" {
+		t.Fatalf("imported course_kind = %q", imported.CourseKind)
+	}
+	if imported.ControlSummary == nil || imported.ControlSummary.ControlCount != 2 {
+		t.Fatalf("imported control_summary = %#v", imported.ControlSummary)
+	}
+}
+
 func TestCreateSegmentFromActivityDoesNotWaitForSourceMatch_DB(t *testing.T) {
 	pool := fusionTestPool(t)
 	db := newTestHandler(t, pool).DB

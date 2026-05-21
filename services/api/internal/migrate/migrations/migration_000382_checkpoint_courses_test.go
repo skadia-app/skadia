@@ -168,7 +168,7 @@ func TestMigration_CheckpointCourses_DownRestoresLineOnlyContracts(t *testing.T)
 	}
 	defer tx.Rollback(ctx)
 
-	downSQL, err := os.ReadFile("900002_checkpoint_courses.down.sql")
+	downSQL, err := os.ReadFile("000382_checkpoint_courses.down.sql")
 	if err != nil {
 		t.Fatalf("read down migration: %v", err)
 	}

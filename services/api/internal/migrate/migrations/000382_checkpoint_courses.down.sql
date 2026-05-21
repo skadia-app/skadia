@@ -1,9 +1,9 @@
+DROP TABLE IF EXISTS checkpoint_course_effort_controls;
+DROP TABLE IF EXISTS checkpoint_course_projection;
+DROP TABLE IF EXISTS course_version_controls;
+
 DELETE FROM segments
 WHERE course_kind = 'checkpoint_sequence';
-
-DROP TABLE IF EXISTS checkpoint_course_projection;
-DROP TABLE IF EXISTS checkpoint_course_effort_controls;
-DROP TABLE IF EXISTS course_version_controls;
 
 ALTER TABLE target_course_eligibility_projection
     DROP CONSTRAINT IF EXISTS target_course_eligibility_projection_matching_contract_chk;

@@ -3,6 +3,43 @@ import type { DetectedLap } from './types'
 import type { SportPredicate } from '@/lib/sportPredicates'
 
 export type SegmentVisibility = 'public' | 'private' | 'shared'
+export type CourseKind = 'line' | 'checkpoint_sequence'
+export type CheckpointControlRole = 'start' | 'checkpoint' | 'finish'
+export type CheckpointControlPrimitive = 'point' | 'area'
+export type CheckpointControlGeometryShape = 'point' | 'circle' | 'polygon' | 'multipolygon'
+
+export interface CheckpointControl {
+  id?: string
+  sequence_index: number
+  role: CheckpointControlRole
+  primitive: CheckpointControlPrimitive
+  geometry_shape: CheckpointControlGeometryShape
+  label?: string
+  geometry: unknown
+  hit_radius_m?: number
+  area_radius_m?: number
+  required: boolean
+}
+
+export interface CheckpointControlSummary {
+  control_count: number
+  required_control_count: number
+  primitive_kinds: string[]
+  labels?: string[]
+}
+
+export interface CheckpointControlMapFeature {
+  sequence_index: number
+  role: CheckpointControlRole
+  primitive: CheckpointControlPrimitive
+  geometry_shape: CheckpointControlGeometryShape
+  label?: string
+  centroid: unknown
+  geometry?: unknown
+  hit_radius_m?: number
+  area_radius_m?: number
+  required: boolean
+}
 
 export interface Segment {
   id: string
@@ -29,6 +66,10 @@ export interface Segment {
   allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
+  course_kind?: CourseKind
+  control_summary?: CheckpointControlSummary
+  control_map_features?: CheckpointControlMapFeature[]
+  controls?: CheckpointControl[]
 }
 
 export interface SegmentEffort {
@@ -52,6 +93,8 @@ export interface SegmentEffort {
   is_segment_record: boolean
   segment_name?: string
   segment_type_meta?: Record<string, unknown>
+  course_kind?: CourseKind
+  control_summary?: CheckpointControlSummary
 }
 
 export interface LeaderboardEntry {
@@ -150,6 +193,19 @@ export interface CreateSegmentPayload {
   allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
+  course_kind?: CourseKind
+  controls?: CheckpointControl[]
+}
+
+export interface CreateCheckpointCoursePayload {
+  name: string
+  sport_group: string
+  description?: string
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
+  allowed_predicates?: SportPredicate[] | null
+  controls: CheckpointControl[]
+  source_activity_id?: string
 }
 
 export interface SegmentsResponse {
@@ -177,6 +233,9 @@ export interface FetchSegmentsOpts {
   visibility?: string
   /** "any" = OR between SAC and MTB; "all" (default) = AND */
   difficulty_match?: 'any' | 'all'
+  course_kind?: CourseKind
+  course_kinds?: CourseKind[]
+  include_control_map_features?: boolean
 }
 
 export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<SegmentsResponse> {
@@ -197,6 +256,9 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
   if (params.elevation_kind) qs.set('elevation_kind', params.elevation_kind)
   if (params.visibility) qs.set('visibility', params.visibility)
   if (params.difficulty_match) qs.set('difficulty_match', params.difficulty_match)
+  if (params.course_kind) qs.set('course_kind', params.course_kind)
+  if (params.course_kinds?.length) qs.set('course_kinds', params.course_kinds.join(','))
+  if (params.include_control_map_features) qs.set('include_control_map_features', 'true')
   
   const q = qs.toString()
   return apiClient<SegmentsResponse>(`/segments${q ? `?${q}` : ''}`)
@@ -245,9 +307,12 @@ export async function fetchSegmentLeaderboard(
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
 
-export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean } = {}): Promise<Segment> {
-  const qs = opts.includeGeoJSON ? '?include_geojson=true' : ''
-  return apiClient<Segment>(`/segments/${id}${qs}`)
+export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean; includeControls?: boolean } = {}): Promise<Segment> {
+  const qs = new URLSearchParams()
+  if (opts.includeGeoJSON) qs.set('include_geojson', 'true')
+  if (opts.includeControls) qs.set('include_controls', 'true')
+  const query = qs.toString()
+  return apiClient<Segment>(`/segments/${id}${query ? `?${query}` : ''}`)
 }
 
 export async function updateSegment(id: string, payload: UpdateSegmentPayload): Promise<Segment> {
@@ -256,6 +321,14 @@ export async function updateSegment(id: string, payload: UpdateSegmentPayload): 
 
 export async function createSegment(payload: CreateSegmentPayload): Promise<Segment> {
   return apiClient<Segment>('/segments', { method: 'POST', body: payload })
+}
+
+export async function createCheckpointCourse(payload: CreateCheckpointCoursePayload): Promise<Segment> {
+  return createSegment({ ...payload, course_kind: 'checkpoint_sequence', segment_type: 'standard', geojson_track: '' })
+}
+
+export async function importCheckpointCourseGeoJSON(payload: unknown): Promise<Segment> {
+  return apiClient<Segment>('/segments/import', { method: 'POST', body: payload })
 }
 
 export async function deleteSegment(id: string): Promise<void> {

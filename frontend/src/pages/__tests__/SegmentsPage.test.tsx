@@ -238,6 +238,50 @@ describe('SegmentsPage filters', () => {
     expect(screen.queryByText('Oberfläche')).not.toBeInTheDocument()
     expect(screen.getByText('Sichtbarkeit')).toBeInTheDocument()
   })
+
+  it('loads checkpoint courses through course kind filters', async () => {
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    const checkpointToggle = await screen.findByRole('checkbox', { name: 'Checkpoint-Kurse' })
+    expect(checkpointToggle).toBeChecked()
+
+    await waitFor(() => {
+      expect(mocks.fetchSegments).toHaveBeenCalledWith(expect.objectContaining({
+        course_kinds: ['line', 'checkpoint_sequence'],
+      }))
+    })
+  })
+
+  it('labels checkpoint courses without showing the legacy standard type', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-1',
+          name: 'Freie Linie',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 3, required_control_count: 3, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Freie Linie')).toBeInTheDocument()
+    expect(screen.getByText('Checkpoint-Kurs')).toBeInTheDocument()
+    expect(screen.getByText('3 Checkpoints')).toBeInTheDocument()
+  })
 })
 
 describe('shouldFetchNextSegmentPage', () => {

@@ -102,8 +102,8 @@ export default function SegmentDetailPage() {
 
   // #1a fix: include_geojson=true so SegmentMinimap receives track_geojson
   const { data: segment, isLoading } = useQuery({
-    queryKey: ['segment', id, 'geojson'],
-    queryFn: () => fetchSegment(id!, { includeGeoJSON: true }),
+    queryKey: ['segment', id, 'geojson-controls'],
+    queryFn: () => fetchSegment(id!, { includeGeoJSON: true, includeControls: true }),
     enabled: !!id,
   })
 
@@ -130,7 +130,7 @@ export default function SegmentDetailPage() {
             dateTo={dateTo ?? ''}
             onChange={(from, to) => { setDateFrom(from || undefined); setDateTo(to || undefined) }}
           />
-          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
@@ -194,7 +194,7 @@ export default function SegmentDetailPage() {
           )}
 
           {/* Delete: visible for creator or admin, not for OSM lift segments */}
-          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
             <button
               onClick={() => openModal({
                 title: 'Segment löschen?',
@@ -218,7 +218,7 @@ export default function SegmentDetailPage() {
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{segment.name}</h1>
-          {['trail', 'wintersport'].includes(segment.segment_type) && (
+          {segment.course_kind !== 'checkpoint_sequence' && ['trail', 'wintersport'].includes(segment.segment_type) && (
             <DifficultyBadge
               sac={segment.segment_type_meta?.sac_scale as string}
               mtb={segment.segment_type_meta?.mtb_scale as string}
@@ -230,7 +230,11 @@ export default function SegmentDetailPage() {
           <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
             {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
           </span>
-          {segment.segment_type !== 'standard' && (
+          {segment.course_kind === 'checkpoint_sequence' ? (
+            <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+              Checkpoint-Kurs
+            </span>
+          ) : segment.segment_type !== 'standard' && (
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
               {TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
             </span>
@@ -261,6 +265,24 @@ export default function SegmentDetailPage() {
             </span>
           )}
         </div>
+        {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+              {segment.control_summary.control_count} Checkpoints
+            </span>
+            {segment.controls && segment.controls.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                {segment.controls.map((control, index) => (
+                  control.role === 'start'
+                    ? 'Start'
+                    : control.role === 'finish'
+                      ? 'Ziel'
+                      : String(index + 1)
+                )).join(' -> ')}
+              </span>
+            )}
+          </div>
+        )}
         {segment.description && (
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{segment.description}</p>
         )}

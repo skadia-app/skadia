@@ -1762,6 +1762,7 @@ func main() {
 			r.Post("/segments", h.CreateSegment)
 			r.Delete("/segments", h.DeleteSegments)
 			r.Post("/segments/export", h.ExportSegments)
+			r.Post("/segments/import", h.ImportSegment)
 			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
 			// Rate-Limit: ~30/min per user, burst 5. Enrichment makes a Viterbi-match
 			// (~10ms, 1s graph timeout) + optional PostGIS fallback — without a cap

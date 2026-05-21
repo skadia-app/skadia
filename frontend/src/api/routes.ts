@@ -291,8 +291,6 @@ export type RoutePublicationVisibilityMode =
 
 export interface PublishedRouteCourse {
   publication_id: string
-  route_id?: string | null
-  route_snapshot_id: string
   course_segment_id: string
   course_segment_version_id: string
   name: string

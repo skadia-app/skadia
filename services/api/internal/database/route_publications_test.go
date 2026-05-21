@@ -204,24 +204,38 @@ func TestRoutePublicationExistingCoursePoliciesCreateVersions(t *testing.T) {
 	}
 }
 
-func TestRoutePublicationPrivacyRequiresSafeComponentStates(t *testing.T) {
+func TestRouteDerivedCourseCannotBypassPublicationGateThroughSegmentPublish(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "private route course")
+	publication, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "private",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-private-course-for-segment-bypass",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse private: %v", err)
+	}
+
+	published, _, _, err := db.PublishSegmentAndSeedRecalculationRun(ctx, publication.CourseSegmentID, userID, false, "legacy-segment-publish-bypass", nil)
+	if !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("route-derived segment publish error = %v, want ErrRoutePublicationValidation", err)
+	}
+	if published {
+		t.Fatal("route-derived segment publish returned published=true")
+	}
+}
+
+func TestRoutePublicationPrivacyRejectsBlockedComponentStates(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()
 	_, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "privacy component route")
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO route_publication_privacy_reviews (
-			route_snapshot_id, snapshot_hash, audience_class,
-			route_name_state, description_state, waypoints_state,
-			source_metadata_state, geometry_state, enrichment_state, media_pointer_state,
-			overall_state, review_hash
-		)
-		VALUES (
-			$1, $2, 'public',
-			'safe', 'redacted', 'safe',
-			'safe', 'safe', 'safe', 'safe',
-			'safe', 'privacy-component'
-		)
-	`, snapshot.ID, snapshot.SnapshotHash); err != nil {
+	if err := insertRoutePublicationReviewStates(t, db, snapshot.ID, snapshot.SnapshotHash, "public", "blocked", false); err != nil {
 		t.Fatalf("insert privacy review: %v", err)
 	}
 	_, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
@@ -232,10 +246,41 @@ func TestRoutePublicationPrivacyRequiresSafeComponentStates(t *testing.T) {
 		EquivalenceDecision: "version_specific",
 		Visibility:          "public",
 		CompatibilityPreset: "standard",
-		OperationID:         "publish-redacted-component",
+		OperationID:         "publish-blocked-component",
 	})
 	if !errors.Is(err, ErrRoutePublicationValidation) {
-		t.Fatalf("redacted component error = %v, want ErrRoutePublicationValidation", err)
+		t.Fatalf("blocked component error = %v, want ErrRoutePublicationValidation", err)
+	}
+}
+
+func TestRoutePublicationPrivacyAllowsOwnerConfirmedReviewState(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "privacy confirmation route")
+
+	if err := insertRoutePublicationReviewStates(t, db, snapshot.ID, snapshot.SnapshotHash, "public", "requires_confirmation", false); err != nil {
+		t.Fatalf("insert unconfirmed review: %v", err)
+	}
+	input := model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "public",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-needs-owner-review",
+	}
+	if _, err := db.PublishRouteSnapshotAsCourse(ctx, input); !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("unconfirmed review error = %v, want ErrRoutePublicationValidation", err)
+	}
+
+	if err := insertRoutePublicationReviewStates(t, db, snapshot.ID, snapshot.SnapshotHash, "public", "requires_confirmation", true); err != nil {
+		t.Fatalf("replace confirmed review: %v", err)
+	}
+	input.OperationID = "publish-confirmed-review"
+	if _, err := db.PublishRouteSnapshotAsCourse(ctx, input); err != nil {
+		t.Fatalf("confirmed review publish: %v", err)
 	}
 }
 
@@ -400,6 +445,41 @@ func createRoutePublicationDescriptionSnapshot(t *testing.T, db *DB, userID, nam
 		t.Fatalf("CreatePlannedRouteSnapshot with description: %v", err)
 	}
 	return updated, snapshot
+}
+
+func insertRoutePublicationReviewStates(t *testing.T, db *DB, snapshotID, snapshotHash, audienceClass, state string, confirmed bool) error {
+	t.Helper()
+	ownerApproved := "NULL"
+	if confirmed {
+		ownerApproved = "NOW()"
+	}
+	_, err := db.Pool.Exec(context.Background(), `
+		INSERT INTO route_publication_privacy_reviews (
+			route_snapshot_id, snapshot_hash, audience_class,
+			route_name_state, description_state, waypoints_state,
+			source_metadata_state, geometry_state, enrichment_state, media_pointer_state,
+			overall_state, owner_approved_at, review_hash
+		)
+		VALUES (
+			$1, $2, $3,
+			$4, 'safe', 'safe',
+			'safe', 'safe', 'safe', 'safe',
+			$4, `+ownerApproved+`, $5
+		)
+		ON CONFLICT (route_snapshot_id, snapshot_hash, audience_class) DO UPDATE SET
+			route_name_state = EXCLUDED.route_name_state,
+			description_state = EXCLUDED.description_state,
+			waypoints_state = EXCLUDED.waypoints_state,
+			source_metadata_state = EXCLUDED.source_metadata_state,
+			geometry_state = EXCLUDED.geometry_state,
+			enrichment_state = EXCLUDED.enrichment_state,
+			media_pointer_state = EXCLUDED.media_pointer_state,
+			overall_state = EXCLUDED.overall_state,
+			owner_approved_at = EXCLUDED.owner_approved_at,
+			review_hash = EXCLUDED.review_hash,
+			updated_at = NOW()
+	`, snapshotID, snapshotHash, audienceClass, state, "review-"+state)
+	return err
 }
 
 func routePublicationPtrFloat64(v float64) *float64 {

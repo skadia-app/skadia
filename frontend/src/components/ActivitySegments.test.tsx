@@ -93,4 +93,35 @@ describe('ActivitySegments', () => {
       type: 'active',
     })
   })
+
+  it('labels checkpoint course hits distinctly', async () => {
+    vi.mocked(fetchActivitySegments).mockResolvedValue([
+      {
+        id: 'effort-1',
+        segment_id: 'segment-1',
+        activity_id: 'activity-1',
+        started_at: '2026-05-20T12:00:00Z',
+        elapsed_time_s: 120,
+        is_reverse: false,
+        sport_type: 'ride',
+        rank_overall: 1,
+        is_personal_best: true,
+        is_segment_record: true,
+        segment_name: 'Freie Linie',
+        course_kind: 'checkpoint_sequence',
+        control_summary: { control_count: 3, required_control_count: 3, primitive_kinds: ['point'] },
+      },
+    ])
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ActivitySegments activityId="activity-1" />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('Freie Linie')).toBeInTheDocument()
+    expect(screen.getByText('Checkpoint-Kurs absolviert')).toBeInTheDocument()
+    expect(screen.getByText('Absolviert')).toBeInTheDocument()
+  })
 })
