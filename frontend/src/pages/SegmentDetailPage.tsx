@@ -15,6 +15,7 @@ import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
 import { SegmentActivityList } from '@/components/SegmentDetail/SegmentActivityList'
 import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerformanceChart'
 import { FavoriteButton } from '@/components/SegmentDetail/FavoriteButton'
+import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
 import DateRangePicker from '@/components/DateRangePicker'
@@ -102,8 +103,8 @@ export default function SegmentDetailPage() {
 
   // #1a fix: include_geojson=true so SegmentMinimap receives track_geojson
   const { data: segment, isLoading } = useQuery({
-    queryKey: ['segment', id, 'geojson-controls'],
-    queryFn: () => fetchSegment(id!, { includeGeoJSON: true, includeControls: true }),
+    queryKey: ['segment', id, 'geojson-controls-overlay-summary'],
+    queryFn: () => fetchSegment(id!, { includeGeoJSON: true, includeControls: true, includeOverlaySummary: true }),
     enabled: !!id,
   })
 
@@ -265,6 +266,25 @@ export default function SegmentDetailPage() {
             </span>
           )}
         </div>
+        {segment.overlay_summary && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            {segment.overlay_summary.public_open_report_count > 0 && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                {segment.overlay_summary.public_open_report_count} offene Meldungen
+              </span>
+            )}
+            {segment.overlay_summary.current_condition_state && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                Zustand: {segment.overlay_summary.current_condition_state}
+              </span>
+            )}
+            {segment.overlay_summary.public_comment_count > 0 && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                {segment.overlay_summary.public_comment_count} Kommentare
+              </span>
+            )}
+          </div>
+        )}
         {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
@@ -296,6 +316,12 @@ export default function SegmentDetailPage() {
 
       {/* Performance Chart */}
       <SegmentPerformanceChart segmentId={id!} dateFrom={dateFrom} dateTo={dateTo} />
+
+      <TargetOverlayTabs
+        subjectKind="course"
+        subjectId={segment.id}
+        canWrite={Boolean(me)}
+      />
 
       {/* Edit Modal */}
       {showEdit && (

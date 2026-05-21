@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addGovernanceRole, addTargetCollectionMember, createGovernanceScope, getTargetCollection, removeTargetCollectionMember } from '@/api/targetObjects'
 import CollectionMemberPicker from '@/components/target-objects/CollectionMemberPicker'
+import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
 
 const MEMBER_KIND_LABELS: Record<string, string> = {
   course: 'Segment/Kurs',
@@ -19,7 +20,7 @@ export default function TargetCollectionDetailPage() {
   const queryClient = useQueryClient()
   const detail = useQuery({
     queryKey: ['target-collection', id],
-    queryFn: () => getTargetCollection(id, { include_members: true }),
+    queryFn: () => getTargetCollection(id, { include_members: true, include_overlay_summary: true }),
     enabled: Boolean(id),
   })
   const addMemberMutation = useMutation({
@@ -52,6 +53,11 @@ export default function TargetCollectionDetailPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">{collection.name}</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{collection.visibility} · {collection.owner_member_count ?? collection.members?.length ?? 0} Einträge</p>
+          {collection.overlay_summary && (
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              {collection.overlay_summary.public_open_report_count} offene Meldungen · {collection.overlay_summary.public_comment_count} Kommentare
+            </p>
+          )}
         </div>
         <button
           onClick={() => bootstrapGovernanceMutation.mutate()}
@@ -86,6 +92,8 @@ export default function TargetCollectionDetailPage() {
           {(collection.members ?? []).length === 0 && <p className="p-3 text-sm text-neutral-500">Keine Einträge.</p>}
         </div>
       </section>
+
+      <TargetOverlayTabs subjectKind="collection" subjectId={collection.id} canWrite />
     </div>
   )
 }

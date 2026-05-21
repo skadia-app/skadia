@@ -55,6 +55,14 @@ describe('segment API', () => {
     expect(apiClientMock).toHaveBeenCalledWith('/segments/seg-1?include_geojson=true&include_controls=true')
   })
 
+  it('adds include_overlay_summary on segment detail requests', async () => {
+    apiClientMock.mockResolvedValueOnce({ id: 'seg-1' })
+
+    await fetchSegment('seg-1', { includeOverlaySummary: true })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments/seg-1?include_overlay_summary=true')
+  })
+
   it('posts checkpoint course creation payloads through the segment endpoint', async () => {
     apiClientMock.mockResolvedValueOnce({ id: 'seg-1' })
     const control = {

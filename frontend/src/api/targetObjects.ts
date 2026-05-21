@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { TargetOverlaySummary } from './targetOverlays'
 
 export type TargetVisibility = 'private' | 'shared' | 'public'
 export type TargetPlaceKind = 'custom' | 'private_place' | 'poi' | 'entrance' | 'parking' | 'summit' | 'pass' | 'water' | 'settlement' | 'amenity'
@@ -36,6 +37,7 @@ export interface TargetPlace {
   metadata?: Record<string, unknown>
   updated_at?: string
   archived_at?: string | null
+  overlay_summary?: TargetOverlaySummary | null
 }
 
 export interface TargetRegion {
@@ -51,6 +53,7 @@ export interface TargetRegion {
   metadata?: Record<string, unknown>
   updated_at?: string
   archived_at?: string | null
+  overlay_summary?: TargetOverlaySummary | null
 }
 
 export interface TargetCollectionSummary {
@@ -65,6 +68,7 @@ export interface TargetCollectionSummary {
   public_member_count?: number
   updated_at?: string
   archived_at?: string | null
+  overlay_summary?: TargetOverlaySummary | null
 }
 
 export interface TargetCollection extends TargetCollectionSummary {
@@ -174,6 +178,10 @@ export interface TargetPlaceListResponse { places: TargetPlace[] }
 export interface TargetRegionListResponse { regions: TargetRegion[] }
 export interface TargetCollectionListResponse { collections: TargetCollectionSummary[] }
 
+export type TargetObjectDetailOptions = {
+  include_overlay_summary?: boolean
+}
+
 export function listTargetPlaces(params: TargetObjectListParams = {}): Promise<TargetPlaceListResponse> {
   return apiClient<TargetPlaceListResponse>(withQuery('/target-places', targetObjectListQuery(params)))
 }
@@ -188,6 +196,10 @@ export function updateTargetPlace(id: string, request: TargetPlaceUpdateRequest)
 
 export function deleteTargetPlace(id: string): Promise<{ ok: boolean }> {
   return apiClient<{ ok: boolean }>(`/target-places/${id}`, { method: 'DELETE' })
+}
+
+export function getTargetPlace(id: string, options: TargetObjectDetailOptions = {}): Promise<TargetPlaceResponse> {
+  return apiClient<TargetPlaceResponse>(withQuery(`/target-places/${id}`, cleanQuery({ include_overlay_summary: options.include_overlay_summary })))
 }
 
 export function listTargetRegions(params: TargetObjectListParams = {}): Promise<TargetRegionListResponse> {
@@ -206,6 +218,10 @@ export function deleteTargetRegion(id: string): Promise<{ ok: boolean }> {
   return apiClient<{ ok: boolean }>(`/target-regions/${id}`, { method: 'DELETE' })
 }
 
+export function getTargetRegion(id: string, options: TargetObjectDetailOptions = {}): Promise<TargetRegionResponse> {
+  return apiClient<TargetRegionResponse>(withQuery(`/target-regions/${id}`, cleanQuery({ include_overlay_summary: options.include_overlay_summary })))
+}
+
 export function listTargetCollections(params: TargetCollectionListParams = {}): Promise<TargetCollectionListResponse> {
   return apiClient<TargetCollectionListResponse>(withQuery('/target-collections', targetObjectListQuery(params)))
 }
@@ -214,8 +230,11 @@ export function createTargetCollection(request: TargetCollectionCreateRequest): 
   return apiClient<TargetCollectionResponse>('/target-collections', { method: 'POST', body: request })
 }
 
-export function getTargetCollection(id: string, options: { include_members?: boolean } = {}): Promise<TargetCollectionDetailResponse> {
-  return apiClient<TargetCollectionDetailResponse>(withQuery(`/target-collections/${id}`, options.include_members ? { include_members: 'true' } : {}))
+export function getTargetCollection(id: string, options: { include_members?: boolean; include_overlay_summary?: boolean } = {}): Promise<TargetCollectionDetailResponse> {
+  return apiClient<TargetCollectionDetailResponse>(withQuery(`/target-collections/${id}`, cleanQuery({
+    include_members: options.include_members,
+    include_overlay_summary: options.include_overlay_summary,
+  })))
 }
 
 export function addTargetCollectionMember(collectionId: string, request: TargetCollectionMemberCreateRequest): Promise<TargetCollectionMemberResponse> {

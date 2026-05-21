@@ -1,6 +1,7 @@
 import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
 import type { SportPredicate } from '@/lib/sportPredicates'
+import type { TargetOverlaySummary } from './targetOverlays'
 
 export type SegmentVisibility = 'public' | 'private' | 'shared'
 export type CourseKind = 'line' | 'checkpoint_sequence'
@@ -70,6 +71,7 @@ export interface Segment {
   control_summary?: CheckpointControlSummary
   control_map_features?: CheckpointControlMapFeature[]
   controls?: CheckpointControl[]
+  overlay_summary?: TargetOverlaySummary | null
 }
 
 export interface SegmentEffort {
@@ -311,10 +313,11 @@ export async function fetchSegmentLeaderboard(
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
 
-export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean; includeControls?: boolean } = {}): Promise<Segment> {
+export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean; includeControls?: boolean; includeOverlaySummary?: boolean } = {}): Promise<Segment> {
   const qs = new URLSearchParams()
   if (opts.includeGeoJSON) qs.set('include_geojson', 'true')
   if (opts.includeControls) qs.set('include_controls', 'true')
+  if (opts.includeOverlaySummary) qs.set('include_overlay_summary', 'true')
   const query = qs.toString()
   return apiClient<Segment>(`/segments/${id}${query ? `?${query}` : ''}`)
 }
