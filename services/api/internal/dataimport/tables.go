@@ -199,6 +199,24 @@ func allTables() []tableSpec {
 			PKField: "id",
 		},
 		{
+			Name:    "target_places",
+			Phase:   3,
+			PKField: "id",
+			UserCol: "owner_user_id",
+		},
+		{
+			Name:    "target_regions",
+			Phase:   3,
+			PKField: "id",
+			UserCol: "owner_user_id",
+		},
+		{
+			Name:    "target_collections",
+			Phase:   3,
+			PKField: "id",
+			UserCol: "owner_user_id",
+		},
+		{
 			Name:     "segments",
 			Phase:    3,
 			PKField:  "id",
@@ -283,6 +301,14 @@ func allTables() []tableSpec {
 			Phase:    4,
 			PKField:  "",
 			FKFields: []string{"segment_id"},
+			Conflict: cmSkipWarn,
+		},
+		{
+			Name:     "target_collection_members",
+			Phase:    4,
+			PKField:  "id",
+			UserCol:  "added_by",
+			FKFields: []string{"collection_id", "member_id"},
 			Conflict: cmSkipWarn,
 		},
 		{
@@ -532,17 +558,26 @@ func ImportCoverageTableNamesForGDPRGuard() map[string]bool {
 // intentionally not imported by the generic GDPR table path.
 func ImportSkippedTableRationalesForGDPRGuard() map[string]string {
 	return map[string]string{
-		"best_efforts":                      "Derived activity achievement rows are recomputed from imported activities.",
-		"import_log":                        "Historical import audit rows are not restored; imported activities/files carry the user data.",
-		"object_access_grants":              "Sharing grants need live principals and scopes; export keeps the metadata, import intentionally does not recreate sharing state.",
-		"object_access_scopes":              "Sharing scopes are access-control state; export keeps the metadata, import intentionally recreates private objects without old shares.",
-		"planned_route_snapshots":           "Route publication snapshots are immutable publication history; planned_routes remain importable and can be republished after import.",
-		"route_course_publications":         "Published-course rows depend on immutable segment/version ids and access scopes; planned_routes and segments remain importable separately.",
-		"route_course_relationships":        "Published-course variant edges are publication graph metadata; import intentionally avoids recreating public graph state.",
-		"route_profile_snapshots":           "Route profile snapshots are derived from route geometry/enrichment and can be regenerated.",
-		"route_publication_events":          "Publication events are audit metadata; import intentionally does not replay historical publication operations.",
-		"route_publication_privacy_reviews": "Privacy reviews are publication-governance metadata; import requires a fresh review before publishing again.",
-		"route_relationships":               "Route forks and variants can be recreated explicitly; import avoids restoring cross-route graph metadata before ownership is revalidated.",
+		"best_efforts":                           "Derived activity achievement rows are recomputed from imported activities.",
+		"governance_actor_roles":                 "Governance roles require live actors and explicit local trust; import intentionally does not recreate edit/admin permissions.",
+		"governance_actor_target_projection":     "Governance actor-target rows are derived authorization projections and are rebuilt from local governance state.",
+		"governance_scope_target_bindings":       "Governance bindings require live scopes and targets; import intentionally does not recreate edit/admin permissions.",
+		"governance_scopes":                      "Governance scopes are access-control state; imported objects start without delegated edit/admin authority.",
+		"import_log":                             "Historical import audit rows are not restored; imported activities/files carry the user data.",
+		"object_access_grants":                   "Sharing grants need live principals and scopes; export keeps the metadata, import intentionally does not recreate sharing state.",
+		"object_access_scopes":                   "Sharing scopes are access-control state; export keeps the metadata, import intentionally recreates private objects without old shares.",
+		"planned_route_snapshots":                "Route publication snapshots are immutable publication history; planned_routes remain importable and can be republished after import.",
+		"route_course_publications":              "Published-course rows depend on immutable segment/version ids and access scopes; planned_routes and segments remain importable separately.",
+		"route_course_relationships":             "Published-course variant edges are publication graph metadata; import intentionally avoids recreating public graph state.",
+		"route_profile_snapshots":                "Route profile snapshots are derived from route geometry/enrichment and can be regenerated.",
+		"route_publication_events":               "Publication events are audit metadata; import intentionally does not replay historical publication operations.",
+		"route_publication_privacy_reviews":      "Privacy reviews are publication-governance metadata; import requires a fresh review before publishing again.",
+		"route_relationships":                    "Route forks and variants can be recreated explicitly; import avoids restoring cross-route graph metadata before ownership is revalidated.",
+		"target_change_events":                   "Target object change events are audit metadata; import intentionally starts imported objects with fresh local audit history.",
+		"target_collection_member_reverse_index": "Collection reverse-index rows are derived from target_collection_members and rebuilt locally.",
+		"target_collection_summary_projection":   "Collection summary rows are derived from target_collections and target_collection_members and rebuilt locally.",
+		"target_object_search_projection":        "Target object search rows are derived from target_places and target_regions and rebuilt locally.",
+		"target_revision_snapshots":              "Target object revision snapshots can contain private historical state; import intentionally does not replay historical snapshots.",
 	}
 }
 

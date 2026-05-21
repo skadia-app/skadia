@@ -649,6 +649,10 @@ type gdprExportTableSpec struct {
 // Used both pre-TX (for column introspection) and inside the TX (for the
 // actual data queries) to guarantee they operate on the same set.
 func gdprExportTables() []gdprExportTableSpec {
+	userTargetObjectWhere := "owner_user_id = $1 OR created_by = $1"
+	userTargetCollectionMemberWhere := "added_by = $1 OR collection_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1 OR created_by = $1) OR (member_kind = 'place' AND member_id IN (SELECT id FROM target_places WHERE owner_user_id = $1 OR created_by = $1)) OR (member_kind = 'region' AND member_id IN (SELECT id FROM target_regions WHERE owner_user_id = $1 OR created_by = $1)) OR (member_kind = 'collection' AND member_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1 OR created_by = $1)) OR (member_kind = 'course' AND member_id IN (SELECT id FROM segments WHERE created_by = $1)) OR (member_kind = 'route_publication' AND member_id IN (SELECT id FROM route_course_publications WHERE actor_user_id = $1))"
+	userGovernanceScopeWhere := "owner_user_id = $1 OR created_by = $1 OR id IN (SELECT scope_id FROM governance_actor_roles WHERE actor_user_id = $1 OR created_by = $1) OR id IN (SELECT scope_id FROM governance_scope_target_bindings WHERE created_by = $1)"
+	userTargetChangeEventWhere := "actor_user_id = $1 OR governance_scope_id IN (SELECT id FROM governance_scopes WHERE owner_user_id = $1 OR created_by = $1) OR (target_kind = 'place' AND target_id IN (SELECT id FROM target_places WHERE owner_user_id = $1 OR created_by = $1)) OR (target_kind = 'region' AND target_id IN (SELECT id FROM target_regions WHERE owner_user_id = $1 OR created_by = $1)) OR (target_kind = 'collection' AND target_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1 OR created_by = $1)) OR (subject_type = 'place' AND subject_id IN (SELECT id FROM target_places WHERE owner_user_id = $1 OR created_by = $1)) OR (subject_type = 'region' AND subject_id IN (SELECT id FROM target_regions WHERE owner_user_id = $1 OR created_by = $1)) OR (subject_type = 'collection' AND subject_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1 OR created_by = $1))"
 	return []gdprExportTableSpec{
 		{"data/profile.json", "users", "id = $1"},
 		{"data/activities.json", "activities", "user_id = $1 ORDER BY started_at DESC"},
@@ -657,6 +661,15 @@ func gdprExportTables() []gdprExportTableSpec {
 		{"data/segments.json", "segments", "created_by = $1"},
 		{"data/course_version_controls.json", "course_version_controls", "segment_id IN (SELECT id FROM segments WHERE created_by = $1) ORDER BY segment_version_id, sequence_index"},
 		{"data/segment_versions.json", "segment_versions", "segment_id IN (SELECT id FROM segments WHERE created_by = $1) ORDER BY segment_id, version_number"},
+		{"data/target_places.json", "target_places", userTargetObjectWhere},
+		{"data/target_regions.json", "target_regions", userTargetObjectWhere},
+		{"data/target_collections.json", "target_collections", userTargetObjectWhere},
+		{"data/target_collection_members.json", "target_collection_members", userTargetCollectionMemberWhere},
+		{"data/governance_scopes.json", "governance_scopes", userGovernanceScopeWhere},
+		{"data/governance_actor_roles.json", "governance_actor_roles", "actor_user_id = $1 OR created_by = $1 OR scope_id IN (SELECT id FROM governance_scopes WHERE " + userGovernanceScopeWhere + ")"},
+		{"data/governance_scope_target_bindings.json", "governance_scope_target_bindings", "created_by = $1 OR scope_id IN (SELECT id FROM governance_scopes WHERE " + userGovernanceScopeWhere + ")"},
+		{"data/target_change_events.json", "target_change_events", userTargetChangeEventWhere},
+		{"data/target_revision_snapshots.json", "target_revision_snapshots", "created_by = $1 OR change_event_id IN (SELECT id FROM target_change_events WHERE " + userTargetChangeEventWhere + ")"},
 		{"data/planned_routes.json", "planned_routes", "user_id = $1"},
 		{"data/planned_route_snapshots.json", "planned_route_snapshots", "user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1) ORDER BY created_at DESC"},
 		{"data/route_publication_privacy_reviews.json", "route_publication_privacy_reviews", "route_snapshot_id IN (SELECT id FROM planned_route_snapshots WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1))"},

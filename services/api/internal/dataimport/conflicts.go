@@ -95,6 +95,53 @@ func fkTargetExists(ctx context.Context, tx pgx.Tx, spec tableSpec, row map[stri
 		}
 		return exists, nil
 
+	case "target_collection_members":
+		var collectionExists bool
+		if err := tx.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM target_collections WHERE id = $1)",
+			row["collection_id"],
+		).Scan(&collectionExists); err != nil {
+			return false, fmt.Errorf("fkTargetExists target_collection_members collection: %w", err)
+		}
+		if !collectionExists {
+			return false, nil
+		}
+		memberKind, _ := stringVal(row["member_kind"])
+		if memberKind == "external_ref" {
+			memberRef, _ := stringVal(row["member_ref"])
+			return strings.TrimSpace(memberRef) != "", nil
+		}
+		memberID, ok := stringVal(row["member_id"])
+		if !ok || strings.TrimSpace(memberID) == "" {
+			return false, nil
+		}
+		var table string
+		switch memberKind {
+		case "course":
+			table = "segments"
+		case "place":
+			table = "target_places"
+		case "region":
+			table = "target_regions"
+		case "collection":
+			table = "target_collections"
+		case "privacy_zone":
+			table = "user_privacy_zones"
+		case "tag_zone":
+			table = "tag_zones"
+		default:
+			return false, nil
+		}
+		var exists bool
+		err := tx.QueryRow(ctx,
+			fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", pgx.Identifier{table}.Sanitize()),
+			memberID,
+		).Scan(&exists)
+		if err != nil {
+			return false, fmt.Errorf("fkTargetExists target_collection_members member: %w", err)
+		}
+		return exists, nil
+
 	default:
 		return false, fmt.Errorf("fkTargetExists: unhandled cmSkipWarn table %q — add an explicit case", spec.Name)
 	}
