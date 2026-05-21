@@ -281,6 +281,192 @@ func TestTargetOverlaySummaryRebuildDoesNotTouchSegmentSearch(t *testing.T) {
 	}
 }
 
+func TestTargetOverlaySummaryExcludesPrivateRowsAndActivityBackedObservations(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "summary privacy place", "public", nil, `[8,49]`)
+	activityID := insertTargetOverlayActivityFixture(t, db, userID, "public")
+
+	if _, err := db.CreateTargetReport(ctx, userID, model.CreateTargetReportInput{
+		SubjectKind:     "place",
+		SubjectID:       place.ID,
+		ReportType:      "condition",
+		Visibility:      "private",
+		AttributionMode: "named",
+		Description:     "private condition",
+		ObservedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetReport private: %v", err)
+	}
+	for _, input := range []model.CreateTargetUserContentInput{
+		{SubjectKind: "place", SubjectID: place.ID, ContentKind: "comment", Visibility: "private", Payload: json.RawMessage(`{"text":"hidden"}`)},
+		{SubjectKind: "place", SubjectID: place.ID, ContentKind: "rating", Visibility: "private", Payload: json.RawMessage(`{"rating":5}`)},
+		{SubjectKind: "place", SubjectID: place.ID, ContentKind: "check_in", Visibility: "private", Payload: json.RawMessage(`{}`)},
+		{SubjectKind: "place", SubjectID: place.ID, ContentKind: "completion", Visibility: "private", Payload: json.RawMessage(`{}`)},
+	} {
+		if _, err := db.CreateTargetUserContent(ctx, userID, input); err != nil {
+			t.Fatalf("CreateTargetUserContent private %s: %v", input.ContentKind, err)
+		}
+	}
+	if _, err := db.CreateTargetActivityObservation(ctx, model.TargetOverlayActor{System: true}, model.CreateTargetActivityObservationInput{
+		SubjectKind:         "place",
+		SubjectID:           place.ID,
+		ActivityID:          &activityID,
+		UserID:              &userID,
+		ObservationType:     "visit",
+		SourceType:          "activity",
+		SourceID:            activityID,
+		SourceOccurrenceKey: "activity-backed",
+		Visibility:          "public",
+		VisibilitySnapshot:  "public",
+		OccurredAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetActivityObservation activity-backed: %v", err)
+	}
+
+	summary, err := db.GetTargetOverlaySummary(ctx, "place", place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetOverlaySummary: %v", err)
+	}
+	if summary == nil {
+		t.Fatal("summary is nil")
+	}
+	if summary.PublicOpenReportCount != 0 || summary.PublicCommentCount != 0 ||
+		summary.PublicRatingCount != 0 || summary.PublicCheckInCount != 0 ||
+		summary.PublicCompletionCount != 0 || summary.PublicRecentObservationCount30d != 0 ||
+		summary.LastObservationAt != nil {
+		t.Fatalf("private/activity-backed rows affected public summary: %#v", summary)
+	}
+}
+
+func TestTargetOverlaySummaryCountsOnlyPublicLowCardinalityRows(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "summary public place", "public", nil, `[8,49]`)
+
+	if _, err := db.CreateTargetReport(ctx, userID, model.CreateTargetReportInput{
+		SubjectKind:       "place",
+		SubjectID:         place.ID,
+		ReportType:        "condition",
+		Visibility:        "public",
+		AttributionMode:   "anonymous_public",
+		ConditionState:    targetOverlayStringPtr("wet"),
+		ConditionSeverity: targetOverlayIntPtr(2),
+		Description:       "public condition",
+		ObservedAt:        time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetReport public: %v", err)
+	}
+	if _, err := db.CreateTargetUserContent(ctx, userID, model.CreateTargetUserContentInput{
+		SubjectKind: "place",
+		SubjectID:   place.ID,
+		ContentKind: "rating",
+		Visibility:  "public",
+		Payload:     json.RawMessage(`{"rating":4}`),
+	}); err != nil {
+		t.Fatalf("CreateTargetUserContent rating: %v", err)
+	}
+	if _, err := db.CreateTargetActivityObservation(ctx, model.TargetOverlayActor{System: true}, model.CreateTargetActivityObservationInput{
+		SubjectKind:         "place",
+		SubjectID:           place.ID,
+		ObservationType:     "visit",
+		SourceType:          "manual",
+		SourceID:            "manual-visit",
+		SourceOccurrenceKey: "once",
+		Visibility:          "public",
+		VisibilitySnapshot:  "public",
+		OccurredAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetActivityObservation manual: %v", err)
+	}
+
+	summary, err := db.GetTargetOverlaySummary(ctx, "place", place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetOverlaySummary: %v", err)
+	}
+	if summary == nil || summary.PublicOpenReportCount != 1 || summary.PublicRatingCount != 1 ||
+		summary.PublicRatingMean == nil || *summary.PublicRatingMean != 4 ||
+		summary.PublicRecentObservationCount30d != 1 || summary.LastObservationAt == nil {
+		t.Fatalf("summary = %#v, want public report/rating/manual observation counts", summary)
+	}
+}
+
+func TestTargetOverlayInvalidationSourceActivityChangesStayFailClosed(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "source invalidation place", "public", nil, `[8,49]`)
+	activityID := insertTargetOverlayActivityFixture(t, db, userID, "public")
+
+	if _, err := db.CreateTargetActivityObservation(ctx, model.TargetOverlayActor{System: true}, model.CreateTargetActivityObservationInput{
+		SubjectKind:         "place",
+		SubjectID:           place.ID,
+		ActivityID:          &activityID,
+		UserID:              &userID,
+		ObservationType:     "visit",
+		SourceType:          "activity",
+		SourceID:            activityID,
+		SourceOccurrenceKey: "source-change",
+		Visibility:          "public",
+		VisibilitySnapshot:  "public",
+		OccurredAt:          time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetActivityObservation: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = 'private' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("update activity visibility: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `DELETE FROM activities WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("delete source activity: %v", err)
+	}
+
+	summary, err := db.GetTargetOverlaySummary(ctx, "place", place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetOverlaySummary: %v", err)
+	}
+	if summary == nil {
+		t.Fatal("summary is nil")
+	}
+	if summary.PublicRecentObservationCount30d != 0 || summary.LastObservationAt != nil {
+		t.Fatalf("source activity derived data leaked through summary: %#v", summary)
+	}
+}
+
+func TestTargetOverlayPrivateOwnerCountsStayLiveOnly(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "owner live place", "public", nil, `[8,49]`)
+
+	if _, err := db.CreateTargetUserContent(ctx, userID, model.CreateTargetUserContentInput{
+		SubjectKind: "place",
+		SubjectID:   place.ID,
+		ContentKind: "comment",
+		Visibility:  "private",
+		Payload:     json.RawMessage(`{"text":"nur fuer mich"}`),
+	}); err != nil {
+		t.Fatalf("CreateTargetUserContent private comment: %v", err)
+	}
+
+	rows, err := db.ListTargetUserContent(ctx, model.ListTargetUserContentParams{
+		SubjectKind: "place",
+		SubjectID:   place.ID,
+		UserID:      userID,
+		Limit:       20,
+	})
+	if err != nil {
+		t.Fatalf("ListTargetUserContent owner: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("owner live content rows = %d, want 1", len(rows))
+	}
+	summary, err := db.GetTargetOverlaySummary(ctx, "place", place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetOverlaySummary: %v", err)
+	}
+	if summary != nil && summary.PublicCommentCount != 0 {
+		t.Fatalf("private owner content was cached in public summary: %#v", summary)
+	}
+}
+
 func insertTargetOverlayActivityFixture(t *testing.T, db *DB, userID, visibility string) string {
 	t.Helper()
 	activityID := uuid.NewString()
@@ -294,4 +480,12 @@ func insertTargetOverlayActivityFixture(t *testing.T, db *DB, userID, visibility
 		t.Fatalf("insert activity fixture: %v", err)
 	}
 	return activityID
+}
+
+func targetOverlayStringPtr(value string) *string {
+	return &value
+}
+
+func targetOverlayIntPtr(value int) *int {
+	return &value
 }
