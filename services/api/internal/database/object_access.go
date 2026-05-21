@@ -207,6 +207,9 @@ func insertObjectAccessGrant(ctx context.Context, q Querier, scopeID string, inp
 	if permission != "view" {
 		return nil, fmt.Errorf("%w: object access grants are view-only", ErrObjectAccessValidation)
 	}
+	if err := validateObjectAccessGrantShape(kind, input); err != nil {
+		return nil, err
+	}
 
 	selectorRaw, selectorHash, err := canonicalObjectAccessSelector(input.PrincipalSelector)
 	if err != nil {
@@ -237,6 +240,34 @@ func insertObjectAccessGrant(ctx context.Context, q Querier, scopeID string, inp
 		return nil, fmt.Errorf("insert object access grant: %w", err)
 	}
 	return grant, nil
+}
+
+func validateObjectAccessGrantShape(kind string, input model.ObjectAccessGrantInput) error {
+	switch kind {
+	case "user":
+		if input.PrincipalUserID == nil || strings.TrimSpace(*input.PrincipalUserID) == "" ||
+			input.PrincipalRef != nil || input.LinkTokenHash != nil {
+			return fmt.Errorf("%w: user grants require only principal_user_id", ErrObjectAccessValidation)
+		}
+	case "link_token":
+		if input.LinkTokenHash == nil || strings.TrimSpace(*input.LinkTokenHash) == "" ||
+			input.PrincipalUserID != nil || input.PrincipalRef != nil {
+			return fmt.Errorf("%w: link_token grants require only link_token_hash", ErrObjectAccessValidation)
+		}
+	case "group", "team", "organization", "role", "server", "delegated_audience":
+		if input.PrincipalRef == nil || strings.TrimSpace(*input.PrincipalRef) == "" ||
+			input.PrincipalUserID != nil || input.LinkTokenHash != nil {
+			return fmt.Errorf("%w: %s grants require only principal_ref", ErrObjectAccessValidation, kind)
+		}
+	case "relationship_rule":
+		if input.PrincipalRef == nil || strings.TrimSpace(*input.PrincipalRef) == "" ||
+			input.PrincipalUserID != nil || input.LinkTokenHash != nil || len(input.PrincipalSelector) == 0 {
+			return fmt.Errorf("%w: relationship_rule grants require principal_ref and principal_selector", ErrObjectAccessValidation)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported principal kind %q", ErrObjectAccessValidation, kind)
+	}
+	return nil
 }
 
 func canonicalObjectAccessSelector(selector map[string]any) ([]byte, string, error) {
@@ -352,6 +383,27 @@ func visibleSegmentAccessSQL(alias, userExpr, adminExpr string) string {
 			)
 		)
 	)`, alias, alias, userExpr, adminExpr, alias, alias, userExpr)
+}
+
+func sharedSegmentAccessSQL(alias, userExpr, adminExpr string) string {
+	return fmt.Sprintf(`(
+		%s.visibility = 'shared'
+		AND (
+			%s.created_by = %s
+			OR %s = true
+			OR EXISTS (
+				SELECT 1
+				FROM object_access_scopes oas
+				JOIN object_access_grants oag ON oag.access_scope_id = oas.id
+				WHERE oas.id = %s.access_scope_id
+				  AND oas.revoked_at IS NULL
+				  AND oag.revoked_at IS NULL
+				  AND oag.permission = 'view'
+				  AND oag.principal_kind = 'user'
+				  AND oag.principal_user_id = %s
+			)
+		)
+	)`, alias, alias, userExpr, adminExpr, alias, userExpr)
 }
 
 func visibleSegmentExportSQL(alias, userExpr string) string {

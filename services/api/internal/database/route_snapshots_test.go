@@ -79,6 +79,17 @@ func TestCreatePlannedRouteSnapshotIsIdempotentAndVersionChecked(t *testing.T) {
 	if changed.ID == first.ID || changed.SnapshotHash == first.SnapshotHash {
 		t.Fatalf("changed route reused snapshot: first=%#v changed=%#v", first, changed)
 	}
+
+	_, err = db.CreatePlannedRouteSnapshot(ctx, model.CreatePlannedRouteSnapshotInput{
+		RouteID:            route.ID,
+		UserID:             userID,
+		SourceRouteVersion: current.Version,
+		OperationID:        "snapshot-op-1",
+		Reason:             "publish",
+	})
+	if !errors.Is(err, ErrRoutePublicationConflict) {
+		t.Fatalf("conflicting snapshot operation error = %v, want ErrRoutePublicationConflict", err)
+	}
 }
 
 func TestCreatePlannedRouteSnapshotRequiresOwnership(t *testing.T) {

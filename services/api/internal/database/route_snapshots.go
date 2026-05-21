@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -84,6 +87,21 @@ func (db *DB) CreatePlannedRouteSnapshot(ctx context.Context, input model.Create
 		operationID = "snapshot:" + snapshotID
 	}
 	operationInputHash := stableHashString(fmt.Sprintf("%s:%d:%s", route.ID, route.Version, snapshotHash))
+	var existingInputHash string
+	err = tx.QueryRow(ctx, `
+		SELECT operation_input_hash
+		FROM route_publication_events
+		WHERE actor_user_id = $1
+		  AND operation = 'snapshot'
+		  AND operation_id = $2
+	`, route.UserID, operationID).Scan(&existingInputHash)
+	if err == nil {
+		if existingInputHash != operationInputHash {
+			return nil, ErrRoutePublicationConflict
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("load planned route snapshot event: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO route_publication_events (
 			actor_user_id, operation, operation_id, operation_input_hash,

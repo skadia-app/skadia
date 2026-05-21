@@ -121,6 +121,14 @@ func TestSegmentSharedVisibilityListDetailAndExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSegment shared: %v", err)
 	}
+	publicSegment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("public segment", "public", nil))
+	if err != nil {
+		t.Fatalf("CreateSegment public: %v", err)
+	}
+	privateSegment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("private segment", "private", nil))
+	if err != nil {
+		t.Fatalf("CreateSegment private: %v", err)
+	}
 
 	for _, tc := range []struct {
 		name   string
@@ -139,6 +147,17 @@ func TestSegmentSharedVisibilityListDetailAndExport(t *testing.T) {
 			listContains := objectAccessSegmentListContains(listed.Segments, segment.ID)
 			if listContains != tc.want {
 				t.Fatalf("ListSegments contains shared segment = %v, want %v", listContains, tc.want)
+			}
+			sharedOnly, err := db.ListSegments(ctx, model.ListSegmentsParams{UserID: tc.userID, Limit: -1, VisibilityFilter: "shared"})
+			if err != nil {
+				t.Fatalf("ListSegments shared filter: %v", err)
+			}
+			sharedOnlyContains := objectAccessSegmentListContains(sharedOnly.Segments, segment.ID)
+			if sharedOnlyContains != tc.want {
+				t.Fatalf("ListSegments shared filter contains shared segment = %v, want %v", sharedOnlyContains, tc.want)
+			}
+			if objectAccessSegmentListContains(sharedOnly.Segments, publicSegment.ID) || objectAccessSegmentListContains(sharedOnly.Segments, privateSegment.ID) {
+				t.Fatalf("ListSegments shared filter returned non-shared segment: %#v", sharedOnly.Segments)
 			}
 
 			got, err := db.GetSegment(ctx, segment.ID, tc.userID, false, true)

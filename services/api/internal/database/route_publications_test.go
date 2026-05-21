@@ -101,6 +101,144 @@ func TestRoutePublicationIdempotency(t *testing.T) {
 	}
 }
 
+func TestRoutePublicationRejectsInvalidEquivalenceAndOpenLap(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "invalid route publication")
+
+	_, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "continue_group",
+		Visibility:          "private",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-invalid-continue-new-course",
+	})
+	if !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("new_course continue_group error = %v, want ErrRoutePublicationValidation", err)
+	}
+
+	_, err = db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "private",
+		CompatibilityPreset: "lap",
+		OperationID:         "publish-invalid-open-lap",
+	})
+	if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("open lap error = %v, want ErrSegmentValidation", err)
+	}
+}
+
+func TestRoutePublicationExistingCoursePoliciesCreateVersions(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, firstSnapshot := createRoutePublicationTestSnapshot(t, db, userID, "course v1")
+	first, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     firstSnapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  firstSnapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "private",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-existing-course-v1",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse v1: %v", err)
+	}
+
+	_, secondSnapshot := createRoutePublicationTestSnapshot(t, db, userID, "course v2")
+	second, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              secondSnapshot.ID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           secondSnapshot.SourceRouteVersion,
+		PublishPolicy:                "new_version_same_course",
+		Visibility:                   "private",
+		TargetPublicationID:          &first.ID,
+		TargetCourseSegmentID:        &first.CourseSegmentID,
+		TargetCourseSegmentVersionID: &first.CourseSegmentVersionID,
+		OperationID:                  "publish-existing-course-v2",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse v2: %v", err)
+	}
+	if second.CourseSegmentID != first.CourseSegmentID || second.CourseSegmentVersionID == first.CourseSegmentVersionID {
+		t.Fatalf("existing-course publication = %#v, want same segment and new version after %#v", second, first)
+	}
+	if second.EquivalenceDecision != "version_specific" {
+		t.Fatalf("equivalence decision = %q, want version_specific", second.EquivalenceDecision)
+	}
+
+	_, thirdSnapshot := createRoutePublicationTestSnapshot(t, db, userID, "course v3")
+	third, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              thirdSnapshot.ID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           thirdSnapshot.SourceRouteVersion,
+		PublishPolicy:                "continue_equivalence_group",
+		Visibility:                   "private",
+		TargetPublicationID:          &second.ID,
+		TargetCourseSegmentID:        &second.CourseSegmentID,
+		TargetCourseSegmentVersionID: &second.CourseSegmentVersionID,
+		CompatibilityEvidence:        map[string]any{"length_delta_pct": 0.01},
+		OperationID:                  "publish-existing-course-v3",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse v3: %v", err)
+	}
+	if third.CourseSegmentID != first.CourseSegmentID || third.EquivalenceDecision != "continue_group" {
+		t.Fatalf("continued publication = %#v, want same course with continue_group", third)
+	}
+
+	var versionCount int
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM segment_versions WHERE segment_id = $1`, first.CourseSegmentID).Scan(&versionCount); err != nil {
+		t.Fatalf("count course versions: %v", err)
+	}
+	if versionCount != 3 {
+		t.Fatalf("version count = %d, want 3", versionCount)
+	}
+}
+
+func TestRoutePublicationPrivacyRequiresSafeComponentStates(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "privacy component route")
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO route_publication_privacy_reviews (
+			route_snapshot_id, snapshot_hash, audience_class,
+			route_name_state, description_state, waypoints_state,
+			source_metadata_state, geometry_state, enrichment_state, media_pointer_state,
+			overall_state, review_hash
+		)
+		VALUES (
+			$1, $2, 'public',
+			'safe', 'redacted', 'safe',
+			'safe', 'safe', 'safe', 'safe',
+			'safe', 'privacy-component'
+		)
+	`, snapshot.ID, snapshot.SnapshotHash); err != nil {
+		t.Fatalf("insert privacy review: %v", err)
+	}
+	_, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "public",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-redacted-component",
+	})
+	if !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("redacted component error = %v, want ErrRoutePublicationValidation", err)
+	}
+}
+
 func TestRoutePublicationFreezesGeometry(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()
