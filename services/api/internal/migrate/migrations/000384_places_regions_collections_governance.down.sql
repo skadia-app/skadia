@@ -1,0 +1,15 @@
+DROP TABLE IF EXISTS governance_actor_target_projection;
+ALTER TABLE IF EXISTS target_change_events DROP CONSTRAINT IF EXISTS target_change_events_before_snapshot_fk;
+ALTER TABLE IF EXISTS target_change_events DROP CONSTRAINT IF EXISTS target_change_events_after_snapshot_fk;
+DROP TABLE IF EXISTS target_revision_snapshots;
+DROP TABLE IF EXISTS target_change_events;
+DROP TABLE IF EXISTS governance_scope_target_bindings;
+DROP TABLE IF EXISTS governance_actor_roles;
+DROP TABLE IF EXISTS governance_scopes;
+DROP TABLE IF EXISTS target_collection_summary_projection;
+DROP TABLE IF EXISTS target_object_search_projection;
+DROP TABLE IF EXISTS target_collection_member_reverse_index;
+DROP TABLE IF EXISTS target_collection_members;
+DROP TABLE IF EXISTS target_collections;
+DROP TABLE IF EXISTS target_regions;
+DROP TABLE IF EXISTS target_places;
