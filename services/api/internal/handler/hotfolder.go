@@ -190,8 +190,8 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		"file", filename,
 	)
 
-	// 12. PostProcess for created/enriched/replaced (NOT skipped)
-	if result.Status == "created" || result.Status == "enriched" || result.Status == "replaced" {
+	// 12. Store and PostProcess only when child data must be written.
+	if result.Status == "created" || result.ShouldPostProcess() {
 		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 			UserID:      userID,
 			FileType:    "activity",
@@ -227,6 +227,13 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			slog.Warn("hotfolder: failed to delete source file after import", "path", filePath, "error", removeErr)
 		} else {
 			slog.Info("hotfolder: source file deleted after import", "path", filePath)
+		}
+		tracker.Completed(ctx, result.ActivityID)
+	} else if result.Status == "enriched" || result.Status == "replaced" {
+		if removeErr := os.Remove(filePath); removeErr != nil {
+			slog.Warn("hotfolder: failed to delete source file after duplicate enrichment", "path", filePath, "error", removeErr)
+		} else {
+			slog.Info("hotfolder: source file deleted after duplicate enrichment", "path", filePath)
 		}
 		tracker.Completed(ctx, result.ActivityID)
 	} else if result.Status == "skipped" {

@@ -197,12 +197,16 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			}
 		}
 
-		if actResult.Status == "enriched" || actResult.Status == "replaced" {
-			// M21: Run PostProcess for enriched/replaced so heatmap+streams stay up to date.
+		if actResult.Status != "created" && actResult.ShouldPostProcess() {
 			if postErr := p.ImportService.PostProcess(ctx, p.UserID, actResult.ActivityID, data, "", format, fmt.Sprintf("%d.%s", tour.ID, format)); postErr != nil {
 				slog.Warn("komoot activities: PostProcess failed (enriched/replaced)", "tour_id", tour.ID, "error", postErr)
 			}
 			result.Skipped++ // stats: not newly created
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
+			result.Skipped++
 			tracker.Completed(ctx, actResult.ActivityID)
 			continue
 		}

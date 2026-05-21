@@ -106,8 +106,7 @@ func (s *Service) ProcessMultisport(
 		}
 		result.Children = append(result.Children, actResult)
 
-		// PostProcess only for newly created activities
-		if actResult.Status == "created" {
+		if actResult.Status == "created" || actResult.ShouldPostProcess() {
 			if err := s.PostProcess(ctx, userID, actResult.ActivityID, childData, fileID, format, filename); err != nil {
 				slog.Warn("multisport child postprocess failed", "activity", actResult.ActivityID, "err", err)
 			}

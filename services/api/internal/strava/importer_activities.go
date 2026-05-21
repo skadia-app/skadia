@@ -482,11 +482,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			tracker.Skipped(ctx, "duplicate", &actResult.ActivityID)
 			continue
 		}
-		if actResult.Status == "enriched" || actResult.Status == "replaced" {
-			// M21: Run PostProcess for enriched/replaced too so heatmap+streams stay up to date.
+		if actResult.Status != "created" && actResult.ShouldPostProcess() {
 			if postErr := params.ImportService.PostProcess(ctx, params.UserID, actResult.ActivityID, data, fileID, format, filename); postErr != nil {
 				slog.Warn("strava activities: PostProcess failed (enriched/replaced)", "strava_id", stravaID, "error", postErr)
 			}
+			result.Skipped++ // counts as "not newly created" for import stats
+			tracker.Completed(ctx, actResult.ActivityID)
+			continue
+		}
+		if actResult.Status == "enriched" || actResult.Status == "replaced" {
 			result.Skipped++ // counts as "not newly created" for import stats
 			tracker.Completed(ctx, actResult.ActivityID)
 			continue
