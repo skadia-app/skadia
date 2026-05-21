@@ -89,6 +89,14 @@ function checkpointPointRadiusGeometry(coord: [number, number], radiusM: number)
   return { type: 'Polygon', coordinates: [ring] }
 }
 
+function normalizeCheckpointControlOrder(controls: CheckpointControl[]): CheckpointControl[] {
+  return controls.map((control, idx, all) => ({
+    ...control,
+    sequence_index: idx,
+    role: idx === 0 ? 'start' : idx === all.length - 1 ? 'finish' : 'checkpoint',
+  }))
+}
+
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
   const navigate = useNavigate()
@@ -203,6 +211,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // ── Discard-confirmation dialog (replaces native window.confirm — Fix #13) ──
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false)
   const discardDialogId = useId()
+  const [privacyConfirmOpen, setPrivacyConfirmOpen] = useState(false)
+  const privacyConfirmDialogId = useId()
+  const [sourceActivityPublishConfirmed, setSourceActivityPublishConfirmed] = useState(false)
+  const sourceActivityPublishConfirmedRef = useRef(false)
 
   // ── Lap-mode state ────────────────────────────────────────────────────────
   const [lapCrossings, setLapCrossings] = useState<number[]>([])
@@ -214,6 +226,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // Lap detection: runs when map loads in lap mode (click-to-place finish line)
   // is handled via the map click handler below.
   const [checkpointControls, setCheckpointControls] = useState<CheckpointControl[]>([])
+  const [checkpointInsertShape, setCheckpointInsertShape] = useState<'point' | 'circle'>('point')
+  const [checkpointInsertRadiusM, setCheckpointInsertRadiusM] = useState(30)
 
   // ── Enrichment state ─────────────────────────────────────────────────────
   const [enrichmentSources, setEnrichmentSources] = useState<
@@ -222,6 +236,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   // Reset enrichment badges on range change
   useEffect(() => { setEnrichmentSources({}) }, [range])
+  useEffect(() => {
+    sourceActivityPublishConfirmedRef.current = sourceActivityPublishConfirmed
+  }, [sourceActivityPublishConfirmed])
+  useEffect(() => {
+    sourceActivityPublishConfirmedRef.current = false
+    setSourceActivityPublishConfirmed(false)
+  }, [checkpointControls])
 
   // ── Enrichment mutation ───────────────────────────────────────────────────
   const enrichmentMutation = useMutation({
@@ -309,6 +330,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           visibility: savePayload.isPublic ? 'public' : 'private',
           controls: checkpointControls,
           source_activity_id: sourceActivityId,
+          source_activity_publish_confirmed: sourceActivityPublishConfirmedRef.current,
         })
       }
       // Build coordinates array (note: editedTrackPoints includes reverse)
@@ -350,6 +372,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         climb_type: savePayload.climbType ?? 'standard',
         geojson_track,
         source_activity_id: sourceActivityId,
+        source_activity_publish_confirmed: sourceActivityPublishConfirmedRef.current,
       })
     },
     onSuccess: (created) => {
@@ -780,30 +803,27 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       setCheckpointControls(prev => {
         const nextIndex = prev.length
         const role: 'start' | 'finish' = nextIndex === 0 ? 'start' : 'finish'
-        const controls: CheckpointControl[] = prev.map((control, idx) => ({
+        const controls: CheckpointControl[] = normalizeCheckpointControlOrder(prev).map((control, idx, all) => ({
           ...control,
-          role: idx === 0 ? 'start' as const : 'checkpoint' as const,
-          sequence_index: idx,
+          role: idx === all.length - 1 ? 'checkpoint' as const : control.role,
         }))
+        const radius = Math.min(5000, Math.max(1, checkpointInsertRadiusM))
         controls.push({
           sequence_index: nextIndex,
           role,
-          primitive: 'point',
-          geometry_shape: 'point',
+          primitive: checkpointInsertShape === 'circle' ? 'area' : 'point',
+          geometry_shape: checkpointInsertShape,
           geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] },
-          hit_radius_m: 30,
+          hit_radius_m: checkpointInsertShape === 'point' ? radius : undefined,
+          area_radius_m: checkpointInsertShape === 'circle' ? radius : undefined,
           required: true,
         })
-        return controls.map((control, idx, all) => ({
-          ...control,
-          sequence_index: idx,
-          role: idx === 0 ? 'start' : idx === all.length - 1 ? 'finish' : 'checkpoint',
-        }))
+        return normalizeCheckpointControlOrder(controls)
       })
     }
     map.on('click', handler)
     return () => { map.off('click', handler) }
-  }, [mode])
+  }, [mode, checkpointInsertRadiusM, checkpointInsertShape])
 
   // ── Track-mode: commit range → fitBounds ─────────────────────────────────
   const commitRangeToMap = useCallback((r: [number, number]) => {
@@ -841,11 +861,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         }] : []),
         ...checkpointControls.flatMap((control, idx) => {
           const coord = coords[idx]
-          if (!coord || control.primitive !== 'point') return []
+          if (!coord) return []
+          const radius = control.geometry_shape === 'circle'
+            ? control.area_radius_m
+            : control.hit_radius_m
+          if (!radius) return []
           return [{
             type: 'Feature' as const,
             properties: { kind: 'radius' },
-            geometry: checkpointPointRadiusGeometry(coord, control.hit_radius_m ?? 30),
+            geometry: checkpointPointRadiusGeometry(coord, radius),
           }]
         }),
         ...coords.map((coord, idx) => ({
@@ -918,6 +942,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     setRange(initialRange)
     setHasUserSelection(false)
     setCheckpointControls([])
+    sourceActivityPublishConfirmedRef.current = false
+    setSourceActivityPublishConfirmed(false)
     setMeta({
       name: '',
       segType: (mode === 'lap' ? 'lap' : 'standard') as SegType,
@@ -928,9 +954,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       difficultyColor: null,
       bidirectional: BIDIRECTIONAL_DEFAULT[(mode === 'lap' ? 'lap' : 'standard') as SegType],
       userEditedBidirectional: false,
-      isPublic: true,
+      isPublic: !(mode === 'checkpoint' && !!sourceActivityId),
     })
-  }, [initialRange, mode])
+  }, [initialRange, mode, sourceActivityId])
 
   const handleTrackReverse = useCallback(() => {
     setEditedTrackPoints(prev => {
@@ -1051,8 +1077,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       addToast({ type: 'warning', title: 'Start und Ziel erforderlich', message: 'Setze mindestens zwei Checkpoints.' })
       return
     }
+    if (sourceActivityId && meta.isPublic && !sourceActivityPublishConfirmed) {
+      setPrivacyConfirmOpen(true)
+      return
+    }
     saveMutation.mutate()
-  }, [meta.name, mode, range, drawnCoords.length, checkpointControls.length, saveMutation, addToast])
+  }, [meta.name, meta.isPublic, mode, range, drawnCoords.length, checkpointControls.length, sourceActivityId, sourceActivityPublishConfirmed, saveMutation, addToast])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
   // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
@@ -1201,14 +1231,47 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             enrichmentStatus={enrichmentStatus}
           />
           {mode === 'checkpoint' && (
-            <CheckpointControlsList
-              controls={checkpointControls}
-              onRemove={(index) => setCheckpointControls(prev => prev.filter((_, i) => i !== index).map((control, idx, all) => ({
-                ...control,
-                sequence_index: idx,
-                role: idx === 0 ? 'start' : idx === all.length - 1 ? 'finish' : 'checkpoint',
-              })))}
-            />
+            <>
+              <div className="border-t border-neutral-200 bg-white p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900">
+                <div className="mb-2 font-semibold uppercase text-neutral-500 dark:text-neutral-400">Neuer Checkpoint</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-neutral-600 dark:text-neutral-300">
+                    Form
+                    <select
+                      value={checkpointInsertShape}
+                      onChange={(e) => setCheckpointInsertShape(e.target.value as 'point' | 'circle')}
+                      className="mt-1 w-full rounded border border-neutral-200 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-900"
+                    >
+                      <option value="point">Punkt</option>
+                      <option value="circle">Kreis</option>
+                    </select>
+                  </label>
+                  <label className="text-neutral-600 dark:text-neutral-300">
+                    Radius
+                    <input
+                      type="number"
+                      min={1}
+                      max={5000}
+                      value={checkpointInsertRadiusM}
+                      onChange={(e) => setCheckpointInsertRadiusM(Math.min(5000, Math.max(1, Number(e.target.value) || 1)))}
+                      className="mt-1 w-full rounded border border-neutral-200 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-900"
+                    />
+                  </label>
+                </div>
+              </div>
+              <CheckpointControlsList
+                controls={checkpointControls}
+                onRemove={(index) => setCheckpointControls(prev => normalizeCheckpointControlOrder(prev.filter((_, i) => i !== index)))}
+                onMove={(index, direction) => setCheckpointControls(prev => {
+                  const next = [...prev]
+                  const target = index + direction
+                  if (target < 0 || target >= next.length) return prev
+                  ;[next[index], next[target]] = [next[target], next[index]]
+                  return normalizeCheckpointControlOrder(next)
+                })}
+                onUpdate={(index, patch) => setCheckpointControls(prev => normalizeCheckpointControlOrder(prev.map((control, idx) => idx === index ? { ...control, ...patch } : control)))}
+              />
+            </>
           )}
         </div>
 
@@ -1303,6 +1366,45 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 className="rounded-md bg-accent-DEFAULT px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1"
               >
                 Änderungen verwerfen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {privacyConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50"
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby={privacyConfirmDialogId}
+          onClick={(e) => { if (e.target === e.currentTarget) setPrivacyConfirmOpen(false) }}
+        >
+          <div className="mx-4 w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+            <h3 id={privacyConfirmDialogId} className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+              Exakte Geometrie veröffentlichen?
+            </h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              Dieser Kurs entsteht aus einer Aktivität. Beim Veröffentlichen wird die gewählte Kursgeometrie nicht gekürzt oder verändert.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPrivacyConfirmOpen(false)}
+                className="rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  sourceActivityPublishConfirmedRef.current = true
+                  setSourceActivityPublishConfirmed(true)
+                  setPrivacyConfirmOpen(false)
+                  saveMutation.mutate()
+                }}
+                className="rounded-md bg-accent-DEFAULT px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1"
+              >
+                Veröffentlichen
               </button>
             </div>
           </div>

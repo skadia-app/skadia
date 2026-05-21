@@ -195,6 +195,8 @@ export interface CreateSegmentPayload {
   bidirectional?: boolean
   course_kind?: CourseKind
   controls?: CheckpointControl[]
+  /** Required when public/shared creation from a source activity intersects an active privacy zone. */
+  source_activity_publish_confirmed?: boolean
 }
 
 export interface CreateCheckpointCoursePayload {
@@ -206,6 +208,8 @@ export interface CreateCheckpointCoursePayload {
   allowed_predicates?: SportPredicate[] | null
   controls: CheckpointControl[]
   source_activity_id?: string
+  /** Required when public/shared creation from a source activity intersects an active privacy zone. */
+  source_activity_publish_confirmed?: boolean
 }
 
 export interface SegmentsResponse {

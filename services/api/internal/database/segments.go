@@ -725,11 +725,24 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, elevation_kind, visibility, access_scope_id, allowed_predicates, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		RETURNING id, created_by, name, description, sport_group,
-		          allowed_predicates,
-		          segment_type, segment_type_meta,
+			INSERT INTO segments (
+				created_by, name, description, sport_group, segment_type,
+				segment_type_meta, source_activity_id, terrain_type, climb_type,
+				elevation_kind, visibility, access_scope_id, allowed_predicates,
+				bidirectional, source_activity_publish_confirmed_at,
+				source_activity_publish_confirmed_by
+			)
+			VALUES (
+				$1, $2, $3, $4, $5,
+				$6, $7, $8, $9,
+				$10, $11, $12, $13,
+				$14,
+				CASE WHEN $7::uuid IS NOT NULL AND $11 IN ('public', 'shared') AND $15 THEN NOW() ELSE NULL END,
+				CASE WHEN $7::uuid IS NOT NULL AND $11 IN ('public', 'shared') AND $15 THEN $1::uuid ELSE NULL END
+			)
+			RETURNING id, created_by, name, description, sport_group,
+			          allowed_predicates,
+			          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
@@ -738,7 +751,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		userID, create.Name, create.Description, segmentSportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
 		create.TerrainType, create.ClimbType, elevationKind, visibility, create.AccessScopeID,
-		allowedPredicatesJSON, bidirectional,
+		allowedPredicatesJSON, bidirectional, create.SourceActivityPublishConfirmed,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&scannedPredicatesJSON,
@@ -881,10 +894,12 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
                        %s AS track_geojson,
                        s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional,
                        s.course_kind, sv.id::text AS active_segment_version_id,
-                       cp.control_summary
-                FROM segments s
-                %s
-                LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id
+	                       cp.control_summary
+	                FROM segments s
+	                %s
+	                LEFT JOIN checkpoint_course_projection cp
+	                       ON cp.segment_id = s.id
+	                      AND s.course_kind = 'checkpoint_sequence'
                 WHERE s.id = $1
                   AND `+visibleSegmentAccessSQL("s", "NULLIF($2::text, '')::uuid", "$3"),
 		trackSelect,
@@ -1892,7 +1907,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
-		LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id
+		LEFT JOIN checkpoint_course_projection cp
+		       ON cp.segment_id = s.id
+		      AND s.course_kind = 'checkpoint_sequence'
 		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1

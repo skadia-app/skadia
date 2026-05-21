@@ -15,6 +15,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestCreateSegmentRejectsInvalidSegmentTypeBeforeDB(t *testing.T) {
@@ -150,6 +151,11 @@ func TestExportImportCheckpointCourseAPI_DB(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"area_radius_m":80`) {
 		t.Fatalf("export body missing area radius: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"import_semantics":"private_copy_rebased_on_import"`) ||
+		!strings.Contains(rec.Body.String(), `"source_validity_basis"`) ||
+		!strings.Contains(rec.Body.String(), `"source_eligibility_policy_key"`) {
+		t.Fatalf("export body missing checkpoint import/source metadata: %s", rec.Body.String())
+	}
 
 	importBody := strings.Replace(rec.Body.String(), "api-checkpoint-export", "api-checkpoint-export-imported", 1)
 	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments/import", importBody, userID)
@@ -220,6 +226,76 @@ func TestCreateSegmentFromActivityDoesNotWaitForSourceMatch_DB(t *testing.T) {
 	if effortCount != 0 {
 		t.Fatalf("source effort count before background match = %d, want 0", effortCount)
 	}
+}
+
+func TestCreateSegmentFromActivityRequiresPrivacyZoneConfirmation_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := newTestHandler(t, pool).DB
+	h := &Handler{DB: db}
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+	shutdown.Shutdown(time.Millisecond)
+	t.Cleanup(shutdown.Reset)
+
+	userID := insertTestUser(t, pool)
+	pts := [][2]float64{
+		{49.0000, 8.0000},
+		{49.0005, 8.0005},
+		{49.0010, 8.0010},
+		{49.0015, 8.0015},
+		{49.0020, 8.0020},
+	}
+	actID := insertActivityWithTrack(t, db, userID, "cycling", "LINESTRING(8 49, 8.0005 49.0005, 8.001 49.001, 8.0015 49.0015, 8.002 49.002)", pts)
+	insertActivePrivacyZone(t, pool, userID, "POINT(8 49)", 100)
+
+	lineBody := `{
+		"name":"privacy-confirm-line",
+		"sport_group":"bike",
+		"segment_type":"standard",
+		"visibility":"public",
+		"geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[8,49],[8.001,49.001],[8.002,49.002]]}",
+		"source_activity_id":"` + actID + `"
+	}`
+	rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", lineBody, userID)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("line create without confirmation status = %d, want 409; body: %s", rec.Code, rec.Body.String())
+	}
+	lineBody = strings.Replace(lineBody, `"source_activity_id":"`+actID+`"`, `"source_activity_id":"`+actID+`","source_activity_publish_confirmed":true`, 1)
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", lineBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("line create with confirmation status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var lineSeg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &lineSeg); err != nil {
+		t.Fatalf("unmarshal line create response: %v", err)
+	}
+	assertSourceActivityPublishConfirmationStored(t, pool, lineSeg.ID, userID)
+
+	checkpointBody := `{
+		"name":"privacy-confirm-checkpoint",
+		"sport_group":"bike",
+		"course_kind":"checkpoint_sequence",
+		"visibility":"public",
+		"source_activity_id":"` + actID + `",
+		"controls":[
+			{"sequence_index":0,"role":"start","primitive":"point","geometry_shape":"point","geometry":{"type":"Point","coordinates":[8,49]},"hit_radius_m":30,"required":true},
+			{"sequence_index":1,"role":"finish","primitive":"point","geometry_shape":"point","geometry":{"type":"Point","coordinates":[8.002,49.002]},"hit_radius_m":30,"required":true}
+		]
+	}`
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", checkpointBody, userID)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("checkpoint create without confirmation status = %d, want 409; body: %s", rec.Code, rec.Body.String())
+	}
+	checkpointBody = strings.Replace(checkpointBody, `"source_activity_id":"`+actID+`",`, `"source_activity_id":"`+actID+`","source_activity_publish_confirmed":true,`, 1)
+	rec = performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", checkpointBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("checkpoint create with confirmation status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var checkpointSeg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &checkpointSeg); err != nil {
+		t.Fatalf("unmarshal checkpoint create response: %v", err)
+	}
+	assertSourceActivityPublishConfirmationStored(t, pool, checkpointSeg.ID, userID)
 }
 
 func TestUpdateSegmentReturnsValidationErrorForIneligiblePredicate_DB(t *testing.T) {
@@ -656,6 +732,42 @@ func performSegmentRequest(t *testing.T, r http.Handler, method, target, body, u
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
+}
+
+func insertActivePrivacyZone(t *testing.T, pool *pgxpool.Pool, userID, centerWKT string, radiusM int) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(), `
+		INSERT INTO user_privacy_zones (user_id, name, center, radius_m, is_active, zone_type)
+		VALUES ($1, 'source publish confirmation', ST_GeomFromText($2, 4326), $3, true, 'circle')
+		RETURNING id
+	`, userID, centerWKT, radiusM).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert privacy zone: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM user_privacy_zones WHERE id = $1`, id)
+	})
+	return id
+}
+
+func assertSourceActivityPublishConfirmationStored(t *testing.T, pool *pgxpool.Pool, segmentID, userID string) {
+	t.Helper()
+	var confirmedAt *time.Time
+	var confirmedBy *string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT source_activity_publish_confirmed_at, source_activity_publish_confirmed_by::text
+		FROM segments
+		WHERE id = $1
+	`, segmentID).Scan(&confirmedAt, &confirmedBy); err != nil {
+		t.Fatalf("load source activity publish confirmation: %v", err)
+	}
+	if confirmedAt == nil {
+		t.Fatalf("source_activity_publish_confirmed_at is nil for segment %s", segmentID)
+	}
+	if confirmedBy == nil || *confirmedBy != userID {
+		t.Fatalf("source_activity_publish_confirmed_by = %v, want %s", confirmedBy, userID)
+	}
 }
 
 func TestSubTypeResponsesUseTaxonomyOrder(t *testing.T) {

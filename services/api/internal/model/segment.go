@@ -57,6 +57,8 @@ type SegmentCreate struct {
 	Bidirectional     *bool               `json:"bidirectional,omitempty"`      // nil = use sport-group default
 	CourseKind        string              `json:"course_kind,omitempty"`
 	Controls          []CheckpointControl `json:"controls,omitempty"`
+	// Required when public/shared creation from a source activity intersects an active privacy zone.
+	SourceActivityPublishConfirmed bool `json:"source_activity_publish_confirmed,omitempty"`
 }
 
 type SegmentUpdate struct {
@@ -274,6 +276,8 @@ type CheckpointCourseCreate struct {
 	AllowedPredicates []sport.Predicate   `json:"allowed_predicates,omitempty"`
 	Controls          []CheckpointControl `json:"controls"`
 	SourceActivityID  *string             `json:"source_activity_id,omitempty"`
+	// Required when public/shared creation from a source activity intersects an active privacy zone.
+	SourceActivityPublishConfirmed bool `json:"source_activity_publish_confirmed,omitempty"`
 }
 
 type CheckpointMatchedEffort struct {

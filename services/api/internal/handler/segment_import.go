@@ -74,6 +74,9 @@ func checkpointCourseCreateFromImport(payload checkpointImportFeatureCollection)
 		if version, ok := intProp(feature.Properties, "matching_contract_version"); !ok || version != database.CheckpointSequenceV1Version {
 			return nil, fmt.Errorf("checkpoint import requires matching_contract_version 1")
 		}
+		if sem := stringProp(feature.Properties, "import_semantics"); sem != "" && sem != "private_copy_rebased_on_import" {
+			return nil, fmt.Errorf("checkpoint import does not support import_semantics %q", sem)
+		}
 		if v := stringProp(feature.Properties, "name"); v != "" {
 			name = v
 		}
