@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -271,6 +272,9 @@ func parseOptionalIntPointer(raw string) (*int, error) {
 	if err != nil {
 		return nil, err
 	}
+	if v < 0 {
+		return nil, fmt.Errorf("value must be non-negative")
+	}
 	return &v, nil
 }
 
@@ -281,6 +285,9 @@ func parseOptionalFloatPointer(raw string) (*float64, error) {
 	v, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return nil, err
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return nil, fmt.Errorf("value must be a finite non-negative number")
 	}
 	return &v, nil
 }

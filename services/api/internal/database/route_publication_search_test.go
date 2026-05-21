@@ -15,14 +15,14 @@ func TestPublishedCourseProfileFilters(t *testing.T) {
 
 	if _, err := db.Pool.Exec(ctx, `
 		UPDATE route_course_profile_projection
-		SET sac_max_rank = 2, mtb_max_rank = 1, distance_m = 300, elevation_gain_m = 20
+		SET sport_type = 'test_search_profile_filters', sac_max_rank = 2, mtb_max_rank = 1, distance_m = 300, elevation_gain_m = 20
 		WHERE publication_id = $1
 	`, first.ID); err != nil {
 		t.Fatalf("seed first projection: %v", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `
 		UPDATE route_course_profile_projection
-		SET sac_max_rank = 5, mtb_max_rank = 4, distance_m = 900, elevation_gain_m = 200
+		SET sport_type = 'test_search_profile_filters', sac_max_rank = 5, mtb_max_rank = 4, distance_m = 900, elevation_gain_m = 200
 		WHERE publication_id = $1
 	`, second.ID); err != nil {
 		t.Fatalf("seed second projection: %v", err)
@@ -39,6 +39,7 @@ func TestPublishedCourseProfileFilters(t *testing.T) {
 		MaxDistanceM:   &maxDist,
 		HasVariants:    &withVariants,
 		VisibilityMode: "owner",
+		SportType:      "test_search_profile_filters",
 	})
 	if err != nil {
 		t.Fatalf("ListPublishedRouteCourses: %v", err)
@@ -54,12 +55,95 @@ func TestPublishedCourseProfileFilters(t *testing.T) {
 	}
 
 	otherUserID := insertObjectAccessTestUser(t, db)
-	hidden, err := db.ListPublishedRouteCourses(ctx, otherUserID, 20, 0, PublishedCourseFilters{VisibilityMode: "visible_to_me"})
+	hidden, err := db.ListPublishedRouteCourses(ctx, otherUserID, 20, 0, PublishedCourseFilters{
+		VisibilityMode: "visible_to_me",
+		SportType:      "test_search_profile_filters",
+	})
 	if err != nil {
 		t.Fatalf("ListPublishedRouteCourses other: %v", err)
 	}
 	if len(hidden) != 0 {
 		t.Fatalf("other user saw private publications: %#v", hidden)
+	}
+}
+
+func TestPublishedCourseFiltersExcludeUnknownDifficulty(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	ranked := publishSearchTestCourse(t, db, userID, "ranked", "search-ranked")
+	unknown := publishSearchTestCourse(t, db, userID, "unknown", "search-unknown")
+
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET sac_max_rank = 2
+		WHERE publication_id = $1
+	`, ranked.ID); err != nil {
+		t.Fatalf("seed ranked projection: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET sac_max_rank = NULL
+		WHERE publication_id = $1
+	`, unknown.ID); err != nil {
+		t.Fatalf("seed unknown projection: %v", err)
+	}
+
+	rank := 3
+	got, err := db.ListPublishedRouteCourses(ctx, userID, 20, 0, PublishedCourseFilters{
+		SACMaxRank:     &rank,
+		VisibilityMode: "owner",
+	})
+	if err != nil {
+		t.Fatalf("ListPublishedRouteCourses: %v", err)
+	}
+	if len(got) != 1 || got[0].PublicationID != ranked.ID {
+		t.Fatalf("difficulty filter result = %#v, want ranked only", got)
+	}
+}
+
+func TestPublishedCourseVariantsRespectRelatedVisibility(t *testing.T) {
+	db, ownerID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	viewerID := insertObjectAccessTestUser(t, db)
+	publicCourse := publishSearchTestCourse(t, db, ownerID, "public variant", "search-public-variant")
+	privateVariant := publishSearchTestCourse(t, db, ownerID, "private variant", "search-private-variant")
+	if _, err := db.Pool.Exec(ctx, `UPDATE segments SET visibility = 'public' WHERE id = $1`, publicCourse.CourseSegmentID); err != nil {
+		t.Fatalf("make course public: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET sport_type = 'test_search_variant_visibility'
+		WHERE publication_id = ANY($1::uuid[])
+	`, []string{publicCourse.ID, privateVariant.ID}); err != nil {
+		t.Fatalf("tag variant projections: %v", err)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin sync projection: %v", err)
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, publicCourse.CourseSegmentID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("sync public projection: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit sync projection: %v", err)
+	}
+	if _, err := db.CreateRouteCourseRelationship(ctx, publicCourse.ID, privateVariant.ID, ownerID, "variant_of", "search-private-variant-rel", "hash-private-variant-rel"); err != nil {
+		t.Fatalf("CreateRouteCourseRelationship: %v", err)
+	}
+
+	got, err := db.ListPublishedRouteCourses(ctx, viewerID, 20, 0, PublishedCourseFilters{
+		VisibilityMode: "public_only",
+		SportType:      "test_search_variant_visibility",
+	})
+	if err != nil {
+		t.Fatalf("ListPublishedRouteCourses viewer: %v", err)
+	}
+	if len(got) != 1 || got[0].PublicationID != publicCourse.ID {
+		t.Fatalf("viewer public result = %#v, want public course only", got)
+	}
+	if got[0].HasVariants {
+		t.Fatalf("has_variants leaked private variant: %#v", got[0])
 	}
 }
 

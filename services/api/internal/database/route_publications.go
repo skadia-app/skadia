@@ -49,6 +49,14 @@ type RouteDerivedCourseInput struct {
 	OperationID         string
 }
 
+type routePublicationTarget struct {
+	PublicationID          string
+	CourseSegmentID        string
+	CourseSegmentVersionID string
+	CreatedBy              string
+	SegmentType            string
+}
+
 func (db *DB) PublishRouteSnapshotAsCourse(ctx context.Context, input model.PublishRouteSnapshotInput) (*model.RouteCoursePublication, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -112,7 +120,8 @@ func (db *DB) publishRouteSnapshotAsCourseTx(ctx context.Context, tx pgx.Tx, inp
 	if compatibilityPreset == "" {
 		compatibilityPreset = "standard"
 	}
-	if err := validateRoutePublicationPolicy(input, publishPolicy, equivalenceDecision); err != nil {
+	publishPolicy, equivalenceDecision, err = normalizeRoutePublicationPolicy(input, publishPolicy, equivalenceDecision)
+	if err != nil {
 		return nil, err
 	}
 	if err := db.validateSegmentAccessScopeForOwner(ctx, visibility, input.AccessScopeID, input.ActorUserID); err != nil {
@@ -122,25 +131,62 @@ func (db *DB) publishRouteSnapshotAsCourseTx(ctx context.Context, tx pgx.Tx, inp
 		return nil, err
 	}
 
-	segmentID, versionID, err := db.CreateRouteDerivedCourseTx(ctx, tx, RouteDerivedCourseInput{
-		Snapshot:            snapshot,
-		ActorUserID:         input.ActorUserID,
-		Visibility:          visibility,
-		AccessScopeID:       input.AccessScopeID,
-		CompatibilityPreset: compatibilityPreset,
-		EquivalenceDecision: equivalenceDecision,
-		OperationID:         input.OperationID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	compatibilityEvidence, err := json.Marshal(input.CompatibilityEvidence)
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal compatibility evidence: %v", ErrRoutePublicationValidation, err)
 	}
 	if len(compatibilityEvidence) == 0 || string(compatibilityEvidence) == "null" {
 		compatibilityEvidence = []byte("{}")
+	}
+
+	var target *routePublicationTarget
+	if publishPolicy != "new_course" {
+		target, err = loadRoutePublicationTargetForUpdateTx(ctx, tx, input, input.ActorUserID)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(input.CompatibilityPreset) == "" {
+			compatibilityPreset = target.SegmentType
+		}
+	}
+
+	var segmentID, versionID string
+	switch publishPolicy {
+	case "new_course":
+		segmentID, versionID, err = db.CreateRouteDerivedCourseTx(ctx, tx, RouteDerivedCourseInput{
+			Snapshot:            snapshot,
+			ActorUserID:         input.ActorUserID,
+			Visibility:          visibility,
+			AccessScopeID:       input.AccessScopeID,
+			CompatibilityPreset: compatibilityPreset,
+			EquivalenceDecision: equivalenceDecision,
+			OperationID:         input.OperationID,
+		})
+	default:
+		continueFromVersionID := ""
+		if equivalenceDecision == "continue_group" {
+			continueFromVersionID = target.CourseSegmentVersionID
+		}
+		versionID, err = db.CreateRouteDerivedCourseVersionTx(ctx, tx, RouteDerivedCourseInput{
+			Snapshot:            snapshot,
+			ActorUserID:         input.ActorUserID,
+			Visibility:          visibility,
+			AccessScopeID:       input.AccessScopeID,
+			CompatibilityPreset: compatibilityPreset,
+			EquivalenceDecision: equivalenceDecision,
+			OperationID:         input.OperationID,
+		}, target.CourseSegmentID, continueFromVersionID, input.CompatibilityEvidence)
+		segmentID = target.CourseSegmentID
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var targetPublicationID, targetCourseSegmentID, targetCourseSegmentVersionID *string
+	if target != nil {
+		targetPublicationID = &target.PublicationID
+		targetCourseSegmentID = &target.CourseSegmentID
+		targetCourseSegmentVersionID = &target.CourseSegmentVersionID
 	}
 
 	var publicationID string
@@ -164,7 +210,7 @@ func (db *DB) publishRouteSnapshotAsCourseTx(ctx context.Context, tx pgx.Tx, inp
 		RETURNING id
 	`, snapshot.RouteID, snapshot.ID, segmentID, versionID,
 		publishPolicy, equivalenceDecision, visibility, input.AccessScopeID,
-		input.TargetPublicationID, input.TargetCourseSegmentID, input.TargetCourseSegmentVersionID,
+		targetPublicationID, targetCourseSegmentID, targetCourseSegmentVersionID,
 		compatibilityEvidence, input.ActorUserID, input.OperationID, inputHash, input.SourceRouteVersion,
 	).Scan(&publicationID); err != nil {
 		return nil, fmt.Errorf("insert route course publication: %w", err)
@@ -188,6 +234,51 @@ func (db *DB) publishRouteSnapshotAsCourseTx(ctx context.Context, tx pgx.Tx, inp
 		return nil, fmt.Errorf("insert route publication event: %w", err)
 	}
 	return loadRoutePublicationByIDTx(ctx, tx, publicationID)
+}
+
+func loadRoutePublicationTargetForUpdateTx(ctx context.Context, tx pgx.Tx, input model.PublishRouteSnapshotInput, actorUserID string) (*routePublicationTarget, error) {
+	if input.TargetPublicationID == nil || strings.TrimSpace(*input.TargetPublicationID) == "" ||
+		input.TargetCourseSegmentID == nil || strings.TrimSpace(*input.TargetCourseSegmentID) == "" {
+		return nil, fmt.Errorf("%w: existing-course publish policies require target publication and course", ErrRoutePublicationValidation)
+	}
+	target := &routePublicationTarget{}
+	if err := tx.QueryRow(ctx, `
+		SELECT rcp.id, rcp.course_segment_id, rcp.course_segment_version_id, s.created_by, s.segment_type
+		FROM route_course_publications rcp
+		JOIN segments s ON s.id = rcp.course_segment_id
+		WHERE rcp.id = $1
+		  AND rcp.course_segment_id = $2
+		  AND rcp.publication_state = 'published'
+		FOR UPDATE OF s
+	`, *input.TargetPublicationID, *input.TargetCourseSegmentID).Scan(
+		&target.PublicationID, &target.CourseSegmentID, &target.CourseSegmentVersionID, &target.CreatedBy, &target.SegmentType,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: target publication/course not found", ErrRoutePublicationValidation)
+		}
+		return nil, fmt.Errorf("load target route course publication: %w", err)
+	}
+	if target.CreatedBy != actorUserID {
+		return nil, fmt.Errorf("%w: target course is not owned by actor", ErrRoutePublicationValidation)
+	}
+	if input.TargetCourseSegmentVersionID != nil && strings.TrimSpace(*input.TargetCourseSegmentVersionID) != "" {
+		target.CourseSegmentVersionID = *input.TargetCourseSegmentVersionID
+	}
+	var versionBelongs bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM segment_versions
+			WHERE id = $1
+			  AND segment_id = $2
+		)
+	`, target.CourseSegmentVersionID, target.CourseSegmentID).Scan(&versionBelongs); err != nil {
+		return nil, fmt.Errorf("validate target course version: %w", err)
+	}
+	if !versionBelongs {
+		return nil, fmt.Errorf("%w: target course version does not belong to target course", ErrRoutePublicationValidation)
+	}
+	return target, nil
 }
 
 func (db *DB) CreateRouteDerivedCourseTx(ctx context.Context, tx pgx.Tx, input RouteDerivedCourseInput) (string, string, error) {
@@ -222,6 +313,10 @@ func (db *DB) CreateRouteDerivedCourseTx(ctx context.Context, tx pgx.Tx, input R
 		return "", "", fmt.Errorf("insert route-derived course segment: %w", err)
 	}
 
+	trackGeoJSON, err := normalizeSegmentTrackForTypeTx(ctx, tx, segmentType, input.Snapshot.GeometryGeoJSON)
+	if err != nil {
+		return "", "", err
+	}
 	var versionID string
 	if err := tx.QueryRow(ctx, `
 		WITH g AS (
@@ -235,7 +330,7 @@ func (db *DB) CreateRouteDerivedCourseTx(ctx context.Context, tx pgx.Tx, input R
 		       NULL, NULL, 'editor_asserted', 'course_gps_v1', 1, NOW()
 		FROM g
 		RETURNING id
-	`, segmentID, input.Snapshot.GeometryGeoJSON, input.ActorUserID).Scan(&versionID); err != nil {
+	`, segmentID, trackGeoJSON, input.ActorUserID).Scan(&versionID); err != nil {
 		return "", "", fmt.Errorf("insert route-derived course version: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -253,6 +348,122 @@ func (db *DB) CreateRouteDerivedCourseTx(ctx context.Context, tx pgx.Tx, input R
 		return "", "", err
 	}
 	return segmentID, versionID, nil
+}
+
+func (db *DB) CreateRouteDerivedCourseVersionTx(ctx context.Context, tx pgx.Tx, input RouteDerivedCourseInput, segmentID, continueFromVersionID string, evidence map[string]any) (string, error) {
+	if input.Snapshot == nil {
+		return "", fmt.Errorf("%w: snapshot is required", ErrRoutePublicationValidation)
+	}
+	segmentType := input.CompatibilityPreset
+	if segmentType == "" {
+		segmentType = "standard"
+	}
+	if segmentType != "standard" && segmentType != "trail" && segmentType != "lap" {
+		return "", fmt.Errorf("%w: unsupported compatibility preset %q", ErrRoutePublicationValidation, segmentType)
+	}
+	predicates := []sport.Predicate{{Sport: input.Snapshot.SportType, SubType: input.Snapshot.SubType}}
+	predicatesJSON, err := marshalSegmentPredicates(predicates)
+	if err != nil {
+		return "", fmt.Errorf("marshal route course predicates: %w", err)
+	}
+	trackGeoJSON, err := normalizeSegmentTrackForTypeTx(ctx, tx, segmentType, input.Snapshot.GeometryGeoJSON)
+	if err != nil {
+		return "", err
+	}
+
+	var versionID string
+	if err := tx.QueryRow(ctx, `
+		WITH boundary AS (
+			SELECT NOW() AS at
+		),
+		next_version AS (
+			SELECT COALESCE(MAX(version_number), 0) + 1 AS number
+			FROM segment_versions
+			WHERE segment_id = $1
+		),
+		active AS (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= (SELECT at FROM boundary))
+			  AND (valid_until_at IS NULL OR (SELECT at FROM boundary) < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		),
+		next_future AS (
+			SELECT MIN(valid_from_at) AS at
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND valid_from_at > (SELECT at FROM boundary)
+		),
+		closed AS (
+			UPDATE segment_versions sv
+			SET valid_until_at = boundary.at
+			FROM active, boundary
+			WHERE sv.id = active.id
+			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
+			RETURNING sv.id
+		),
+		g AS (
+			SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom
+		)
+		INSERT INTO segment_versions (
+			segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, valid_until_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT $1,
+		       next_version.number,
+		       g.geom,
+		       ST_StartPoint(g.geom),
+		       ST_EndPoint(g.geom),
+		       CURRENT_DATE,
+		       $3,
+		       boundary.at,
+		       next_future.at,
+		       'editor_asserted',
+		       'course_gps_v1',
+		       1,
+		       boundary.at
+		FROM g, next_version, next_future, boundary, closed
+		RETURNING id
+	`, segmentID, trackGeoJSON, input.ActorUserID).Scan(&versionID); err != nil {
+		return "", fmt.Errorf("insert route-derived course version: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE segments
+		SET name = $2,
+		    description = $3,
+		    segment_type = $4,
+		    visibility = $5,
+		    access_scope_id = $6,
+		    route_hash = $7,
+		    distance_m = $8,
+		    elevation_gain_m = $9,
+		    sport_group = $10,
+		    allowed_predicates = $11
+		WHERE id = $1
+	`, segmentID, input.Snapshot.RouteName, input.Snapshot.RouteDescription, segmentType, input.Visibility,
+		input.AccessScopeID, input.Snapshot.GeometryHash, input.Snapshot.TotalDistanceM, input.Snapshot.TotalElevationGain,
+		segmentSportGroupFromPredicates(predicates), predicatesJSON); err != nil {
+		return "", fmt.Errorf("update route-derived course segment: %w", err)
+	}
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, continueFromVersionID, input.ActorUserID, input.OperationID, input.EquivalenceDecision, "route_publication", evidence); err != nil {
+		return "", err
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return "", err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+		return "", err
+	}
+	return versionID, nil
 }
 
 func loadRoutePublicationSnapshotTx(ctx context.Context, tx pgx.Tx, snapshotID string) (*routePublicationSnapshot, error) {
@@ -320,48 +531,92 @@ func loadRoutePublicationByIDTx(ctx context.Context, tx pgx.Tx, id string) (*mod
 }
 
 func validateRoutePublicationPolicy(input model.PublishRouteSnapshotInput, publishPolicy, equivalenceDecision string) error {
-	if publishPolicy != "new_course" {
+	_, _, err := normalizeRoutePublicationPolicy(input, publishPolicy, equivalenceDecision)
+	return err
+}
+
+func normalizeRoutePublicationPolicy(input model.PublishRouteSnapshotInput, publishPolicy, equivalenceDecision string) (string, string, error) {
+	if equivalenceDecision == "" {
+		equivalenceDecision = "version_specific"
+	}
+	switch publishPolicy {
+	case "new_course":
+		if input.TargetPublicationID != nil || input.TargetCourseSegmentID != nil || input.TargetCourseSegmentVersionID != nil {
+			return "", "", fmt.Errorf("%w: new_course forbids target publication/course ids", ErrRoutePublicationValidation)
+		}
+		if equivalenceDecision == "continue_group" {
+			return "", "", fmt.Errorf("%w: new_course cannot continue an existing equivalence group", ErrRoutePublicationValidation)
+		}
+		if equivalenceDecision != "version_specific" && equivalenceDecision != "new_group" {
+			return "", "", fmt.Errorf("%w: unsupported equivalence decision %q", ErrRoutePublicationValidation, equivalenceDecision)
+		}
+	case "new_version_same_course":
 		if input.TargetPublicationID == nil || input.TargetCourseSegmentID == nil {
-			return fmt.Errorf("%w: existing-course publish policies require target publication and course", ErrRoutePublicationValidation)
+			return "", "", fmt.Errorf("%w: existing-course publish policies require target publication and course", ErrRoutePublicationValidation)
 		}
-		if publishPolicy == "continue_equivalence_group" && (equivalenceDecision != "continue_group" || len(input.CompatibilityEvidence) == 0) {
-			return fmt.Errorf("%w: continue_equivalence_group requires continue_group evidence", ErrRoutePublicationValidation)
+		equivalenceDecision = "version_specific"
+	case "continue_equivalence_group":
+		if input.TargetPublicationID == nil || input.TargetCourseSegmentID == nil {
+			return "", "", fmt.Errorf("%w: existing-course publish policies require target publication and course", ErrRoutePublicationValidation)
 		}
-		return fmt.Errorf("%w: publish policy %q is not implemented yet", ErrRoutePublicationValidation, publishPolicy)
+		if len(input.CompatibilityEvidence) == 0 {
+			return "", "", fmt.Errorf("%w: continue_equivalence_group requires compatibility evidence", ErrRoutePublicationValidation)
+		}
+		equivalenceDecision = "continue_group"
+	case "new_equivalence_group":
+		if input.TargetPublicationID == nil || input.TargetCourseSegmentID == nil {
+			return "", "", fmt.Errorf("%w: existing-course publish policies require target publication and course", ErrRoutePublicationValidation)
+		}
+		equivalenceDecision = "new_group"
+	default:
+		return "", "", fmt.Errorf("%w: unsupported publish policy %q", ErrRoutePublicationValidation, publishPolicy)
 	}
-	if input.TargetPublicationID != nil || input.TargetCourseSegmentID != nil || input.TargetCourseSegmentVersionID != nil {
-		return fmt.Errorf("%w: new_course forbids target publication/course ids", ErrRoutePublicationValidation)
-	}
-	if equivalenceDecision != "version_specific" && equivalenceDecision != "new_group" && equivalenceDecision != "continue_group" {
-		return fmt.Errorf("%w: unsupported equivalence decision %q", ErrRoutePublicationValidation, equivalenceDecision)
-	}
-	return nil
+	return publishPolicy, equivalenceDecision, nil
 }
 
 func validateRoutePublicationPrivacyGateTx(ctx context.Context, tx pgx.Tx, snapshotID, snapshotHash, visibility string) error {
 	if visibility != "public" && visibility != "shared" {
 		return nil
 	}
-	var overallState string
-	var ownerApprovedAt *string
+	states := make([]string, 8)
 	err := tx.QueryRow(ctx, `
-		SELECT overall_state, owner_approved_at::text
+		SELECT route_name_state, description_state, waypoints_state, source_metadata_state,
+		       geometry_state, enrichment_state, media_pointer_state, overall_state
 		FROM route_publication_privacy_reviews
 		WHERE route_snapshot_id = $1
 		  AND snapshot_hash = $2
 		  AND audience_class = $3
-	`, snapshotID, snapshotHash, visibility).Scan(&overallState, &ownerApprovedAt)
+	`, snapshotID, snapshotHash, visibility).Scan(
+		&states[0], &states[1], &states[2], &states[3],
+		&states[4], &states[5], &states[6], &states[7],
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("%w: publication privacy review is required", ErrRoutePublicationValidation)
 	}
 	if err != nil {
 		return fmt.Errorf("load route publication privacy review: %w", err)
 	}
-	if visibility == "public" && overallState != "safe" && overallState != "redacted" {
-		return fmt.Errorf("%w: public privacy review is not publishable", ErrRoutePublicationValidation)
+	for _, state := range states {
+		if state != "safe" {
+			return fmt.Errorf("%w: %s privacy review is not publishable", ErrRoutePublicationValidation, visibility)
+		}
 	}
-	if visibility == "shared" && overallState != "safe" && overallState != "redacted" && (overallState != "needs_owner_review" || ownerApprovedAt == nil) {
-		return fmt.Errorf("%w: shared privacy review is not publishable", ErrRoutePublicationValidation)
+	return nil
+}
+
+func syncPublishedCourseProjectionAccessTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE route_course_profile_projection p
+		SET visibility = s.visibility,
+		    access_scope_id = s.access_scope_id,
+		    generated_at = NOW()
+		FROM segments s
+		WHERE p.subject_kind = 'published_course'
+		  AND p.subject_id = s.id
+		  AND s.id = $1
+	`, segmentID)
+	if err != nil {
+		return fmt.Errorf("sync published course projection access: %w", err)
 	}
 	return nil
 }

@@ -208,6 +208,37 @@ func validateSegmentTypeChangePredicates(segmentType string, preds []sport.Predi
 	return validateSegmentPredicatesForType(segmentType, preds)
 }
 
+func normalizeSegmentTrackForTypeTx(ctx context.Context, tx pgx.Tx, segmentType, trackGeoJSON string) (string, error) {
+	if segmentType != "lap" {
+		return trackGeoJSON, nil
+	}
+	var gapM float64
+	if err := tx.QueryRow(ctx, `
+		SELECT ST_Distance(
+			ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography,
+			ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography
+		)`, trackGeoJSON).Scan(&gapM); err != nil {
+		return "", fmt.Errorf("check lap gap: %w", err)
+	}
+	if gapM > 50 {
+		return "", fmt.Errorf("%w: lap segment must be a closed loop; start-end gap is %.0fm (max 50m)", ErrSegmentValidation, gapM)
+	}
+	if gapM <= 0.1 {
+		return trackGeoJSON, nil
+	}
+	var normalized string
+	if err := tx.QueryRow(ctx, `
+		SELECT ST_AsGeoJSON(
+			ST_AddPoint(
+				ST_SetSRID(ST_GeomFromGeoJSON($1), 4326),
+				ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+			)
+		)`, trackGeoJSON).Scan(&normalized); err != nil {
+		return "", fmt.Errorf("auto-close lap track: %w", err)
+	}
+	return normalized, nil
+}
+
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
 	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
 	// visibility clause actually references it — otherwise pgx passes an orphan param
@@ -305,7 +336,7 @@ LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 			case "private":
 				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
 			case "shared":
-				parts = append(parts, visibleSegmentAccessSQL("s", "$1", isAdminPlaceholder()))
+				parts = append(parts, sharedSegmentAccessSQL("s", "$1", isAdminPlaceholder()))
 			}
 		}
 		switch len(parts) {
@@ -598,34 +629,9 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		return nil, fmt.Errorf("decode segment predicates: %w", err)
 	}
 
-	// For lap-type segments: auto-close if start≈end (≤50m), error if >50m
-	trackGeoJSON := create.GeoJSONTrack
-	if create.SegmentType == "lap" {
-		var gapM float64
-		err = tx.QueryRow(ctx, `
-			SELECT ST_Distance(
-				ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography,
-				ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography
-			)`, create.GeoJSONTrack).Scan(&gapM)
-		if err != nil {
-			return nil, fmt.Errorf("check lap gap: %w", err)
-		}
-		if gapM > 50 {
-			return nil, fmt.Errorf("lap segment must be a closed loop; start-end gap is %.0fm (max 50m)", gapM)
-		}
-		// Auto-close: snap end point to start point
-		if gapM > 0.1 {
-			err = tx.QueryRow(ctx, `
-				SELECT ST_AsGeoJSON(
-					ST_AddPoint(
-						ST_SetSRID(ST_GeomFromGeoJSON($1), 4326),
-						ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
-					)
-				)`, create.GeoJSONTrack).Scan(&trackGeoJSON)
-			if err != nil {
-				return nil, fmt.Errorf("auto-close lap track: %w", err)
-			}
-		}
+	trackGeoJSON, err := normalizeSegmentTrackForTypeTx(ctx, tx, create.SegmentType, create.GeoJSONTrack)
+	if err != nil {
+		return nil, err
 	}
 
 	// Insert first version with track geometry
@@ -945,6 +951,9 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 			if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 				return nil, err
 			}
+			if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+				return nil, err
+			}
 			if err := tx.Commit(ctx); err != nil {
 				return nil, fmt.Errorf("commit segment update tx: %w", err)
 			}
@@ -981,6 +990,9 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		}
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return nil, err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1247,6 +1259,9 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return false, err
 	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit publish segment tx: %w", err)
 	}
@@ -1290,6 +1305,9 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 		return false, "", 0, err
 	}
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
 		return false, "", 0, err
 	}
 	if metadata == nil {

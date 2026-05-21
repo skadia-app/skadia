@@ -46,8 +46,7 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 	case "shared":
 		where = append(where, "s.created_by = $1 AND s.visibility = 'shared'")
 	case "shared_visible_to_me":
-		where = append(where, "s.visibility = 'shared'")
-		where = append(where, visibleSegmentAccessSQL("s", "$1", "false"))
+		where = append(where, sharedSegmentAccessSQL("s", "$1", "false"))
 	default:
 		return nil, fmt.Errorf("%w: invalid published-course visibility mode", ErrRoutePublicationValidation)
 	}
@@ -64,7 +63,7 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 			return
 		}
 		args = append(args, *value)
-		where = append(where, fmt.Sprintf("(%s IS NULL OR %s <= $%d)", column, column, len(args)))
+		where = append(where, fmt.Sprintf("(%s IS NOT NULL AND %s <= $%d)", column, column, len(args)))
 	}
 	appendFloatMin := func(column string, value *float64) {
 		if value == nil {
@@ -129,8 +128,15 @@ func (db *DB) ListPublishedRouteCourses(ctx context.Context, userID string, limi
 			SELECT EXISTS (
 				SELECT 1
 				FROM route_course_relationships rcr
-				WHERE rcr.source_course_segment_id = rcp.course_segment_id
-				   OR rcr.target_course_segment_id = rcp.course_segment_id
+				JOIN segments related_s ON related_s.id = CASE
+					WHEN rcr.source_course_segment_id = rcp.course_segment_id THEN rcr.target_course_segment_id
+					ELSE rcr.source_course_segment_id
+				END
+				WHERE (
+					rcr.source_course_segment_id = rcp.course_segment_id
+					OR rcr.target_course_segment_id = rcp.course_segment_id
+				)
+				  AND `+visibleSegmentAccessSQL("related_s", "$1", "false")+`
 			) AS has_variants
 		) variants ON true
 		WHERE %s
