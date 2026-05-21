@@ -80,7 +80,11 @@ export interface PlannedRoute {
 }
 
 export type RoutePublicationVisibility = 'private' | 'shared' | 'public'
-export type RoutePublishPolicy = 'new_course' | 'continue_equivalence_group' | 'split_course'
+export type RoutePublishPolicy =
+  | 'new_course'
+  | 'new_version_same_course'
+  | 'continue_equivalence_group'
+  | 'new_equivalence_group'
 export type RouteEquivalenceDecision = 'version_specific' | 'new_group' | 'continue_group'
 
 export interface CreateRouteSnapshotResponse {
