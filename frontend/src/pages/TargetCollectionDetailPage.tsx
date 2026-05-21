@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getMe } from '@/api/auth'
 import { addGovernanceRole, addTargetCollectionMember, createGovernanceScope, getTargetCollection, removeTargetCollectionMember } from '@/api/targetObjects'
 import CollectionMemberPicker from '@/components/target-objects/CollectionMemberPicker'
 import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
@@ -18,6 +19,11 @@ const MEMBER_KIND_LABELS: Record<string, string> = {
 export default function TargetCollectionDetailPage() {
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: getMe,
+    staleTime: 60_000,
+  })
   const detail = useQuery({
     queryKey: ['target-collection', id],
     queryFn: () => getTargetCollection(id, { include_members: true, include_overlay_summary: true }),
@@ -93,7 +99,12 @@ export default function TargetCollectionDetailPage() {
         </div>
       </section>
 
-      <TargetOverlayTabs subjectKind="collection" subjectId={collection.id} canWrite />
+      <TargetOverlayTabs
+        subjectKind="collection"
+        subjectId={collection.id}
+        canWrite={Boolean(me)}
+        canManageReports={Boolean(me?.is_admin || me?.user_id === collection.owner_user_id)}
+      />
     </div>
   )
 }
