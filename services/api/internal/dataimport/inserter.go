@@ -363,6 +363,11 @@ func (e *Engine) prepareRow(
 		out["status"] = "reconnection_required"
 	}
 	switch spec.Name {
+	case "segments":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+		out["source_activity_publish_confirmed_at"] = nil
+		out["source_activity_publish_confirmed_by"] = nil
 	case "target_places", "target_regions", "target_collections":
 		out["lifecycle_owner_kind"] = "user"
 		out["lifecycle_owner_ref"] = nil
