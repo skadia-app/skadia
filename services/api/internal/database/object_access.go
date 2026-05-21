@@ -255,9 +255,6 @@ func (db *DB) demoteSharedObjectsForScopeTx(ctx context.Context, tx pgx.Tx, scop
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(segmentIDs) == 0 {
-		return nil
-	}
 	for _, segmentID := range segmentIDs {
 		if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
 			return err
@@ -269,7 +266,70 @@ func (db *DB) demoteSharedObjectsForScopeTx(ctx context.Context, tx pgx.Tx, scop
 			return err
 		}
 	}
+	placeIDs, err := demoteTargetObjectRowsForScopeTx(ctx, tx, "target_places", scopeID)
+	if err != nil {
+		return fmt.Errorf("demote shared target places for revoked scope: %w", err)
+	}
+	for _, placeID := range placeIDs {
+		if err := rebuildTargetPlaceProjectionTx(ctx, tx, placeID); err != nil {
+			return err
+		}
+	}
+	regionIDs, err := demoteTargetObjectRowsForScopeTx(ctx, tx, "target_regions", scopeID)
+	if err != nil {
+		return fmt.Errorf("demote shared target regions for revoked scope: %w", err)
+	}
+	for _, regionID := range regionIDs {
+		if err := rebuildTargetRegionProjectionTx(ctx, tx, regionID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE target_collections
+		SET visibility = 'private',
+		    access_scope_id = NULL,
+		    updated_at = NOW()
+		WHERE visibility = 'shared'
+		  AND access_scope_id = $1
+	`, scopeID); err != nil {
+		return fmt.Errorf("demote shared target collections for revoked scope: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE target_collection_summary_projection
+		SET visibility = 'private',
+		    access_scope_id = NULL,
+		    updated_at = NOW()
+		WHERE visibility = 'shared'
+		  AND access_scope_id = $1
+	`, scopeID); err != nil {
+		return fmt.Errorf("demote shared target collection projections for revoked scope: %w", err)
+	}
 	return nil
+}
+
+func demoteTargetObjectRowsForScopeTx(ctx context.Context, tx pgx.Tx, table, scopeID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		UPDATE `+table+`
+		SET visibility = 'private',
+		    access_scope_id = NULL,
+		    updated_at = NOW()
+		WHERE visibility = 'shared'
+		  AND access_scope_id = $1
+		RETURNING id
+	`, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func insertObjectAccessGrant(ctx context.Context, q Querier, scopeID string, input model.ObjectAccessGrantInput) (*model.ObjectAccessGrant, error) {

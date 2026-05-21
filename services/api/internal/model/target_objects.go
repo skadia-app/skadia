@@ -28,6 +28,35 @@ type TargetPlace struct {
 	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
 }
 
+type TargetPlaceCreate struct {
+	Name                  string          `json:"name"`
+	Description           *string         `json:"description,omitempty"`
+	PlaceKind             string          `json:"place_kind"`
+	GeometryGeoJSON       string          `json:"geometry"`
+	Visibility            string          `json:"visibility"`
+	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
+	OriginKey             string          `json:"origin_key"`
+	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
+	ExternalRef           *string         `json:"external_ref,omitempty"`
+	ExternalRefVisibility string          `json:"external_ref_visibility"`
+	Metadata              json.RawMessage `json:"metadata,omitempty"`
+}
+
+type TargetPlaceUpdate struct {
+	Name                  *string          `json:"name,omitempty"`
+	Description           *string          `json:"description,omitempty"`
+	PlaceKind             *string          `json:"place_kind,omitempty"`
+	GeometryGeoJSON       *string          `json:"geometry,omitempty"`
+	Visibility            *string          `json:"visibility,omitempty"`
+	AccessScopeID         *string          `json:"access_scope_id,omitempty"`
+	ExternalRefKind       *string          `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string          `json:"external_ref_id,omitempty"`
+	ExternalRef           *string          `json:"external_ref,omitempty"`
+	ExternalRefVisibility *string          `json:"external_ref_visibility,omitempty"`
+	Metadata              *json.RawMessage `json:"metadata,omitempty"`
+}
+
 type TargetRegion struct {
 	ID                    string          `json:"id"`
 	OwnerUserID           *string         `json:"owner_user_id,omitempty"`
@@ -49,6 +78,35 @@ type TargetRegion struct {
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
 	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
+}
+
+type TargetRegionCreate struct {
+	Name                  string          `json:"name"`
+	Description           *string         `json:"description,omitempty"`
+	RegionKind            string          `json:"region_kind"`
+	GeometryGeoJSON       string          `json:"geometry"`
+	Visibility            string          `json:"visibility"`
+	AccessScopeID         *string         `json:"access_scope_id,omitempty"`
+	OriginKey             string          `json:"origin_key"`
+	ExternalRefKind       *string         `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string         `json:"external_ref_id,omitempty"`
+	ExternalRef           *string         `json:"external_ref,omitempty"`
+	ExternalRefVisibility string          `json:"external_ref_visibility"`
+	Metadata              json.RawMessage `json:"metadata,omitempty"`
+}
+
+type TargetRegionUpdate struct {
+	Name                  *string          `json:"name,omitempty"`
+	Description           *string          `json:"description,omitempty"`
+	RegionKind            *string          `json:"region_kind,omitempty"`
+	GeometryGeoJSON       *string          `json:"geometry,omitempty"`
+	Visibility            *string          `json:"visibility,omitempty"`
+	AccessScopeID         *string          `json:"access_scope_id,omitempty"`
+	ExternalRefKind       *string          `json:"external_ref_kind,omitempty"`
+	ExternalRefID         *string          `json:"external_ref_id,omitempty"`
+	ExternalRef           *string          `json:"external_ref,omitempty"`
+	ExternalRefVisibility *string          `json:"external_ref_visibility,omitempty"`
+	Metadata              *json.RawMessage `json:"metadata,omitempty"`
 }
 
 type TargetCollection struct {
