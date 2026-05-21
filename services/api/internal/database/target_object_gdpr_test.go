@@ -44,7 +44,9 @@ func TestGDPRDeletesPrivateTargetObjectsAndCollections(t *testing.T) {
 func TestGDPRDeletesTargetOverlayRows(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
+	otherID := insertObjectAccessTestUser(t, db)
 	place := createTargetPlaceFixture(t, db, userID, "gdpr overlay place", "private", nil, `[8,49]`)
+	otherPlace := createTargetPlaceFixture(t, db, otherID, "gdpr other overlay place", "public", nil, `[8.01,49.01]`)
 
 	reportID := uuid.NewString()
 	if _, err := db.Pool.Exec(ctx, `
@@ -85,8 +87,32 @@ func TestGDPRDeletesTargetOverlayRows(t *testing.T) {
 			overlay_subject_kind, subject_id, visibility_scope, public_open_report_count
 		)
 		VALUES ('place', $1, 'public', 1)
-	`, place.ID); err != nil {
+		`, place.ID); err != nil {
 		t.Fatalf("insert target overlay summary fixture: %v", err)
+	}
+	otherReportID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_reports (
+			id, overlay_subject_kind, subject_id, author_user_id, report_type,
+			visibility, attribution_mode, description, observed_at, moderation_state
+		)
+		VALUES ($1, 'place', $2, $3, 'condition', 'public', 'named', 'cross target report', NOW(), 'visible')
+	`, otherReportID, otherPlace.ID, userID); err != nil {
+		t.Fatalf("insert cross target report fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_report_status_events (report_id, actor_user_id, status, reason)
+		VALUES ($1, $2, 'open', 'created')
+	`, otherReportID, userID); err != nil {
+		t.Fatalf("insert cross target report status fixture: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO target_overlay_summary_projection (
+			overlay_subject_kind, subject_id, visibility_scope, public_open_report_count
+		)
+		VALUES ('place', $1, 'public', 1)
+	`, otherPlace.ID); err != nil {
+		t.Fatalf("insert cross target overlay summary fixture: %v", err)
 	}
 
 	if _, err := db.Pool.Exec(ctx, `UPDATE users SET deleted_at = NOW() WHERE id = $1`, userID); err != nil {
@@ -101,6 +127,8 @@ func TestGDPRDeletesTargetOverlayRows(t *testing.T) {
 	assertTargetObjectGDPRCount(t, db, "target_report_status_events", `SELECT COUNT(*) FROM target_report_status_events WHERE report_id = $1 OR actor_user_id = $2`, reportID, userID)
 	assertTargetObjectGDPRCount(t, db, "target_user_content", `SELECT COUNT(*) FROM target_user_content WHERE subject_id = $1 OR user_id = $2`, place.ID, userID)
 	assertTargetObjectGDPRCount(t, db, "target_overlay_summary_projection", `SELECT COUNT(*) FROM target_overlay_summary_projection WHERE subject_id = $1`, place.ID)
+	assertTargetObjectGDPRCount(t, db, "cross target overlay reports", `SELECT COUNT(*) FROM target_reports WHERE id = $1`, otherReportID)
+	assertTargetObjectGDPRCount(t, db, "cross target stale overlay summary", `SELECT COUNT(*) FROM target_overlay_summary_projection WHERE subject_id = $1 AND public_open_report_count <> 0`, otherPlace.ID)
 }
 
 func TestGDPRAnonymizesTargetChangeEvents(t *testing.T) {

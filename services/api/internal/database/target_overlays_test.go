@@ -83,6 +83,44 @@ func TestTargetReportStatusDoesNotRewriteReport(t *testing.T) {
 	}
 }
 
+func TestTargetReportRedactedStatusRemovesPublicRead(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	viewerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, userID, "redacted report place", "public", nil, `[8,49]`)
+	report, err := db.CreateTargetReport(ctx, userID, model.CreateTargetReportInput{
+		SubjectKind:     "place",
+		SubjectID:       place.ID,
+		ReportType:      "issue",
+		Visibility:      "public",
+		AttributionMode: "named",
+		Description:     "sensitive text",
+		ObservedAt:      time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("CreateTargetReport: %v", err)
+	}
+	if _, err := db.AddTargetReportStatus(ctx, userID, report.ID, model.AddTargetReportStatusInput{Status: "redacted", Reason: "cleanup"}); err != nil {
+		t.Fatalf("AddTargetReportStatus redacted: %v", err)
+	}
+
+	if _, err := db.GetTargetReport(ctx, viewerID, report.ID, nil); err != ErrTargetNotFound {
+		t.Fatalf("GetTargetReport viewer err = %v, want ErrTargetNotFound", err)
+	}
+	reports, err := db.ListTargetReports(ctx, model.ListTargetReportsParams{
+		SubjectKind: "place",
+		SubjectID:   place.ID,
+		UserID:      viewerID,
+		Limit:       20,
+	})
+	if err != nil {
+		t.Fatalf("ListTargetReports: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("redacted report listed publicly: %#v", reports)
+	}
+}
+
 func TestCreateTargetObservationIsIdempotentBySourceOccurrence(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -162,6 +200,78 @@ func TestTargetObservationRequiresLiveActivityAuthorizationForPublicRead(t *test
 	}
 }
 
+func TestTargetOverlaySummaryForViewerRequiresTargetVisibility(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	viewerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "private summary place", "private", nil, `[8,49]`)
+
+	if _, err := db.CreateTargetReport(ctx, ownerID, model.CreateTargetReportInput{
+		SubjectKind:     "place",
+		SubjectID:       place.ID,
+		ReportType:      "condition",
+		Visibility:      "public",
+		AttributionMode: "named",
+		Description:     "visible only with target",
+		ObservedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetReport: %v", err)
+	}
+	if _, err := db.GetTargetOverlaySummaryForViewer(ctx, viewerID, "place", place.ID, nil, nil); err != ErrTargetNotFound {
+		t.Fatalf("GetTargetOverlaySummaryForViewer err = %v, want ErrTargetNotFound", err)
+	}
+}
+
+func TestTargetReportSourceActivityIsOwnerBoundAndRedacted(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	viewerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "source report place", "public", nil, `[8,49]`)
+	privateActivityID := insertTargetOverlayActivityFixture(t, db, ownerID, "private")
+	foreignActivityID := insertTargetOverlayActivityFixture(t, db, viewerID, "public")
+
+	if _, err := db.CreateTargetReport(ctx, ownerID, model.CreateTargetReportInput{
+		SubjectKind:      "place",
+		SubjectID:        place.ID,
+		ReportType:       "condition",
+		Visibility:       "public",
+		AttributionMode:  "named",
+		Description:      "foreign source",
+		SourceActivityID: &foreignActivityID,
+		ObservedAt:       time.Now().UTC(),
+	}); err != ErrTargetNotFound {
+		t.Fatalf("foreign source activity err = %v, want ErrTargetNotFound", err)
+	}
+
+	report, err := db.CreateTargetReport(ctx, ownerID, model.CreateTargetReportInput{
+		SubjectKind:      "place",
+		SubjectID:        place.ID,
+		ReportType:       "condition",
+		Visibility:       "public",
+		AttributionMode:  "named",
+		Description:      "private source",
+		SourceActivityID: &privateActivityID,
+		ObservedAt:       time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("CreateTargetReport private source: %v", err)
+	}
+	viewerReport, err := db.GetTargetReport(ctx, viewerID, report.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetReport viewer: %v", err)
+	}
+	if viewerReport.SourceActivityID != nil {
+		t.Fatalf("source activity leaked to viewer: %v", *viewerReport.SourceActivityID)
+	}
+	ownerReport, err := db.GetTargetReport(ctx, ownerID, report.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetReport owner: %v", err)
+	}
+	if ownerReport.SourceActivityID == nil || *ownerReport.SourceActivityID != privateActivityID {
+		t.Fatalf("owner source activity = %v, want %s", ownerReport.SourceActivityID, privateActivityID)
+	}
+}
+
 func TestTargetUserContentSaveAndRatingAreUniquePerUserTarget(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -222,6 +332,23 @@ func TestTargetUserContentSaveAndRatingAreUniquePerUserTarget(t *testing.T) {
 	}
 }
 
+func TestTargetUserContentRejectsInvalidRatingPayload(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, userID, "invalid rating place", "public", nil, `[8,49]`)
+
+	_, err := db.CreateTargetUserContent(ctx, userID, model.CreateTargetUserContentInput{
+		SubjectKind: "place",
+		SubjectID:   place.ID,
+		ContentKind: "rating",
+		Visibility:  "public",
+		Payload:     json.RawMessage(`{"rating":"bad"}`),
+	})
+	if err == nil {
+		t.Fatal("CreateTargetUserContent accepted invalid rating payload")
+	}
+}
+
 func TestTargetOverlayVisibilityRejectsSharedWithoutScope(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -238,6 +365,64 @@ func TestTargetOverlayVisibilityRejectsSharedWithoutScope(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("CreateTargetReport accepted shared visibility without access scope")
+	}
+}
+
+func TestTargetOverlayRejectsMismatchedTargetVersion(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID := uuid.NewString()
+	versionID := uuid.NewString()
+	foreignVersionID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type, visibility)
+		VALUES ($1, $2, 'versioned segment', 'bike', 'standard', 'public')
+	`, segmentID, userID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
+		VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.001 49.001)', 4326), NOW(), $3)
+	`, versionID, segmentID, userID); err != nil {
+		t.Fatalf("insert segment version: %v", err)
+	}
+	foreignSegmentID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type, visibility)
+		VALUES ($1, $2, 'other version segment', 'bike', 'standard', 'public')
+	`, foreignSegmentID, userID); err != nil {
+		t.Fatalf("insert other segment: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
+		VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.001 49.001)', 4326), NOW(), $3)
+	`, foreignVersionID, foreignSegmentID, userID); err != nil {
+		t.Fatalf("insert foreign segment version: %v", err)
+	}
+
+	if _, err := db.CreateTargetReport(ctx, userID, model.CreateTargetReportInput{
+		SubjectKind:     "course",
+		SubjectID:       segmentID,
+		TargetVersionID: &versionID,
+		ReportType:      "condition",
+		Visibility:      "public",
+		AttributionMode: "named",
+		Description:     "valid version",
+		ObservedAt:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateTargetReport valid version: %v", err)
+	}
+	if _, err := db.CreateTargetReport(ctx, userID, model.CreateTargetReportInput{
+		SubjectKind:     "course",
+		SubjectID:       segmentID,
+		TargetVersionID: &foreignVersionID,
+		ReportType:      "condition",
+		Visibility:      "public",
+		AttributionMode: "named",
+		Description:     "bad version",
+		ObservedAt:      time.Now().UTC(),
+	}); err != ErrTargetNotFound {
+		t.Fatalf("CreateTargetReport mismatched version err = %v, want ErrTargetNotFound", err)
 	}
 }
 

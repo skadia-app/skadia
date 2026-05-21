@@ -60,6 +60,34 @@ func TestListTargetReportsHonorsTargetVisibility(t *testing.T) {
 	}
 }
 
+func TestTargetOverlaySummaryHonorsTargetVisibility(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	ownerID := insertTestUser(t, pool)
+	otherID := insertTestUser(t, pool)
+	place := createHandlerPlace(t, h, ownerID, "private", nil)
+	createHandlerReport(t, h, ownerID, "place", place.ID, "public")
+
+	rr := httptest.NewRecorder()
+	h.GetTargetOverlaySummary(rr, targetRequest(http.MethodGet, "/target-overlays/summary?subject_kind=place&subject_id="+place.ID, nil, otherID))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s, want summary hidden with private target", rr.Code, rr.Body.String())
+	}
+}
+
+func TestListTargetReportsRejectsInvalidType(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	userID := insertTestUser(t, pool)
+	place := createHandlerPlace(t, h, userID, "public", nil)
+
+	rr := httptest.NewRecorder()
+	h.ListTargetReports(rr, targetRequest(http.MethodGet, "/target-overlays/reports?subject_kind=place&subject_id="+place.ID+"&type=bogus", nil, userID))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want invalid type rejected", rr.Code, rr.Body.String())
+	}
+}
+
 func TestReportStatusAppend(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
