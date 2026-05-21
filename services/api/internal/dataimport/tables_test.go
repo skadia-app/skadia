@@ -30,6 +30,11 @@ func TestFKMapCompleteness(t *testing.T) {
 	// Build lookup from ExportedTableSpecs.
 	exportedSet := make(map[string]bool)
 	fkMap := make(map[string]map[string]bool)
+	// Columns that are handled implicitly (re-keyed via the user column path).
+	skipColumns := map[string]bool{
+		"user_id":    true,
+		"created_by": true,
+	}
 	for _, spec := range ExportedTableSpecs() {
 		exportedSet[spec.Name] = true
 		fkSet := make(map[string]bool)
@@ -45,6 +50,9 @@ func TestFKMapCompleteness(t *testing.T) {
 			fkSet["entity_id"] = true
 		}
 		fkMap[spec.Name] = fkSet
+		if userCol := getUserCol(spec); userCol != "" {
+			skipColumns[userCol] = true
+		}
 	}
 
 	// Tables that are explicitly skipped or handled outside the engine.
@@ -53,12 +61,6 @@ func TestFKMapCompleteness(t *testing.T) {
 		"import_log":   true,
 		"users":        true,
 		"user_files":   true, // handled via ShadowFS.Put()
-	}
-
-	// Columns that are handled implicitly (re-keyed via the user column path).
-	skipColumns := map[string]bool{
-		"user_id":    true,
-		"created_by": true,
 	}
 
 	var missing []string

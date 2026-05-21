@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1551,8 +1552,12 @@ func TestActivityLiftCandidatesImportRoundtripPreservesRejectedByUser(t *testing
 	})
 
 	src := openZipSource(t, zipPath)
-	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+	result, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
 		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
 	}
 
 	var rejected bool
@@ -3968,6 +3973,111 @@ func TestFailedActivityDoesNotLeakIDMapForDeferredFK(t *testing.T) {
 	}
 	if sourceActivityID != nil {
 		t.Fatalf("source_activity_id should remain NULL for failed referenced activity, got %q", *sourceActivityID)
+	}
+}
+
+func TestRunImportRebuildsTargetObjectProjections(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	srcUser := uuid.New().String()
+	placeID := uuid.New().String()
+	collectionID := uuid.New().String()
+	memberID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"target_places": {
+				"id", "owner_user_id", "name", "place_kind", "geom", "visibility", "origin_key",
+			},
+			"target_collections": {
+				"id", "owner_user_id", "name", "collection_kind", "visibility", "origin_key",
+			},
+			"target_collection_members": {
+				"id", "collection_id", "member_kind", "member_id", "binding_mode",
+				"member_owner_scope", "member_visibility_snapshot", "membership_visibility",
+				"origin_key", "role", "added_by",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/target_places.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":            placeID,
+					"owner_user_id": srcUser,
+					"name":          "Imported target place",
+					"place_kind":    "custom",
+					"geom": map[string]any{
+						"type":        "Point",
+						"coordinates": []any{8.0, 49.0},
+					},
+					"visibility": "public",
+					"origin_key": "manual",
+				},
+			}),
+			"data/target_collections.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":              collectionID,
+					"owner_user_id":   srcUser,
+					"name":            "Imported target collection",
+					"collection_kind": "private_map",
+					"visibility":      "public",
+					"origin_key":      "manual",
+				},
+			}),
+			"data/target_collection_members.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                         memberID,
+					"collection_id":              collectionID,
+					"member_kind":                "place",
+					"member_id":                  placeID,
+					"binding_mode":               "live_current",
+					"member_owner_scope":         "user",
+					"member_visibility_snapshot": "public",
+					"membership_visibility":      "inherit_collection",
+					"origin_key":                 "manual",
+					"role":                       "poi",
+					"added_by":                   srcUser,
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	db := &database.DB{Pool: pool}
+	places, err := db.ListTargetPlaces(ctx, model.ListTargetObjectsParams{UserID: userID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetPlaces: %v", err)
+	}
+	foundPlace := false
+	for _, place := range places {
+		if place.Name == "Imported target place" {
+			foundPlace = true
+			break
+		}
+	}
+	if !foundPlace {
+		t.Fatalf("imported places = %#v, want imported target place", places)
+	}
+	collections, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: userID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetCollections: %v", err)
+	}
+	foundCollection := false
+	for _, collection := range collections {
+		if collection.Name == "Imported target collection" && collection.OwnerMemberCount == 1 {
+			foundCollection = true
+			break
+		}
+	}
+	if !foundCollection {
+		t.Fatalf("imported collections = %#v, want rebuilt member summary", collections)
 	}
 }
 

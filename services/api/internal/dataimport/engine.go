@@ -306,6 +306,9 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if err := refreshImportedTagAutomationState(ctx, e.DB, input.TargetUserID); err != nil {
 		return result, fmt.Errorf("RunImport phase 9 (tag automation state): %w", err)
 	}
+	if err := refreshImportedTargetObjectState(ctx, e.DB, input.TargetUserID); err != nil {
+		return result, fmt.Errorf("RunImport phase 9 (target object state): %w", err)
+	}
 	result.PhasesCompleted++
 
 	// Phase 10: Enrichment.
@@ -379,6 +382,131 @@ func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("refresh tag automation state commit: %w", err)
+	}
+	return nil
+}
+
+func refreshImportedTargetObjectState(ctx context.Context, pool *pgxpool.Pool, userID string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("target object state begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx, `DELETE FROM target_object_search_projection WHERE owner_user_id = $1`, userID); err != nil {
+		return fmt.Errorf("delete target object search projection: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO target_object_search_projection (
+			object_kind, object_id, owner_user_id, lifecycle_owner_kind, lifecycle_owner_ref,
+			name, object_subkind, visibility, access_scope_id, geom, bounds, centroid,
+			external_ref_kind, updated_at, archived_at
+		)
+		SELECT
+			'place', id, owner_user_id, lifecycle_owner_kind, lifecycle_owner_ref,
+			name, place_kind, visibility, access_scope_id, geom, geom, geom,
+			CASE WHEN external_ref_visibility IN ('shared_safe', 'public_safe') THEN external_ref_kind ELSE NULL END,
+			updated_at, archived_at
+		FROM target_places
+		WHERE owner_user_id = $1 AND archived_at IS NULL
+		UNION ALL
+		SELECT
+			'region', id, owner_user_id, lifecycle_owner_kind, lifecycle_owner_ref,
+			name, region_kind, visibility, access_scope_id, geom, ST_Envelope(geom), ST_PointOnSurface(geom),
+			CASE WHEN external_ref_visibility IN ('shared_safe', 'public_safe') THEN external_ref_kind ELSE NULL END,
+			updated_at, archived_at
+		FROM target_regions
+		WHERE owner_user_id = $1 AND archived_at IS NULL
+	`, userID); err != nil {
+		return fmt.Errorf("rebuild target object search projection: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_collection_member_reverse_index
+		WHERE collection_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1)
+	`, userID); err != nil {
+		return fmt.Errorf("delete target collection reverse index: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO target_collection_member_reverse_index (
+			member_kind, member_id, collection_id, collection_member_id, contributes_bounds
+		)
+		SELECT member_kind, member_id, collection_id, id,
+		       member_kind IN ('course', 'place', 'region', 'collection')
+		FROM target_collection_members
+		WHERE collection_id IN (SELECT id FROM target_collections WHERE owner_user_id = $1)
+		  AND removed_at IS NULL
+		  AND member_id IS NOT NULL
+		  AND member_kind <> 'external_ref'
+	`, userID); err != nil {
+		return fmt.Errorf("rebuild target collection reverse index: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM target_collection_summary_projection WHERE owner_user_id = $1`, userID); err != nil {
+		return fmt.Errorf("delete target collection summary projection: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH collections AS (
+			SELECT *
+			FROM target_collections
+			WHERE owner_user_id = $1 AND archived_at IS NULL
+		),
+		active_members AS (
+			SELECT m.*
+			FROM target_collection_members m
+			JOIN collections c ON c.id = m.collection_id
+			WHERE m.removed_at IS NULL
+		),
+		public_member_geoms AS (
+			SELECT m.collection_id, p.geom
+			FROM active_members m
+			JOIN target_places p ON m.member_kind = 'place' AND p.id = m.member_id AND p.archived_at IS NULL
+			WHERE m.membership_visibility <> 'owner_only' AND p.visibility = 'public'
+			UNION ALL
+			SELECT m.collection_id, r.geom
+			FROM active_members m
+			JOIN target_regions r ON m.member_kind = 'region' AND r.id = m.member_id AND r.archived_at IS NULL
+			WHERE m.membership_visibility <> 'owner_only' AND r.visibility = 'public'
+		),
+		bounds AS (
+			SELECT collection_id, ST_Envelope(ST_Collect(geom)) AS geom
+			FROM public_member_geoms
+			GROUP BY collection_id
+		),
+		member_counts AS (
+			SELECT
+				collection_id,
+				COUNT(*)::int AS owner_member_count,
+				COUNT(*) FILTER (
+					WHERE membership_visibility <> 'owner_only'
+					  AND (
+						(member_kind = 'place' AND EXISTS (SELECT 1 FROM target_places p WHERE p.id = member_id AND p.visibility = 'public' AND p.archived_at IS NULL))
+						OR (member_kind = 'region' AND EXISTS (SELECT 1 FROM target_regions r WHERE r.id = member_id AND r.visibility = 'public' AND r.archived_at IS NULL))
+						OR (member_kind = 'collection' AND EXISTS (SELECT 1 FROM target_collections c WHERE c.id = member_id AND c.visibility = 'public' AND c.archived_at IS NULL))
+					  )
+				)::int AS public_member_count
+			FROM active_members
+			GROUP BY collection_id
+		)
+		INSERT INTO target_collection_summary_projection (
+			collection_id, owner_user_id, lifecycle_owner_kind, lifecycle_owner_ref,
+			name, collection_kind, visibility, access_scope_id, bounds,
+			owner_member_count, public_member_count, updated_at, archived_at
+		)
+		SELECT
+			c.id, c.owner_user_id, c.lifecycle_owner_kind, c.lifecycle_owner_ref,
+			c.name, c.collection_kind, c.visibility, c.access_scope_id, b.geom,
+			COALESCE(mc.owner_member_count, 0), COALESCE(mc.public_member_count, 0),
+			c.updated_at, c.archived_at
+		FROM collections c
+		LEFT JOIN bounds b ON b.collection_id = c.id
+		LEFT JOIN member_counts mc ON mc.collection_id = c.id
+	`, userID); err != nil {
+		return fmt.Errorf("rebuild target collection summary projection: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("target object state commit: %w", err)
 	}
 	return nil
 }
