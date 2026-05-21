@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,15 @@ type checkpointEffectiveGeometry struct {
 	radiusM   float64
 	polygon   [][][]float64
 	multiPoly [][][][]float64
+}
+
+type CheckpointCourseExportMetadata struct {
+	ValidFromAt              *time.Time
+	ValidUntilAt             *time.Time
+	ValidityBasis            string
+	EligibilityPolicyKey     string
+	EligibilityPolicyVersion int
+	EligibilitySourceHash    string
 }
 
 func (db *DB) CreateCheckpointCourse(ctx context.Context, userID string, input *model.CheckpointCourseCreate) (*model.Segment, error) {
@@ -112,26 +122,29 @@ func createCheckpointCourseTx(ctx context.Context, tx pgx.Tx, userID string, inp
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (
-			created_by, name, description, sport_group, segment_type,
-			segment_type_meta, source_activity_id, terrain_type, climb_type,
-			elevation_kind, visibility, access_scope_id, allowed_predicates,
-			bidirectional, course_kind
-		)
-		VALUES (
-			$1, $2, $3, $4, 'standard',
-			'{}'::jsonb, $5, 'standard', 'standard',
-			'flat', $6, $7, $8,
-			false, 'checkpoint_sequence'
-		)
+			INSERT INTO segments (
+				created_by, name, description, sport_group, segment_type,
+				segment_type_meta, source_activity_id, terrain_type, climb_type,
+				elevation_kind, visibility, access_scope_id, allowed_predicates,
+				bidirectional, course_kind, source_activity_publish_confirmed_at,
+				source_activity_publish_confirmed_by
+			)
+			VALUES (
+				$1, $2, $3, $4, 'standard',
+				'{}'::jsonb, $5, 'standard', 'standard',
+				'flat', $6, $7, $8,
+				false, 'checkpoint_sequence',
+				CASE WHEN $5::uuid IS NOT NULL AND $6 IN ('public', 'shared') AND $9 THEN NOW() ELSE NULL END,
+				CASE WHEN $5::uuid IS NOT NULL AND $6 IN ('public', 'shared') AND $9 THEN $1::uuid ELSE NULL END
+			)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_predicates, segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id, distance_m, elevation_gain_m,
 		          effort_count, athlete_count, visibility, access_scope_id,
 		          route_hash, created_at, terrain_type, climb_type,
 		          elevation_kind, bidirectional, course_kind
-	`, userID, input.Name, input.Description, sportGroup, input.SourceActivityID,
-		visibility, input.AccessScopeID, allowedPredicatesJSON).Scan(
+		`, userID, input.Name, input.Description, sportGroup, input.SourceActivityID,
+		visibility, input.AccessScopeID, allowedPredicatesJSON, input.SourceActivityPublishConfirmed).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&scannedPredicatesJSON, &s.SegmentType, &s.SegmentTypeMeta,
 		&s.SourceActivityID, &s.OsmLiftID, &s.DistanceM, &s.ElevationGainM,
@@ -154,12 +167,14 @@ func createCheckpointCourseTx(ctx context.Context, tx pgx.Tx, userID string, inp
 		INSERT INTO segment_versions (
 			segment_id, version_number, track, start_point, end_point, valid_from, created_by,
 			matching_contract_key, matching_contract_version,
+			validity_basis,
 			eligibility_segment_type, eligibility_sport_group,
 			eligibility_allowed_predicates, eligibility_allowed_predicates_set,
 			eligibility_bidirectional, eligibility_visibility, eligibility_elevation_kind
 		)
 		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3,
 		       'checkpoint_sequence_v1', 1,
+		       'unknown_start',
 		       'standard', $4, $5::jsonb, $6,
 		       false, $7, 'flat'
 		FROM g
@@ -187,6 +202,9 @@ func createCheckpointCourseTx(ctx context.Context, tx pgx.Tx, userID string, inp
 		}
 	}
 
+	if err := validateCheckpointControlsPostGISTx(ctx, tx, versionID); err != nil {
+		return nil, err
+	}
 	if err := rebuildCheckpointCourseProjectionTx(ctx, tx, s.ID); err != nil {
 		return nil, err
 	}
@@ -201,6 +219,45 @@ func createCheckpointCourseTx(ctx context.Context, tx pgx.Tx, userID string, inp
 
 func (db *DB) GetCheckpointControls(ctx context.Context, segmentVersionID string) ([]model.CheckpointControl, error) {
 	return getCheckpointControlsTx(ctx, db.Pool, segmentVersionID)
+}
+
+func (db *DB) GetCheckpointCourseExportMetadata(ctx context.Context, segmentID string) (*CheckpointCourseExportMetadata, error) {
+	var meta CheckpointCourseExportMetadata
+	err := db.Pool.QueryRow(ctx, `
+		SELECT sv.valid_from_at, sv.valid_until_at, COALESCE(sv.validity_basis, 'unknown_start'),
+		       COALESCE(ep.policy_key, 'course_eligibility'),
+		       COALESCE(ep.policy_version, 1),
+		       COALESCE(ep.source_hash, '')
+		FROM segments s
+		JOIN LATERAL (
+			SELECT id, valid_from_at, valid_until_at, validity_basis
+			FROM segment_versions
+			WHERE segment_id = s.id
+			  AND matching_contract_key = 'checkpoint_sequence_v1'
+			  AND matching_contract_version = 1
+			  AND COALESCE(validity_basis, 'unknown_start') <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true
+		LEFT JOIN target_course_eligibility_projection ep
+		       ON ep.target_id = s.id
+		      AND ep.target_version_id = sv.id
+		WHERE s.id = $1
+		  AND s.course_kind = 'checkpoint_sequence'
+	`, segmentID).Scan(
+		&meta.ValidFromAt, &meta.ValidUntilAt, &meta.ValidityBasis,
+		&meta.EligibilityPolicyKey, &meta.EligibilityPolicyVersion, &meta.EligibilitySourceHash,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSegmentNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load checkpoint course export metadata: %w", err)
+	}
+	return &meta, nil
 }
 
 func getCheckpointControlsTx(ctx context.Context, q pgxQuerier, segmentVersionID string) ([]model.CheckpointControl, error) {
@@ -376,13 +433,62 @@ func ValidateCheckpointControls(controls []model.CheckpointControl, rankable boo
 	if rankable {
 		for i := range effective {
 			for j := i + 1; j < len(effective); j++ {
-				if checkpointEffectiveGeometriesOverlap(effective[i], effective[j]) {
+				if effective[i].kind == "circle" && effective[j].kind == "circle" && checkpointEffectiveGeometriesOverlap(effective[i], effective[j]) {
 					return fmt.Errorf("%w: required checkpoint controls %d and %d overlap", ErrSegmentValidation, i, j)
 				}
 			}
 		}
 	}
 
+	return nil
+}
+
+func validateCheckpointControlsPostGISTx(ctx context.Context, tx pgx.Tx, segmentVersionID string) error {
+	var invalidSeq int
+	var invalidReason string
+	err := tx.QueryRow(ctx, `
+		SELECT sequence_index, ST_IsValidReason(geom)
+		FROM course_version_controls
+		WHERE segment_version_id = $1
+		  AND NOT ST_IsValid(geom)
+		ORDER BY sequence_index
+		LIMIT 1
+	`, segmentVersionID).Scan(&invalidSeq, &invalidReason)
+	if err == nil {
+		return fmt.Errorf("%w: checkpoint control %d has invalid geometry: %s", ErrSegmentValidation, invalidSeq, invalidReason)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("validate checkpoint control geometry: %w", err)
+	}
+
+	var seqA, seqB int
+	err = tx.QueryRow(ctx, `
+		WITH effective AS (
+			SELECT sequence_index,
+			       required,
+			       CASE
+			           WHEN geometry_shape IN ('point', 'circle')
+			               THEN ST_Buffer(geom::geography, COALESCE(hit_radius_m, area_radius_m, 0))::geometry
+			           ELSE geom
+			       END AS geom
+			FROM course_version_controls
+			WHERE segment_version_id = $1
+		)
+		SELECT a.sequence_index, b.sequence_index
+		FROM effective a
+		JOIN effective b ON a.sequence_index < b.sequence_index
+		WHERE a.required
+		  AND b.required
+		  AND ST_Intersects(a.geom, b.geom)
+		ORDER BY a.sequence_index, b.sequence_index
+		LIMIT 1
+	`, segmentVersionID).Scan(&seqA, &seqB)
+	if err == nil {
+		return fmt.Errorf("%w: required checkpoint controls %d and %d overlap", ErrSegmentValidation, seqA, seqB)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("validate checkpoint control overlap: %w", err)
+	}
 	return nil
 }
 

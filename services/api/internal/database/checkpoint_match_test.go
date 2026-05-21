@@ -100,6 +100,28 @@ func TestMatchCheckpointSequenceV1(t *testing.T) {
 		}
 	})
 
+	t.Run("non increasing timestamps reject attempt", func(t *testing.T) {
+		samples := samplesForCoords([][2]float64{{8, 49}, {8.02, 49.02}})
+		samples[1].Time = samples[0].Time
+		attempts, err := MatchCheckpointSequenceV1(samples, []model.CheckpointControl{start, finishForIndex(1, finish)})
+		if err != nil {
+			t.Fatalf("MatchCheckpointSequenceV1 equal timestamp: %v", err)
+		}
+		if len(attempts) != 0 {
+			t.Fatalf("equal timestamp attempts = %d, want 0", len(attempts))
+		}
+
+		samples = samplesForCoords([][2]float64{{8, 49}, {8.02, 49.02}})
+		samples[1].Time = samples[0].Time.Add(-time.Second)
+		attempts, err = MatchCheckpointSequenceV1(samples, []model.CheckpointControl{start, finishForIndex(1, finish)})
+		if err != nil {
+			t.Fatalf("MatchCheckpointSequenceV1 decreasing timestamp: %v", err)
+		}
+		if len(attempts) != 0 {
+			t.Fatalf("decreasing timestamp attempts = %d, want 0", len(attempts))
+		}
+	})
+
 	t.Run("point radius rejects outside", func(t *testing.T) {
 		attempts, err := MatchCheckpointSequenceV1(samplesForCoords([][2]float64{{8, 49}, {8.03, 49.03}}), []model.CheckpointControl{start, finishForIndex(1, finish)})
 		if err != nil {

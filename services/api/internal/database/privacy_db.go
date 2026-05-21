@@ -213,6 +213,35 @@ func (db *DB) ComputeTrackPublic(ctx context.Context, activityID, userID string)
 	return nil
 }
 
+// ActivityTrackIntersectsActivePrivacyZones reports whether the stored full
+// activity track touches any active privacy zone owned by the same user.
+func (db *DB) ActivityTrackIntersectsActivePrivacyZones(ctx context.Context, userID, activityID string) (bool, error) {
+	var intersects bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM activities a
+			JOIN activity_tracks t ON t.activity_id = a.id
+			JOIN user_privacy_zones z ON z.user_id = a.user_id
+			WHERE a.id = $2
+			  AND a.user_id = $1
+			  AND z.is_active = true
+			  AND t.track_full IS NOT NULL
+			  AND ST_Intersects(
+			      t.track_full,
+			      CASE
+			          WHEN z.zone_type = 'polygon' AND z.polygon IS NOT NULL THEN z.polygon
+			          ELSE ST_Buffer(z.center::geography, z.radius_m)::geometry
+			      END
+			  )
+		)
+	`, userID, activityID).Scan(&intersects)
+	if err != nil {
+		return false, fmt.Errorf("check source activity privacy-zone intersection: %w", err)
+	}
+	return intersects, nil
+}
+
 // RecomputeAllTrackPublic recalculates track_public for all activities of a user.
 // Also refreshes heatmap_lines to use the updated track_public.
 func (db *DB) RecomputeAllTrackPublic(ctx context.Context, userID string) error {

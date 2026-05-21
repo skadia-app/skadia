@@ -157,14 +157,34 @@ function checkpointControlFeatures(segment: Segment): GeoJSON.Feature[] {
       ? geometry
       : centroidFeatureGeometry(geometry)
     const features: GeoJSON.Feature[] = []
-    if (control.primitive === 'area' && geometry.type !== 'Point') {
-      features.push({ type: 'Feature', geometry, properties: { kind: 'area' } })
+    if (control.primitive === 'area') {
+      if (control.geometry_shape === 'circle' && geometry.type === 'Point' && control.area_radius_m) {
+        features.push({ type: 'Feature', geometry: circleAreaGeometry(geometry.coordinates as [number, number], control.area_radius_m), properties: { kind: 'area' } })
+      } else if (geometry.type !== 'Point') {
+        features.push({ type: 'Feature', geometry, properties: { kind: 'area' } })
+      }
     }
     if (point) {
       features.push({ type: 'Feature', geometry: point, properties: { kind: 'point', label } })
     }
     return features
   })
+}
+
+function circleAreaGeometry(coord: [number, number], radiusM: number): GeoJSON.Polygon {
+  const steps = 48
+  const latRad = coord[1] * Math.PI / 180
+  const latDelta = radiusM / 111_320
+  const lngDelta = radiusM / (111_320 * Math.max(Math.cos(latRad), 0.01))
+  const ring: [number, number][] = []
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI * 2
+    ring.push([
+      coord[0] + Math.cos(angle) * lngDelta,
+      coord[1] + Math.sin(angle) * latDelta,
+    ])
+  }
+  return { type: 'Polygon', coordinates: [ring] }
 }
 
 function centroidFeatureGeometry(geometry: GeoJSON.Geometry): GeoJSON.Point | null {

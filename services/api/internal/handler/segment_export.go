@@ -2,6 +2,7 @@ package handler
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -53,10 +54,15 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 
 	switch format {
 	case "geojson":
+		checkpointMeta, err := segmentCheckpointExportMetadata(r.Context(), h.DB, seg)
+		if err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load checkpoint export metadata", r.URL.Path)
+			return
+		}
 		w.Header().Set("Content-Type", "application/geo+json; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.geojson"`, safeName))
 		w.WriteHeader(http.StatusOK)
-		writeSegmentGeoJSON(w, seg)
+		writeSegmentGeoJSONWithMetadata(w, seg, checkpointMeta)
 
 	case "gpx":
 		w.Header().Set("Content-Type", "application/gpx+xml; charset=utf-8")
@@ -108,6 +114,11 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segments", r.URL.Path)
 		return
 	}
+	checkpointMetaBySegmentID, err := checkpointExportMetadataBySegmentID(r.Context(), h.DB, segments)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load checkpoint export metadata", r.URL.Path)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="segments.zip"`)
@@ -147,7 +158,7 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 		case "gpx":
 			writeSegmentGPX(entry, seg)
 		case "geojson":
-			writeSegmentGeoJSON(entry, seg)
+			writeSegmentGeoJSONWithMetadata(entry, seg, checkpointMetaBySegmentID[seg.ID])
 		}
 	}
 }
@@ -228,8 +239,34 @@ func writeSegmentGPX(w io.Writer, seg *model.Segment) {
 
 // writeSegmentGeoJSON renders a GeoJSON Feature for a segment track to w.
 func writeSegmentGeoJSON(w io.Writer, seg *model.Segment) {
+	writeSegmentGeoJSONWithMetadata(w, seg, nil)
+}
+
+func segmentCheckpointExportMetadata(ctx context.Context, db *database.DB, seg *model.Segment) (*database.CheckpointCourseExportMetadata, error) {
 	if seg.CourseKind == string(model.CourseKindCheckpointSequence) {
-		writeCheckpointSegmentGeoJSON(w, seg)
+		return db.GetCheckpointCourseExportMetadata(ctx, seg.ID)
+	}
+	return nil, nil
+}
+
+func checkpointExportMetadataBySegmentID(ctx context.Context, db *database.DB, segments []model.Segment) (map[string]*database.CheckpointCourseExportMetadata, error) {
+	metaBySegmentID := make(map[string]*database.CheckpointCourseExportMetadata)
+	for i := range segments {
+		seg := &segments[i]
+		meta, err := segmentCheckpointExportMetadata(ctx, db, seg)
+		if err != nil {
+			return nil, err
+		}
+		if meta != nil {
+			metaBySegmentID[seg.ID] = meta
+		}
+	}
+	return metaBySegmentID, nil
+}
+
+func writeSegmentGeoJSONWithMetadata(w io.Writer, seg *model.Segment, checkpointMeta *database.CheckpointCourseExportMetadata) {
+	if seg.CourseKind == string(model.CourseKindCheckpointSequence) {
+		writeCheckpointSegmentGeoJSON(w, seg, checkpointMeta)
 		return
 	}
 	type featureProperties struct {
@@ -254,7 +291,7 @@ func writeSegmentGeoJSON(w io.Writer, seg *model.Segment) {
 	_ = json.NewEncoder(w).Encode(f)
 }
 
-func writeCheckpointSegmentGeoJSON(w io.Writer, seg *model.Segment) {
+func writeCheckpointSegmentGeoJSON(w io.Writer, seg *model.Segment, meta *database.CheckpointCourseExportMetadata) {
 	type feature struct {
 		Type       string          `json:"type"`
 		Properties map[string]any  `json:"properties"`
@@ -278,21 +315,25 @@ func writeCheckpointSegmentGeoJSON(w io.Writer, seg *model.Segment) {
 	}
 	for _, control := range seg.Controls {
 		props := map[string]any{
-			"name":                       seg.Name,
-			"sport_group":                seg.SportGroup,
-			"course_kind":                string(model.CourseKindCheckpointSequence),
-			"matching_contract_key":      database.CheckpointSequenceV1Key,
-			"matching_contract_version":  database.CheckpointSequenceV1Version,
-			"valid_from_at":              nil,
-			"valid_until_at":             nil,
-			"validity_basis":             "unknown_start",
-			"eligibility_policy_key":     "target_course_eligibility_v1",
-			"eligibility_policy_version": 1,
-			"sequence_index":             control.SequenceIndex,
-			"role":                       control.Role,
-			"primitive":                  control.Primitive,
-			"geometry_shape":             control.GeometryShape,
-			"required":                   control.Required,
+			"name":                      seg.Name,
+			"sport_group":               seg.SportGroup,
+			"course_kind":               string(model.CourseKindCheckpointSequence),
+			"matching_contract_key":     database.CheckpointSequenceV1Key,
+			"matching_contract_version": database.CheckpointSequenceV1Version,
+			"import_semantics":          "private_copy_rebased_on_import",
+			"sequence_index":            control.SequenceIndex,
+			"role":                      control.Role,
+			"primitive":                 control.Primitive,
+			"geometry_shape":            control.GeometryShape,
+			"required":                  control.Required,
+		}
+		if meta != nil {
+			props["source_valid_from_at"] = meta.ValidFromAt
+			props["source_valid_until_at"] = meta.ValidUntilAt
+			props["source_validity_basis"] = meta.ValidityBasis
+			props["source_eligibility_policy_key"] = meta.EligibilityPolicyKey
+			props["source_eligibility_policy_version"] = meta.EligibilityPolicyVersion
+			props["source_eligibility_source_hash"] = meta.EligibilitySourceHash
 		}
 		if control.Label != "" {
 			props["label"] = control.Label

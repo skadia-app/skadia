@@ -63,10 +63,14 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 		firstIdx := -1
 		lastIdx := -1
 		searchFrom := cursor
+		var previousHitAt *time.Time
 		for controlIdx, control := range controls {
 			foundIdx := -1
 			var nearest *float64
 			for sampleIdx := searchFrom; sampleIdx < len(samples); sampleIdx++ {
+				if previousHitAt != nil && !samples[sampleIdx].Time.After(*previousHitAt) {
+					continue
+				}
 				distance, hit := checkpointSampleHitsControl(samples[sampleIdx], effective[controlIdx])
 				if !hit {
 					continue
@@ -93,6 +97,7 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 				firstIdx = foundIdx
 			}
 			lastIdx = foundIdx
+			previousHitAt = &sample.Time
 			searchFrom = foundIdx + 1
 		}
 		if len(hits) != len(controls) {
@@ -102,7 +107,7 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 		startSample := samples[firstIdx]
 		finishSample := samples[lastIdx]
 		elapsed := int(finishSample.Time.Sub(startSample.Time).Seconds())
-		if elapsed < 0 {
+		if elapsed <= 0 {
 			cursor = firstIdx + 1
 			continue
 		}

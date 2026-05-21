@@ -238,15 +238,19 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
 			return
 		}
+		if !h.requireSourceActivityPublishConfirmation(w, r, userID, create.SourceActivityID, create.Visibility, create.SourceActivityPublishConfirmed) {
+			return
+		}
 		segment, err := h.DB.CreateCheckpointCourse(r.Context(), userID, &model.CheckpointCourseCreate{
-			Name:              create.Name,
-			Description:       create.Description,
-			SportGroup:        create.SportGroup,
-			Visibility:        create.Visibility,
-			AccessScopeID:     create.AccessScopeID,
-			AllowedPredicates: create.AllowedPredicates,
-			Controls:          create.Controls,
-			SourceActivityID:  create.SourceActivityID,
+			Name:                           create.Name,
+			Description:                    create.Description,
+			SportGroup:                     create.SportGroup,
+			Visibility:                     create.Visibility,
+			AccessScopeID:                  create.AccessScopeID,
+			AllowedPredicates:              create.AllowedPredicates,
+			Controls:                       create.Controls,
+			SourceActivityID:               create.SourceActivityID,
+			SourceActivityPublishConfirmed: create.SourceActivityPublishConfirmed,
 		})
 		if err != nil {
 			slog.Error("create checkpoint course failed", "error", err)
@@ -320,6 +324,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "source activity not found", r.URL.Path)
 			return
 		}
+		if !h.requireSourceActivityPublishConfirmation(w, r, userID, create.SourceActivityID, create.Visibility, create.SourceActivityPublishConfirmed) {
+			return
+		}
 	}
 
 	// Normalize historic German labels in segment_type_meta before DB write.
@@ -368,6 +375,23 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	shutdown.Go("segment-backfill-"+segID, func(ctx context.Context) {
 		h.backfillSegmentEfforts(ctx, userID, segID, sourceActivity)
 	})
+}
+
+func (h *Handler) requireSourceActivityPublishConfirmation(w http.ResponseWriter, r *http.Request, userID string, sourceActivityID *string, visibility string, confirmed bool) bool {
+	if sourceActivityID == nil || visibility == "private" {
+		return true
+	}
+	intersects, err := h.DB.ActivityTrackIntersectsActivePrivacyZones(r.Context(), userID, *sourceActivityID)
+	if err != nil {
+		slog.Error("source activity privacy-zone check failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check source activity privacy zones", r.URL.Path)
+		return false
+	}
+	if !intersects || confirmed {
+		return true
+	}
+	httputil.WriteError(w, http.StatusConflict, "Privacy Confirmation Required", "source activity intersects an active privacy zone; confirm publishing the exact segment/course geometry", r.URL.Path)
+	return false
 }
 
 func (h *Handler) matchSourceActivityForSegment(ctx context.Context, userID, segmentID string, act *model.Activity) {
