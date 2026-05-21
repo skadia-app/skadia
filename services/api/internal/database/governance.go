@@ -31,6 +31,15 @@ func (db *DB) CreateGovernanceScope(ctx context.Context, userID string, input mo
 			return nil, ErrTargetNotFound
 		}
 	}
+	if input.AnchorCollectionID != nil {
+		ok, err := db.userOwnsTarget(ctx, userID, "collection", *input.AnchorCollectionID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, ErrTargetNotFound
+		}
+	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin create governance scope: %w", err)
@@ -51,7 +60,7 @@ func (db *DB) CreateGovernanceScope(ctx context.Context, userID string, input mo
 	if err != nil {
 		return nil, fmt.Errorf("insert governance scope: %w", err)
 	}
-	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope", scope.ID, nil, nil, &scope.ID, userID, "create_governance_scope", scope); err != nil {
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope", scope.ID, nil, nil, &scope.ID, userID, "create_governance_scope", nil, scope); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -95,7 +104,7 @@ func (db *DB) UpdateGovernanceScope(ctx context.Context, userID, scopeID string,
 	if err != nil {
 		return nil, err
 	}
-	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope", scope.ID, nil, nil, &scope.ID, userID, "update_governance_scope", scope); err != nil {
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope", scope.ID, nil, nil, &scope.ID, userID, "update_governance_scope", current, scope); err != nil {
 		return nil, err
 	}
 	if err := rebuildGovernanceActorTargetProjectionTx(ctx, tx, scopeID); err != nil {
@@ -114,6 +123,10 @@ func (db *DB) AddGovernanceActorRole(ctx context.Context, userID, scopeID string
 	if err := validateGovernancePermissions(input.ActorType, input.Permissions); err != nil {
 		return nil, err
 	}
+	permissions := input.Permissions
+	if permissions == nil {
+		permissions = []string{}
+	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -127,7 +140,7 @@ func (db *DB) AddGovernanceActorRole(ctx context.Context, userID, scopeID string
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING `+governanceActorRoleColumnsSQL(""),
 		scopeID, strings.TrimSpace(input.ActorType), input.ActorUserID, input.ActorRef,
-		targetDefault(input.Role, "viewer"), input.Permissions, targetDefault(input.PublicCredit, "hidden"),
+		targetDefault(input.Role, "viewer"), permissions, targetDefault(input.PublicCredit, "hidden"),
 		input.ValidFrom, input.ValidUntil, userID, targetMetadata(input.Metadata),
 	))
 	if err != nil {
@@ -136,7 +149,7 @@ func (db *DB) AddGovernanceActorRole(ctx context.Context, userID, scopeID string
 	if err := rebuildGovernanceActorTargetProjectionTx(ctx, tx, scopeID); err != nil {
 		return nil, err
 	}
-	if err := writeTargetChangeEventTx(ctx, tx, "governance_actor_role", role.ID, nil, nil, &scopeID, userID, "add_governance_role", role); err != nil {
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_actor_role", role.ID, nil, nil, &scopeID, userID, "add_governance_role", nil, role); err != nil {
 		return nil, err
 	}
 	return role, tx.Commit(ctx)
@@ -196,11 +209,17 @@ func (db *DB) UpdateGovernanceActorRole(ctx context.Context, userID, scopeID, ro
 	if err := rebuildGovernanceActorTargetProjectionTx(ctx, tx, scopeID); err != nil {
 		return nil, err
 	}
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_actor_role", role.ID, nil, nil, &scopeID, userID, "update_governance_role", current, role); err != nil {
+		return nil, err
+	}
 	return role, tx.Commit(ctx)
 }
 
 func (db *DB) AddGovernanceScopeTargetBinding(ctx context.Context, userID, scopeID string, input model.GovernanceScopeTargetBindingCreate) (*model.GovernanceScopeTargetBinding, error) {
 	if err := db.requireGovernanceScopeManager(ctx, userID, scopeID); err != nil {
+		return nil, err
+	}
+	if err := db.requireGovernanceBindingTargetAuthority(ctx, userID, input.TargetKind, input.TargetID); err != nil {
 		return nil, err
 	}
 	tx, err := db.Pool.Begin(ctx)
@@ -226,7 +245,7 @@ func (db *DB) AddGovernanceScopeTargetBinding(ctx context.Context, userID, scope
 	if err := rebuildGovernanceActorTargetProjectionTx(ctx, tx, scopeID); err != nil {
 		return nil, err
 	}
-	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope_target_binding", binding.ID, &binding.TargetKind, &binding.TargetID, &scopeID, userID, "add_governance_binding", binding); err != nil {
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope_target_binding", binding.ID, &binding.TargetKind, &binding.TargetID, &scopeID, userID, "add_governance_binding", nil, binding); err != nil {
 		return nil, err
 	}
 	return binding, tx.Commit(ctx)
@@ -275,6 +294,9 @@ func (db *DB) UpdateGovernanceScopeTargetBinding(ctx context.Context, userID, sc
 		return nil, err
 	}
 	if err := rebuildGovernanceActorTargetProjectionTx(ctx, tx, scopeID); err != nil {
+		return nil, err
+	}
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope_target_binding", binding.ID, &binding.TargetKind, &binding.TargetID, &scopeID, userID, "update_governance_binding", current, binding); err != nil {
 		return nil, err
 	}
 	return binding, tx.Commit(ctx)
@@ -382,6 +404,85 @@ func (db *DB) userOwnsTarget(ctx context.Context, userID, targetKind, targetID s
 	return exists, nil
 }
 
+func (db *DB) requireGovernanceBindingTargetAuthority(ctx context.Context, userID, targetKind, targetID string) error {
+	userID = strings.TrimSpace(userID)
+	targetKind = strings.TrimSpace(targetKind)
+	targetID = strings.TrimSpace(targetID)
+	if userID == "" || targetKind == "" || targetID == "" {
+		return fmt.Errorf("%w: user and target are required", ErrTargetValidation)
+	}
+	ok, err := db.userCanManageGovernanceBindingTarget(ctx, userID, targetKind, targetID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrTargetNotFound
+	}
+	return nil
+}
+
+func (db *DB) userCanManageGovernanceBindingTarget(ctx context.Context, userID, targetKind, targetID string) (bool, error) {
+	switch strings.TrimSpace(targetKind) {
+	case "place", "region", "collection":
+		owned, err := db.userOwnsTarget(ctx, userID, targetKind, targetID)
+		if err != nil {
+			return false, err
+		}
+		if owned {
+			return true, nil
+		}
+		return db.CanEditTarget(ctx, userID, targetKind, targetID, "manage_roles")
+	case "course":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM segments
+				WHERE id = $1 AND created_by = $2
+			)
+		`, targetID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	case "route_publication":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM route_course_publications
+				WHERE id = $1 AND actor_user_id = $2 AND retired_at IS NULL
+			)
+		`, targetID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	case "privacy_zone":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM user_privacy_zones
+				WHERE id = $1 AND user_id = $2
+			)
+		`, targetID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	case "tag_zone":
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM tag_zones z
+				JOIN tags t ON t.id = z.tag_id
+				WHERE z.id = $1 AND t.user_id = $2
+			)
+		`, targetID, userID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
+	default:
+		return false, fmt.Errorf("%w: unsupported target kind %q", ErrTargetValidation, targetKind)
+	}
+}
+
 func (db *DB) requireGovernanceScopeManager(ctx context.Context, userID, scopeID string) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" || strings.TrimSpace(scopeID) == "" {
@@ -428,7 +529,7 @@ func governanceTargetTable(targetKind string) string {
 	}
 }
 
-func writeTargetChangeEventTx(ctx context.Context, tx pgx.Tx, subjectType, subjectID string, targetKind, targetID, scopeID *string, actorUserID, action string, snapshot any) error {
+func writeTargetChangeEventTx(ctx context.Context, tx pgx.Tx, subjectType, subjectID string, targetKind, targetID, scopeID *string, actorUserID, action string, beforeSnapshot, afterSnapshot any) error {
 	var eventID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO target_change_events (
@@ -440,9 +541,32 @@ func writeTargetChangeEventTx(ctx context.Context, tx pgx.Tx, subjectType, subje
 	`, subjectType, subjectID, targetKind, targetID, scopeID, actorUserID, action).Scan(&eventID); err != nil {
 		return fmt.Errorf("insert target change event: %w", err)
 	}
-	raw, err := json.Marshal(snapshot)
+	if beforeSnapshot != nil {
+		snapshotID, err := writeTargetRevisionSnapshotTx(ctx, tx, eventID, "before", subjectType, subjectID, targetKind, targetID, scopeID, actorUserID, beforeSnapshot)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE target_change_events SET before_snapshot_id = $1 WHERE id = $2`, snapshotID, eventID); err != nil {
+			return fmt.Errorf("link target before revision snapshot: %w", err)
+		}
+	}
+	if afterSnapshot == nil {
+		return nil
+	}
+	snapshotID, err := writeTargetRevisionSnapshotTx(ctx, tx, eventID, "after", subjectType, subjectID, targetKind, targetID, scopeID, actorUserID, afterSnapshot)
 	if err != nil {
-		return fmt.Errorf("marshal target revision snapshot: %w", err)
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_change_events SET after_snapshot_id = $1 WHERE id = $2`, snapshotID, eventID); err != nil {
+		return fmt.Errorf("link target after revision snapshot: %w", err)
+	}
+	return nil
+}
+
+func writeTargetRevisionSnapshotTx(ctx context.Context, tx pgx.Tx, eventID, role, subjectType, subjectID string, targetKind, targetID, scopeID *string, actorUserID string, snapshot any) (string, error) {
+	raw, err := json.Marshal(targetAuditSnapshot(subjectType, subjectID, targetKind, targetID, scopeID, snapshot))
+	if err != nil {
+		return "", fmt.Errorf("marshal target revision snapshot: %w", err)
 	}
 	hash := targetSnapshotHash(raw)
 	var snapshotID string
@@ -452,15 +576,25 @@ func writeTargetChangeEventTx(ctx context.Context, tx pgx.Tx, subjectType, subje
 			target_kind, target_id, governance_scope_id, snapshot_hash,
 			redaction_policy, snapshot, created_by
 		)
-		VALUES ($1, 'after', $2, $3, $4, $5, $6, $7, 'owner_private', $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'owner_private', $9, $10)
 		RETURNING id
-	`, eventID, subjectType, subjectID, targetKind, targetID, scopeID, hash, raw, actorUserID).Scan(&snapshotID); err != nil {
-		return fmt.Errorf("insert target revision snapshot: %w", err)
+	`, eventID, role, subjectType, subjectID, targetKind, targetID, scopeID, hash, raw, actorUserID).Scan(&snapshotID); err != nil {
+		return "", fmt.Errorf("insert target revision snapshot: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE target_change_events SET after_snapshot_id = $1 WHERE id = $2`, snapshotID, eventID); err != nil {
-		return fmt.Errorf("link target revision snapshot: %w", err)
+	return snapshotID, nil
+}
+
+func targetAuditSnapshot(subjectType, subjectID string, targetKind, targetID, scopeID *string, snapshot any) map[string]any {
+	raw, _ := json.Marshal(snapshot)
+	return map[string]any{
+		"schema":        "target_audit_v1",
+		"subject_type":  subjectType,
+		"subject_id":    subjectID,
+		"target_kind":   targetKind,
+		"target_id":     targetID,
+		"scope_id":      scopeID,
+		"snapshot_hash": targetSnapshotHash(raw),
 	}
-	return nil
 }
 
 func targetSnapshotHash(raw []byte) string {

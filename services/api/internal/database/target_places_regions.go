@@ -57,14 +57,27 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 	}
 	defer tx.Rollback(ctx)
 
+	requiredPermission := "edit_metadata"
+	if input.GeometryGeoJSON != nil {
+		requiredPermission = "edit_geometry"
+	}
+	canEdit, err := db.CanEditTarget(ctx, userID, "place", id, requiredPermission)
+	if err != nil {
+		return nil, err
+	}
+	if !canEdit {
+		return nil, ErrTargetNotFound
+	}
+
 	var currentVisibility string
 	var currentScope *string
+	var ownerUserID *string
 	if err := tx.QueryRow(ctx, `
-		SELECT visibility, access_scope_id
+		SELECT visibility, access_scope_id, owner_user_id
 		FROM target_places
-		WHERE id = $1 AND owner_user_id = $2 AND archived_at IS NULL
+		WHERE id = $1 AND archived_at IS NULL
 		FOR UPDATE
-	`, id, userID).Scan(&currentVisibility, &currentScope); err != nil {
+	`, id).Scan(&currentVisibility, &currentScope, &ownerUserID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTargetNotFound
 		}
@@ -81,8 +94,14 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 	if nextVisibility != "shared" {
 		nextScope = nil
 	}
-	if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
-		return nil, err
+	ownerEdit := ownerUserID != nil && *ownerUserID == userID
+	if !ownerEdit && (input.Visibility != nil || input.AccessScopeID != nil) {
+		return nil, ErrTargetNotFound
+	}
+	if ownerEdit {
+		if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
+			return nil, err
+		}
 	}
 
 	place, err := updateTargetPlaceTx(ctx, tx, userID, id, input, nextVisibility, nextScope)
@@ -120,6 +139,9 @@ func (db *DB) GetTargetPlace(ctx context.Context, userID, id string, visibleScop
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
+	if place != nil {
+		redactTargetPlaceForViewer(place, params)
+	}
 	return place, err
 }
 
@@ -146,6 +168,7 @@ func (db *DB) ListTargetPlaces(ctx context.Context, params model.ListTargetObjec
 		if err != nil {
 			return nil, err
 		}
+		redactTargetPlaceForViewer(place, params)
 		places = append(places, *place)
 	}
 	return places, rows.Err()
@@ -195,14 +218,27 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 	}
 	defer tx.Rollback(ctx)
 
+	requiredPermission := "edit_metadata"
+	if input.GeometryGeoJSON != nil {
+		requiredPermission = "edit_geometry"
+	}
+	canEdit, err := db.CanEditTarget(ctx, userID, "region", id, requiredPermission)
+	if err != nil {
+		return nil, err
+	}
+	if !canEdit {
+		return nil, ErrTargetNotFound
+	}
+
 	var currentVisibility string
 	var currentScope *string
+	var ownerUserID *string
 	if err := tx.QueryRow(ctx, `
-		SELECT visibility, access_scope_id
+		SELECT visibility, access_scope_id, owner_user_id
 		FROM target_regions
-		WHERE id = $1 AND owner_user_id = $2 AND archived_at IS NULL
+		WHERE id = $1 AND archived_at IS NULL
 		FOR UPDATE
-	`, id, userID).Scan(&currentVisibility, &currentScope); err != nil {
+	`, id).Scan(&currentVisibility, &currentScope, &ownerUserID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTargetNotFound
 		}
@@ -219,8 +255,14 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 	if nextVisibility != "shared" {
 		nextScope = nil
 	}
-	if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
-		return nil, err
+	ownerEdit := ownerUserID != nil && *ownerUserID == userID
+	if !ownerEdit && (input.Visibility != nil || input.AccessScopeID != nil) {
+		return nil, ErrTargetNotFound
+	}
+	if ownerEdit {
+		if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
+			return nil, err
+		}
 	}
 
 	region, err := updateTargetRegionTx(ctx, tx, userID, id, input, nextVisibility, nextScope)
@@ -258,6 +300,9 @@ func (db *DB) GetTargetRegion(ctx context.Context, userID, id string, visibleSco
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
+	if region != nil {
+		redactTargetRegionForViewer(region, params)
+	}
 	return region, err
 }
 
@@ -284,6 +329,7 @@ func (db *DB) ListTargetRegions(ctx context.Context, params model.ListTargetObje
 		if err != nil {
 			return nil, err
 		}
+		redactTargetRegionForViewer(region, params)
 		regions = append(regions, *region)
 	}
 	return regions, rows.Err()
@@ -321,7 +367,7 @@ func insertTargetPlaceTx(ctx context.Context, tx pgx.Tx, userID string, input mo
 }
 
 func updateTargetPlaceTx(ctx context.Context, tx pgx.Tx, userID, id string, input model.TargetPlaceUpdate, visibility string, accessScopeID *string) (*model.TargetPlace, error) {
-	current, err := scanTargetPlace(tx.QueryRow(ctx, `SELECT `+targetPlaceColumnsSQL("t")+` FROM target_places t WHERE id = $1 AND owner_user_id = $2`, id, userID))
+	current, err := scanTargetPlace(tx.QueryRow(ctx, `SELECT `+targetPlaceColumnsSQL("t")+` FROM target_places t WHERE id = $1 AND archived_at IS NULL`, id))
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +388,7 @@ func updateTargetPlaceTx(ctx context.Context, tx pgx.Tx, userID, id string, inpu
 		metadata = targetMetadata(*input.Metadata)
 	}
 	geometryExpr := "geom"
-	args := []any{name, input.Description, placeKind, visibility, accessScopeID, input.ExternalRefKind, input.ExternalRefID, input.ExternalRef, externalRefVisibility, metadata, id, userID}
+	args := []any{name, input.Description, placeKind, visibility, accessScopeID, input.ExternalRefKind, input.ExternalRefID, input.ExternalRef, externalRefVisibility, metadata, id}
 	if input.GeometryGeoJSON != nil {
 		geometryExpr = fmt.Sprintf("ST_SetSRID(ST_GeomFromGeoJSON($%d), 4326)", len(args)+1)
 		args = append(args, *input.GeometryGeoJSON)
@@ -361,7 +407,7 @@ func updateTargetPlaceTx(ctx context.Context, tx pgx.Tx, userID, id string, inpu
 		    external_ref_visibility = $9,
 		    metadata = $10,
 		    updated_at = NOW()
-		WHERE id = $11 AND owner_user_id = $12 AND archived_at IS NULL
+		WHERE id = $11 AND archived_at IS NULL
 		RETURNING `+targetPlaceColumnsSQL(""), args...))
 }
 
@@ -385,7 +431,7 @@ func insertTargetRegionTx(ctx context.Context, tx pgx.Tx, userID string, input m
 }
 
 func updateTargetRegionTx(ctx context.Context, tx pgx.Tx, userID, id string, input model.TargetRegionUpdate, visibility string, accessScopeID *string) (*model.TargetRegion, error) {
-	current, err := scanTargetRegion(tx.QueryRow(ctx, `SELECT `+targetRegionColumnsSQL("t")+` FROM target_regions t WHERE id = $1 AND owner_user_id = $2`, id, userID))
+	current, err := scanTargetRegion(tx.QueryRow(ctx, `SELECT `+targetRegionColumnsSQL("t")+` FROM target_regions t WHERE id = $1 AND archived_at IS NULL`, id))
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +452,7 @@ func updateTargetRegionTx(ctx context.Context, tx pgx.Tx, userID, id string, inp
 		metadata = targetMetadata(*input.Metadata)
 	}
 	geometryExpr := "geom"
-	args := []any{name, input.Description, regionKind, visibility, accessScopeID, input.ExternalRefKind, input.ExternalRefID, input.ExternalRef, externalRefVisibility, metadata, id, userID}
+	args := []any{name, input.Description, regionKind, visibility, accessScopeID, input.ExternalRefKind, input.ExternalRefID, input.ExternalRef, externalRefVisibility, metadata, id}
 	if input.GeometryGeoJSON != nil {
 		geometryExpr = fmt.Sprintf("ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($%d), 4326))", len(args)+1)
 		args = append(args, *input.GeometryGeoJSON)
@@ -425,7 +471,7 @@ func updateTargetRegionTx(ctx context.Context, tx pgx.Tx, userID, id string, inp
 		    external_ref_visibility = $9,
 		    metadata = $10,
 		    updated_at = NOW()
-		WHERE id = $11 AND owner_user_id = $12 AND archived_at IS NULL
+		WHERE id = $11 AND archived_at IS NULL
 		RETURNING `+targetRegionColumnsSQL(""), args...))
 }
 
@@ -434,6 +480,13 @@ func (db *DB) archiveTargetObject(ctx context.Context, table, projectionKind, us
 	id = strings.TrimSpace(id)
 	if userID == "" || id == "" {
 		return fmt.Errorf("%w: owner user and object id are required", ErrTargetValidation)
+	}
+	canEdit, err := db.CanEditTarget(ctx, userID, projectionKind, id, "hide_or_archive")
+	if err != nil {
+		return err
+	}
+	if !canEdit {
+		return ErrTargetNotFound
 	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -444,8 +497,8 @@ func (db *DB) archiveTargetObject(ctx context.Context, table, projectionKind, us
 		UPDATE `+table+`
 		SET archived_at = COALESCE(archived_at, NOW()),
 		    updated_at = NOW()
-		WHERE id = $1 AND owner_user_id = $2 AND archived_at IS NULL
-	`, id, userID)
+		WHERE id = $1 AND archived_at IS NULL
+	`, id)
 	if err != nil {
 		return fmt.Errorf("archive %s: %w", projectionKind, err)
 	}
@@ -567,6 +620,41 @@ func targetRegionColumnsSQL(alias string) string {
 		` + prefix + `visibility, ` + prefix + `access_scope_id, ` + prefix + `origin_key, ` + prefix + `external_ref_kind,
 		` + prefix + `external_ref_id, ` + prefix + `external_ref, ` + prefix + `external_ref_visibility, ` + prefix + `metadata,
 		` + prefix + `created_by, ` + prefix + `created_at, ` + prefix + `updated_at, ` + prefix + `archived_at`
+}
+
+func redactTargetPlaceForViewer(place *model.TargetPlace, params model.ListTargetObjectsParams) {
+	if targetObjectCanSeeExternalRef(place.OwnerUserID, place.Visibility, place.ExternalRefVisibility, params.UserID, params.IsAdmin) {
+		return
+	}
+	place.ExternalRefKind = nil
+	place.ExternalRefID = nil
+	place.ExternalRef = nil
+}
+
+func redactTargetRegionForViewer(region *model.TargetRegion, params model.ListTargetObjectsParams) {
+	if targetObjectCanSeeExternalRef(region.OwnerUserID, region.Visibility, region.ExternalRefVisibility, params.UserID, params.IsAdmin) {
+		return
+	}
+	region.ExternalRefKind = nil
+	region.ExternalRefID = nil
+	region.ExternalRef = nil
+}
+
+func targetObjectCanSeeExternalRef(ownerUserID *string, visibility, refVisibility, userID string, isAdmin bool) bool {
+	if isAdmin {
+		return true
+	}
+	if ownerUserID != nil && strings.TrimSpace(userID) != "" && *ownerUserID == strings.TrimSpace(userID) {
+		return true
+	}
+	switch strings.TrimSpace(refVisibility) {
+	case "public_safe":
+		return true
+	case "shared_safe":
+		return strings.TrimSpace(visibility) == "shared" && strings.TrimSpace(userID) != ""
+	default:
+		return false
+	}
 }
 
 func targetColumnPrefix(alias string) string {

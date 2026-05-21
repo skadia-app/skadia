@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/google/uuid"
 )
 
 func TestCreateListTargetCollectionsWithAccessScopes(t *testing.T) {
@@ -89,6 +90,115 @@ func TestCollectionMembersAuthorizeCollectionAndMemberSeparately(t *testing.T) {
 	}
 }
 
+func TestCollectionSummaryDoesNotLeakPrivateMemberEnvelopeOrCounts(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	collection := createTargetCollectionFixture(t, db, ownerID, "public private-only", "public", nil)
+	privatePlace := createTargetPlaceFixture(t, db, ownerID, "private only member", "private", nil, `[8,49]`)
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", privatePlace.ID, "poi")
+
+	publicSummaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetCollections public: %v", err)
+	}
+	publicSummary := findTargetCollectionSummary(t, publicSummaries, collection.ID)
+	if publicSummary.BoundsGeoJSON != nil {
+		t.Fatalf("public summary leaked private member bounds: %s", *publicSummary.BoundsGeoJSON)
+	}
+	if publicSummary.OwnerMemberCount != 0 || publicSummary.PublicMemberCount != 0 {
+		t.Fatalf("public counts owner=%d public=%d, want 0/0", publicSummary.OwnerMemberCount, publicSummary.PublicMemberCount)
+	}
+
+	ownerSummaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: ownerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetCollections owner: %v", err)
+	}
+	ownerSummary := findTargetCollectionSummary(t, ownerSummaries, collection.ID)
+	if ownerSummary.OwnerMemberCount != 1 {
+		t.Fatalf("owner count = %d, want 1", ownerSummary.OwnerMemberCount)
+	}
+}
+
+func TestTargetCollectionExternalRefsAreViewerRedacted(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	refKind := "source"
+	refID := uuid.NewString()
+	refValue := "source:collection-private"
+	collection, err := db.CreateTargetCollection(ctx, ownerID, model.TargetCollectionCreate{
+		Name:                  "redacted collection",
+		CollectionKind:        "private_map",
+		Visibility:            "public",
+		OriginKey:             "manual",
+		ExternalRefKind:       &refKind,
+		ExternalRefID:         &refID,
+		ExternalRef:           &refValue,
+		ExternalRefVisibility: "owner_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTargetCollection: %v", err)
+	}
+
+	publicDetail, err := db.GetTargetCollection(ctx, "", collection.ID, nil, false)
+	if err != nil {
+		t.Fatalf("GetTargetCollection public: %v", err)
+	}
+	if publicDetail.ExternalRefKind != nil || publicDetail.ExternalRefID != nil || publicDetail.ExternalRef != nil {
+		t.Fatalf("public collection leaked external refs: %#v", publicDetail.TargetCollection)
+	}
+
+	ownerDetail, err := db.GetTargetCollection(ctx, ownerID, collection.ID, nil, false)
+	if err != nil {
+		t.Fatalf("GetTargetCollection owner: %v", err)
+	}
+	if ownerDetail.ExternalRefKind == nil || ownerDetail.ExternalRefID == nil || ownerDetail.ExternalRef == nil {
+		t.Fatalf("owner collection refs were redacted: %#v", ownerDetail.TargetCollection)
+	}
+}
+
+func TestCollectionRejectsUnknownCourseMember(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	collection := createTargetCollectionFixture(t, db, ownerID, "unknown course", "private", nil)
+	missingID := uuid.NewString()
+	_, err := db.AddTargetCollectionMember(ctx, ownerID, collection.ID, model.TargetCollectionMemberCreate{
+		MemberKind: "course",
+		MemberID:   &missingID,
+		OriginKey:  "manual",
+	})
+	if err == nil {
+		t.Fatal("collection accepted unknown course member")
+	}
+}
+
+func TestGovernanceManageMembersCanEditCollectionMembers(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	collection := createTargetCollectionFixture(t, db, ownerID, "delegated collection", "public", nil)
+	place := createTargetPlaceFixture(t, db, ownerID, "delegated member", "public", nil, `[8,49]`)
+	scope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:               "collection_scope",
+		AnchorCollectionID: &collection.ID,
+		OwnerScope:         "user",
+		OriginKey:          "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope: %v", err)
+	}
+	addGovernanceRoleFixture(t, db, ownerID, scope.ID, managerID, []string{"manage_members"})
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "collection", collection.ID, "membership")
+
+	if _, err := db.AddTargetCollectionMember(ctx, managerID, collection.ID, model.TargetCollectionMemberCreate{
+		MemberKind: "place",
+		MemberID:   &place.ID,
+		OriginKey:  "manual",
+		Role:       "poi",
+	}); err != nil {
+		t.Fatalf("delegated AddTargetCollectionMember: %v", err)
+	}
+}
+
 func TestCollectionSummaryProjectionTracksBoundsAndCounts(t *testing.T) {
 	db, ownerID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -99,7 +209,7 @@ func TestCollectionSummaryProjectionTracksBoundsAndCounts(t *testing.T) {
 	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", place.ID, "poi")
 	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "region", region.ID, "area")
 
-	summaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{Limit: 20})
+	summaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: ownerID, Limit: 20})
 	if err != nil {
 		t.Fatalf("ListTargetCollections: %v", err)
 	}
@@ -123,7 +233,7 @@ func TestCollectionSummaryInvalidatesWhenMemberChanges(t *testing.T) {
 	if _, err := db.UpdateTargetPlace(ctx, ownerID, place.ID, model.TargetPlaceUpdate{Visibility: &privateVisibility}); err != nil {
 		t.Fatalf("UpdateTargetPlace private: %v", err)
 	}
-	summaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{Limit: 20})
+	summaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: ownerID, Limit: 20})
 	if err != nil {
 		t.Fatalf("ListTargetCollections after update: %v", err)
 	}

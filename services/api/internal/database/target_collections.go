@@ -69,12 +69,20 @@ func (db *DB) UpdateTargetCollection(ctx context.Context, userID, id string, inp
 	}
 	defer tx.Rollback(ctx)
 
+	canEdit, err := db.CanEditTarget(ctx, userID, "collection", id, "edit_metadata")
+	if err != nil {
+		return nil, err
+	}
+	if !canEdit {
+		return nil, ErrTargetNotFound
+	}
+
 	current, err := scanTargetCollection(tx.QueryRow(ctx, `
 		SELECT `+targetCollectionColumnsSQL("t")+`
 		FROM target_collections t
-		WHERE id = $1 AND owner_user_id = $2 AND archived_at IS NULL
+		WHERE id = $1 AND archived_at IS NULL
 		FOR UPDATE
-	`, id, userID))
+	`, id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrTargetNotFound
@@ -92,8 +100,14 @@ func (db *DB) UpdateTargetCollection(ctx context.Context, userID, id string, inp
 	if visibility != "shared" {
 		accessScopeID = nil
 	}
-	if err := db.validateTargetAccessForUserOwner(ctx, visibility, accessScopeID, userID); err != nil {
-		return nil, err
+	ownerEdit := current.OwnerUserID != nil && *current.OwnerUserID == userID
+	if !ownerEdit && (input.Visibility != nil || input.AccessScopeID != nil) {
+		return nil, ErrTargetNotFound
+	}
+	if ownerEdit {
+		if err := db.validateTargetAccessForUserOwner(ctx, visibility, accessScopeID, userID); err != nil {
+			return nil, err
+		}
 	}
 	name := current.Name
 	if input.Name != nil {
@@ -135,11 +149,11 @@ func (db *DB) UpdateTargetCollection(ctx context.Context, userID, id string, inp
 		    external_ref_visibility = $11,
 		    metadata = $12,
 		    updated_at = NOW()
-		WHERE id = $13 AND owner_user_id = $14 AND archived_at IS NULL
+		WHERE id = $13 AND archived_at IS NULL
 		RETURNING `+targetCollectionColumnsSQL(""),
 		name, input.Description, kind, visibility, accessScopeID, displayStyle,
 		defaultSort, input.ExternalRefKind, input.ExternalRefID, input.ExternalRef,
-		externalRefVisibility, metadata, id, userID,
+		externalRefVisibility, metadata, id,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("update target collection: %w", err)
@@ -159,6 +173,13 @@ func (db *DB) ArchiveTargetCollection(ctx context.Context, userID, id string) er
 	if userID == "" || id == "" {
 		return fmt.Errorf("%w: owner user and collection id are required", ErrTargetValidation)
 	}
+	canEdit, err := db.CanEditTarget(ctx, userID, "collection", id, "hide_or_archive")
+	if err != nil {
+		return err
+	}
+	if !canEdit {
+		return ErrTargetNotFound
+	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin archive target collection: %w", err)
@@ -168,8 +189,8 @@ func (db *DB) ArchiveTargetCollection(ctx context.Context, userID, id string) er
 		UPDATE target_collections
 		SET archived_at = COALESCE(archived_at, NOW()),
 		    updated_at = NOW()
-		WHERE id = $1 AND owner_user_id = $2 AND archived_at IS NULL
-	`, id, userID)
+		WHERE id = $1 AND archived_at IS NULL
+	`, id)
 	if err != nil {
 		return fmt.Errorf("archive target collection: %w", err)
 	}
@@ -204,6 +225,7 @@ func (db *DB) GetTargetCollection(ctx context.Context, userID, id string, visibl
 		}
 		return nil, fmt.Errorf("get target collection: %w", err)
 	}
+	redactTargetCollectionForViewer(collection, params)
 	detail := &model.TargetCollectionDetail{TargetCollection: *collection}
 	if !includeMembers {
 		return detail, nil
@@ -266,6 +288,7 @@ func (db *DB) ListTargetCollections(ctx context.Context, params model.ListTarget
 		); err != nil {
 			return nil, err
 		}
+		redactTargetCollectionSummaryForViewer(&summary, params)
 		out = append(out, summary)
 	}
 	return out, rows.Err()
@@ -297,7 +320,7 @@ func (db *DB) AddTargetCollectionMember(ctx context.Context, userID, collectionI
 		return nil, fmt.Errorf("begin add target collection member: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := assertTargetCollectionOwnerTx(ctx, tx, collectionID, userID); err != nil {
+	if err := db.requireTargetCollectionMemberManagerTx(ctx, tx, collectionID, userID); err != nil {
 		return nil, err
 	}
 	if err := db.validateTargetCollectionMemberVisibleTx(ctx, tx, userID, memberKind, input.MemberID); err != nil {
@@ -355,7 +378,7 @@ func (db *DB) UpdateTargetCollectionMember(ctx context.Context, userID, collecti
 		return nil, fmt.Errorf("begin update target collection member: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := assertTargetCollectionOwnerTx(ctx, tx, collectionID, userID); err != nil {
+	if err := db.requireTargetCollectionMemberManagerTx(ctx, tx, collectionID, userID); err != nil {
 		return nil, err
 	}
 	current, err := scanTargetCollectionMember(tx.QueryRow(ctx, `
@@ -429,7 +452,7 @@ func (db *DB) RemoveTargetCollectionMember(ctx context.Context, userID, collecti
 		return fmt.Errorf("begin remove target collection member: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := assertTargetCollectionOwnerTx(ctx, tx, collectionID, userID); err != nil {
+	if err := db.requireTargetCollectionMemberManagerTx(ctx, tx, collectionID, userID); err != nil {
 		return err
 	}
 	tag, err := tx.Exec(ctx, `
@@ -518,10 +541,14 @@ func rebuildTargetCollectionSummaryTx(ctx context.Context, tx pgx.Tx, collection
 			SELECT p.geom
 			FROM active_members m
 			JOIN target_places p ON m.member_kind = 'place' AND p.id = m.member_id AND p.archived_at IS NULL
+			WHERE m.membership_visibility <> 'owner_only'
+			  AND p.visibility = 'public'
 			UNION ALL
 			SELECT r.geom
 			FROM active_members m
 			JOIN target_regions r ON m.member_kind = 'region' AND r.id = m.member_id AND r.archived_at IS NULL
+			WHERE m.membership_visibility <> 'owner_only'
+			  AND r.visibility = 'public'
 		),
 		member_counts AS (
 			SELECT
@@ -555,6 +582,19 @@ func rebuildTargetCollectionSummaryTx(ctx context.Context, tx pgx.Tx, collection
 		CROSS JOIN member_counts mc
 		WHERE c.id = $1
 		  AND c.archived_at IS NULL
+		ON CONFLICT (collection_id) DO UPDATE SET
+			owner_user_id = EXCLUDED.owner_user_id,
+			lifecycle_owner_kind = EXCLUDED.lifecycle_owner_kind,
+			lifecycle_owner_ref = EXCLUDED.lifecycle_owner_ref,
+			name = EXCLUDED.name,
+			collection_kind = EXCLUDED.collection_kind,
+			visibility = EXCLUDED.visibility,
+			access_scope_id = EXCLUDED.access_scope_id,
+			bounds = EXCLUDED.bounds,
+			owner_member_count = EXCLUDED.owner_member_count,
+			public_member_count = EXCLUDED.public_member_count,
+			updated_at = EXCLUDED.updated_at,
+			archived_at = EXCLUDED.archived_at
 	`, collectionID); err != nil {
 		return fmt.Errorf("rebuild collection summary projection: %w", err)
 	}
@@ -663,6 +703,14 @@ func (db *DB) collectionMemberVisible(ctx context.Context, member model.TargetCo
 		return targetObjectVisibleByProjection(ctx, db, "region", *member.MemberID, userID, visibleScopes)
 	case "collection":
 		return targetCollectionVisibleBySummary(ctx, db, *member.MemberID, userID, visibleScopes)
+	case "course":
+		return targetCourseVisible(ctx, db, *member.MemberID, userID, visibleScopes)
+	case "route_publication":
+		return targetRoutePublicationVisible(ctx, db, *member.MemberID, userID, visibleScopes)
+	case "privacy_zone":
+		return targetPrivacyZoneVisible(ctx, db, *member.MemberID, userID)
+	case "tag_zone":
+		return targetTagZoneVisible(ctx, db, *member.MemberID, userID)
 	case "external_ref":
 		return member.MembershipVisibility == "public_safe", nil
 	default:
@@ -719,6 +767,87 @@ func targetCollectionVisibleBySummary(ctx context.Context, db *DB, id, userID st
 	return exists, nil
 }
 
+func targetCourseVisible(ctx context.Context, db *DB, id, userID string, visibleScopes []string) (bool, error) {
+	var userArg any
+	if strings.TrimSpace(userID) != "" {
+		userArg = strings.TrimSpace(userID)
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM segments
+			WHERE id = $1
+			  AND (
+				visibility = 'public'
+				OR created_by = $2::uuid
+				OR (visibility = 'shared' AND access_scope_id = ANY($3::uuid[]))
+			  )
+		)
+	`, id, userArg, visibleScopes).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func targetRoutePublicationVisible(ctx context.Context, db *DB, id, userID string, visibleScopes []string) (bool, error) {
+	var userArg any
+	if strings.TrimSpace(userID) != "" {
+		userArg = strings.TrimSpace(userID)
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM route_course_publications
+			WHERE id = $1
+			  AND retired_at IS NULL
+			  AND (
+				visibility_snapshot = 'public'
+				OR actor_user_id = $2::uuid
+				OR (visibility_snapshot = 'shared' AND access_scope_id_snapshot = ANY($3::uuid[]))
+			  )
+		)
+	`, id, userArg, visibleScopes).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func targetPrivacyZoneVisible(ctx context.Context, db *DB, id, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_privacy_zones
+			WHERE id = $1 AND user_id = $2
+		)
+	`, id, strings.TrimSpace(userID)).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func targetTagZoneVisible(ctx context.Context, db *DB, id, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM tag_zones z
+			JOIN tags t ON t.id = z.tag_id
+			WHERE z.id = $1 AND t.user_id = $2
+		)
+	`, id, strings.TrimSpace(userID)).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 func (db *DB) validateTargetCollectionMemberVisibleTx(ctx context.Context, tx pgx.Tx, userID, memberKind string, memberID *string) error {
 	if memberKind == "external_ref" {
 		return nil
@@ -740,8 +869,24 @@ func (db *DB) validateTargetCollectionMemberVisibleTx(ctx context.Context, tx pg
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM target_collections WHERE id = $1 AND archived_at IS NULL AND (visibility = 'public' OR owner_user_id = $2))`, *memberID, userID).Scan(&exists); err != nil {
 			return err
 		}
+	case "course":
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM segments WHERE id = $1 AND (visibility = 'public' OR created_by = $2))`, *memberID, userID).Scan(&exists); err != nil {
+			return err
+		}
+	case "route_publication":
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM route_course_publications WHERE id = $1 AND retired_at IS NULL AND (visibility_snapshot = 'public' OR actor_user_id = $2))`, *memberID, userID).Scan(&exists); err != nil {
+			return err
+		}
+	case "privacy_zone":
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM user_privacy_zones WHERE id = $1 AND user_id = $2)`, *memberID, userID).Scan(&exists); err != nil {
+			return err
+		}
+	case "tag_zone":
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tag_zones z JOIN tags t ON t.id = z.tag_id WHERE z.id = $1 AND t.user_id = $2)`, *memberID, userID).Scan(&exists); err != nil {
+			return err
+		}
 	default:
-		exists = true
+		return fmt.Errorf("%w: unsupported member kind %q", ErrTargetValidation, memberKind)
 	}
 	if !exists {
 		return ErrTargetNotFound
@@ -794,6 +939,22 @@ func assertTargetCollectionOwnerTx(ctx context.Context, tx pgx.Tx, collectionID,
 	return nil
 }
 
+func (db *DB) requireTargetCollectionMemberManagerTx(ctx context.Context, tx pgx.Tx, collectionID, userID string) error {
+	if err := assertTargetCollectionOwnerTx(ctx, tx, collectionID, userID); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrTargetNotFound) {
+		return err
+	}
+	canEdit, err := db.CanEditTarget(ctx, userID, "collection", collectionID, "manage_members")
+	if err != nil {
+		return err
+	}
+	if !canEdit {
+		return ErrTargetNotFound
+	}
+	return nil
+}
+
 func targetCollectionVisibilityWhere(alias string, params model.ListTargetCollectionsParams) ([]any, string) {
 	var userArg any
 	if strings.TrimSpace(params.UserID) != "" {
@@ -806,6 +967,24 @@ func targetCollectionVisibilityWhere(alias string, params model.ListTargetCollec
 		OR (%[1]s.owner_user_id = $1::uuid)
 		OR (%[1]s.visibility = 'shared' AND %[1]s.access_scope_id = ANY($3::uuid[]))
 	)`, alias)
+}
+
+func redactTargetCollectionForViewer(collection *model.TargetCollection, params model.ListTargetCollectionsParams) {
+	if targetObjectCanSeeExternalRef(collection.OwnerUserID, collection.Visibility, collection.ExternalRefVisibility, params.UserID, params.IsAdmin) {
+		return
+	}
+	collection.ExternalRefKind = nil
+	collection.ExternalRefID = nil
+	collection.ExternalRef = nil
+}
+
+func redactTargetCollectionSummaryForViewer(summary *model.TargetCollectionSummary, params model.ListTargetCollectionsParams) {
+	if params.IsAdmin || summary.OwnerUserID != nil && strings.TrimSpace(params.UserID) != "" && *summary.OwnerUserID == strings.TrimSpace(params.UserID) {
+		return
+	}
+	summary.OwnerMemberCount = summary.PublicMemberCount
+	summary.OwnerCountsByKind = summary.PublicCountsByKind
+	summary.OwnerCountsByRole = summary.PublicCountsByRole
 }
 
 func targetCollectionColumnsSQL(alias string) string {

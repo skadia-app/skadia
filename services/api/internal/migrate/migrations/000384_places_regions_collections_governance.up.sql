@@ -199,7 +199,7 @@ CREATE INDEX idx_target_collection_member_reverse_index_collection ON target_col
 CREATE TABLE target_object_search_projection (
     object_kind TEXT NOT NULL,
     object_id UUID NOT NULL,
-    owner_user_id UUID,
+    owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     lifecycle_owner_kind TEXT NOT NULL,
     lifecycle_owner_ref TEXT,
     name TEXT NOT NULL,
