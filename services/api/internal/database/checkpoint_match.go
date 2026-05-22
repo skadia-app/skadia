@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,18 +58,43 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 	}
 
 	var attempts []CheckpointAttempt
-	cursor := 0
-	for cursor < len(samples) {
+	for startIdx := range samples {
+		_, startHit := checkpointSampleHitsControl(samples[startIdx], effective[0])
+		if !startHit {
+			continue
+		}
+		if startIdx > 0 {
+			_, previousStartHit := checkpointSampleHitsControl(samples[startIdx-1], effective[0])
+			if previousStartHit {
+				continue
+			}
+		}
+
 		hits := make([]model.CheckpointControlHit, 0, len(controls))
-		firstIdx := -1
-		lastIdx := -1
-		searchFrom := cursor
-		var previousHitAt *time.Time
-		for controlIdx, control := range controls {
+		startSample := samples[startIdx]
+		startDistance, _ := checkpointSampleHitsControl(startSample, effective[0])
+		var nearest *float64
+		if startDistance >= 0 {
+			nearest = &startDistance
+		}
+		hits = append(hits, model.CheckpointControlHit{
+			ControlID:           controls[0].ID,
+			SequenceIndex:       controls[0].SequenceIndex,
+			EnteredAt:           startSample.Time,
+			ActivityStreamIndex: startSample.Index,
+			NearestDistanceM:    nearest,
+			EvidenceHash:        checkpointControlEvidenceHash(controls[0].SequenceIndex, startSample.Index, startSample.Time),
+		})
+
+		lastIdx := startIdx
+		searchFrom := startIdx + 1
+		previousHitAt := startSample.Time
+		for controlIdx := 1; controlIdx < len(controls); controlIdx++ {
+			control := controls[controlIdx]
 			foundIdx := -1
 			var nearest *float64
 			for sampleIdx := searchFrom; sampleIdx < len(samples); sampleIdx++ {
-				if previousHitAt != nil && !samples[sampleIdx].Time.After(*previousHitAt) {
+				if !samples[sampleIdx].Time.After(previousHitAt) {
 					continue
 				}
 				distance, hit := checkpointSampleHitsControl(samples[sampleIdx], effective[controlIdx])
@@ -93,30 +119,23 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 				NearestDistanceM:    nearest,
 				EvidenceHash:        checkpointControlEvidenceHash(control.SequenceIndex, sample.Index, sample.Time),
 			})
-			if controlIdx == 0 {
-				firstIdx = foundIdx
-			}
 			lastIdx = foundIdx
-			previousHitAt = &sample.Time
+			previousHitAt = sample.Time
 			searchFrom = foundIdx + 1
 		}
 		if len(hits) != len(controls) {
-			cursor++
 			continue
 		}
-		startSample := samples[firstIdx]
 		finishSample := samples[lastIdx]
 		elapsed := int(finishSample.Time.Sub(startSample.Time).Seconds())
 		if elapsed <= 0 {
-			cursor = firstIdx + 1
 			continue
 		}
 		attempt := CheckpointAttempt{
-			StartedAt:       startSample.Time,
-			FinishedAt:      finishSample.Time,
-			ElapsedTimeS:    elapsed,
-			OccurrenceIndex: len(attempts),
-			ControlHits:     hits,
+			StartedAt:    startSample.Time,
+			FinishedAt:   finishSample.Time,
+			ElapsedTimeS: elapsed,
+			ControlHits:  hits,
 		}
 		if startSample.DistanceM != nil && finishSample.DistanceM != nil {
 			d := *finishSample.DistanceM - *startSample.DistanceM
@@ -130,9 +149,17 @@ func MatchCheckpointSequenceV1(samples []CheckpointActivitySample, controls []mo
 				attempt.ElevationGainM = &gain
 			}
 		}
-		attempt.OccurrenceHash = checkpointAttemptHash(attempt)
 		attempts = append(attempts, attempt)
-		cursor = lastIdx + 1
+	}
+	sort.SliceStable(attempts, func(i, j int) bool {
+		if attempts[i].StartedAt.Equal(attempts[j].StartedAt) {
+			return attempts[i].ControlHits[0].ActivityStreamIndex < attempts[j].ControlHits[0].ActivityStreamIndex
+		}
+		return attempts[i].StartedAt.Before(attempts[j].StartedAt)
+	})
+	for i := range attempts {
+		attempts[i].OccurrenceIndex = i
+		attempts[i].OccurrenceHash = checkpointAttemptHash(attempts[i])
 	}
 	return attempts, nil
 }
