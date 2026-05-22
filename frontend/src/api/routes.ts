@@ -9,30 +9,30 @@ export type { RouteSubSegment }
 // === Types ===
 
 export interface RouteWaypoint {
-  id: string                      // UUID (frontend-generated)
+  id: string // UUID (frontend-generated)
   latlng: [number, number]
   type: 'start' | 'via' | 'end'
-  poi_id?: number                 // Reference to osm_pois
-  poi_name?: string               // e.g. "Bettelwurfhütte (2077m)"
-  poi_type?: string               // e.g. "alpine_hut", "peak"
+  poi_id?: number // Reference to osm_pois
+  poi_name?: string // e.g. "Bettelwurfhütte (2077m)"
+  poi_type?: string // e.g. "alpine_hut", "peak"
 }
 
 export interface RouteSegment {
-  from_waypoint: string           // Waypoint ID
-  to_waypoint: string             // Waypoint ID
+  from_waypoint: string // Waypoint ID
+  to_waypoint: string // Waypoint ID
   mode: 'routed' | 'offroad'
-  geometry?: GeoJSON.LineString   // BRouter or offroad polyline
+  geometry?: GeoJSON.LineString // BRouter or offroad polyline
   control_points: [number, number][] // Offroad: shape points
-  smooth: boolean                 // Catmull-Rom spline on/off
-  distance_m: number              // network-only (routed edges, without approach)
-  total_distance_m?: number       // approach-inclusive (= ElevationProfile[last].DistM); absent for BRouter/offroad
-  elevation_gain: number          // DEM-based
+  smooth: boolean // Catmull-Rom spline on/off
+  distance_m: number // network-only (routed edges, without approach)
+  total_distance_m?: number // approach-inclusive (= ElevationProfile[last].DistM); absent for BRouter/offroad
+  elevation_gain: number // DEM-based
   elevation_loss: number
-  elevation_estimated?: boolean   // true for offroad segments (no DEM lookup)
-  approach_from?: number[][]      // [lon, lat] pairs: click point → edge projection
-  approach_to?: number[][]        // [lon, lat] pairs: edge projection → click point
+  elevation_estimated?: boolean // true for offroad segments (no DEM lookup)
+  approach_from?: number[][] // [lon, lat] pairs: click point → edge projection
+  approach_to?: number[][] // [lon, lat] pairs: edge projection → click point
   sub_segments?: RouteSubSegment[] // From BadRouter GeoJSON properties.segments
-  elevation_profile?: RouteElevationPoint[] | null  // NEW — per-segment Frontend-State (Spec §6.2)
+  elevation_profile?: RouteElevationPoint[] | null // NEW — per-segment Frontend-State (Spec §6.2)
 }
 
 export interface RoutePhoto {
@@ -47,7 +47,7 @@ export interface RoutePhoto {
 export interface PlannedRoute {
   id: string
   name: string
-  description?: string            // Markdown
+  description?: string // Markdown
   sport_type: string
   sub_type?: string | null
   is_electric?: boolean
@@ -55,7 +55,7 @@ export interface PlannedRoute {
   is_virtual?: boolean
   is_commute?: boolean
   difficulty?: string
-  profile: string                 // BRouter profile
+  profile: string // BRouter profile
   waypoints: RouteWaypoint[]
   segments: RouteSegment[]
   total_distance_m?: number
@@ -64,10 +64,10 @@ export interface PlannedRoute {
   estimated_time_min?: number
   time_override: boolean
   auto_tag: boolean
-  geometry_geojson?: string        // ST_AsGeoJSON — present in list (simplified) and detail
-  elevation_profile?: RouteElevationPoint[] | null  // NEW
-  enrichment?: Record<string, unknown> | null       // NEW (opaque JSONB-passthrough)
-  routing_engine?: 'badrouter' | 'brouter' | null   // NEW (Migration 000332)
+  geometry_geojson?: string // ST_AsGeoJSON — present in list (simplified) and detail
+  elevation_profile?: RouteElevationPoint[] | null // NEW
+  enrichment?: Record<string, unknown> | null // NEW (opaque JSONB-passthrough)
+  routing_engine?: 'badrouter' | 'brouter' | null // NEW (Migration 000332)
   // T0-Migration gate (Spec §5.8 / Phase E). 0 = pre-T0 route (segments may
   // lack elevation_profile). 1 = T0-formatted (all segments have profiles).
   // Absent from old server responses — treat as 0 via `?? 0`.
@@ -80,11 +80,7 @@ export interface PlannedRoute {
 }
 
 export type RoutePublicationVisibility = 'private' | 'shared' | 'public'
-export type RoutePublishPolicy =
-  | 'new_course'
-  | 'new_version_same_course'
-  | 'continue_equivalence_group'
-  | 'new_equivalence_group'
+export type RoutePublishPolicy = 'new_course' | 'new_version_same_course' | 'continue_equivalence_group' | 'new_equivalence_group'
 export type RouteEquivalenceDecision = 'version_specific' | 'new_group' | 'continue_group'
 
 export interface CreateRouteSnapshotResponse {
@@ -115,6 +111,32 @@ export interface PublishRouteCourseResponse {
   course_segment_version_id: string
 }
 
+export interface CreateRoutePublicationPrivacyReviewRequest {
+  route_snapshot_id: string
+  source_route_version: number
+  audience_class: Extract<RoutePublicationVisibility, 'shared' | 'public'>
+  owner_confirmed: boolean
+}
+
+export interface CreateRoutePublicationPrivacyReviewResponse {
+  route_snapshot_id: string
+  audience_class: Extract<RoutePublicationVisibility, 'shared' | 'public'>
+  review_hash: string
+  component_states?: Partial<Record<RoutePublicationPrivacyComponent, RoutePublicationPrivacyState>>
+}
+
+export type RoutePublicationPrivacyComponent =
+  | 'route_name'
+  | 'description'
+  | 'waypoints'
+  | 'source_metadata'
+  | 'geometry'
+  | 'enrichment'
+  | 'media_pointer'
+  | 'overall'
+
+export type RoutePublicationPrivacyState = 'unknown' | 'safe' | 'requires_confirmation' | 'confirmed' | 'blocked'
+
 export interface ForkRouteRequest {
   name: string
   source_route_version: number
@@ -128,7 +150,7 @@ export interface ForkRouteResponse {
 
 export interface CreateRouteRelationshipRequest {
   target_route_id: string
-  relation_type: 'variant_of' | 'derived_from' | 'fork_of'
+  relation_type: 'variant_of' | 'derived_from'
   operation_id: string
 }
 
@@ -191,17 +213,17 @@ export interface ElevationPoint {
 // NEW — Route-Response-Profile, distinct vom /elevation/profile-Endpoint-Type
 export interface RouteElevationPoint {
   dist_m: number
-  ele_m: number | null  // null for NoData / coverage gap (Spec §6 Class A)
+  ele_m: number | null // null for NoData / coverage gap (Spec §6 Class A)
 }
 
 // Legacy → Route-Profile Converter (for BRouter save-path fallback).
 // null elevation is preserved as-is — do NOT substitute 0 or any sentinel
 // (buildProfile handles nulls by skipping those points).
-export function legacyToRouteProfile(
-  points: ElevationPoint[],
-  totalDistM: number,
-): RouteElevationPoint[] {
-  return points.map(pt => ({ dist_m: pt.fraction * totalDistM, ele_m: pt.elevation }))
+export function legacyToRouteProfile(points: ElevationPoint[], totalDistM: number): RouteElevationPoint[] {
+  return points.map((pt) => ({
+    dist_m: pt.fraction * totalDistM,
+    ele_m: pt.elevation,
+  }))
 }
 
 export interface IsochronePolygon {
@@ -225,10 +247,10 @@ export interface IsochroneResult {
 }
 
 export interface LandscapePreferences {
-  forest: number      // 0-10
-  water: number       // 0-10
-  protected: number   // 0-10
-  low_noise: number   // 0-10
+  forest: number // 0-10
+  water: number // 0-10
+  protected: number // 0-10
+  low_noise: number // 0-10
   low_traffic: number // 0-10
 }
 
@@ -243,7 +265,7 @@ export interface RouteSuggestionParams {
   modifiers?: ModifierFilters
   profile_sport_override?: boolean
   profile: string
-  prefer_unknown?: boolean  // Terra Incognita bias
+  prefer_unknown?: boolean // Terra Incognita bias
   landscape_prefs?: LandscapePreferences
   surface_tendency?: 'trails' | 'forest_roads' | 'mixed' | 'paved'
   max_sac_scale?: number
@@ -330,6 +352,7 @@ export interface ListRoutePublicationsParams {
   min_elevation_gain_m?: number
   max_elevation_gain_m?: number
   has_variants?: boolean
+  link_token?: string
 }
 
 export interface ListRoutePublicationsResponse {
@@ -362,9 +385,7 @@ export async function listRoutes(params?: ListRoutesParams): Promise<ListRoutesR
   return apiClient(`/routes${qs}`)
 }
 
-export async function listRoutePublications(
-  params?: ListRoutePublicationsParams,
-): Promise<ListRoutePublicationsResponse> {
+export async function listRoutePublications(params?: ListRoutePublicationsParams): Promise<ListRoutePublicationsResponse> {
   const qsObj = new URLSearchParams()
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -402,22 +423,35 @@ export async function createRouteSnapshot(
 ): Promise<CreateRouteSnapshotResponse> {
   return apiClient<CreateRouteSnapshotResponse>(`/routes/${routeId}/snapshots`, {
     method: 'POST',
-    body: { operation_id: operationId, source_route_version: sourceRouteVersion },
+    body: {
+      operation_id: operationId,
+      source_route_version: sourceRouteVersion,
+    },
   })
 }
 
-export async function publishRouteCourse(
-  routeId: string,
-  request: PublishRouteCourseRequest,
-): Promise<PublishRouteCourseResponse> {
+export async function publishRouteCourse(routeId: string, request: PublishRouteCourseRequest): Promise<PublishRouteCourseResponse> {
   return apiClient<PublishRouteCourseResponse>(`/routes/${routeId}/publish-course`, {
     method: 'POST',
     body: request,
   })
 }
 
+export async function createRoutePublicationPrivacyReview(
+  routeId: string,
+  request: CreateRoutePublicationPrivacyReviewRequest,
+): Promise<CreateRoutePublicationPrivacyReviewResponse> {
+  return apiClient<CreateRoutePublicationPrivacyReviewResponse>(`/routes/${routeId}/publication-privacy-review`, {
+    method: 'POST',
+    body: request,
+  })
+}
+
 export async function forkRoute(routeId: string, request: ForkRouteRequest): Promise<ForkRouteResponse> {
-  return apiClient<ForkRouteResponse>(`/routes/${routeId}/fork`, { method: 'POST', body: request })
+  return apiClient<ForkRouteResponse>(`/routes/${routeId}/fork`, {
+    method: 'POST',
+    body: request,
+  })
 }
 
 export async function createRouteRelationship(
@@ -455,17 +489,25 @@ export async function uploadRoutePhoto(routeId: string, file: File): Promise<Rou
 }
 
 export async function deleteRoutePhoto(routeId: string, photoId: string): Promise<void> {
-  return apiClient(`/routes/${routeId}/photos/${photoId}`, { method: 'DELETE' })
+  return apiClient(`/routes/${routeId}/photos/${photoId}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function reorderRoutePhotos(routeId: string, photoIds: string[]): Promise<void> {
-  return apiClient(`/routes/${routeId}/photos/reorder`, { method: 'PUT', body: { photo_ids: photoIds } })
+  return apiClient(`/routes/${routeId}/photos/reorder`, {
+    method: 'PUT',
+    body: { photo_ids: photoIds },
+  })
 }
 
 // === Route Tags ===
 
 export async function setRouteTags(routeId: string, tagIds: string[]): Promise<void> {
-  return apiClient(`/routes/${routeId}/tags`, { method: 'PUT', body: { tag_ids: tagIds } })
+  return apiClient(`/routes/${routeId}/tags`, {
+    method: 'PUT',
+    body: { tag_ids: tagIds },
+  })
 }
 
 export async function addRouteTag(routeId: string, tagId: string): Promise<void> {
@@ -478,18 +520,16 @@ export async function removeRouteTag(routeId: string, tagId: string): Promise<vo
 
 // === BRouter Proxy (Compute Route) ===
 
-export async function computeRoute(
-  waypoints: [number, number][],
-  profile: string,
-): Promise<GeoJSON.FeatureCollection> {
-  return apiClient('/routing/route', { method: 'POST', body: { waypoints, profile } })
+export async function computeRoute(waypoints: [number, number][], profile: string): Promise<GeoJSON.FeatureCollection> {
+  return apiClient('/routing/route', {
+    method: 'POST',
+    body: { waypoints, profile },
+  })
 }
 
 // === Elevation ===
 
-export async function queryElevation(
-  points: [number, number][],
-): Promise<{ elevations: number[]; source: string }> {
+export async function queryElevation(points: [number, number][]): Promise<{ elevations: number[]; source: string }> {
   return apiClient('/elevation/query', { method: 'POST', body: { points } })
 }
 
@@ -505,11 +545,7 @@ export async function getElevationProfile(
 
 // === POI Search ===
 
-export async function searchPOIs(
-  q: string,
-  types?: string,
-  limit?: number,
-): Promise<POIResult[]> {
+export async function searchPOIs(q: string, types?: string, limit?: number): Promise<POIResult[]> {
   const params = new URLSearchParams({ q })
   if (types) params.set('types', types)
   if (limit !== undefined) params.set('limit', String(limit))
@@ -532,23 +568,17 @@ export async function getIsochrone(
 
 // === Route from Activity ===
 
-export async function createRouteFromActivity(
-  activityId: string | number,
-): Promise<PlannedRoute> {
+export async function createRouteFromActivity(activityId: string | number): Promise<PlannedRoute> {
   return apiClient(`/routes/from-activity/${activityId}`, { method: 'POST' })
 }
 
 // Returns a full unsaved route draft derived from an activity GPS track.
-export async function getRouteDraftFromActivity(
-  activityId: string | number,
-): Promise<PlannedRoute> {
+export async function getRouteDraftFromActivity(activityId: string | number): Promise<PlannedRoute> {
   return apiClient(`/routes/from-activity/${activityId}/draft`)
 }
 
 // Returns waypoints derived from an activity GPS track WITHOUT saving a route to DB.
-export async function getWaypointsFromActivity(
-  activityId: string | number,
-): Promise<{ waypoints: RouteWaypoint[] }> {
+export async function getWaypointsFromActivity(activityId: string | number): Promise<{ waypoints: RouteWaypoint[] }> {
   return apiClient(`/routes/from-activity/${activityId}/waypoints`)
 }
 
@@ -571,8 +601,8 @@ export interface ProfileDefaultsResponse {
   max_mtb_scale: number | null
   max_via_ferrata: number | null
   allow_unscaled_via_ferrata: boolean | null
-  max_trail_visibility: number | null          // NEW
-  trail_visibility_penalty: number | null      // NEW
+  max_trail_visibility: number | null // NEW
+  trail_visibility_penalty: number | null // NEW
   allow_steps: boolean | null
   allow_ferries: boolean | null
   // Enrichment weights
@@ -633,8 +663,8 @@ export async function computeInternalRoute(
 // === Route Suggestion ===
 
 export interface CoordRange {
-  from: number  // inclusive, index in GeoJSON.features[0].geometry.coordinates
-  to: number    // exclusive
+  from: number // inclusive, index in GeoJSON.features[0].geometry.coordinates
+  to: number // exclusive
 }
 
 export interface PassedSummit {
@@ -675,15 +705,15 @@ export interface RouteSuggestion {
   variant_descriptors?: VariantDescriptor[]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  geojson: any  // Backend sends json.RawMessage — access as geojson.features directly
+  geojson: any // Backend sends json.RawMessage — access as geojson.features directly
   is_fallback: boolean
 
-  forest_pct: number              // 0.0–1.0
-  protected_pct: number           // 0.0–1.0
+  forest_pct: number // 0.0–1.0
+  protected_pct: number // 0.0–1.0
   forest_ranges?: CoordRange[]
   protected_ranges?: CoordRange[]
-  sac_ranges?: Record<string, CoordRange[]>   // keys 'T1'..'T6'
-  mtb_ranges?: Record<string, CoordRange[]>   // keys 'S0'..'S5'
+  sac_ranges?: Record<string, CoordRange[]> // keys 'T1'..'T6'
+  mtb_ranges?: Record<string, CoordRange[]> // keys 'S0'..'S5'
   summits_passed?: PassedSummit[]
 
   // Via-Ferrata (Spec v5 §4.1.5a, Invariant I9).
@@ -698,8 +728,6 @@ export interface RouteSuggestion {
   elevation_profile?: RouteElevationPoint[] | null
 }
 
-export async function suggestRoute(
-  params: RouteSuggestionParams,
-): Promise<RouteSuggestionResponse> {
+export async function suggestRoute(params: RouteSuggestionParams): Promise<RouteSuggestionResponse> {
   return apiClient('/routes/suggest', { method: 'POST', body: params })
 }

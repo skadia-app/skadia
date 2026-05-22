@@ -9,6 +9,7 @@ export interface SegmentColorConfig {
   standard: string
   trail: string
   lift: string
+  wintersport: string
   wassersport: string
   checkpoint: string
   ridden: string
@@ -19,6 +20,7 @@ export const DEFAULT_SEGMENT_COLORS: SegmentColorConfig = {
   standard: '#6B7280',
   trail: '#EC4899',
   lift: '#6366F1',
+  wintersport: '#7DD3FC',
   wassersport: '#06B6D4',
   checkpoint: '#0F766E',
   ridden: '#F97316',
@@ -27,7 +29,7 @@ export const DEFAULT_SEGMENT_COLORS: SegmentColorConfig = {
 
 export interface SegmentsOverlayFilters {
   terrainTypes: string[]   // [] = alle anzeigen; ['lift'] = nur Lift; etc.
-  courseKinds: string[]    // [] = line only; ['checkpoint_sequence'] = only Checkpoint-Kurse
+  courseKinds: string[]    // [] = none selected; ['line'] = line courses; ['checkpoint_sequence'] = Checkpoint-Kurse
   riddenOnly: boolean
   favoritesOnly: boolean
   sportGroups: string[]    // [] = alle Sport-Gruppen; ['bike'] = nur Rad etc.
@@ -41,6 +43,10 @@ export const DEFAULT_SEGMENT_FILTERS: SegmentsOverlayFilters = {
   sportGroups: [],
 }
 
+export function shouldQuerySegmentsOverlay(filters: SegmentsOverlayFilters): boolean {
+  return filters.courseKinds.length > 0
+}
+
 export function buildSegmentsOverlayFetchParams({
   bbox,
   filters,
@@ -50,7 +56,7 @@ export function buildSegmentsOverlayFetchParams({
   filters: SegmentsOverlayFilters
   cursor?: string
 }): FetchSegmentsOpts {
-  const requestedCourseKinds = filters.courseKinds.length > 0 ? filters.courseKinds : ['line']
+  const requestedCourseKinds = filters.courseKinds
   const fetchCourseKinds = requestedCourseKinds.includes('checkpoint_sequence') && requestedCourseKinds.includes('line')
     ? ['line', 'checkpoint_sequence'] as const
     : undefined
@@ -118,7 +124,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       }
       return { segments, has_more: false }
     },
-    enabled: enabled && !!map && bbox !== '',
+    enabled: enabled && !!map && bbox !== '' && shouldQuerySegmentsOverlay(mergedFilters),
     staleTime: 5 * 60 * 1000,
   })
   const segmentData: Segment[] = rawData?.segments ?? []
@@ -166,7 +172,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       }
     }
 
-    if (!enabled || !map.isStyleLoaded()) {
+    if (!enabled || !shouldQuerySegmentsOverlay(mergedFilters) || !map.isStyleLoaded()) {
       cleanup()
       return
     }
@@ -176,7 +182,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
     // Filter anwenden
     const segments = segmentData.filter((seg: Segment) => {
       const courseKind = seg.course_kind ?? 'line'
-      if (mergedFilters.courseKinds.length > 0 && !mergedFilters.courseKinds.includes(courseKind)) return false
+      if (!mergedFilters.courseKinds.includes(courseKind)) return false
       const segType = seg.segment_type || 'standard'
       if (courseKind === 'line' && mergedFilters.terrainTypes.length > 0 && !mergedFilters.terrainTypes.includes(segType)) return false
       if (mergedFilters.riddenOnly && (seg.ridden_count ?? 0) === 0) return false
@@ -192,6 +198,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       const isRidden = (seg.ridden_count ?? 0) > 0
       if (segType === 'lift') return colors.lift
       if (segType === 'trail') return colors.trail
+      if (segType === 'wintersport') return colors.wintersport
       if (segType === 'wassersport') return colors.wassersport
       if (isRidden) return colors.ridden
       return colors.standard
@@ -476,7 +483,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
           ['==', ['get', 'difficulty_color'], 'blue'], '#148cf0',
           ['==', ['get', 'difficulty_color'], 'red'], '#dc2626',
           ['==', ['get', 'difficulty_color'], 'black'], '#111827',
-          '#7dd3fc',
+          ['get', 'color'],
         ],
         'line-width': 3,
         'line-opacity': [

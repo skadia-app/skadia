@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiClientMock } = vi.hoisted(() => ({
   apiClientMock: vi.fn(),
@@ -15,12 +15,17 @@ import {
   fetchSegment,
   fetchSegments,
   importCheckpointCourseGeoJSON,
+  publishSegment,
   suggestSegmentEnrichment,
 } from '@/api/segments'
 
 describe('segment API', () => {
   beforeEach(() => {
     apiClientMock.mockReset()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('adds elevation_kind to segment search query parameters', async () => {
@@ -112,6 +117,18 @@ describe('segment API', () => {
     await fetchActivitySegments('activity-1')
 
     expect(apiClientMock).toHaveBeenCalledWith('/activities/activity-1/segments')
+  })
+
+  it('posts publish privacy confirmation when requested', async () => {
+    apiClientMock.mockResolvedValueOnce({ status: 'queued', run_id: 'run-1' })
+    vi.stubGlobal('crypto', { randomUUID: () => 'op-1' })
+
+    await publishSegment('seg-1', { sourceActivityPublishConfirmed: true })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/segments/seg-1/publish', {
+      method: 'POST',
+      body: { operation_id: 'op-1', source_activity_publish_confirmed: true },
+    })
   })
 
   it('posts segment geometry to the enrichment suggestion endpoint', async () => {

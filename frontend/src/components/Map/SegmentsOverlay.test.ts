@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSegmentsOverlayFetchParams, DEFAULT_SEGMENT_FILTERS } from './SegmentsOverlay'
+import { buildSegmentsOverlayFetchParams, DEFAULT_SEGMENT_FILTERS, shouldQuerySegmentsOverlay } from './SegmentsOverlay'
 
 describe('SegmentsOverlay fetch params', () => {
   it('pushes supported overlay filters into segment requests', () => {
@@ -36,5 +36,25 @@ describe('SegmentsOverlay fetch params', () => {
       include_geojson: true,
       limit: 500,
     })
+  })
+
+  it('does not query segments when every course kind is deselected', () => {
+    expect(shouldQuerySegmentsOverlay({
+      ...DEFAULT_SEGMENT_FILTERS,
+      courseKinds: [],
+    })).toBe(false)
+  })
+
+  it('passes all rendered line segment categories through the server filter', () => {
+    expect(buildSegmentsOverlayFetchParams({
+      bbox: '10,47,11,48',
+      filters: {
+        ...DEFAULT_SEGMENT_FILTERS,
+        terrainTypes: ['standard', 'trail', 'lift', 'wintersport', 'wassersport'],
+      },
+    })).toEqual(expect.objectContaining({
+      course_kind: 'line',
+      segment_types: 'standard,trail,lift,wintersport,wassersport',
+    }))
   })
 })

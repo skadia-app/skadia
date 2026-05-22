@@ -855,14 +855,14 @@ export default function SegmentsPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                     </svg>
                   </button>
-                  {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
-                    <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                  {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
+                    <button aria-label="Segment bearbeiten" onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                   )}
                   {segmentRecomputeAvailable && (
                     <button title="Matching neu berechnen" onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                   )}
-                  {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
-                    <button onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                  {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
+                    <button aria-label="Segment löschen" onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
               </div>
@@ -928,7 +928,13 @@ function LeaderboardModal({ segmentId, segmentName, segment, onClose }: { segmen
   const [audience, setAudience] = useState<'all' | 'mine'>('all')
   const [leaderboardScope, setLeaderboardScope] = useState<NonNullable<SegmentLeaderboardQuery['scope']>>('current_version')
 
-  const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
+  const isCheckpointCourse = segment?.course_kind === 'checkpoint_sequence'
+  useEffect(() => {
+    if (isCheckpointCourse && direction === 'reverse') setDirection('all')
+  }, [direction, isCheckpointCourse])
+
+  const effectiveDirection = isCheckpointCourse && direction === 'reverse' ? 'all' : direction
+  const isReverse = effectiveDirection === 'all' ? undefined : effectiveDirection === 'forward' ? false : true
   const leaderboardQuery = useMemo<SegmentLeaderboardQuery>(() => ({
     is_reverse: isReverse,
     only_mine: audience === 'mine',
@@ -981,10 +987,10 @@ function LeaderboardModal({ segmentId, segmentName, segment, onClose }: { segmen
             </select>
             {/* Direction */}
             <div className="flex gap-1">
-              {(['all', 'forward', 'reverse'] as const).map(dir => (
+              {(isCheckpointCourse ? (['all', 'forward'] as const) : (['all', 'forward', 'reverse'] as const)).map(dir => (
                 <button key={dir}
                   onClick={() => setDirection(dir)}
-                  className={`px-2 py-1 text-xs rounded cursor-pointer ${direction === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${effectiveDirection === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                 >
                   {dir === 'all' ? 'Alle' : dir === 'forward' ? '→' : '←'}
                 </button>

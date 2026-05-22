@@ -404,7 +404,8 @@ export default function MapPage() {
   // ── Route Planner ─────────────────────────────────────────────────────────
   // Activated via toolbar button or URL param ?planner=1 (e.g. from RoutesPage)
   const searchParams = new URLSearchParams(location.search)
-  const [plannerActive, setPlannerActive] = useState(() => searchParams.get('planner') === '1')
+  const editRouteIDFromURL = searchParams.get('edit_route_id')?.trim() ?? ''
+  const [plannerActive, setPlannerActive] = useState(() => searchParams.get('planner') === '1' || editRouteIDFromURL !== '')
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[] | null>(null)
@@ -441,9 +442,9 @@ export default function MapPage() {
   const [topOverlap, setTopOverlap] = useState(false)
   const [baseStylesCollapsed, setBaseStylesCollapsedState] = useState(false)
 
-  // Clear URL param after reading it (avoid re-activating on back-navigation)
+  // Clear URL params after reading them (avoid re-activating on back-navigation)
   useEffect(() => {
-    if (searchParams.get('planner') === '1') {
+    if (searchParams.get('planner') === '1' || searchParams.get('edit_route_id')) {
       navigate('/map', { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads initial location.search, then clears it
@@ -464,12 +465,13 @@ export default function MapPage() {
   // Both paths are independent — if somehow both are present, both run before the single navigate clears state.
   useEffect(() => {
     const state = location.state as { editRouteId?: string; plannerRouteDraft?: PlannedRoute } | null
+    const editRouteId = state?.editRouteId || editRouteIDFromURL
     let didActivate = false
 
-    if (state?.editRouteId) {
+    if (editRouteId) {
       setPlannerActive(true)
       didActivate = true
-      getRoute(state.editRouteId)
+      getRoute(editRouteId)
         .then(route => planner.loadRoute(route))
         .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
     }

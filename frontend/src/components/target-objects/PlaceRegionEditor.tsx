@@ -16,7 +16,10 @@ export interface PlaceRegionEditorValue {
 interface PlaceRegionEditorProps {
   mode: EditorMode
   onSubmit: (value: PlaceRegionEditorValue) => void
+  initialValue?: Partial<Omit<PlaceRegionEditorValue, 'mode'>>
   busy?: boolean
+  submitLabel?: string
+  showVisibility?: boolean
 }
 
 const PLACE_KIND_OPTIONS: { value: TargetPlaceKind; label: string }[] = [
@@ -45,12 +48,15 @@ const REGION_KIND_OPTIONS: { value: TargetRegionKind; label: string }[] = [
 const DEFAULT_POINT = '{ "type": "Point", "coordinates": [10.0, 47.0] }'
 const DEFAULT_POLYGON = '{ "type": "Polygon", "coordinates": [[[10.0,47.0],[10.01,47.0],[10.01,47.01],[10.0,47.01],[10.0,47.0]]] }'
 
-export default function PlaceRegionEditor({ mode, onSubmit, busy = false }: PlaceRegionEditorProps) {
-  const [name, setName] = useState('')
-  const [kind, setKind] = useState<TargetPlaceKind | TargetRegionKind>(mode === 'place' ? 'custom' : 'custom')
-  const [geometryText, setGeometryText] = useState(mode === 'place' ? DEFAULT_POINT : DEFAULT_POLYGON)
-  const [visibility, setVisibility] = useState<TargetVisibility>('private')
-  const [accessScopeId, setAccessScopeId] = useState<string | null>(null)
+export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy = false, submitLabel, showVisibility = true }: PlaceRegionEditorProps) {
+  const [name, setName] = useState(initialValue?.name ?? '')
+  const [kind, setKind] = useState<TargetPlaceKind | TargetRegionKind>(initialValue?.kind ?? 'custom')
+  const [geometryText, setGeometryText] = useState(() => {
+    if (initialValue?.geometry) return JSON.stringify(initialValue.geometry, null, 2)
+    return mode === 'place' ? DEFAULT_POINT : DEFAULT_POLYGON
+  })
+  const [visibility, setVisibility] = useState<TargetVisibility>(initialValue?.visibility ?? 'private')
+  const [accessScopeId, setAccessScopeId] = useState<string | null>(initialValue?.access_scope_id ?? null)
   const [error, setError] = useState<string | null>(null)
 
   const kindOptions = useMemo(() => mode === 'place' ? PLACE_KIND_OPTIONS : REGION_KIND_OPTIONS, [mode])
@@ -68,7 +74,12 @@ export default function PlaceRegionEditor({ mode, onSubmit, busy = false }: Plac
           setError('Geometrie ist kein gültiges JSON.')
           return
         }
-        onSubmit({ mode, name, kind, geometry, visibility, access_scope_id: accessScopeId })
+        const normalized = normalizeGeometryForMode(mode, geometry)
+        if (typeof normalized === 'string') {
+          setError(normalized)
+          return
+        }
+        onSubmit({ mode, name, kind, geometry: normalized, visibility, access_scope_id: accessScopeId })
       }}
     >
       <div className="grid gap-3 sm:grid-cols-2">
@@ -93,14 +104,16 @@ export default function PlaceRegionEditor({ mode, onSubmit, busy = false }: Plac
         </label>
       </div>
 
-      <VisibilityAccessField
-        visibility={visibility}
-        accessScopeId={accessScopeId}
-        onChange={(next) => {
-          setVisibility(next.visibility)
-          setAccessScopeId(next.access_scope_id ?? null)
-        }}
-      />
+      {showVisibility && (
+        <VisibilityAccessField
+          visibility={visibility}
+          accessScopeId={accessScopeId}
+          onChange={(next) => {
+            setVisibility(next.visibility)
+            setAccessScopeId(next.access_scope_id ?? null)
+          }}
+        />
+      )}
 
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Geometrie</span>
@@ -116,11 +129,23 @@ export default function PlaceRegionEditor({ mode, onSubmit, busy = false }: Plac
 
       <button
         type="submit"
-        disabled={busy || (visibility === 'shared' && !accessScopeId)}
+        disabled={busy || (showVisibility && visibility === 'shared' && !accessScopeId)}
         className="rounded-md bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {mode === 'place' ? 'Ort speichern' : 'Bereich speichern'}
+        {busy ? 'Speichert...' : (submitLabel ?? (mode === 'place' ? 'Ort speichern' : 'Bereich speichern'))}
       </button>
     </form>
   )
+}
+
+function normalizeGeometryForMode(mode: EditorMode, geometry: TargetGeometry): TargetGeometry | string {
+  if (mode === 'place') {
+    if (geometry?.type !== 'Point') return 'Orte müssen als GeoJSON Point gespeichert werden.'
+    return geometry
+  }
+  if (geometry?.type === 'MultiPolygon') return geometry
+  if (geometry?.type === 'Polygon') {
+    return { type: 'MultiPolygon', coordinates: [geometry.coordinates] }
+  }
+  return 'Bereiche müssen als GeoJSON Polygon oder MultiPolygon gespeichert werden.'
 }

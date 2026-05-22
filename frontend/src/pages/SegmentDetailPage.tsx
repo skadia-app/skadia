@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Lock, Map, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { getMe } from '@/api/auth'
 import { fetchSegment, recomputeSegment, publishSegment, deleteSegment, exportSegment } from '@/api/segments'
+import { ApiError } from '@/api/client'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
@@ -29,6 +30,18 @@ const TYPE_LABELS: Record<string, string> = {
   standard: 'Standard', trail: 'Trail', lift: 'Lift', lap: 'Rundkurs',
 }
 
+function isPublishPrivacyConfirmationError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  const title = typeof error.json?.title === 'string' ? error.json.title : ''
+  const code = typeof error.json?.code === 'string' ? error.json.code : ''
+  const detail = typeof error.json?.detail === 'string' ? error.json.detail : error.body
+  return (
+    code === 'segment_publish_privacy_confirmation_required' ||
+    title === 'Privacy Confirmation Required' ||
+    detail.includes('active privacy zone') ||
+    detail.includes('Privacy-Zone')
+  )
+}
 
 export default function SegmentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -53,13 +66,30 @@ export default function SegmentDetailPage() {
   })
 
   const publishMut = useMutation({
-    mutationFn: () => publishSegment(id!),
+    mutationFn: (options?: { sourceActivityPublishConfirmed?: boolean }) => (
+      options ? publishSegment(id!, options) : publishSegment(id!)
+    ),
     onSuccess: () => {
       addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Recompute gestartet.' })
       queryClient.invalidateQueries({ queryKey: ['segment', id] })
       queryClient.invalidateQueries({ queryKey: ['segments'] })
     },
-    onError: () => {
+    onError: (error) => {
+      if (isPublishPrivacyConfirmationError(error)) {
+        openModal({
+          title: 'Privacy-Zone bestätigen?',
+          message: 'Die Quellaktivität schneidet eine aktive Privacy-Zone. Veröffentliche das Segment nur, wenn die aktuelle Segment- oder Kursgeometrie trotzdem öffentlich sichtbar sein soll.',
+          buttons: [
+            { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+            {
+              label: 'Trotzdem veröffentlichen',
+              variant: 'destructive',
+              onClick: () => publishMut.mutate({ sourceActivityPublishConfirmed: true }),
+            },
+          ],
+        })
+        return
+      }
       addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
     },
   })
@@ -111,6 +141,7 @@ export default function SegmentDetailPage() {
   if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segment...</div>
   if (!segment) return <div className="p-6 text-neutral-400">Segment nicht gefunden</div>
   const segmentPermissions = new Set(segment.effective_permissions ?? [])
+  const canManageSegment = me?.user_id === segment.created_by || me?.is_admin
 
   // Build a minimal activity filter from the date range for SegmentActivityList
   const dateFilter: ActivityFilterState | undefined =
@@ -132,7 +163,7 @@ export default function SegmentDetailPage() {
             dateTo={dateTo ?? ''}
             onChange={(from, to) => { setDateFrom(from || undefined); setDateTo(to || undefined) }}
           />
-          {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.segment_type !== 'lift' && canManageSegment && (
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
@@ -184,7 +215,7 @@ export default function SegmentDetailPage() {
                     : 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
                   buttons: [
                     { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate(undefined) },
                   ],
                 })
               }}
@@ -196,7 +227,7 @@ export default function SegmentDetailPage() {
           )}
 
           {/* Delete: visible for creator or admin, not for OSM lift segments */}
-          {segment.course_kind !== 'checkpoint_sequence' && segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.segment_type !== 'lift' && canManageSegment && (
             <button
               onClick={() => openModal({
                 title: 'Segment löschen?',

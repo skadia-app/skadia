@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMe } from '@/api/auth'
+import { useToast } from '@/lib/toast'
 import {
   createTargetPlace,
   createTargetRegion,
@@ -9,6 +10,9 @@ import {
   deleteTargetRegion,
   listTargetPlaces,
   listTargetRegions,
+  type MultiPolygonGeometry,
+  type PointGeometry,
+  type PolygonGeometry,
   type TargetPlaceKind,
   type TargetRegionKind,
   type TargetPlace,
@@ -39,6 +43,20 @@ const REGION_KIND_LABELS: Record<string, string> = {
   protected_area: 'Schutzgebiet',
 }
 
+function asPointGeometry(value: PlaceRegionEditorValue): PointGeometry {
+  if (value.geometry.type !== 'Point') {
+    throw new Error('Orte benötigen eine Punkt-Geometrie.')
+  }
+  return value.geometry
+}
+
+function asRegionGeometry(value: PlaceRegionEditorValue): PolygonGeometry | MultiPolygonGeometry {
+  if (value.geometry.type !== 'Polygon' && value.geometry.type !== 'MultiPolygon') {
+    throw new Error('Bereiche benötigen eine Polygon- oder MultiPolygon-Geometrie.')
+  }
+  return value.geometry
+}
+
 const VISIBILITY_LABELS: Record<string, string> = {
   private: 'Privat',
   shared: 'Geteilt',
@@ -47,6 +65,7 @@ const VISIBILITY_LABELS: Record<string, string> = {
 
 export default function TargetObjectsPage() {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const [mode, setMode] = useState<'place' | 'region'>('place')
   const [search, setSearch] = useState('')
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 60_000 })
@@ -57,31 +76,47 @@ export default function TargetObjectsPage() {
     mutationFn: (value: PlaceRegionEditorValue) => createTargetPlace({
       name: value.name,
       place_kind: value.kind as TargetPlaceKind,
-      geometry: value.geometry,
+      geometry: asPointGeometry(value),
       visibility: value.visibility,
       access_scope_id: value.access_scope_id,
       origin_key: 'manual',
     }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['target-places'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['target-places'] })
+      addToast({ type: 'success', title: 'Ort gespeichert' })
+    },
+    onError: error => addToast({ type: 'error', title: 'Ort konnte nicht gespeichert werden', message: errorMessage(error), duration: 0 }),
   })
   const createRegionMutation = useMutation({
     mutationFn: (value: PlaceRegionEditorValue) => createTargetRegion({
       name: value.name,
       region_kind: value.kind as TargetRegionKind,
-      geometry: value.geometry as Extract<typeof value.geometry, { type: 'Polygon' | 'MultiPolygon' }>,
+      geometry: asRegionGeometry(value),
       visibility: value.visibility,
       access_scope_id: value.access_scope_id,
       origin_key: 'manual',
     }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['target-regions'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['target-regions'] })
+      addToast({ type: 'success', title: 'Bereich gespeichert' })
+    },
+    onError: error => addToast({ type: 'error', title: 'Bereich konnte nicht gespeichert werden', message: errorMessage(error), duration: 0 }),
   })
   const archivePlaceMutation = useMutation({
     mutationFn: deleteTargetPlace,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['target-places'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['target-places'] })
+      addToast({ type: 'success', title: 'Ort archiviert' })
+    },
+    onError: error => addToast({ type: 'error', title: 'Ort konnte nicht archiviert werden', message: errorMessage(error), duration: 0 }),
   })
   const archiveRegionMutation = useMutation({
     mutationFn: deleteTargetRegion,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['target-regions'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['target-regions'] })
+      addToast({ type: 'success', title: 'Bereich archiviert' })
+    },
+    onError: error => addToast({ type: 'error', title: 'Bereich konnte nicht archiviert werden', message: errorMessage(error), duration: 0 }),
   })
 
   return (
@@ -124,6 +159,7 @@ export default function TargetObjectsPage() {
               kind={PLACE_KIND_LABELS[place.place_kind] ?? place.place_kind}
               visibility={VISIBILITY_LABELS[place.visibility] ?? place.visibility}
               canArchive={canArchiveObject(place, me)}
+              archiveBusy={archivePlaceMutation.isPending}
               onArchive={() => archivePlaceMutation.mutate(place.id)}
             />
           ))}
@@ -137,6 +173,7 @@ export default function TargetObjectsPage() {
               kind={REGION_KIND_LABELS[region.region_kind] ?? region.region_kind}
               visibility={VISIBILITY_LABELS[region.visibility] ?? region.visibility}
               canArchive={canArchiveObject(region, me)}
+              archiveBusy={archiveRegionMutation.isPending}
               onArchive={() => archiveRegionMutation.mutate(region.id)}
             />
           ))}
@@ -155,16 +192,28 @@ function ObjectList({ title, loading, children }: { title: string; loading: bool
   )
 }
 
-function ObjectRow({ href, name, kind, visibility, canArchive, onArchive }: { href: string; name: string; kind: string; visibility: string; canArchive: boolean; onArchive: () => void }) {
+function ObjectRow({ href, name, kind, visibility, canArchive, archiveBusy, onArchive }: { href: string; name: string; kind: string; visibility: string; canArchive: boolean; archiveBusy: boolean; onArchive: () => void }) {
   return (
     <div className="flex items-center justify-between gap-3 p-3">
       <Link to={href} className="min-w-0 hover:text-neutral-900 dark:hover:text-neutral-100">
         <p className="truncate text-sm font-medium">{name}</p>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">{kind} · {visibility}</p>
       </Link>
-      {canArchive && <button onClick={onArchive} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700">Archivieren</button>}
+      {canArchive && (
+        <button
+          onClick={onArchive}
+          disabled={archiveBusy}
+          className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
+        >
+          {archiveBusy ? 'Archiviert...' : 'Archivieren'}
+        </button>
+      )}
     </div>
   )
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Bitte versuche es erneut.'
 }
 
 function canArchiveObject(object: TargetPlace | TargetRegion, me?: { user_id?: string; is_admin?: boolean } | null): boolean {

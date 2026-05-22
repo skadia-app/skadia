@@ -32,7 +32,7 @@ import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
-import { createCheckpointCourse, createSegment, suggestSegmentEnrichment, type CheckpointControl } from '@/api/segments'
+import { createCheckpointCourse, createSegment, suggestSegmentEnrichment, type CheckpointControl, type CheckpointControlGeometryShape } from '@/api/segments'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import { buildNewSegmentSportPatch } from './segment-editor/segmentSave'
@@ -89,7 +89,54 @@ function checkpointPointRadiusGeometry(coord: [number, number], radiusM: number)
   return { type: 'Polygon', coordinates: [ring] }
 }
 
-function checkpointControlCenter(control: CheckpointControl): [number, number] | null {
+function checkpointSquareGeometry(coord: [number, number], radiusM: number): GeoJSON.Polygon {
+  const latDelta = radiusM / 111_320
+  const lngDelta = radiusM / (111_320 * Math.max(Math.cos(coord[1] * Math.PI / 180), 0.01))
+  return {
+    type: 'Polygon',
+    coordinates: [[
+      [coord[0] - lngDelta, coord[1] - latDelta],
+      [coord[0] + lngDelta, coord[1] - latDelta],
+      [coord[0] + lngDelta, coord[1] + latDelta],
+      [coord[0] - lngDelta, coord[1] + latDelta],
+      [coord[0] - lngDelta, coord[1] - latDelta],
+    ]],
+  }
+}
+
+export function createCheckpointControlAtCoordinate(
+  coord: [number, number],
+  options: {
+    sequenceIndex: number
+    role: 'start' | 'checkpoint' | 'finish'
+    shape: Exclude<CheckpointControlGeometryShape, 'multipolygon'>
+    radiusM: number
+  },
+): CheckpointControl {
+  const radius = Math.min(5000, Math.max(1, options.radiusM))
+  if (options.shape === 'polygon') {
+    return {
+      sequence_index: options.sequenceIndex,
+      role: options.role,
+      primitive: 'area',
+      geometry_shape: 'polygon',
+      geometry: checkpointSquareGeometry(coord, radius),
+      required: true,
+    }
+  }
+  return {
+    sequence_index: options.sequenceIndex,
+    role: options.role,
+    primitive: options.shape === 'circle' ? 'area' : 'point',
+    geometry_shape: options.shape,
+    geometry: { type: 'Point', coordinates: coord },
+    hit_radius_m: options.shape === 'point' ? radius : undefined,
+    area_radius_m: options.shape === 'circle' ? radius : undefined,
+    required: true,
+  }
+}
+
+export function checkpointControlCenter(control: CheckpointControl): [number, number] | null {
   const geometry = control.geometry as { type?: string; coordinates?: unknown } | undefined
   if (geometry?.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
     const [lng, lat] = geometry.coordinates
@@ -109,6 +156,64 @@ function checkpointControlCenter(control: CheckpointControl): [number, number] |
   if (coords.length === 0) return null
   const [lng, lat] = coords.reduce(([lngSum, latSum], coord) => [lngSum + coord[0], latSum + coord[1]], [0, 0])
   return [lng / coords.length, lat / coords.length]
+}
+
+export function buildCheckpointControlPreviewData(controls: CheckpointControl[]): GeoJSON.FeatureCollection {
+  const centers = controls.map(control => checkpointControlCenter(control))
+  const connectorCoords = centers.filter((coord): coord is [number, number] => coord !== null)
+  const features: GeoJSON.Feature[] = []
+  if (connectorCoords.length >= 2) {
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'connector' },
+      geometry: { type: 'LineString', coordinates: connectorCoords },
+    })
+  }
+  controls.forEach((control, idx) => {
+    const coord = centers[idx]
+    const geometry = control.geometry as GeoJSON.Geometry | undefined
+    if (control.geometry_shape === 'polygon' && geometry?.type === 'Polygon') {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'area' },
+        geometry,
+      })
+      return
+    }
+    if (control.geometry_shape === 'multipolygon' && geometry?.type === 'MultiPolygon') {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'area' },
+        geometry,
+      })
+      return
+    }
+    if (!coord) return
+    const radius = control.geometry_shape === 'circle'
+      ? control.area_radius_m
+      : control.hit_radius_m
+    if (!radius) return
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'area' },
+      geometry: checkpointPointRadiusGeometry(coord, radius),
+    })
+  })
+  centers.forEach((coord, idx) => {
+    if (!coord) return
+    features.push({
+      type: 'Feature',
+      properties: {
+        kind: 'control',
+        label: idx === 0 ? 'Start' : idx === controls.length - 1 ? 'Ziel' : String(idx + 1),
+      },
+      geometry: { type: 'Point', coordinates: coord },
+    })
+  })
+  return {
+    type: 'FeatureCollection',
+    features,
+  }
 }
 
 function normalizeCheckpointControlOrder(controls: CheckpointControl[]): CheckpointControl[] {
@@ -142,6 +247,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     bidirectional: BIDIRECTIONAL_DEFAULT[(mode === 'lap' ? 'lap' : 'standard') as SegType],
     userEditedBidirectional: false,
     isPublic: !(mode === 'checkpoint' && !!sourceActivityId),
+    visibility: mode === 'checkpoint' && !!sourceActivityId ? 'private' : 'public',
+    accessScopeId: null,
   }))
 
   const patchMeta = useCallback((patch: Partial<SegmentMetadata>) => {
@@ -248,7 +355,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // Lap detection: runs when map loads in lap mode (click-to-place finish line)
   // is handled via the map click handler below.
   const [checkpointControls, setCheckpointControls] = useState<CheckpointControl[]>([])
-  const [checkpointInsertShape, setCheckpointInsertShape] = useState<'point' | 'circle'>('point')
+  const [checkpointInsertShape, setCheckpointInsertShape] = useState<'point' | 'circle' | 'polygon'>('point')
   const [checkpointInsertRadiusM, setCheckpointInsertRadiusM] = useState(30)
 
   // ── Enrichment state ─────────────────────────────────────────────────────
@@ -344,12 +451,16 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       if (mode === 'checkpoint') {
         const { userEditedBidirectional, ...savePayload } = meta
         void userEditedBidirectional
+        if (savePayload.visibility === 'shared' && !savePayload.accessScopeId) {
+          throw new Error('shared checkpoint courses require a sharing scope')
+        }
         const sportPatch = buildNewSegmentSportPatch('standard', savePayload.sportTypes)
         return createCheckpointCourse({
           name: savePayload.name,
           sport_group: sportPatch.sport_group,
           allowed_predicates: sportPatch.allowed_predicates,
-          visibility: savePayload.isPublic ? 'public' : 'private',
+          visibility: savePayload.visibility,
+          access_scope_id: savePayload.visibility === 'shared' ? savePayload.accessScopeId ?? null : undefined,
           controls: checkpointControls,
           source_activity_id: sourceActivityId,
           source_activity_publish_confirmed: sourceActivityPublishConfirmedRef.current,
@@ -376,6 +487,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       // Strip pure-UI flag before send
       const { userEditedBidirectional, ...savePayload } = meta
       void userEditedBidirectional
+      if (savePayload.visibility === 'shared' && !savePayload.accessScopeId) {
+        throw new Error('shared segments require a sharing scope')
+      }
       const sportPatch = buildNewSegmentSportPatch(savePayload.segType, savePayload.sportTypes)
 
       return createSegment({
@@ -390,7 +504,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           mtb_scale: savePayload.mtbScale,
           difficulty_color: savePayload.difficultyColor,
         },
-        visibility: savePayload.isPublic ? 'public' : 'private',
+        visibility: savePayload.visibility,
+        access_scope_id: savePayload.visibility === 'shared' ? savePayload.accessScopeId ?? null : undefined,
         climb_type: savePayload.climbType ?? 'standard',
         geojson_track,
         source_activity_id: sourceActivityId,
@@ -830,16 +945,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           role: idx === all.length - 1 ? 'checkpoint' as const : control.role,
         }))
         const radius = Math.min(5000, Math.max(1, checkpointInsertRadiusM))
-        controls.push({
-          sequence_index: nextIndex,
+        controls.push(createCheckpointControlAtCoordinate([e.lngLat.lng, e.lngLat.lat], {
+          sequenceIndex: nextIndex,
           role,
-          primitive: checkpointInsertShape === 'circle' ? 'area' : 'point',
-          geometry_shape: checkpointInsertShape,
-          geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] },
-          hit_radius_m: checkpointInsertShape === 'point' ? radius : undefined,
-          area_radius_m: checkpointInsertShape === 'circle' ? radius : undefined,
-          required: true,
-        })
+          shape: checkpointInsertShape,
+          radiusM: radius,
+        }))
         return normalizeCheckpointControlOrder(controls)
       })
     }
@@ -867,49 +978,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     const radiusID = 'checkpoint-control-radii'
     const circleID = 'checkpoint-control-circles'
     const labelID = 'checkpoint-control-labels'
-    const coords = checkpointControls
-      .map(control => checkpointControlCenter(control))
-      .filter((coord): coord is [number, number] => Array.isArray(coord) && coord.length >= 2)
-    const data = {
-      type: 'FeatureCollection' as const,
-      features: [
-        ...(coords.length >= 2 ? [{
-          type: 'Feature' as const,
-          properties: { kind: 'connector' },
-          geometry: { type: 'LineString' as const, coordinates: coords },
-        }] : []),
-        ...checkpointControls.flatMap((control, idx) => {
-          const coord = coords[idx]
-          if (!coord) return []
-          const radius = control.geometry_shape === 'circle'
-            ? control.area_radius_m
-            : control.hit_radius_m
-          if (control.geometry_shape === 'polygon') {
-            const geometry = control.geometry as GeoJSON.Geometry | undefined
-            if (geometry?.type !== 'Polygon') return []
-            return [{
-              type: 'Feature' as const,
-              properties: { kind: 'radius' },
-              geometry,
-            }]
-          }
-          if (!radius) return []
-          return [{
-            type: 'Feature' as const,
-            properties: { kind: 'radius' },
-            geometry: checkpointPointRadiusGeometry(coord, radius),
-          }]
-        }),
-        ...coords.map((coord, idx) => ({
-          type: 'Feature' as const,
-          properties: {
-            kind: 'control',
-            label: idx === 0 ? 'Start' : idx === coords.length - 1 ? 'Ziel' : String(idx + 1),
-          },
-          geometry: { type: 'Point' as const, coordinates: coord },
-        })),
-      ],
-    }
+    const data = buildCheckpointControlPreviewData(checkpointControls)
     if (!map.getSource(sourceID)) {
       map.addSource(sourceID, { type: 'geojson', data })
     } else {
@@ -929,7 +998,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         id: radiusID,
         type: 'fill',
         source: sourceID,
-        filter: ['==', ['get', 'kind'], 'radius'],
+        filter: ['==', ['get', 'kind'], 'area'],
         paint: { 'fill-color': '#f97316', 'fill-opacity': 0.13 },
       })
     }
@@ -983,6 +1052,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       bidirectional: BIDIRECTIONAL_DEFAULT[(mode === 'lap' ? 'lap' : 'standard') as SegType],
       userEditedBidirectional: false,
       isPublic: !(mode === 'checkpoint' && !!sourceActivityId),
+      visibility: mode === 'checkpoint' && !!sourceActivityId ? 'private' : 'public',
+      accessScopeId: null,
     })
   }, [initialRange, mode, sourceActivityId])
 
@@ -1105,12 +1176,16 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       addToast({ type: 'warning', title: 'Start und Ziel erforderlich', message: 'Setze mindestens zwei Checkpoints.' })
       return
     }
-    if (sourceActivityId && meta.isPublic && !sourceActivityPublishConfirmed) {
+    if (meta.visibility === 'shared' && !meta.accessScopeId) {
+      addToast({ type: 'warning', title: 'Freigabe erforderlich', message: 'Wähle eine Freigabe für geteilte Segmente.' })
+      return
+    }
+    if (sourceActivityId && meta.visibility !== 'private' && !sourceActivityPublishConfirmed) {
       setPrivacyConfirmOpen(true)
       return
     }
     saveMutation.mutate()
-  }, [meta.name, meta.isPublic, mode, range, drawnCoords.length, checkpointControls.length, sourceActivityId, sourceActivityPublishConfirmed, saveMutation, addToast])
+  }, [meta.name, meta.visibility, mode, range, drawnCoords.length, checkpointControls.length, sourceActivityId, sourceActivityPublishConfirmed, saveMutation, addToast])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
   // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
@@ -1267,11 +1342,12 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                     Form
                     <select
                       value={checkpointInsertShape}
-                      onChange={(e) => setCheckpointInsertShape(e.target.value as 'point' | 'circle')}
+                      onChange={(e) => setCheckpointInsertShape(e.target.value as 'point' | 'circle' | 'polygon')}
                       className="mt-1 w-full rounded border border-neutral-200 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-900"
                     >
                       <option value="point">Punkt</option>
                       <option value="circle">Kreis</option>
+                      <option value="polygon">Polygon</option>
                     </select>
                   </label>
                   <label className="text-neutral-600 dark:text-neutral-300">

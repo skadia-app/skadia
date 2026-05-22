@@ -15,6 +15,7 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 import {
+  createRoutePublicationPrivacyReview,
   createRouteCourseRelationship,
   createRouteRelationship,
   createRouteSnapshot,
@@ -63,6 +64,27 @@ describe('routes API', () => {
     expect(apiClientMock).toHaveBeenCalledWith('/routes/route-1/snapshots', {
       method: 'POST',
       body: { operation_id: 'op-1', source_route_version: 12 },
+    })
+  })
+
+  it('posts route publication privacy review requests', async () => {
+    apiClientMock.mockResolvedValueOnce({ route_snapshot_id: 'snap-1', audience_class: 'shared', review_hash: 'hash-1' })
+
+    await createRoutePublicationPrivacyReview('route-1', {
+      route_snapshot_id: 'snap-1',
+      source_route_version: 12,
+      audience_class: 'shared',
+      owner_confirmed: true,
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/routes/route-1/publication-privacy-review', {
+      method: 'POST',
+      body: {
+        route_snapshot_id: 'snap-1',
+        source_route_version: 12,
+        audience_class: 'shared',
+        owner_confirmed: true,
+      },
     })
   })
 

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { MessageSquare, Send, Star } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { Bookmark, CheckCircle2, MapPin, MessageSquare, Send, Star } from 'lucide-react'
 import { createTargetUserContent, type OverlaySubjectKind, type OverlayVisibility, type TargetUserContent } from '@/api/targetOverlays'
 import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
 
@@ -22,6 +22,10 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
 
   const comments = content.filter(row => row.content_kind === 'comment')
   const ratings = content.filter(row => row.content_kind === 'rating')
+  const saves = content.filter(row => row.content_kind === 'save')
+  const completions = content.filter(row => row.content_kind === 'completion')
+  const checkIns = content.filter(row => row.content_kind === 'check_in')
+  const readonlyCount = ratings.length + saves.length + completions.length + checkIns.length
 
   const submitComment = async () => {
     const value = text.trim()
@@ -81,12 +85,21 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
         </div>
       )}
 
-      {ratings.length > 0 && (
+      {readonlyCount > 0 && (
         <div className="flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-          <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
-            <Star size={13} />
-            {ratings.length} Bewertungen
-          </span>
+          {ratings.length > 0 && (
+            <ReadOnlyContentBadge icon={<Star size={13} />} count={ratings.length} singular="Bewertung" plural="Bewertungen" />
+          )}
+          {saves.length > 0 && (
+            <ReadOnlyContentBadge icon={<Bookmark size={13} />} count={saves.length} singular="Merkung" plural="Merkungen" />
+          )}
+          {completions.length > 0 && (
+            <ReadOnlyContentBadge icon={<CheckCircle2 size={13} />} count={completions.length} singular="Abschluss" plural="Abschlüsse" />
+          )}
+          {checkIns.length > 0 && (
+            <ReadOnlyContentBadge icon={<MapPin size={13} />} count={checkIns.length} singular="Check-in" plural="Check-ins" />
+          )}
+          <span className="basis-full text-neutral-400">Weitere Inhalte sind derzeit nur lesbar.</span>
         </div>
       )}
 
@@ -112,6 +125,25 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
         </div>
       )}
     </div>
+  )
+}
+
+function ReadOnlyContentBadge({
+  icon,
+  count,
+  singular,
+  plural,
+}: {
+  icon: ReactNode
+  count: number
+  singular: string
+  plural: string
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+      {icon}
+      {count} {count === 1 ? singular : plural}
+    </span>
   )
 }
 

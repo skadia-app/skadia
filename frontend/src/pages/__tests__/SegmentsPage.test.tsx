@@ -346,6 +346,71 @@ describe('SegmentsPage filters', () => {
       }))
     })
   })
+
+  it('exposes checkpoint course edit and delete actions in the list', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-actions',
+          name: 'Checkpoint-Aktionen',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-22T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 2, required_control_count: 2, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Checkpoint-Aktionen')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segment bearbeiten' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segment löschen' })).toBeInTheDocument()
+  })
+
+  it('does not offer reverse leaderboard direction for checkpoint courses', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-leaderboard',
+          name: 'Checkpoint-Bestenliste',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-22T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 2, required_control_count: 2, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Checkpoint-Bestenliste')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Bestenliste'))
+
+    expect(screen.getAllByRole('button', { name: 'Alle' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '→' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '←' })).not.toBeInTheDocument()
+  })
 })
 
 describe('shouldFetchNextSegmentPage', () => {
