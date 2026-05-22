@@ -34,6 +34,11 @@ func (h *Handler) ListActiveJobs(w http.ResponseWriter, r *http.Request) {
 	} else {
 		slog.Warn("list active strava import jobs failed", "error", err)
 	}
+	if segmentJobs, err := h.DB.ListActiveSegmentRecalculationJobs(r.Context(), userID); err == nil {
+		jobs = append(jobs, segmentJobs...)
+	} else {
+		slog.Warn("list active segment recalculation jobs failed", "error", err)
+	}
 
 	pending, err := h.DB.CountPendingEnrichments(r.Context(), userID)
 	if err != nil {

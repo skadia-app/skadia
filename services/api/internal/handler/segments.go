@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
@@ -41,11 +44,47 @@ var enrichableSegmentTypes = map[string]struct{}{
 	"wassersport": {},
 }
 
-func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
+type segmentOperationRequest struct {
+	OperationID string `json:"operation_id"`
+}
+
+type segmentPublishRequest struct {
+	OperationID                    string `json:"operation_id"`
+	SourceActivityPublishConfirmed bool   `json:"source_activity_publish_confirmed,omitempty"`
+}
+
+func decodeSegmentOperationID(r *http.Request, fallbackPrefix string) (string, error) {
+	var req segmentOperationRequest
+	if r.Body != nil {
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
 	}
+	if strings.TrimSpace(req.OperationID) != "" {
+		return strings.TrimSpace(req.OperationID), nil
+	}
+	return fallbackPrefix + ":" + uuid.NewString(), nil
+}
+
+func decodeSegmentPublishRequest(r *http.Request) (segmentPublishRequest, error) {
+	var req segmentPublishRequest
+	if r.Body != nil {
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return req, err
+		}
+	}
+	if strings.TrimSpace(req.OperationID) == "" {
+		req.OperationID = "publish:" + uuid.NewString()
+	} else {
+		req.OperationID = strings.TrimSpace(req.OperationID)
+	}
+	return req, nil
+}
+
+func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	limit := 50
@@ -63,28 +102,59 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := model.ListSegmentsParams{
-		UserID:           userID,
-		IsAdmin:          isAdmin,
-		SportGroup:       r.URL.Query().Get("sport_group"),
-		SegmentType:      r.URL.Query().Get("segment_type"),
-		SegmentTypes:     r.URL.Query().Get("segment_types"),
-		Name:             name,
-		BBox:             r.URL.Query().Get("bbox"),
-		LiftsOnlyRidden:  r.URL.Query().Get("lifts_only_ridden") == "true",
-		CompletedOnly:    r.URL.Query().Get("completed_only") == "true",
-		IncludeGeoJSON:   r.URL.Query().Get("include_geojson") == "true",
-		Cursor:           r.URL.Query().Get("cursor"),
-		Limit:            limit,
-		SacScale:         r.URL.Query().Get("sac_scale"),
-		MtbScale:         r.URL.Query().Get("mtb_scale"),
-		Surface:          r.URL.Query().Get("surface"),
-		VisibilityFilter: r.URL.Query().Get("visibility"),
-		DifficultyMatch:  r.URL.Query().Get("difficulty_match"),
+		UserID:                    userID,
+		IsAdmin:                   isAdmin,
+		SportGroup:                r.URL.Query().Get("sport_group"),
+		SegmentType:               r.URL.Query().Get("segment_type"),
+		SegmentTypes:              r.URL.Query().Get("segment_types"),
+		Name:                      name,
+		BBox:                      r.URL.Query().Get("bbox"),
+		LiftsOnlyRidden:           r.URL.Query().Get("lifts_only_ridden") == "true",
+		CompletedOnly:             r.URL.Query().Get("completed_only") == "true",
+		IncludeGeoJSON:            r.URL.Query().Get("include_geojson") == "true",
+		Cursor:                    r.URL.Query().Get("cursor"),
+		Limit:                     limit,
+		SacScale:                  r.URL.Query().Get("sac_scale"),
+		MtbScale:                  r.URL.Query().Get("mtb_scale"),
+		Surface:                   r.URL.Query().Get("surface"),
+		ElevationKind:             r.URL.Query().Get("elevation_kind"),
+		VisibilityFilter:          r.URL.Query().Get("visibility"),
+		DifficultyMatch:           r.URL.Query().Get("difficulty_match"),
+		CourseKind:                r.URL.Query().Get("course_kind"),
+		IncludeControlMapFeatures: r.URL.Query().Get("include_control_map_features") == "true",
+	}
+	if courseKindsRaw := r.URL.Query().Get("course_kinds"); courseKindsRaw != "" {
+		if params.CourseKind != "" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "course_kind and course_kinds are mutually exclusive", r.URL.Path)
+			return
+		}
+		for token := range strings.SplitSeq(courseKindsRaw, ",") {
+			kind := strings.TrimSpace(token)
+			if !isValidCourseKind(kind) {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid course_kinds parameter", r.URL.Path)
+				return
+			}
+			params.CourseKinds = append(params.CourseKinds, kind)
+		}
+	}
+	if params.CourseKind != "" && !isValidCourseKind(params.CourseKind) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid course_kind parameter", r.URL.Path)
+		return
+	}
+	if r.URL.Query().Get("include_controls") == "true" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "include_controls is only supported on segment detail requests", r.URL.Path)
+		return
+	}
+	if params.IncludeControlMapFeatures &&
+		params.CourseKind != string(model.CourseKindCheckpointSequence) &&
+		!slices.Contains(params.CourseKinds, string(model.CourseKindCheckpointSequence)) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "include_control_map_features requires checkpoint course_kind", r.URL.Path)
+		return
 	}
 
 	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
 	if params.SegmentTypes != "" {
-		for _, t := range strings.Split(params.SegmentTypes, ",") {
+		for t := range strings.SplitSeq(params.SegmentTypes, ",") {
 			if !isValidSegmentType(strings.TrimSpace(t)) {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_types parameter", r.URL.Path)
 				return
@@ -104,25 +174,31 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid surface parameter", r.URL.Path)
 		return
 	}
+	if params.ElevationKind != "" {
+		if err := validateRequestedSegmentElevationKind(&params.ElevationKind); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind parameter", r.URL.Path)
+			return
+		}
+	}
 	if params.VisibilityFilter != "" {
 		// Dedup + clamp: build a set of whitelisted tokens, drop empties/whitespace,
 		// write deterministically sorted result back to params so the DB layer
-		// always sees at most len=2 and never a stale toggle fail-open (#15, A2).
-		seen := make(map[string]struct{}, 2)
-		for _, v := range strings.Split(params.VisibilityFilter, ",") {
+		// never sees unknown visibility tokens.
+		seen := make(map[string]struct{}, 3)
+		for v := range strings.SplitSeq(params.VisibilityFilter, ",") {
 			v = strings.TrimSpace(v)
 			if v == "" {
 				continue
 			}
-			if v != "public" && v != "private" {
-				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, or public,private)", r.URL.Path)
+			if v != "public" && v != "private" && v != "shared" {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility parameter (expect public, private, shared, or comma-separated combinations)", r.URL.Path)
 				return
 			}
 			seen[v] = struct{}{}
 		}
-		// Reconstruct deterministic order: public before private.
-		deduped := make([]string, 0, 2)
-		for _, k := range []string{"public", "private"} {
+		// Reconstruct deterministic order.
+		deduped := make([]string, 0, 3)
+		for _, k := range []string{"public", "shared", "private"} {
 			if _, ok := seen[k]; ok {
 				deduped = append(deduped, k)
 			}
@@ -133,6 +209,11 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid difficulty_match parameter (expect any or all)", r.URL.Path)
 		return
 	}
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
+	params.VisibleAccessScopeIDs = scopes
 
 	result, err := h.DB.ListSegments(r.Context(), params)
 
@@ -159,6 +240,57 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
+	if create.CourseKind != "" && !isValidCourseKind(create.CourseKind) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid course_kind", r.URL.Path)
+		return
+	}
+	if create.CourseKind == string(model.CourseKindCheckpointSequence) {
+		if create.GeoJSONTrack != "" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "geojson_track is not matching authority for checkpoint courses", r.URL.Path)
+			return
+		}
+		if create.SportGroup == "" {
+			create.SportGroup = "generic"
+		}
+		if create.Visibility == "" {
+			create.Visibility = "public"
+			if create.SourceActivityID != nil {
+				create.Visibility = "private"
+			}
+		} else if create.Visibility != "public" && create.Visibility != "private" && create.Visibility != "shared" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
+			return
+		}
+		if !h.requireSourceActivityPublishConfirmation(w, r, userID, create.SourceActivityID, create.Visibility, create.SourceActivityPublishConfirmed) {
+			return
+		}
+		segment, err := h.DB.CreateCheckpointCourse(r.Context(), userID, &model.CheckpointCourseCreate{
+			Name:                           create.Name,
+			Description:                    create.Description,
+			SportGroup:                     create.SportGroup,
+			Visibility:                     create.Visibility,
+			AccessScopeID:                  create.AccessScopeID,
+			AllowedPredicates:              create.AllowedPredicates,
+			Controls:                       create.Controls,
+			SourceActivityID:               create.SourceActivityID,
+			SourceActivityPublishConfirmed: create.SourceActivityPublishConfirmed,
+		})
+		if err != nil {
+			slog.Error("create checkpoint course failed", "error", err)
+			status := http.StatusInternalServerError
+			title := "Internal Error"
+			msg := "failed to create checkpoint course"
+			if errors.Is(err, database.ErrSegmentValidation) {
+				status = http.StatusBadRequest
+				title = "Bad Request"
+				msg = err.Error()
+			}
+			httputil.WriteError(w, status, title, msg, r.URL.Path)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusCreated, segment)
+		return
+	}
 	if create.GeoJSONTrack == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "geojson_track is required", r.URL.Path)
 		return
@@ -173,7 +305,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_type", r.URL.Path)
 		return
 	}
-	if create.TerrainType == "" {
+	if create.TerrainType == "" && create.SegmentType == "lift" {
+		create.TerrainType = "lift"
+	} else if create.TerrainType == "" {
 		create.TerrainType = "standard"
 	}
 	if create.ClimbType == "" {
@@ -183,11 +317,20 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	if create.TerrainType == "lift" && create.ClimbType == "standard" {
 		create.ClimbType = "bergfahrt"
 	}
+	elevationKind, err := normalizeSegmentElevationKindForCreate(create.SegmentType, create.ClimbType, create.ElevationKind)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind", r.URL.Path)
+		return
+	}
+	create.ElevationKind = &elevationKind
+	if create.SegmentType == "lap" {
+		create.ClimbType = "standard"
+	}
 
 	if create.Visibility == "" {
 		create.Visibility = "public"
-	} else if create.Visibility != "public" && create.Visibility != "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public' or 'private'", r.URL.Path)
+	} else if create.Visibility != "public" && create.Visibility != "private" && create.Visibility != "shared" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
 		return
 	}
 
@@ -202,6 +345,9 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if sourceActivity == nil || sourceActivity.UserID != userID {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "source activity not found", r.URL.Path)
+			return
+		}
+		if !h.requireSourceActivityPublishConfirmation(w, r, userID, create.SourceActivityID, create.Visibility, create.SourceActivityPublishConfirmed) {
 			return
 		}
 	}
@@ -246,12 +392,29 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, segment)
 
 	// Backfill: match new segment against all existing activities asynchronously.
-	// For private segments, backfill only runs against creator's own activities.
-	// GetSpatialCandidateSegments enforces: s.visibility = 'public' OR s.created_by = userID
+	// Backfill uses the same segment visibility predicate as candidate matching:
+	// public, owned, admin, or shared through a live viewer grant.
 	segID := segment.ID
 	shutdown.Go("segment-backfill-"+segID, func(ctx context.Context) {
 		h.backfillSegmentEfforts(ctx, userID, segID, sourceActivity)
 	})
+}
+
+func (h *Handler) requireSourceActivityPublishConfirmation(w http.ResponseWriter, r *http.Request, userID string, sourceActivityID *string, visibility string, confirmed bool) bool {
+	if sourceActivityID == nil || visibility == "private" {
+		return true
+	}
+	intersects, err := h.DB.ActivityTrackIntersectsActivePrivacyZones(r.Context(), userID, *sourceActivityID)
+	if err != nil {
+		slog.Error("source activity privacy-zone check failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check source activity privacy zones", r.URL.Path)
+		return false
+	}
+	if !intersects || confirmed {
+		return true
+	}
+	httputil.WriteError(w, http.StatusConflict, "Privacy Confirmation Required", "source activity intersects an active privacy zone; confirm publishing the exact segment/course geometry", r.URL.Path)
+	return false
 }
 
 func (h *Handler) matchSourceActivityForSegment(ctx context.Context, userID, segmentID string, act *model.Activity) {
@@ -309,15 +472,23 @@ func (h *Handler) backfillSegmentEfforts(ctx context.Context, userID, segmentID 
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	includeGeoJSON := r.URL.Query().Get("include_geojson") == "true"
+	includeControls := r.URL.Query().Get("include_controls") == "true"
+	includeOverlaySummary := r.URL.Query().Get("include_overlay_summary") == "true"
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	segment, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, includeGeoJSON)
+	segment, err := h.DB.GetSegmentWithOptions(r.Context(), id, userID, isAdmin, database.GetSegmentOptions{
+		IncludeGeoJSON:        includeGeoJSON,
+		IncludeControls:       includeControls,
+		IncludeOverlaySummary: includeOverlaySummary,
+		VisibleAccessScopeIDs: scopes,
+	})
 
 	if err != nil {
 		slog.Error("get segment failed", "error", err)
@@ -352,9 +523,77 @@ func isValidSegmentType(segType string) bool {
 	return ok
 }
 
+func isValidCourseKind(kind string) bool {
+	switch kind {
+	case string(model.CourseKindLine), string(model.CourseKindCheckpointSequence):
+		return true
+	default:
+		return false
+	}
+}
+
 func isEnrichableSegmentType(segType string) bool {
 	_, ok := enrichableSegmentTypes[segType]
 	return ok
+}
+
+func validateRequestedSegmentElevationKind(requested *string) error {
+	if requested == nil {
+		return nil
+	}
+	switch *requested {
+	case "flat", "hilly", "uphill", "downhill":
+		return nil
+	default:
+		return fmt.Errorf("invalid elevation_kind")
+	}
+}
+
+func legacySegmentElevationKind(climbType string) string {
+	switch climbType {
+	case "bergauf", "bergfahrt":
+		return "uphill"
+	case "bergab", "talfahrt":
+		return "downhill"
+	default:
+		return "flat"
+	}
+}
+
+func normalizeSegmentElevationKindForCreate(segmentType, climbType string, requested *string) (string, error) {
+	if err := validateRequestedSegmentElevationKind(requested); err != nil {
+		return "", err
+	}
+	if segmentType == "lap" {
+		return "flat", nil
+	}
+	if requested != nil {
+		return *requested, nil
+	}
+	return legacySegmentElevationKind(climbType), nil
+}
+
+func normalizeSegmentElevationKindForUpdate(
+	stored string,
+	segmentType string,
+	climbType string,
+	requested *string,
+	climbTypeChanged bool,
+	segmentTypeChanged bool,
+) (string, error) {
+	if err := validateRequestedSegmentElevationKind(requested); err != nil {
+		return "", err
+	}
+	if segmentType == "lap" {
+		return "flat", nil
+	}
+	if requested != nil {
+		return *requested, nil
+	}
+	if climbTypeChanged || segmentTypeChanged {
+		return legacySegmentElevationKind(climbType), nil
+	}
+	return stored, nil
 }
 
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +604,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
-	// Load existing segment: pass userID so own private segments are visible,
+	// Load existing segment: pass userID so own/private/shared segments are visible,
 	// and isAdmin so admins can edit any segment they can read.
 	existing, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
@@ -389,15 +628,15 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate visibility value (clean 400 instead of DB CHECK constraint 500).
-	if update.Visibility != nil && *update.Visibility != "public" && *update.Visibility != "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public' or 'private'", r.URL.Path)
+	if update.Visibility != nil && *update.Visibility != "public" && *update.Visibility != "private" && *update.Visibility != "shared" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "visibility must be 'public', 'private', or 'shared'", r.URL.Path)
 		return
 	}
 
 	// Block private→public via UpdateSegment — must use POST /segments/{id}/publish endpoint
 	// which triggers a full recompute for all users' activities.
-	if update.Visibility != nil && *update.Visibility == "public" && existing.Visibility == "private" {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "use POST /segments/{id}/publish to publish a private segment", r.URL.Path)
+	if update.Visibility != nil && *update.Visibility == "public" && (existing.Visibility == "private" || existing.Visibility == "shared") {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "use POST /segments/{id}/publish to publish a non-public segment", r.URL.Path)
 		return
 	}
 
@@ -415,6 +654,32 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	effectiveSegType := existing.SegmentType
 	if update.SegmentType != nil {
 		effectiveSegType = *update.SegmentType
+	}
+	effectiveClimbType := "standard"
+	if existing.ClimbType != nil && *existing.ClimbType != "" {
+		effectiveClimbType = *existing.ClimbType
+	}
+	if update.ClimbType != nil {
+		effectiveClimbType = *update.ClimbType
+	}
+	elevationKind, err := normalizeSegmentElevationKindForUpdate(
+		existing.ElevationKind,
+		effectiveSegType,
+		effectiveClimbType,
+		update.ElevationKind,
+		update.ClimbType != nil,
+		update.SegmentType != nil,
+	)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid elevation_kind", r.URL.Path)
+		return
+	}
+	if update.ElevationKind != nil || update.ClimbType != nil || update.SegmentType != nil || effectiveSegType == "lap" {
+		update.ElevationKind = &elevationKind
+	}
+	if effectiveSegType == "lap" {
+		standardClimb := "standard"
+		update.ClimbType = &standardClimb
 	}
 
 	// Normalize historic German labels in segment_type_meta before DB write.
@@ -538,14 +803,15 @@ func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
+	userID := middleware.GetUserID(r.Context())
+	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
 		return
 	}
-	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	// Verify segment is visible to the requesting user (prevents private segment data leak via UUID).
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), id, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("get segment leaderboard: get segment failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -558,11 +824,19 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 
 	sportType := r.URL.Query().Get("sport_type")
 	gearID := r.URL.Query().Get("gear_id")
+	scope := r.URL.Query().Get("scope")
+	electricMode := r.URL.Query().Get("electric_mode")
+	versionID := r.URL.Query().Get("version_id")
+	leaderboardEquivalenceGroupID := r.URL.Query().Get("leaderboard_equivalence_group_id")
 
 	var isReverse *bool
 	if v := r.URL.Query().Get("is_reverse"); v != "" {
 		b := v == "true"
 		isReverse = &b
+	}
+	if seg.CourseKind == string(model.CourseKindCheckpointSequence) && isReverse != nil && *isReverse {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "checkpoint course leaderboards do not support reverse direction", r.URL.Path)
+		return
 	}
 
 	// "only_mine=true" shows the current user's own efforts, including from private activities.
@@ -571,8 +845,26 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 		onlyUserID = userID
 	}
 
-	efforts, err := h.DB.GetSegmentLeaderboard(r.Context(), id, sportType, isReverse, gearID, onlyUserID)
+	efforts, err := h.DB.GetSegmentLeaderboardWithQuery(r.Context(), model.SegmentLeaderboardQuery{
+		SegmentID:                     id,
+		SportType:                     sportType,
+		IsReverse:                     isReverse,
+		GearID:                        gearID,
+		OnlyUserID:                    onlyUserID,
+		Scope:                         scope,
+		ElectricMode:                  electricMode,
+		VersionID:                     versionID,
+		LeaderboardEquivalenceGroupID: leaderboardEquivalenceGroupID,
+	})
 	if err != nil {
+		if errors.Is(err, database.ErrSegmentValidation) {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Unprocessable Entity", err.Error(), r.URL.Path)
+			return
+		}
+		if errors.Is(err, database.ErrSegmentNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "leaderboard group not found", r.URL.Path)
+			return
+		}
 		slog.Error("get segment leaderboard failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get leaderboard", r.URL.Path)
 		return
@@ -619,17 +911,18 @@ func (h *Handler) GetActivitySegmentEfforts(w http.ResponseWriter, r *http.Reque
 	httputil.WriteJSON(w, http.StatusOK, efforts)
 }
 
-// recomputeSegmentEfforts deletes all existing segment_efforts for the given
-// segment/user pair and re-matches every eligible activity against it.
+// recomputeSegmentEfforts re-matches every eligible activity against the
+// version active at that activity's start time. Existing active rows are
+// superseded per activity instead of deleted, so recalculation remains auditable.
 // It is the library-level core used by both RecomputeSegment (HTTP-triggered,
 // with job tracking) and RecomputeEffortsForActivity (post-fusion, non-fatal).
 //
 // The caller is responsible for running this inside a shutdown.Go goroutine
 // or other long-running context when appropriate.
 func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID string) error {
-	ids, err := h.DB.ListActivityIDsForSegmentRecompute(ctx, userID, segmentID)
+	ids, err := h.DB.ListActivityIDsForSegmentBackfill(ctx, userID, segmentID)
 	if err != nil {
-		return fmt.Errorf("list activities for recompute: %w", err)
+		return fmt.Errorf("list activities for backfill: %w", err)
 	}
 
 	slog.Info("segment recompute: starting", "segment_id", segmentID, "activity_count", len(ids))
@@ -648,14 +941,14 @@ func (h *Handler) recomputeSegmentEfforts(ctx context.Context, segmentID, userID
 	return nil
 }
 
-// recomputeSegmentEffortsForActivity deletes and re-matches segment_efforts
+// recomputeSegmentEffortsForActivity supersedes and re-matches segment_efforts
 // only for a specific (segment_id, activity_id) tuple. Used by
 // RecomputeEffortsForActivity (post-fusion cleanup) to avoid the user-wide
-// DELETE that the general recomputeSegmentEfforts handler does.
+// recompute path.
 //
-// The DELETE and INSERT are wrapped in a single transaction so that a matching
-// failure never leaves the pair with zero efforts (R2-10): if the INSERT fails,
-// the DELETE is rolled back and the pre-recompute efforts are preserved.
+// Superseding and inserting are wrapped in a single transaction so that a
+// matching failure never leaves the pair with zero active efforts: if the INSERT
+// fails, superseding is rolled back and the pre-recompute efforts stay active.
 //
 // Rank updates happen outside the transaction because they are non-critical and
 // idempotent — a partial rank failure does not corrupt effort data.
@@ -682,7 +975,7 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 	// collectSegmentEfforts applies the same spatial pre-filter as the full
 	// recompute path (GetSpatialCandidateSegments) so only the relevant segment
 	// will produce efforts for this (activity_id, segment_id) pair.
-	allEfforts, matchedSegmentIDs, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	allEfforts, checkpointMatches, matchedSegmentIDs, _, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 	if err != nil {
 		return fmt.Errorf("collect new efforts for segment rematch: %w", err)
 	}
@@ -703,40 +996,91 @@ func (h *Handler) recomputeSegmentEffortsForActivity(ctx context.Context, segmen
 			efforts = append(efforts, e)
 		}
 	}
+	checkpointEfforts := make([]model.CheckpointMatchedEffort, 0, len(checkpointMatches))
+	for _, match := range checkpointMatches {
+		if match.Effort != nil && match.Effort.SegmentID == segmentID {
+			checkpointEfforts = append(checkpointEfforts, match)
+		}
+	}
 
-	// Transactional DELETE + INSERT: if the INSERT fails the DELETE is rolled back,
-	// preserving the pre-recompute state (fixes R2-10 non-atomic delete+match).
 	tx, err := h.beginTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin tx for segment rematch: %w", err)
+		return fmt.Errorf("begin segment rematch tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if err := database.LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
-		return err
+	if _, err := database.SupersedeSegmentEffortsForActivitySegmentsWithCheckpointTx(ctx, tx, activityID, userID, []string{segmentID}, efforts, checkpointEfforts, nil, nil, nil); err != nil {
+		return fmt.Errorf("supersede efforts for segment+activity: %w", err)
 	}
-
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
-		segmentID, activityID,
-	); err != nil {
-		return fmt.Errorf("delete efforts for segment+activity: %w", err)
-	}
-
-	if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-		return fmt.Errorf("insert new efforts for segment+activity: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit segment rematch tx: %w", err)
 	}
 
 	// Update ranks outside the transaction — non-critical, idempotent.
+	matchedSegmentIDs[segmentID] = struct{}{}
 	for segID := range matchedSegmentIDs {
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
 			slog.Warn("segment recompute: update ranks failed",
 				"segment_id", segID, "activity_id", activityID, "error", err)
 		}
+	}
+	return nil
+}
+
+func (h *Handler) recomputeSegmentEffortsForActivityInRun(ctx context.Context, claim database.SegmentRecalculationActivityClaim) error {
+	act, err := h.DB.GetActivity(ctx, claim.ActivityID)
+	if err != nil {
+		return fmt.Errorf("load activity for segment recalculation run: %w", err)
+	}
+	if act == nil {
+		return fmt.Errorf("activity %s not found for segment recalculation run", claim.ActivityID)
+	}
+	subType := ""
+	if act.SubType != nil {
+		subType = *act.SubType
+	}
+
+	allEfforts, checkpointMatches, _, _, _, err := collectSegmentEfforts(ctx, h.DB, claim.ActivityID, claim.UserID, act.SportType, subType, act.GearID, act.StartedAt)
+	if err != nil {
+		return fmt.Errorf("collect efforts for segment recalculation run: %w", err)
+	}
+	efforts := make([]*model.SegmentEffort, 0, len(allEfforts))
+	for _, e := range allEfforts {
+		if e.SegmentID == claim.SegmentID {
+			efforts = append(efforts, e)
+		}
+	}
+	checkpointEfforts := make([]model.CheckpointMatchedEffort, 0, len(checkpointMatches))
+	for _, match := range checkpointMatches {
+		if match.Effort != nil && match.Effort.SegmentID == claim.SegmentID {
+			checkpointEfforts = append(checkpointEfforts, match)
+		}
+	}
+
+	tx, err := h.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin segment recalculation activity tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := database.ValidateSegmentRecalculationActivityClaimTx(ctx, tx, claim); err != nil {
+		return err
+	}
+	result, err := database.SupersedeSegmentEffortsForActivitySegmentsWithCheckpointTx(ctx, tx, claim.ActivityID, claim.UserID, []string{claim.SegmentID}, efforts, checkpointEfforts, &claim.RunID, claim.FromAt, claim.UntilAt)
+	if err != nil {
+		return fmt.Errorf("supersede segment recalculation activity: %w", err)
+	}
+	if err := database.CompleteSegmentRecalculationActivityTx(ctx, tx, claim, result); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit segment recalculation activity tx: %w", err)
+	}
+	if err := h.DB.UpdateSegmentEffortRanks(ctx, claim.SegmentID); err != nil {
+		slog.Warn("segment recalculation run: update ranks failed", "segment_id", claim.SegmentID, "error", err)
+	}
+	if _, err := h.DB.RebuildTargetObservationsFromSegmentEfforts(ctx, claim.SegmentID, 1000); err != nil {
+		slog.Warn("segment recalculation run: rebuild target observations failed", "segment_id", claim.SegmentID, "error", err)
 	}
 	return nil
 }
@@ -776,7 +1120,7 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 	}
 
 	// 2. Collect all efforts for this activity in one pass (GPS stream loaded once).
-	allEfforts, _, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	allEfforts, checkpointMatches, _, candidateSegmentIDs, _, err := collectSegmentEfforts(ctx, h.DB, activityID, userID, act.SportType, subType, act.GearID, act.StartedAt)
 	if err != nil {
 		return fmt.Errorf("collect efforts for activity rematch: %w", err)
 	}
@@ -786,70 +1130,64 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 	for _, e := range allEfforts {
 		effortsBySegment[e.SegmentID] = append(effortsBySegment[e.SegmentID], e)
 	}
-
-	// 4. Collect all overlapping segment IDs upfront (rows closed before TX loop).
-	queryRows, err := h.DB.Pool.Query(ctx, `
-		SELECT DISTINCT sv.segment_id
-		FROM segment_versions sv
-		JOIN activity_tracks t ON t.activity_id = $1
-		WHERE t.bbox IS NOT NULL
-		  AND ST_Intersects(sv.track, t.bbox)
-	`, activityID)
-	if err != nil {
-		return fmt.Errorf("query overlapping segments: %w", err)
-	}
-	var segmentIDs []string
-	for queryRows.Next() {
-		var segID string
-		if err := queryRows.Scan(&segID); err != nil {
-			queryRows.Close()
-			return fmt.Errorf("scan segment_id: %w", err)
+	checkpointBySegment := make(map[string][]model.CheckpointMatchedEffort, len(checkpointMatches))
+	for _, match := range checkpointMatches {
+		if match.Effort != nil {
+			checkpointBySegment[match.Effort.SegmentID] = append(checkpointBySegment[match.Effort.SegmentID], match)
 		}
+	}
+
+	// 4. Recompute only segments that passed the same active-version candidate
+	// selector as matching, plus existing platform efforts whose version was
+	// valid for this activity time. Raw segment_versions overlap would delete
+	// efforts for expired or future versions that are not valid for the activity.
+	existingRows, err := h.DB.Pool.Query(ctx, `
+		SELECT DISTINCT se.segment_id
+		FROM segment_efforts se
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
+		WHERE se.activity_id = $1
+		  AND se.user_id = $2
+		  AND se.superseded_at IS NULL
+		  AND se.match_source_type = 'platform_activity'
+		  AND se.matching_contract_version = 1
+		  AND sv.matching_contract_version = 1
+		  AND (
+		      (se.matching_contract_key = 'course_gps_v1' AND sv.matching_contract_key = 'course_gps_v1')
+		      OR (se.matching_contract_key = 'checkpoint_sequence_v1' AND sv.matching_contract_key = 'checkpoint_sequence_v1')
+		  )
+		  AND (sv.valid_from_at IS NULL OR sv.valid_from_at <= $3)
+		  AND (sv.valid_until_at IS NULL OR $3 < sv.valid_until_at)
+	`, activityID, userID, act.StartedAt)
+	if err != nil {
+		return fmt.Errorf("query existing active segment efforts: %w", err)
+	}
+	for existingRows.Next() {
+		var segID string
+		if err := existingRows.Scan(&segID); err != nil {
+			existingRows.Close()
+			return fmt.Errorf("scan existing active segment effort: %w", err)
+		}
+		candidateSegmentIDs[segID] = struct{}{}
+	}
+	if err := existingRows.Err(); err != nil {
+		existingRows.Close()
+		return fmt.Errorf("iterate existing active segment efforts: %w", err)
+	}
+	existingRows.Close()
+
+	segmentIDs := make([]string, 0, len(candidateSegmentIDs))
+	for segID := range candidateSegmentIDs {
 		segmentIDs = append(segmentIDs, segID)
 	}
-	if err := queryRows.Err(); err != nil {
-		queryRows.Close()
-		return fmt.Errorf("iterate overlapping segments: %w", err)
-	}
-	queryRows.Close()
 
-	// 5. Per segment: transactional DELETE + batch-INSERT of only that segment's efforts.
-	// Rank updates happen outside the transaction (non-critical, idempotent).
+	// 5. Per segment: transactional supersede + strict insert of only that
+	// segment's efforts. Rank updates happen outside the transaction
+	// (non-critical, idempotent).
 	for _, segID := range segmentIDs {
 		efforts := effortsBySegment[segID] // nil/empty when no GPS match for this segment
 
-		tx, err := h.beginTx(ctx)
-		if err != nil {
-			slog.Warn("post-fusion segment recompute: begin tx failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
-			segID, activityID,
-		); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			slog.Warn("post-fusion segment recompute: delete failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if err := database.InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			slog.Warn("post-fusion segment recompute: insert failed",
-				"activity_id", activityID,
-				"segment_id", segID,
-				"err", err)
-			continue
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			slog.Warn("post-fusion segment recompute: commit failed",
+		if _, err := h.DB.SupersedeSegmentEffortsForActivitySegmentsWithCheckpoint(ctx, activityID, userID, []string{segID}, efforts, checkpointBySegment[segID], nil, nil, nil); err != nil {
+			slog.Warn("post-fusion segment recompute: supersede failed",
 				"activity_id", activityID,
 				"segment_id", segID,
 				"err", err)
@@ -862,12 +1200,18 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 				"segment_id", segID,
 				"err", err)
 		}
+		if _, err := h.DB.RebuildTargetObservationsFromSegmentEfforts(ctx, segID, 1000); err != nil {
+			slog.Warn("post-fusion segment recompute: rebuild target observations failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+		}
 	}
 	return nil
 }
 
-// RecomputeSegment re-matches all of the user's GPS activities against a single segment.
-// Useful after editing a segment or when matching failed due to a bug.
+// RecomputeSegment queues durable recalculation activities for the caller's
+// GPS activities against a single segment.
 func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -876,6 +1220,11 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentRecompute) {
+		return
+	}
+	operationID, err := decodeSegmentOperationID(r, "manual-recompute")
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
 	}
 
@@ -890,69 +1239,33 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Aktivitäts-IDs vorab ermitteln (brauchen wir für progress_total).
-	ids, err := h.DB.ListActivityIDsForSegmentRecompute(r.Context(), userID, id)
+	runID, total, err := h.DB.SeedSegmentRecalculationRun(r.Context(), userID, database.SegmentRecalculationScope{
+		SegmentID:       id,
+		OwnerUserID:     userID,
+		IncludeAllUsers: false,
+		OperationID:     operationID,
+	}, "manual segment recompute", map[string]any{
+		"source":      "manual_recompute",
+		"visibility":  "user_visible",
+		"entity_name": seg.Name,
+	})
 	if err != nil {
-		slog.Error("segment recompute: list activities failed", "segment_id", id, "user_id", userID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
+		slog.Error("segment recompute: seed recalculation run failed", "segment_id", id, "user_id", userID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to queue recompute", r.URL.Path)
 		return
 	}
-
-	// Vorherige laufende Jobs für dieses Segment abbrechen.
-	if err := h.DB.CancelRunningJobsForEntity(r.Context(), userID, id); err != nil {
-		slog.Warn("segment recompute: cancel previous jobs failed", "segment_id", id, "error", err)
-	}
-
-	// Job in DB anlegen.
-	entityName := seg.Name
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_recompute", &id, &entityName, int64(len(ids)))
-	if err != nil {
-		slog.Warn("segment recompute: failed to insert job", "segment_id", id, "error", err)
-		jobID = ""
-	}
-
-	shutdown.Go("segment-recompute-"+id, func(ctx context.Context) {
-		failed := false
-
-		if !failed {
-			slog.Info("segment recompute: starting", "segment_id", id, "activity_count", len(ids))
-			for i, actID := range ids {
-				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, userID); err != nil {
-					slog.Warn("segment recompute: activity match failed",
-						"segment_id", id,
-						"activity_id", actID,
-						"error", err)
-				}
-
-				// Fortschritt alle 10 Aktivitäten oder am Ende aktualisieren.
-				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-						slog.Warn("segment recompute: update progress failed", "job_id", jobID, "error", err)
-					}
-				}
-			}
-			slog.Info("segment recompute: done", "segment_id", id)
-		}
-
-		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
-			slog.Warn("segment recompute: final rank update failed", "segment_id", id, "error", err)
-		}
-
-		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
-				slog.Warn("segment recompute: complete job failed", "job_id", jobID, "error", err)
-			}
-		}
-	})
+	h.startSegmentRecalculationRuns("manual-segment-recompute")
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"status": "recompute started",
-		"job_id": jobID,
+		"status":           "recompute queued",
+		"run_id":           runID,
+		"total_activities": total,
+		"segment_name":     seg.Name,
 	})
 }
 
-// PublishSegment transitions a private segment to public and triggers a full recompute
-// so all users' activities are matched. Uses background_job tracking (visible in ActiveJobsIndicator).
+// PublishSegment transitions a non-public segment to public and queues durable
+// recalculation activities so all users' matching activities are processed.
 func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -963,9 +1276,14 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentPublish) {
 		return
 	}
+	publishReq, err := decodeSegmentPublishRequest(r)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
+		return
+	}
 
 	// Get segment to verify ownership and retrieve name for job display.
-	// Admins may publish any private segment they can read.
+	// Admins may publish any non-public segment they can read.
 	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 
 	if err != nil {
@@ -977,22 +1295,25 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "segment not found or not owned", r.URL.Path)
 		return
 	}
-	if seg.Visibility != "private" {
+	if seg.Visibility == "public" {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "already_public"})
 		return
 	}
 
-	// List all nearby activities (all users) before publishing, so we know the total.
-	ids, err := h.DB.ListAllActivityIDsForSegmentRecompute(r.Context(), id)
+	published, runID, total, err := h.DB.PublishSegmentAndSeedRecalculationRun(r.Context(), id, userID, isAdmin, publishReq.OperationID, publishReq.SourceActivityPublishConfirmed, map[string]any{
+		"source":      "segment_publish",
+		"visibility":  "user_visible",
+		"entity_name": seg.Name,
+	})
 	if err != nil {
-		slog.Error("publish segment: list activities failed", "segment_id", id, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
-		return
-	}
-
-	// Set visibility = 'public'. After this point the segment is visible to all users.
-	published, err := h.DB.PublishSegment(r.Context(), id, userID, isAdmin)
-	if err != nil {
+		if errors.Is(err, database.ErrSegmentPublishPrivacyConfirmationRequired) {
+			httputil.WriteError(w, http.StatusConflict, "Privacy Confirmation Required", "source activity intersects an active privacy zone; confirm publishing the current segment/course geometry", r.URL.Path)
+			return
+		}
+		if errors.Is(err, database.ErrRoutePublicationValidation) {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("publish segment failed", "segment_id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to publish segment", r.URL.Path)
 		return
@@ -1002,59 +1323,12 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "already_public"})
 		return
 	}
-
-	// Cancel any in-progress recompute jobs for this segment to prevent races (A8).
-	// Must run BEFORE InsertBackgroundJob — otherwise it cancels the job we just created.
-	h.DB.CancelRunningJobsForEntity(r.Context(), userID, id)
-
-	// Track the recompute as a background job (visible in ActiveJobsIndicator).
-	entityName := seg.Name
-	jobID, err := h.DB.InsertBackgroundJob(r.Context(), userID, "segment_publish", &id, &entityName, int64(len(ids)))
-	if err != nil {
-		slog.Warn("publish segment: failed to insert job", "segment_id", id, "error", err)
-		jobID = ""
-	}
-
-	shutdown.Go("segment-publish-"+id, func(ctx context.Context) {
-		failed := false
-
-		if !failed {
-			for i, actID := range ids {
-				act, err := h.DB.GetActivity(ctx, actID)
-				if err != nil || act == nil {
-					continue
-				}
-				if err := h.recomputeSegmentEffortsForActivity(ctx, id, actID, act.UserID); err != nil {
-					slog.Warn("publish recompute: activity match failed",
-						"segment_id", id,
-						"activity_id", actID,
-						"error", err)
-				}
-
-				if jobID != "" && (i%10 == 0 || i == len(ids)-1) {
-					if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
-						slog.Warn("publish recompute: update progress failed", "job_id", jobID, "error", err)
-					}
-				}
-			}
-			slog.Info("segment publish recompute: done", "segment_id", id, "activity_count", len(ids))
-		}
-
-		// Final rank/count update — ensures correct values even if zero activities matched.
-		if err := h.DB.UpdateSegmentEffortRanks(ctx, id); err != nil {
-			slog.Warn("publish recompute: final rank update failed", "segment_id", id, "error", err)
-		}
-
-		if jobID != "" {
-			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
-				slog.Warn("publish recompute: complete job failed", "job_id", jobID, "error", err)
-			}
-		}
-	})
+	h.startSegmentRecalculationRuns("segment-publish")
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
-		"status": "publish started",
-		"job_id": jobID,
+		"status":           "publish queued",
+		"run_id":           runID,
+		"total_activities": total,
 	})
 }
 
@@ -1094,8 +1368,12 @@ func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Reques
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentFavoriteStatus", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1124,8 +1402,12 @@ func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "AddSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1153,8 +1435,12 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "RemoveSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1182,8 +1468,12 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentPerformances", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)

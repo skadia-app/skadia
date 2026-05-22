@@ -129,6 +129,163 @@ func TestSegmentProjectionGroupForPredicates(t *testing.T) {
 	}
 }
 
+func TestExpandActivityTraitBucketsIncludesModifierStates(t *testing.T) {
+	key := "atb:v1:sport=cycling:sub=mountain:indoor=0:virtual=1:electric=1"
+	bucket, ok := ActivityTraitBucketByKey(key)
+	if !ok {
+		t.Fatalf("ActivityTraitBucketByKey(%q) missing", key)
+	}
+	if bucket.SportType != "cycling" || bucket.SubType != "mountain" || !bucket.IsVirtual || !bucket.IsElectric || bucket.IsIndoor {
+		t.Fatalf("bucket = %#v, want cycling mountain virtual electric", bucket)
+	}
+}
+
+func TestBuildActivityTraitBucketKeyIsStable(t *testing.T) {
+	want := "atb:v1:sport=cycling:sub=mountain:indoor=0:virtual=0:electric=1"
+	got := BuildActivityTraitBucketKey(ActivityTraitBucketInput{
+		SportType:  "cycling",
+		SubType:    "mountain",
+		IsElectric: true,
+	})
+	if got != want {
+		t.Fatalf("BuildActivityTraitBucketKey() = %q, want %q", got, want)
+	}
+
+	want = "atb:v1:sport=running:sub=_:indoor=1:virtual=0:electric=0"
+	got = BuildActivityTraitBucketKey(ActivityTraitBucketInput{
+		SportType: "running",
+		IsIndoor:  true,
+	})
+	if got != want {
+		t.Fatalf("BuildActivityTraitBucketKey() = %q, want %q", got, want)
+	}
+}
+
+func TestCourseEligibilityPolicyForSegmentPreservesLegacyNullWildcard(t *testing.T) {
+	rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "bike", nil, false))
+	if !courseEligibilityRowsContain(rows, "cycling", "mountain", true) {
+		t.Fatalf("rows missing cycling mountain bucket: %#v", rows)
+	}
+	if courseEligibilityRowsContainGroup(rows, "foot") {
+		t.Fatalf("bike wildcard included foot rows: %#v", rows)
+	}
+}
+
+func TestCourseEligibilityPolicyForSegmentPreservesWinterWaterNullGuard(t *testing.T) {
+	for _, segmentType := range []string{"wintersport", "wassersport"} {
+		rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput(segmentType, "ski", nil, false))
+		if len(rows) != 0 {
+			t.Fatalf("%s null wildcard rows = %#v, want none", segmentType, rows)
+		}
+	}
+}
+
+func TestCourseEligibilityPolicyForSegmentTreatsEmptyPredicatesAsNoRows(t *testing.T) {
+	rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "bike", []Predicate{}, true))
+	if len(rows) != 0 {
+		t.Fatalf("empty-predicate rows = %#v, want none", rows)
+	}
+}
+
+func TestCourseEligibilityPolicyForParentPredicateIncludesSubtypeBuckets(t *testing.T) {
+	rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "bike", []Predicate{{Sport: "cycling"}}, true))
+	if !courseEligibilityRowsContain(rows, "cycling", "mountain", true) {
+		t.Fatalf("parent cycling rows missing mountain subtype: %#v", rows)
+	}
+}
+
+func TestCourseEligibilityPolicyForStoredGroupFiltersLegacyWildcard(t *testing.T) {
+	rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "foot", nil, false))
+	if courseEligibilityRowsContain(rows, "cycling", "mountain", true) {
+		t.Fatalf("foot null wildcard included cycling bucket: %#v", rows)
+	}
+	if !courseEligibilityRowsContain(rows, "running", "", true) {
+		t.Fatalf("foot null wildcard missing running bucket: %#v", rows)
+	}
+}
+
+func TestCourseEligibilityPolicyForNullWildcardIsNotPresetLimited(t *testing.T) {
+	rows := CourseEligibilityRowsForSegment(testCourseEligibilityInput("trail", "swim", nil, false))
+	if !courseEligibilityRowsContain(rows, "swimming", "open_water", true) {
+		t.Fatalf("trail swim wildcard missing swimming bucket outside trail preset: %#v", rows)
+	}
+}
+
+func TestActivityTraitBucketKeyForActivityFallsBackToParentForFutureSubtype(t *testing.T) {
+	got, ok := ActivityTraitBucketKeyForActivityLegacyCandidate("cycling", "future_bike", ActivityModifierState{})
+	want := "atb:v1:sport=cycling:sub=_:indoor=0:virtual=0:electric=0"
+	if !ok || got != want {
+		t.Fatalf("future subtype bucket = %q/%t, want %q/true", got, ok, want)
+	}
+}
+
+func TestActivityTraitBucketKeyForActivityPreservesGenericFallback(t *testing.T) {
+	got, ok := ActivityTraitBucketKeyForActivityLegacyCandidate("future_sport", "", ActivityModifierState{})
+	want := "atb:v1:sport=generic:sub=_:indoor=0:virtual=0:electric=0"
+	if !ok || got != want {
+		t.Fatalf("generic fallback bucket = %q/%t, want %q/true", got, ok, want)
+	}
+}
+
+func TestActivityTraitBucketKeyForActivityTreatsUnknownAsGenericFallback(t *testing.T) {
+	got, ok := ActivityTraitBucketKeyForActivityLegacyCandidate("unknown", "", ActivityModifierState{})
+	want := "atb:v1:sport=generic:sub=_:indoor=0:virtual=0:electric=0"
+	if !ok || got != want {
+		t.Fatalf("unknown fallback bucket = %q/%t, want %q/true", got, ok, want)
+	}
+}
+
+func TestCourseEligibilityPolicySourceHashChangesWhenInputsChange(t *testing.T) {
+	base := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "bike", nil, false))
+	changed := CourseEligibilityRowsForSegment(testCourseEligibilityInput("standard", "foot", nil, false))
+	if len(base) == 0 || len(changed) == 0 {
+		t.Fatalf("unexpected empty rows: base=%#v changed=%#v", base, changed)
+	}
+	if base[0].SourceHash == changed[0].SourceHash {
+		t.Fatalf("source hash did not change for changed sport_group: %q", base[0].SourceHash)
+	}
+}
+
+func testCourseEligibilityInput(segmentType, sportGroup string, preds []Predicate, predsSet bool) CourseEligibilityInput {
+	return CourseEligibilityInput{
+		TargetKind:           "segment",
+		TargetID:             "segment-1",
+		TargetVersionID:      "version-1",
+		SegmentType:          segmentType,
+		SportGroup:           sportGroup,
+		AllowedPredicates:    preds,
+		AllowedPredicatesSet: predsSet,
+		Bidirectional:        false,
+		Visibility:           "public",
+		ElevationKind:        "mixed",
+		AdapterKey:           "legacy_segment_adapter_v1",
+		AdapterVersion:       1,
+	}
+}
+
+func courseEligibilityRowsContain(rows []CourseEligibilityProjectionRow, sportType, subType string, matchAllowed bool) bool {
+	wantSubType := subType
+	if wantSubType == "" {
+		wantSubType = "_"
+	}
+	prefix := "atb:v1:sport=" + sportType + ":sub=" + wantSubType + ":"
+	for _, row := range rows {
+		if row.MatchAllowed == matchAllowed && len(row.ActivityTraitBucketKey) >= len(prefix) && row.ActivityTraitBucketKey[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func courseEligibilityRowsContainGroup(rows []CourseEligibilityProjectionRow, group string) bool {
+	for _, row := range rows {
+		if row.ActivityGroup == group {
+			return true
+		}
+	}
+	return false
+}
+
 func projectionGroupByKey(preset ActivityFilterProjectionPreset, key string) *ActivityFilterProjectionGroup {
 	for i := range preset.Groups {
 		if preset.Groups[i].Key == key {

@@ -506,6 +506,8 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                       { id: 'standard', label: 'Standard' },
                       { id: 'trail', label: 'Trail' },
                       { id: 'lift', label: 'Lift' },
+                      { id: 'wintersport', label: 'Winter' },
+                      { id: 'wassersport', label: 'Wasser' },
                     ] as const).map(({ id, label }) => (
                       <button
                         key={id}
@@ -517,6 +519,36 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                         })}
                         className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
                           segmentFilters.terrainTypes.includes(id)
+                            ? 'bg-accent-DEFAULT text-white border-transparent'
+                            : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kurse:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {([
+                      { id: 'line', label: 'Linien' },
+                      { id: 'checkpoint_sequence', label: 'Checkpoint-Kurse' },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          const nextCourseKinds = segmentFilters.courseKinds.includes(id)
+                            ? segmentFilters.courseKinds.filter(k => k !== id)
+                            : [...segmentFilters.courseKinds, id]
+                          if (nextCourseKinds.length === 0) return
+                          onSegmentFiltersChange({
+                            ...segmentFilters,
+                            courseKinds: nextCourseKinds,
+                          })
+                        }}
+                        className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                          segmentFilters.courseKinds.includes(id)
                             ? 'bg-accent-DEFAULT text-white border-transparent'
                             : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
                         }`}
@@ -570,6 +602,9 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                       { key: 'standard', label: 'Standard' },
                       { key: 'trail', label: 'Trail' },
                       { key: 'lift', label: 'Lift' },
+                      { key: 'wintersport', label: 'Winter' },
+                      { key: 'wassersport', label: 'Wasser' },
+                      { key: 'checkpoint', label: 'Checkpoint' },
                       { key: 'ridden', label: 'Gefahren' },
                       { key: 'favorite', label: 'Favoriten' },
                     ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (

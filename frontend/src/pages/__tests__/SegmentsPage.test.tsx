@@ -238,6 +238,179 @@ describe('SegmentsPage filters', () => {
     expect(screen.queryByText('Oberfläche')).not.toBeInTheDocument()
     expect(screen.getByText('Sichtbarkeit')).toBeInTheDocument()
   })
+
+  it('loads checkpoint courses through course kind filters', async () => {
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    const checkpointToggle = await screen.findByRole('checkbox', { name: 'Checkpoint-Kurse' })
+    expect(checkpointToggle).toBeChecked()
+
+    await waitFor(() => {
+      expect(mocks.fetchSegments).toHaveBeenCalledWith(expect.objectContaining({
+        course_kinds: ['line', 'checkpoint_sequence'],
+      }))
+    })
+  })
+
+  it('labels checkpoint courses without showing the legacy standard type', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-1',
+          name: 'Freie Linie',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 3, required_control_count: 3, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Freie Linie')).toBeInTheDocument()
+    expect(screen.getByText('Checkpoint-Kurs')).toBeInTheDocument()
+    expect(screen.getByText('3 Checkpoints')).toBeInTheDocument()
+  })
+
+  it('adds elevation-kind filters to URL state and segment requests', async () => {
+    renderSegmentsPage('/segments?elevation_kind=uphill')
+
+    expect(await screen.findByRole('checkbox', { name: 'Bergauf' })).toBeChecked()
+    await waitFor(() => {
+      expect(mocks.fetchSegments).toHaveBeenCalledWith(expect.objectContaining({
+        elevation_kind: 'uphill',
+      }))
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bergauf' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).not.toHaveTextContent('elevation_kind')
+    })
+  })
+
+  it('passes version and equivalence scope to leaderboard requests', async () => {
+    const leaderboardMock = (await import('@/api/segments')).fetchSegmentLeaderboard as unknown as ReturnType<typeof vi.fn>
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'seg-versioned',
+          name: 'Versioniertes Segment',
+          sport_group: 'bike',
+          segment_type: 'trail',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: true,
+          segment_version_id: 'version-2',
+          leaderboard_equivalence_group_id: 'equiv-1',
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments')
+
+    expect(await screen.findByText('Versioniertes Segment')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Bestenliste'))
+
+    await waitFor(() => {
+      expect(leaderboardMock).toHaveBeenCalledWith('seg-versioned', expect.objectContaining({
+        scope: 'current_version',
+        version_id: 'version-2',
+      }))
+    })
+
+    fireEvent.change(screen.getByLabelText('Bestenlisten-Bereich'), { target: { value: 'equivalence_group' } })
+
+    await waitFor(() => {
+      expect(leaderboardMock).toHaveBeenLastCalledWith('seg-versioned', expect.objectContaining({
+        scope: 'equivalence_group',
+        leaderboard_equivalence_group_id: 'equiv-1',
+      }))
+    })
+  })
+
+  it('exposes checkpoint course edit and delete actions in the list', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-actions',
+          name: 'Checkpoint-Aktionen',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-22T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 2, required_control_count: 2, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Checkpoint-Aktionen')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segment bearbeiten' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segment löschen' })).toBeInTheDocument()
+  })
+
+  it('does not offer reverse leaderboard direction for checkpoint courses', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'checkpoint-leaderboard',
+          name: 'Checkpoint-Bestenliste',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-22T00:00:00Z',
+          bidirectional: false,
+          course_kind: 'checkpoint_sequence',
+          control_summary: { control_count: 2, required_control_count: 2, primitive_kinds: ['point'] },
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments?checkpoint_courses=true')
+
+    expect(await screen.findByText('Checkpoint-Bestenliste')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Bestenliste'))
+
+    expect(screen.getAllByRole('button', { name: 'Alle' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '→' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '←' })).not.toBeInTheDocument()
+  })
 })
 
 describe('shouldFetchNextSegmentPage', () => {

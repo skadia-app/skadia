@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -22,11 +23,11 @@ import (
 // reversing them would corrupt leaderboard is_reverse-partitioned rankings.
 var errLapSegmentCannotBeReversed = errors.New("lap segments cannot be reversed")
 
-// ReverseSegment flips a segment's active version geometry and all effort
-// is_reverse flags atomically (including leaderboard rank-recompute inside
-// the same tx). Owner OR admin may reverse.
+// ReverseSegment creates a reversed active segment version atomically. Existing
+// efforts remain frozen on the version and direction that originally matched.
+// Owner OR admin may reverse.
 //
-// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": N} | 400 | 403 | 404 | 500
+// POST /api/v1/segments/{id}/reverse → 200 {"efforts_updated": 0} | 400 | 403 | 404 | 500
 func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	segID := chi.URLParam(r, "id")
@@ -56,8 +57,7 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 			//           or explicit pg_try_advisory_xact_lock returning false)
 			//   40001 = serialization_failure (snapshot conflict under REPEATABLE READ /
 			//           SERIALIZABLE isolation)
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 				switch pgErr.Code {
 				case "55P03", "40001":
 					httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "lock conflict, please try again", r.URL.Path)
@@ -70,22 +70,23 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.startSegmentRecalculationRuns("segment-reverse")
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"efforts_updated": effortsUpdated})
 }
 
-// reverseSegmentTx performs the atomic flip inside a single transaction.
+// reverseSegmentTx performs the atomic geometry flip inside a single transaction.
 // Owner-or-admin check is done TOCTOU-safely inside the same tx via a
 // SELECT ... FOR UPDATE, so a concurrent DeleteSegment / UpdateSegment cannot
 // win the race. Guarded by pg_advisory_xact_lock to serialize concurrent
-// reverse-calls on the same segment. Returns number of segment_efforts rows
-// updated.
+// reverse-calls on the same segment. Existing segment_efforts are not updated;
+// the return value remains part of the HTTP contract and is currently always 0.
 //
 // Schema reality (verified 2026-04-20 against migrate/migrations/000032):
 // segments has no geometry columns — geometry lives in segment_versions.track
 // with start_point / end_point. A reverse inserts a NEW segment_versions row
 // with ST_Reverse(track) and ST_EndPoint(old.track) as the new start_point
-// (and vice versa). All subsequent lookups that pick the active version via
-// ORDER BY version_number DESC LIMIT 1 automatically see the reversed track.
+// (and vice versa). Subsequent current-display lookups see the reversed track
+// through the course_gps_v1 validity selector.
 //
 // NOTE: segments has no updated_at column (verified against migration 000032 and
 // all subsequent ALTER TABLE segments migrations). No timestamp bump on the parent
@@ -125,92 +126,19 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 		return 0, errLapSegmentCannotBeReversed
 	}
 
-	// Insert a new segment_versions row with ST_Reverse(track) and swapped
-	// start_point / end_point. Segment metadata lives on segments, so the
-	// parent row's effort_count/athlete_count and metadata are untouched.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point,
-		                              valid_from, created_by)
-		SELECT sv.segment_id,
-		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
-		       ST_Reverse(sv.track),
-		       sv.end_point,
-		       sv.start_point,
-		       CURRENT_DATE,
-		       $2
-		FROM segment_versions sv
-		WHERE sv.segment_id = $1
-		ORDER BY sv.version_number DESC
-		LIMIT 1`, segID, userID); err != nil {
-		return 0, fmt.Errorf("insert reversed version: %w", err)
+	operationID := fmt.Sprintf("reverse:%s:%d:%d", segID, lockKey, time.Now().UnixNano())
+	if _, _, err := db.ReverseActiveSegmentVersionTx(ctx, tx, segID, userID, operationID); err != nil {
+		return 0, err
 	}
 
-	// Flip is_reverse on all efforts for this segment.
-	ct, err := tx.Exec(ctx, `UPDATE segment_efforts SET is_reverse = NOT is_reverse WHERE segment_id = $1`, segID)
-	if err != nil {
-		return 0, fmt.Errorf("update efforts: %w", err)
-	}
-
-	// Rank-recompute — literal copy of the two queries from
-	// database/segments.go:678 (UpdateSegmentEffortRanks). Copied inline because
-	// that method uses db.Pool.Exec directly and has no Tx-variant. A future
-	// refactor could introduce an Execer parameter so it accepts either pool
-	// or tx; for now we duplicate to keep the change surface small and make the
-	// reverse atomic (geometry + is_reverse + ranks either all commit or all roll back).
-	//
-	// IF YOU CHANGE EITHER QUERY HERE, mirror it in
-	// database/segments.go:UpdateSegmentEffortRanks (and vice-versa).
-	if _, err := tx.Exec(ctx, `
-		WITH
-		global_ranked AS (
-			SELECT se.id, se.started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
-			       ) AS rk,
-			       (ROW_NUMBER() OVER (
-			           PARTITION BY se.sport_type, se.is_reverse
-			           ORDER BY se.elapsed_time_s ASC
-			       ) = 1) AS is_record
-			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-			WHERE se.segment_id = $1 AND se.in_leaderboard = true
-		),
-		personal_ranked AS (
-			SELECT id, started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY sport_type, is_reverse, user_id
-			           ORDER BY elapsed_time_s ASC
-			       ) AS user_rk
-			FROM segment_efforts
-			WHERE segment_id = $1 AND in_leaderboard = true
-		)
-		UPDATE segment_efforts se
-		SET rank_overall      = gr.rk,
-		    is_personal_best  = (pr.user_rk = 1),
-		    personal_rank     = CASE WHEN pr.user_rk <= 3 THEN pr.user_rk::smallint ELSE NULL END,
-		    is_segment_record = COALESCE(gr.is_record, false)
-		FROM personal_ranked pr
-		LEFT JOIN global_ranked gr ON gr.id = pr.id AND gr.started_at = pr.started_at
-		WHERE se.id = pr.id AND se.started_at = pr.started_at`, segID); err != nil {
+	if err := database.UpdateSegmentEffortRanksTx(ctx, tx, segID); err != nil {
 		return 0, fmt.Errorf("recompute ranks: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE segments SET
-		    effort_count  = (SELECT COUNT(*) FROM segment_efforts se
-		                     JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-		                     WHERE se.segment_id = $1),
-		    athlete_count = (SELECT COUNT(DISTINCT se.user_id) FROM segment_efforts se
-		                     JOIN activities a ON a.id = se.activity_id AND a.visibility = 'public' AND NOT a.is_group_secondary
-		                     WHERE se.segment_id = $1)
-		WHERE id = $1`, segID); err != nil {
-		return 0, fmt.Errorf("update segment counts: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit: %w", err)
 	}
-	return int(ct.RowsAffected()), nil
+	return 0, nil
 }
 
 // advisoryLockKeyForSegmentReverse derives a stable int64 from the segment UUID,

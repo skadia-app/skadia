@@ -1,10 +1,53 @@
 import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
 import type { SportPredicate } from '@/lib/sportPredicates'
+import type { TargetOverlaySummary } from './targetOverlays'
+
+export type SegmentVisibility = 'public' | 'private' | 'shared'
+export type CourseKind = 'line' | 'checkpoint_sequence'
+export type CheckpointControlRole = 'start' | 'checkpoint' | 'finish'
+export type CheckpointControlPrimitive = 'point' | 'area'
+export type CheckpointControlGeometryShape = 'point' | 'circle' | 'polygon' | 'multipolygon'
+
+export interface CheckpointControl {
+  id?: string
+  sequence_index: number
+  role: CheckpointControlRole
+  primitive: CheckpointControlPrimitive
+  geometry_shape: CheckpointControlGeometryShape
+  label?: string
+  geometry: unknown
+  hit_radius_m?: number
+  area_radius_m?: number
+  required: boolean
+}
+
+export interface CheckpointControlSummary {
+  control_count: number
+  required_control_count: number
+  primitive_kinds: string[]
+  labels?: string[]
+}
+
+export interface CheckpointControlMapFeature {
+  sequence_index: number
+  role: CheckpointControlRole
+  primitive: CheckpointControlPrimitive
+  geometry_shape: CheckpointControlGeometryShape
+  label?: string
+  centroid: unknown
+  geometry?: unknown
+  hit_radius_m?: number
+  area_radius_m?: number
+  required: boolean
+}
 
 export interface Segment {
   id: string
   name: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   description?: string
   sport_group: string
   segment_type: string
@@ -15,21 +58,32 @@ export interface Segment {
   athlete_count: number
   ridden_count: number
   is_favorite: boolean
-  visibility: 'public' | 'private'
+  visibility: SegmentVisibility
+  access_scope_id?: string | null
+  effective_permissions?: string[]
   created_by: string
   created_at: string
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
   /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
+  course_kind?: CourseKind
+  control_summary?: CheckpointControlSummary
+  control_map_features?: CheckpointControlMapFeature[]
+  controls?: CheckpointControl[]
+  overlay_summary?: TargetOverlaySummary | null
 }
 
 export interface SegmentEffort {
   id: string
   segment_id: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   activity_id: string
   started_at: string
   elapsed_time_s: number
@@ -45,11 +99,16 @@ export interface SegmentEffort {
   is_segment_record: boolean
   segment_name?: string
   segment_type_meta?: Record<string, unknown>
+  course_kind?: CourseKind
+  control_summary?: CheckpointControlSummary
 }
 
 export interface LeaderboardEntry {
   id: string
   segment_id: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   activity_id: string
   user_id: string
   elapsed_time_s: number
@@ -63,6 +122,66 @@ export interface LeaderboardEntry {
   gear_name?: string
 }
 
+export type SegmentLeaderboardQuery = {
+  sport_type?: string
+  is_reverse?: boolean
+  scope?: 'current_version' | 'version' | 'equivalence_group' | 'sport_overall'
+  electric_mode?: 'all' | 'exclude_electric' | 'only_electric'
+  gear_id?: string
+  only_mine?: boolean
+  version_id?: string
+  leaderboard_equivalence_group_id?: string
+}
+
+export type SegmentVersionValidityUpdate = {
+  operation_id: string
+  valid_from_at: string | null
+  valid_until_at: string | null
+  reason?: string
+  recalculate: boolean
+  equivalence_decision?: 'continue_group' | 'new_group' | 'version_specific'
+}
+
+export type SegmentGeometryUpdate = {
+  operation_id: string
+  track_geojson: unknown
+  start_point_geojson: unknown
+  end_point_geojson: unknown
+  reason?: string
+  recalculate: boolean
+  equivalence_decision?: 'continue_group' | 'new_group' | 'version_specific'
+  equivalence_evidence?: Record<string, unknown>
+}
+
+export type SegmentVersionRevision = {
+  id: string
+  segment_id: string
+  operation: string
+  reason?: string
+  affected_from_at?: string
+  affected_until_at?: string
+  recalculation_run_id?: string
+  rollback_of_revision_id?: string
+  before_snapshot?: unknown
+  after_snapshot?: unknown
+  before_snapshot_sha256?: string
+  after_snapshot_sha256?: string
+  created_at: string
+}
+
+export type SegmentVersionRevisionSummary = Omit<
+  SegmentVersionRevision,
+  'before_snapshot' | 'after_snapshot' | 'before_snapshot_sha256' | 'after_snapshot_sha256'
+> & {
+  has_snapshots: boolean
+}
+
+export type SegmentVersionRevisionsResponse = {
+  revisions: SegmentVersionRevisionSummary[]
+  limit: number
+  offset: number
+}
+
 export interface CreateSegmentPayload {
   name: string
   sport_group: string
@@ -73,11 +192,30 @@ export interface CreateSegmentPayload {
   description?: string
   terrain_type?: string
   climb_type?: string
-  visibility?: 'public' | 'private'
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
   /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
+  course_kind?: CourseKind
+  controls?: CheckpointControl[]
+  /** Required when public/shared creation from a source activity intersects an active privacy zone. */
+  source_activity_publish_confirmed?: boolean
+}
+
+export interface CreateCheckpointCoursePayload {
+  name: string
+  sport_group: string
+  description?: string
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
+  allowed_predicates?: SportPredicate[] | null
+  controls: CheckpointControl[]
+  source_activity_id?: string
+  /** Required when public/shared creation from a source activity intersects an active privacy zone. */
+  source_activity_publish_confirmed?: boolean
 }
 
 export interface SegmentsResponse {
@@ -100,10 +238,14 @@ export interface FetchSegmentsOpts {
   sac_scale?: string
   mtb_scale?: string
   surface?: string
-  /** comma-separated: "public", "private", or "public,private" */
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
+  /** comma-separated: "public", "private", "shared", or combinations */
   visibility?: string
   /** "any" = OR between SAC and MTB; "all" (default) = AND */
   difficulty_match?: 'any' | 'all'
+  course_kind?: CourseKind
+  course_kinds?: CourseKind[]
+  include_control_map_features?: boolean
 }
 
 export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<SegmentsResponse> {
@@ -121,8 +263,12 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
   if (params.sac_scale) qs.set('sac_scale', params.sac_scale)
   if (params.mtb_scale) qs.set('mtb_scale', params.mtb_scale)
   if (params.surface) qs.set('surface', params.surface)
+  if (params.elevation_kind) qs.set('elevation_kind', params.elevation_kind)
   if (params.visibility) qs.set('visibility', params.visibility)
   if (params.difficulty_match) qs.set('difficulty_match', params.difficulty_match)
+  if (params.course_kind) qs.set('course_kind', params.course_kind)
+  if (params.course_kinds?.length) qs.set('course_kinds', params.course_kinds.join(','))
+  if (params.include_control_map_features) qs.set('include_control_map_features', 'true')
   
   const q = qs.toString()
   return apiClient<SegmentsResponse>(`/segments${q ? `?${q}` : ''}`)
@@ -136,7 +282,9 @@ export interface UpdateSegmentPayload {
   new_version?: boolean
   terrain_type?: string
   climb_type?: string
-  visibility?: 'public' | 'private'
+  elevation_kind?: 'flat' | 'hilly' | 'uphill' | 'downhill'
+  visibility?: SegmentVisibility
+  access_scope_id?: string | null
   /** absent = unchanged; null = legacy match-all inside the stored sport group; [] = no sports; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** absent = unchanged */
@@ -145,19 +293,37 @@ export interface UpdateSegmentPayload {
 
 export async function fetchSegmentLeaderboard(
   segmentId: string,
-  isReverse?: boolean,
+  isReverseOrQuery?: boolean | SegmentLeaderboardQuery,
   onlyMine?: boolean,
 ): Promise<LeaderboardEntry[]> {
   const qs = new URLSearchParams()
-  if (isReverse !== undefined) qs.set('is_reverse', String(isReverse))
-  if (onlyMine) qs.set('only_mine', 'true')
+  if (typeof isReverseOrQuery === 'object' && isReverseOrQuery !== null) {
+    const query = isReverseOrQuery
+    if (query.sport_type) qs.set('sport_type', query.sport_type)
+    if (query.is_reverse !== undefined) qs.set('is_reverse', String(query.is_reverse))
+    if (query.scope) qs.set('scope', query.scope)
+    if (query.electric_mode) qs.set('electric_mode', query.electric_mode)
+    if (query.gear_id) qs.set('gear_id', query.gear_id)
+    if (query.only_mine) qs.set('only_mine', 'true')
+    if (query.version_id) qs.set('version_id', query.version_id)
+    if (query.leaderboard_equivalence_group_id) {
+      qs.set('leaderboard_equivalence_group_id', query.leaderboard_equivalence_group_id)
+    }
+  } else {
+    if (isReverseOrQuery !== undefined) qs.set('is_reverse', String(isReverseOrQuery))
+    if (onlyMine) qs.set('only_mine', 'true')
+  }
   const q = qs.toString()
   return apiClient<LeaderboardEntry[]>(`/segments/${segmentId}/leaderboard${q ? `?${q}` : ''}`)
 }
 
-export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean } = {}): Promise<Segment> {
-  const qs = opts.includeGeoJSON ? '?include_geojson=true' : ''
-  return apiClient<Segment>(`/segments/${id}${qs}`)
+export async function fetchSegment(id: string, opts: { includeGeoJSON?: boolean; includeControls?: boolean; includeOverlaySummary?: boolean } = {}): Promise<Segment> {
+  const qs = new URLSearchParams()
+  if (opts.includeGeoJSON) qs.set('include_geojson', 'true')
+  if (opts.includeControls) qs.set('include_controls', 'true')
+  if (opts.includeOverlaySummary) qs.set('include_overlay_summary', 'true')
+  const query = qs.toString()
+  return apiClient<Segment>(`/segments/${id}${query ? `?${query}` : ''}`)
 }
 
 export async function updateSegment(id: string, payload: UpdateSegmentPayload): Promise<Segment> {
@@ -166,6 +332,14 @@ export async function updateSegment(id: string, payload: UpdateSegmentPayload): 
 
 export async function createSegment(payload: CreateSegmentPayload): Promise<Segment> {
   return apiClient<Segment>('/segments', { method: 'POST', body: payload })
+}
+
+export async function createCheckpointCourse(payload: CreateCheckpointCoursePayload): Promise<Segment> {
+  return createSegment({ ...payload, course_kind: 'checkpoint_sequence', segment_type: 'standard', geojson_track: '' })
+}
+
+export async function importCheckpointCourseGeoJSON(payload: unknown): Promise<Segment> {
+  return apiClient<Segment>('/segments/import', { method: 'POST', body: payload })
 }
 
 export async function deleteSegment(id: string): Promise<void> {
@@ -187,12 +361,85 @@ export async function fetchDetectedLaps(activityId: string): Promise<DetectedLap
   return apiClient<DetectedLap[]>(`/activities/${activityId}/detected-laps`)
 }
 
-export async function recomputeSegment(segmentId: string): Promise<void> {
-  return apiClient<void>(`/segments/${segmentId}/recompute`, { method: 'POST' })
+export type SegmentRecalculationRunResponse = {
+  status: string
+  run_id?: string
+  total_activities?: number
 }
 
-export async function publishSegment(id: string): Promise<{ status: string; job_id: string }> {
-  return apiClient<{ status: string; job_id: string }>(`/segments/${id}/publish`, { method: 'POST' })
+export async function recomputeSegment(segmentId: string): Promise<SegmentRecalculationRunResponse> {
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${segmentId}/recompute`, {
+    method: 'POST',
+    body: { operation_id: crypto.randomUUID() },
+  })
+}
+
+export type PublishSegmentOptions = {
+  sourceActivityPublishConfirmed?: boolean
+}
+
+export async function publishSegment(id: string, options: PublishSegmentOptions = {}): Promise<SegmentRecalculationRunResponse> {
+  const body: { operation_id: string; source_activity_publish_confirmed?: boolean } = {
+    operation_id: crypto.randomUUID(),
+  }
+  if (options.sourceActivityPublishConfirmed) {
+    body.source_activity_publish_confirmed = true
+  }
+  return apiClient<SegmentRecalculationRunResponse>(`/segments/${id}/publish`, {
+    method: 'POST',
+    body,
+  })
+}
+
+export async function updateSegmentVersionValidity(
+  segmentId: string,
+  versionId: string,
+  payload: SegmentVersionValidityUpdate,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/${versionId}/validity`, {
+    method: 'PATCH',
+    body: payload,
+  })
+}
+
+export async function updateSegmentVersionGeometry(
+  segmentId: string,
+  versionId: string,
+  payload: SegmentGeometryUpdate,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/${versionId}/geometry`, {
+    method: 'PATCH',
+    body: payload,
+  })
+}
+
+export async function fetchSegmentVersionRevisions(
+  segmentId: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<SegmentVersionRevisionsResponse> {
+  const qs = new URLSearchParams()
+  if (opts.limit !== undefined) qs.set('limit', String(opts.limit))
+  if (opts.offset !== undefined) qs.set('offset', String(opts.offset))
+  const q = qs.toString()
+  return apiClient<SegmentVersionRevisionsResponse>(`/segments/${segmentId}/versions/revisions${q ? `?${q}` : ''}`)
+}
+
+export async function fetchSegmentVersionRevision(
+  segmentId: string,
+  revisionId: string,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/revisions/${revisionId}`)
+}
+
+export async function rollbackSegmentVersionRevision(
+  segmentId: string,
+  revisionId: string,
+  reason?: string,
+): Promise<SegmentVersionRevision> {
+  return apiClient<SegmentVersionRevision>(`/segments/${segmentId}/versions/revisions/${revisionId}/rollback`, {
+    method: 'POST',
+    body: { reason },
+  })
 }
 
 export async function exportSegment(id: string, format: 'gpx' | 'geojson'): Promise<{ blob: Blob; filename?: string }> {

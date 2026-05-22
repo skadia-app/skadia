@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routefilter"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -25,6 +29,86 @@ import (
 // projection of the row state — equal version implies byte-equal payload.
 func routeETag(version int64) string {
 	return `"` + strconv.FormatInt(version, 10) + `"`
+}
+
+type CreateRouteSnapshotRequest struct {
+	SourceRouteVersion int64  `json:"source_route_version"`
+	OperationID        string `json:"operation_id"`
+	Reason             string `json:"reason,omitempty"`
+}
+
+type CreateRouteSnapshotResponse struct {
+	SnapshotID    string `json:"snapshot_id"`
+	SnapshotHash  string `json:"snapshot_hash"`
+	GeometryHash  string `json:"geometry_hash"`
+	SourceVersion int64  `json:"source_route_version"`
+}
+
+type PublishRouteCourseRequest struct {
+	RouteSnapshotID              string         `json:"route_snapshot_id,omitempty"`
+	SnapshotID                   string         `json:"snapshot_id"`
+	SourceRouteVersion           int64          `json:"source_route_version"`
+	PublishPolicy                string         `json:"publish_policy,omitempty"`
+	EquivalenceDecision          string         `json:"equivalence_decision,omitempty"`
+	Visibility                   string         `json:"visibility,omitempty"`
+	AccessScopeID                *string        `json:"access_scope_id,omitempty"`
+	CompatibilityPreset          string         `json:"compatibility_preset,omitempty"`
+	TargetPublicationID          *string        `json:"target_publication_id,omitempty"`
+	TargetCourseSegmentID        *string        `json:"target_course_segment_id,omitempty"`
+	TargetCourseSegmentVersionID *string        `json:"target_course_segment_version_id,omitempty"`
+	CompatibilityEvidence        map[string]any `json:"compatibility_evidence,omitempty"`
+	OperationID                  string         `json:"operation_id"`
+}
+
+type PublishRouteCourseResponse struct {
+	PublicationID          string `json:"publication_id"`
+	CourseSegmentID        string `json:"course_segment_id"`
+	CourseSegmentVersionID string `json:"course_segment_version_id"`
+}
+
+type CreateRoutePublicationPrivacyReviewRequest struct {
+	RouteSnapshotID    string `json:"route_snapshot_id,omitempty"`
+	SnapshotID         string `json:"snapshot_id,omitempty"`
+	SourceRouteVersion int64  `json:"source_route_version"`
+	AudienceClass      string `json:"audience_class"`
+	OwnerConfirmed     bool   `json:"owner_confirmed"`
+}
+
+type CreateRoutePublicationPrivacyReviewResponse struct {
+	RouteSnapshotID string `json:"route_snapshot_id"`
+	AudienceClass   string `json:"audience_class"`
+	ReviewHash      string `json:"review_hash"`
+}
+
+type ForkRouteRequest struct {
+	Name               string `json:"name"`
+	SourceRouteVersion int64  `json:"source_route_version"`
+	OperationID        string `json:"operation_id"`
+}
+
+type ForkRouteResponse struct {
+	RouteID        string `json:"route_id"`
+	RelationshipID string `json:"relationship_id"`
+}
+
+type CreateRouteRelationshipRequest struct {
+	TargetRouteID string `json:"target_route_id"`
+	RelationType  string `json:"relation_type"`
+	OperationID   string `json:"operation_id"`
+}
+
+type CreateRouteRelationshipResponse struct {
+	RelationshipID string `json:"relationship_id"`
+}
+
+type CreateRouteCourseRelationshipRequest struct {
+	TargetPublicationID string `json:"target_publication_id"`
+	RelationType        string `json:"relation_type"`
+	OperationID         string `json:"operation_id"`
+}
+
+type CreateRouteCourseRelationshipResponse struct {
+	RelationshipID string `json:"relationship_id"`
 }
 
 // parseIfMatchResult is the outcome of parseIfMatchVersion.
@@ -130,6 +214,128 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+func (h *Handler) ListRoutePublications(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	hasLinkToken := routePublicationRequestHasLinkToken(r)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
+	if strings.TrimSpace(userID) == "" {
+		if !hasLinkToken {
+			httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "authentication or link token is required", r.URL.Path)
+			return
+		}
+		if len(scopes) == 0 {
+			httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "invalid or expired link token", r.URL.Path)
+			return
+		}
+	}
+	limit, offset := httputil.ParsePagination(r, 50, 200)
+	q := r.URL.Query()
+	filter := database.PublishedCourseFilters{
+		SportType:             q.Get("sport_type"),
+		SubType:               q.Get("sub_type"),
+		VisibilityMode:        q.Get("visibility_mode"),
+		VisibleAccessScopeIDs: scopes,
+	}
+	var err error
+	if filter.SACMaxRank, err = parseOptionalIntPointer(q.Get("sac_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid sac_max_rank", r.URL.Path)
+		return
+	}
+	if filter.MTBMaxRank, err = parseOptionalIntPointer(q.Get("mtb_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid mtb_max_rank", r.URL.Path)
+		return
+	}
+	if filter.ViaFerrataMaxRank, err = parseOptionalIntPointer(q.Get("via_ferrata_max_rank")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid via_ferrata_max_rank", r.URL.Path)
+		return
+	}
+	if filter.MinDistanceM, err = parseOptionalFloatPointer(q.Get("min_distance_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid min_distance_m", r.URL.Path)
+		return
+	}
+	if filter.MaxDistanceM, err = parseOptionalFloatPointer(q.Get("max_distance_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid max_distance_m", r.URL.Path)
+		return
+	}
+	if filter.MinElevationGainM, err = parseOptionalFloatPointer(q.Get("min_elevation_gain_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid min_elevation_gain_m", r.URL.Path)
+		return
+	}
+	if filter.MaxElevationGainM, err = parseOptionalFloatPointer(q.Get("max_elevation_gain_m")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid max_elevation_gain_m", r.URL.Path)
+		return
+	}
+	if filter.HasVariants, err = parseOptionalBoolPointer(q.Get("has_variants")); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid has_variants", r.URL.Path)
+		return
+	}
+
+	courses, err := h.DB.ListPublishedRouteCourses(r.Context(), userID, limit, offset, filter)
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if err != nil {
+		slog.Error("list route publications failed", "error", err, "user_id", userID)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list route publications", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"courses": courses,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+func routePublicationRequestHasLinkToken(r *http.Request) bool {
+	if strings.TrimSpace(r.URL.Query().Get("link_token")) != "" {
+		return true
+	}
+	return strings.TrimSpace(r.Header.Get("X-Skadia-Link-Token")) != ""
+}
+
+func parseOptionalIntPointer(raw string) (*int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, err
+	}
+	if v < 0 {
+		return nil, fmt.Errorf("value must be non-negative")
+	}
+	return &v, nil
+}
+
+func parseOptionalFloatPointer(raw string) (*float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil, err
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return nil, fmt.Errorf("value must be a finite non-negative number")
+	}
+	return &v, nil
+}
+
+func parseOptionalBoolPointer(raw string) (*bool, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }
 
 // CreateRoute creates a new planned route for the authenticated user.
@@ -467,6 +673,280 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
+}
+
+func (h *Handler) CreateRouteSnapshot(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteSnapshotRequest](w, r)
+	if !ok {
+		return
+	}
+	if v, state := parseIfMatchVersion(r.Header.Get("If-Match")); state == ifMatchValid {
+		if req.SourceRouteVersion != 0 && req.SourceRouteVersion != v {
+			httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+			return
+		}
+		req.SourceRouteVersion = v
+	} else if state == ifMatchMalformed {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid If-Match header", r.URL.Path)
+		return
+	}
+	if req.SourceRouteVersion == 0 || req.OperationID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source_route_version and operation_id are required", r.URL.Path)
+		return
+	}
+	snapshot, err := h.DB.CreatePlannedRouteSnapshot(r.Context(), model.CreatePlannedRouteSnapshotInput{
+		RouteID:            routeID,
+		UserID:             userID,
+		SourceRouteVersion: req.SourceRouteVersion,
+		OperationID:        req.OperationID,
+		Reason:             req.Reason,
+	})
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteSnapshotResponse{
+		SnapshotID:    snapshot.ID,
+		SnapshotHash:  snapshot.SnapshotHash,
+		GeometryHash:  snapshot.GeometryHash,
+		SourceVersion: snapshot.SourceRouteVersion,
+	})
+}
+
+func (h *Handler) PublishRouteCourse(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[PublishRouteCourseRequest](w, r)
+	if !ok {
+		return
+	}
+	snapshotID := req.RouteSnapshotID
+	if snapshotID == "" {
+		snapshotID = req.SnapshotID
+	}
+	if v, state := parseIfMatchVersion(r.Header.Get("If-Match")); state == ifMatchValid {
+		if req.SourceRouteVersion != 0 && req.SourceRouteVersion != v {
+			httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+			return
+		}
+		req.SourceRouteVersion = v
+	} else if state == ifMatchMalformed {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid If-Match header", r.URL.Path)
+		return
+	}
+	if snapshotID == "" || req.SourceRouteVersion == 0 || req.OperationID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "route_snapshot_id, source_route_version, and operation_id are required", r.URL.Path)
+		return
+	}
+	var snapshotRouteID string
+	err := h.DB.Pool.QueryRow(r.Context(), `
+		SELECT route_id::text
+		FROM planned_route_snapshots
+		WHERE id = $1
+		  AND user_id = $2
+	`, snapshotID, userID).Scan(&snapshotRouteID)
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	if snapshotRouteID != routeID {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "snapshot does not belong to route", r.URL.Path)
+		return
+	}
+	publication, err := h.DB.PublishRouteSnapshotAsCourse(r.Context(), model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              snapshotID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           req.SourceRouteVersion,
+		PublishPolicy:                req.PublishPolicy,
+		EquivalenceDecision:          req.EquivalenceDecision,
+		Visibility:                   req.Visibility,
+		AccessScopeID:                req.AccessScopeID,
+		CompatibilityPreset:          req.CompatibilityPreset,
+		TargetPublicationID:          req.TargetPublicationID,
+		TargetCourseSegmentID:        req.TargetCourseSegmentID,
+		TargetCourseSegmentVersionID: req.TargetCourseSegmentVersionID,
+		CompatibilityEvidence:        req.CompatibilityEvidence,
+		OperationID:                  req.OperationID,
+	})
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route snapshot version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) || errors.Is(err, database.ErrSegmentValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, PublishRouteCourseResponse{
+		PublicationID:          publication.ID,
+		CourseSegmentID:        publication.CourseSegmentID,
+		CourseSegmentVersionID: publication.CourseSegmentVersionID,
+	})
+}
+
+func (h *Handler) CreateRoutePublicationPrivacyReview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRoutePublicationPrivacyReviewRequest](w, r)
+	if !ok {
+		return
+	}
+	snapshotID := req.RouteSnapshotID
+	if snapshotID == "" {
+		snapshotID = req.SnapshotID
+	}
+	if snapshotID == "" || req.SourceRouteVersion == 0 || strings.TrimSpace(req.AudienceClass) == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "route_snapshot_id, source_route_version, and audience_class are required", r.URL.Path)
+		return
+	}
+	reviewHash, err := h.DB.CreateRoutePublicationPrivacyReview(
+		r.Context(),
+		routeID,
+		snapshotID,
+		userID,
+		req.SourceRouteVersion,
+		req.AudienceClass,
+		req.OwnerConfirmed,
+	)
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route snapshot version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRoutePublicationPrivacyReviewResponse{
+		RouteSnapshotID: snapshotID,
+		AudienceClass:   strings.TrimSpace(req.AudienceClass),
+		ReviewHash:      reviewHash,
+	})
+}
+
+func (h *Handler) ForkRoute(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[ForkRouteRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.Name == "" || req.OperationID == "" || req.SourceRouteVersion == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name, source_route_version, and operation_id are required", r.URL.Path)
+		return
+	}
+	route, relationshipID, err := h.DB.ForkRoute(r.Context(), routeID, userID, req.Name, req.OperationID, routeHandlerOperationHash(routeScopedOperationHashInput{
+		RouteID: routeID,
+		Request: req,
+	}), req.SourceRouteVersion)
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, ForkRouteResponse{RouteID: route.ID, RelationshipID: relationshipID})
+}
+
+func (h *Handler) CreateRouteRelationship(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteRelationshipRequest](w, r)
+	if !ok {
+		return
+	}
+	relationshipID, err := h.DB.CreateRouteRelationship(r.Context(), routeID, req.TargetRouteID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(routeScopedOperationHashInput{
+		RouteID: routeID,
+		Request: req,
+	}))
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", routeID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteRelationshipResponse{RelationshipID: relationshipID})
+}
+
+func (h *Handler) CreateRouteCourseRelationship(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	publicationID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRouteCourseRelationshipRequest](w, r)
+	if !ok {
+		return
+	}
+	relationshipID, err := h.DB.CreateRouteCourseRelationship(r.Context(), publicationID, req.TargetPublicationID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(routePublicationScopedOperationHashInput{
+		PublicationID: publicationID,
+		Request:       req,
+	}))
+	if errors.Is(err, database.ErrRoutePublicationConflict) {
+		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "publication not found", "id", publicationID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRouteCourseRelationshipResponse{RelationshipID: relationshipID})
+}
+
+func routeHandlerOperationHash(value any) string {
+	raw, _ := json.Marshal(value)
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+type routeScopedOperationHashInput struct {
+	RouteID string `json:"route_id"`
+	Request any    `json:"request"`
+}
+
+type routePublicationScopedOperationHashInput struct {
+	PublicationID string `json:"publication_id"`
+	Request       any    `json:"request"`
 }
 
 // collectRoutePhotoFileIDs captures ShadowFS (or legacy S3) file IDs for all

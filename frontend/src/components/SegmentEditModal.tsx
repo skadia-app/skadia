@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
+import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type SegmentVisibility, type UpdateSegmentPayload } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -24,14 +24,29 @@ import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
 import { segmentTypeLabel } from '@/lib/segmentProjection'
 import { buildExistingSegmentSportPatch } from './segment-editor/segmentSave'
+import VisibilityAccessField from './target-objects/VisibilityAccessField'
 
 interface Props {
   segment: Segment
   onClose: () => void
 }
 
+function isPublishPrivacyConfirmationError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  const title = typeof error.json?.title === 'string' ? error.json.title : ''
+  const code = typeof error.json?.code === 'string' ? error.json.code : ''
+  const detail = typeof error.json?.detail === 'string' ? error.json.detail : error.body
+  return (
+    code === 'segment_publish_privacy_confirmation_required' ||
+    title === 'Privacy Confirmation Required' ||
+    detail.includes('active privacy zone') ||
+    detail.includes('Privacy-Zone')
+  )
+}
+
 export default function SegmentEditModal({ segment: initialSegment, onClose }: Props) {
   const qc = useQueryClient()
+  const isCheckpointCourse = initialSegment.course_kind === 'checkpoint_sequence'
   const allSportTypes = useMemo(
     () => SPORT_DEFS.map(s => ({ key: s.sportType, label: s.label, category: s.categoryKey })),
     [],
@@ -57,9 +72,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   const initialClimbType = initialSegment.climb_type ?? 'standard'
   const [climbType, setClimbType] = useState<any>(initialClimbType)
   
-  const [visibility, setVisibility] = useState<'public' | 'private'>(
-    (initialSegment.visibility as 'public' | 'private') ?? 'public'
-  )
+  const [visibility, setVisibility] = useState<SegmentVisibility>(initialSegment.visibility ?? 'public')
+  const [accessScopeId, setAccessScopeId] = useState<string | null>(initialSegment.access_scope_id ?? null)
   const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(() => {
     if (initialSegment.allowed_predicates != null) {
       return initialSegment.allowed_predicates.map(p => p.sub_type ? `${p.sport}:${p.sub_type}` : p.sport)
@@ -121,6 +135,18 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         initialAllowedPredicates: initialSegment.allowed_predicates,
         touched: sportSelectionTouched,
       })
+      if (isCheckpointCourse) {
+        const payload: UpdateSegmentPayload = {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          ...sportPatch,
+        }
+        if (!(segmentPublishAvailable && initialSegment.visibility === 'private' && visibility === 'public')) {
+          payload.visibility = visibility
+          payload.access_scope_id = visibility === 'shared' ? accessScopeId : null
+        }
+        return updateSegment(initialSegment.id, payload)
+      }
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -131,8 +157,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         bidirectional,
         ...sportPatch,
       }
-      if (initialSegment.visibility === 'public' && visibility === 'private') {
-        payload.visibility = 'private'
+      if (!(segmentPublishAvailable && initialSegment.visibility === 'private' && visibility === 'public')) {
+        payload.visibility = visibility
+        payload.access_scope_id = visibility === 'shared' ? accessScopeId : null
       }
       return updateSegment(initialSegment.id, payload)
     },
@@ -145,25 +172,42 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   })
 
   const publishMut = useMutation({
-    mutationFn: () => publishSegment(initialSegment.id),
+    mutationFn: (options?: { sourceActivityPublishConfirmed?: boolean }) => (
+      options ? publishSegment(initialSegment.id, options) : publishSegment(initialSegment.id)
+    ),
     onSuccess: () => {
       addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Berechnung gestartet.' })
       qc.invalidateQueries({ queryKey: ['segments'] })
       qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       onClose()
     },
-    onError: () => {
+    onError: (error) => {
+      if (isPublishPrivacyConfirmationError(error)) {
+        openModal({
+          title: 'Privacy-Zone bestätigen?',
+          message: 'Die Quellaktivität schneidet eine aktive Privacy-Zone. Veröffentliche das Segment nur, wenn die aktuelle Segment- oder Kursgeometrie trotzdem öffentlich sichtbar sein soll.',
+          buttons: [
+            { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+            {
+              label: 'Trotzdem veröffentlichen',
+              variant: 'destructive',
+              onClick: () => publishMut.mutate({ sourceActivityPublishConfirmed: true }),
+            },
+          ],
+        })
+        return
+      }
       addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
     },
   })
 
   const reverseMutation = useMutation({
     mutationFn: () => reverseSegment(initialSegment.id),
-    onSuccess: (resp) => {
+    onSuccess: () => {
       addToast({
         type: 'success',
         title: 'Segment umgekehrt',
-        message: resp.efforts_updated === 1 ? '1 Effort aktualisiert' : `${resp.efforts_updated} Efforts aktualisiert`,
+        message: 'Bestehende Efforts bleiben ihrer ursprünglichen Version zugeordnet.',
       })
       qc.invalidateQueries({ queryKey: ['segment', initialSegment.id] })
       qc.invalidateQueries({ queryKey: ['segments'] })
@@ -176,8 +220,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
 
   function handleReverse() {
     const effortMsg = segment.effort_count > 0
-      ? `${segment.effort_count} öffentliche Efforts + eigene private Efforts werden mit invertiertem is_reverse-Flag aktualisiert und die Segment-Ranks neu berechnet. Diese Aktion kann nicht rückgängig gemacht werden.`
-      : 'Keine öffentlichen Efforts betroffen. Richtung des Segments umkehren?'
+      ? `Die Richtung wird als neue Segmentversion gespeichert. Bestehende Efforts bleiben ihrer ursprünglichen Version zugeordnet. Diese Aktion kann nicht rückgängig gemacht werden.`
+      : 'Richtung des Segments als neue Version speichern?'
     openModal({
       title: 'Richtung umkehren?',
       message: effortMsg,
@@ -214,25 +258,34 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           className={`${AUTH_INPUT_CLASS} resize-none`}
         />
 
-        {/* Segment-Typ Picker */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Segment-Typ</label>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
-            {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
-              <Pill
-                key={t}
-                active={segType === t}
-                onClick={() => handleSegTypeChange(t)}
-                role="radio"
-                ariaChecked={segType === t}
-                disabled={isLoadingFull}
-              >
-                {segmentTypeLabel(t)}
-              </Pill>
-            ))}
-          </div>
-        </div>
+        {isCheckpointCourse && (
+          <p className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+            Checkpoint-Geometrie ist hier nicht bearbeitbar.
+          </p>
+        )}
 
+        {/* Segment-Typ Picker */}
+        {!isCheckpointCourse && (
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Segment-Typ</label>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
+              {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
+                <Pill
+                  key={t}
+                  active={segType === t}
+                  onClick={() => handleSegTypeChange(t)}
+                  role="radio"
+                  ariaChecked={segType === t}
+                  disabled={isLoadingFull}
+                >
+                  {segmentTypeLabel(t)}
+                </Pill>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isCheckpointCourse && (
         <div className="space-y-4">
           <DifficultySelects
             segType={segType}
@@ -256,9 +309,10 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             disabled={isLoadingFull}
           />
         </div>
+        )}
 
         <div className="space-y-3">
-          {(segType === 'standard' || segType === 'trail') && (
+          {!isCheckpointCourse && (segType === 'standard' || segType === 'trail') && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">Höhenprofil</label>
               <ClimbTypePills
@@ -271,7 +325,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           )}
 
           {/* Bidirectional toggle — only shown for non-lap segments (lap = closed loop) */}
-          {segType !== 'lap' && (
+          {!isCheckpointCourse && segType !== 'lap' && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -330,35 +384,17 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           />
         </div>
 
-        {/* Visibility toggle — not for lift segments */}
+        {/* Visibility — not for lift segments */}
         {segType !== 'lift' && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              {(initialSegment.visibility === 'public' || segmentPublishAvailable) && (
-                <button
-                  type="button"
-                  onClick={() => setVisibility('public')}
-                  className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                    visibility === 'public'
-                      ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                      : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                  }`}
-                >
-                  Öffentlich
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setVisibility('private')}
-                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                  visibility === 'private'
-                    ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 border-neutral-300 dark:border-neutral-600'
-                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                }`}
-              >
-                Privat
-              </button>
-            </div>
+            <VisibilityAccessField
+              visibility={visibility}
+              accessScopeId={accessScopeId}
+              onChange={next => {
+                setVisibility(next.visibility as SegmentVisibility)
+                setAccessScopeId(next.access_scope_id ?? null)
+              }}
+            />
             {segmentPublishAvailable && initialSegment.visibility === 'private' && visibility === 'public' && (
               <p className="text-xs text-amber-400">
                 Veröffentlichen: alle User können das Segment sehen. Ein Recompute-Job startet.
@@ -367,6 +403,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
           </div>
         )}
 
+        {!isCheckpointCourse && (
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -382,6 +419,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             </span>
           </span>
         </label>
+        )}
 
         {mutation.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">
@@ -399,7 +437,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         )}
 
         <div className="flex gap-2 items-center justify-between pt-2">
-          {segType !== 'lap' && (
+          {!isCheckpointCourse && segType !== 'lap' && (
             <button
               type="button"
               onClick={handleReverse}
@@ -428,14 +466,14 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                       : 'Alle Nutzer können das Segment danach sehen. Eine Neuberechnung wird gestartet.',
                     buttons: [
                       { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                      { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                      { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate(undefined) },
                     ],
                   })
                 } else {
                   mutation.mutate()
                 }
               }}
-              disabled={!name.trim() || mutation.isPending || publishMut.isPending || reverseMutation.isPending}
+              disabled={!name.trim() || (visibility === 'shared' && !accessScopeId) || mutation.isPending || publishMut.isPending || reverseMutation.isPending}
               className="cursor-pointer px-4 py-1.5 text-sm bg-accent-DEFAULT rounded-lg text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mutation.isPending || publishMut.isPending ? 'Speichern...' : 'Speichern'}

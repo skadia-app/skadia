@@ -22,7 +22,8 @@ var ExportDenyColumns = map[string][]string{
 	// It tracks the EnsureSystemArtifacts seed version for the user and is
 	// internal to the rules-engine pipeline — exposing it in the GDPR export
 	// would leak implementation details with no value to the user.
-	"users":             {"password_hash", "system_artifacts_version"},
-	"agent_audit_log":   {"args", "result_detail"},
-	"oauth_connections": {"access_token", "refresh_token"},
+	"users":                {"password_hash", "system_artifacts_version"},
+	"agent_audit_log":      {"args", "result_detail"},
+	"object_access_grants": {"link_token_hash"},
+	"oauth_connections":    {"access_token", "refresh_token"},
 }

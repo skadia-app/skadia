@@ -67,16 +67,63 @@ export function SegmentMinimap({ segment }: SegmentMinimapProps) {
         id: 'segment-line',
         type: 'line',
         source: 'segment',
-        paint: { 'line-color': '#FF6B35', 'line-width': 3 },
+        paint: {
+          'line-color': segment.course_kind === 'checkpoint_sequence' ? '#0F766E' : '#FF6B35',
+          'line-width': segment.course_kind === 'checkpoint_sequence' ? 2 : 3,
+          ...(segment.course_kind === 'checkpoint_sequence' ? { 'line-dasharray': [1.5, 2.5] } : {}),
+        },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       })
+      if (segment.course_kind === 'checkpoint_sequence') {
+        const controlFeatures = checkpointControlFeatures(segment)
+        if (controlFeatures.length > 0) {
+          map.addSource('checkpoint-controls', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: controlFeatures },
+          })
+          map.addLayer({
+            id: 'checkpoint-control-areas',
+            type: 'fill',
+            source: 'checkpoint-controls',
+            filter: ['==', ['get', 'kind'], 'area'],
+            paint: { 'fill-color': '#0F766E', 'fill-opacity': 0.16 },
+          })
+          map.addLayer({
+            id: 'checkpoint-control-area-outlines',
+            type: 'line',
+            source: 'checkpoint-controls',
+            filter: ['==', ['get', 'kind'], 'area'],
+            paint: { 'line-color': '#0F766E', 'line-width': 1.5, 'line-opacity': 0.8 },
+          })
+          map.addLayer({
+            id: 'checkpoint-control-points',
+            type: 'circle',
+            source: 'checkpoint-controls',
+            filter: ['==', ['get', 'kind'], 'point'],
+            paint: {
+              'circle-radius': 9,
+              'circle-color': '#ffffff',
+              'circle-stroke-width': 2,
+              'circle-stroke-color': '#0F766E',
+            },
+          })
+          map.addLayer({
+            id: 'checkpoint-control-labels',
+            type: 'symbol',
+            source: 'checkpoint-controls',
+            filter: ['==', ['get', 'kind'], 'point'],
+            layout: { 'text-field': ['get', 'label'], 'text-size': 10, 'text-allow-overlap': true },
+            paint: { 'text-color': '#0f172a' },
+          })
+        }
+      }
     })
 
     return () => {
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [segment.track_geojson])
+  }, [segment])
 
   if (!segment.track_geojson) {
     return (
@@ -94,4 +141,64 @@ export function SegmentMinimap({ segment }: SegmentMinimapProps) {
       <div ref={mapContainer} style={{ height: '350px', width: '100%' }} />
     </div>
   )
+}
+
+function checkpointControlFeatures(segment: Segment): GeoJSON.Feature[] {
+  const controls = segment.controls ?? []
+  return controls.flatMap((control, index): GeoJSON.Feature[] => {
+    const geometry = control.geometry as GeoJSON.Geometry | undefined
+    if (!geometry) return []
+    const label = control.role === 'start'
+      ? 'Start'
+      : control.role === 'finish'
+        ? 'Ziel'
+        : String(index + 1)
+    const point = control.geometry_shape === 'point' || control.geometry_shape === 'circle'
+      ? geometry
+      : centroidFeatureGeometry(geometry)
+    const features: GeoJSON.Feature[] = []
+    if (control.primitive === 'area') {
+      if (control.geometry_shape === 'circle' && geometry.type === 'Point' && control.area_radius_m) {
+        features.push({ type: 'Feature', geometry: circleAreaGeometry(geometry.coordinates as [number, number], control.area_radius_m), properties: { kind: 'area' } })
+      } else if (geometry.type !== 'Point') {
+        features.push({ type: 'Feature', geometry, properties: { kind: 'area' } })
+      }
+    }
+    if (point) {
+      features.push({ type: 'Feature', geometry: point, properties: { kind: 'point', label } })
+    }
+    return features
+  })
+}
+
+function circleAreaGeometry(coord: [number, number], radiusM: number): GeoJSON.Polygon {
+  const steps = 48
+  const latRad = coord[1] * Math.PI / 180
+  const latDelta = radiusM / 111_320
+  const lngDelta = radiusM / (111_320 * Math.max(Math.cos(latRad), 0.01))
+  const ring: [number, number][] = []
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI * 2
+    ring.push([
+      coord[0] + Math.cos(angle) * lngDelta,
+      coord[1] + Math.sin(angle) * latDelta,
+    ])
+  }
+  return { type: 'Polygon', coordinates: [ring] }
+}
+
+function centroidFeatureGeometry(geometry: GeoJSON.Geometry): GeoJSON.Point | null {
+  const coords: [number, number][] = []
+  const collect = (value: unknown): void => {
+    if (!Array.isArray(value)) return
+    if (value.length >= 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
+      coords.push([value[0], value[1]])
+      return
+    }
+    value.forEach(collect)
+  }
+  collect((geometry as { coordinates?: unknown }).coordinates)
+  if (coords.length === 0) return null
+  const [lngSum, latSum] = coords.reduce(([lng, lat], coord) => [lng + coord[0], lat + coord[1]], [0, 0])
+  return { type: 'Point', coordinates: [lngSum / coords.length, latSum / coords.length] }
 }

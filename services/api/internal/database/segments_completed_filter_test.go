@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +116,126 @@ func TestListSegmentsCompletedOnlyFiltersLiftSegments(t *testing.T) {
 	}
 }
 
+func TestListSegmentsLimitMinusOneKeepsAllRowsAndGeoJSON(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("limit-minus-one-%d", time.Now().UnixNano())
+
+	first := createCompletedFilterSegment(t, db, userID, prefix+"-a")
+	second := createCompletedFilterSegment(t, db, userID, prefix+"-b")
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM segments WHERE id = ANY($1::uuid[])`, []string{first.ID, second.ID})
+	})
+
+	result, err := db.ListSegments(ctx, model.ListSegmentsParams{
+		UserID:         userID,
+		Name:           prefix,
+		SegmentTypes:   "standard",
+		IncludeGeoJSON: true,
+		Limit:          -1,
+	})
+	if err != nil {
+		t.Fatalf("ListSegments: %v", err)
+	}
+	if len(result.Segments) != 2 {
+		t.Fatalf("segments count = %d, want 2", len(result.Segments))
+	}
+	if result.HasMore {
+		t.Fatal("has_more = true, want false for limit=-1")
+	}
+	for _, segment := range result.Segments {
+		if segment.TrackGeoJSON == nil || !strings.Contains(*segment.TrackGeoJSON, "LineString") {
+			t.Fatalf("segment %s missing LineString GeoJSON: %#v", segment.ID, segment.TrackGeoJSON)
+		}
+	}
+}
+
+func TestListSegmentsElevationKindFiltersProjection(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("elevation-kind-%d", time.Now().UnixNano())
+
+	flat := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-flat", "standard", "standard", nil)
+	uphill := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-uphill", "standard", "bergauf", nil)
+	hillyKind := "hilly"
+	hilly := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-hilly", "standard", "standard", &hillyKind)
+	downhill := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-downhill", "standard", "bergab", nil)
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM segments WHERE id = ANY($1::uuid[])`, []string{flat.ID, uphill.ID, hilly.ID, downhill.ID})
+	})
+
+	for _, tc := range []struct {
+		kind string
+		want string
+	}{
+		{"flat", flat.ID},
+		{"uphill", uphill.ID},
+		{"hilly", hilly.ID},
+		{"downhill", downhill.ID},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			result, err := db.ListSegments(ctx, model.ListSegmentsParams{
+				UserID:        userID,
+				Name:          prefix,
+				SegmentTypes:  "standard",
+				ElevationKind: tc.kind,
+				Limit:         -1,
+			})
+			if err != nil {
+				t.Fatalf("ListSegments: %v", err)
+			}
+			if len(result.Segments) != 1 {
+				t.Fatalf("segments count = %d, want 1 (%s)", len(result.Segments), tc.want)
+			}
+			if result.Segments[0].ID != tc.want {
+				t.Fatalf("segment id = %s, want %s", result.Segments[0].ID, tc.want)
+			}
+			if result.Segments[0].ElevationKind != tc.kind {
+				t.Fatalf("elevation_kind = %s, want %s", result.Segments[0].ElevationKind, tc.kind)
+			}
+		})
+	}
+}
+
+func TestListSegmentsElevationKindDoesNotIncludeLiftsByAccident(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("elevation-lift-gate-%d", time.Now().UnixNano())
+
+	standard := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-standard", "standard", "bergauf", nil)
+	lift := createCompletedFilterSegmentWithElevation(t, db, userID, prefix+"-lift", "lift", "standard", nil)
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM segments WHERE id = ANY($1::uuid[])`, []string{standard.ID, lift.ID})
+	})
+
+	result, err := db.ListSegments(ctx, model.ListSegmentsParams{
+		UserID:        userID,
+		Name:          prefix,
+		ElevationKind: "uphill",
+		Limit:         -1,
+	})
+	if err != nil {
+		t.Fatalf("ListSegments without lift type: %v", err)
+	}
+	if len(result.Segments) != 1 || result.Segments[0].ID != standard.ID {
+		t.Fatalf("segments without explicit lift = %#v, want only %s", result.Segments, standard.ID)
+	}
+
+	withLift, err := db.ListSegments(ctx, model.ListSegmentsParams{
+		UserID:        userID,
+		Name:          prefix,
+		SegmentTypes:  "standard,lift",
+		ElevationKind: "uphill",
+		Limit:         -1,
+	})
+	if err != nil {
+		t.Fatalf("ListSegments with lift type: %v", err)
+	}
+	if len(withLift.Segments) != 2 {
+		t.Fatalf("segments with explicit lift = %d, want 2", len(withLift.Segments))
+	}
+}
+
 func createCompletedFilterSegment(t *testing.T, db *DB, userID, name string) *model.Segment {
 	return createCompletedFilterSegmentOfType(t, db, userID, name, "standard")
 }
@@ -127,6 +248,23 @@ func createCompletedFilterSegmentOfType(t *testing.T, db *DB, userID, name, segm
 		SegmentType:  segmentType,
 		GeoJSONTrack: `{"type":"LineString","coordinates":[[7,47],[7.001,47.001]]}`,
 		Visibility:   "public",
+	})
+	if err != nil {
+		t.Fatalf("CreateSegment %s: %v", name, err)
+	}
+	return segment
+}
+
+func createCompletedFilterSegmentWithElevation(t *testing.T, db *DB, userID, name, segmentType, climbType string, elevationKind *string) *model.Segment {
+	t.Helper()
+	segment, err := db.CreateSegment(context.Background(), userID, &model.SegmentCreate{
+		Name:          name,
+		SportGroup:    "bike",
+		SegmentType:   segmentType,
+		GeoJSONTrack:  `{"type":"LineString","coordinates":[[7,47],[7.001,47.001]]}`,
+		Visibility:    "public",
+		ClimbType:     climbType,
+		ElevationKind: elevationKind,
 	})
 	if err != nil {
 		t.Fatalf("CreateSegment %s: %v", name, err)

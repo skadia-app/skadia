@@ -119,6 +119,9 @@ func TestRecomputeEffortsForActivity_NoDuplicatesAcrossSegments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("insert segment_version %s: %v", name, err)
 		}
+		if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+			t.Fatalf("rebuild course eligibility projection %s: %v", name, err)
+		}
 		t.Cleanup(func() {
 			pool.Exec(context.Background(), "DELETE FROM segments WHERE id = $1", segID) //nolint:errcheck
 		})
@@ -219,6 +222,9 @@ func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
 	if err := db.EnsureActivityTrack(ctx, actID); err != nil {
 		t.Fatalf("EnsureActivityTrack: %v", err)
 	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activity_tracks WHERE activity_id = $1", actID) //nolint:errcheck
+	})
 
 	segID := uuid.New().String()
 	_, err := pool.Exec(ctx, `
@@ -241,6 +247,9 @@ func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert segment version: %v", err)
 	}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
+	}
 
 	MatchActivitySegments(ctx, db, actID, userID, "cycling", "", nil, baseTime)
 	MatchActivitySegments(ctx, db, actID, userID, "cycling", "", nil, baseTime)
@@ -250,11 +259,87 @@ func TestMatchActivitySegmentsIsIdempotentForRepeatedRuns(t *testing.T) {
 		SELECT COUNT(*)
 		FROM segment_efforts
 		WHERE segment_id = $1 AND activity_id = $2
+		  AND superseded_at IS NULL
 	`, segID, actID).Scan(&count); err != nil {
 		t.Fatalf("count efforts: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("segment efforts after repeated MatchActivitySegments = %d, want 1", count)
+	}
+}
+
+func TestRecomputeEffortsForActivityIgnoresFutureOnlyVersion(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	h := &Handler{DB: db}
+	userID := insertTestUser(t, pool)
+
+	actID := insertMinimalActivity(t, db, userID)
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	insertStreams(t, db, actID, []model.StreamPoint{
+		{Time: baseTime, Lat: fusionPtrF64(48.2010), Lng: fusionPtrF64(16.3610)},
+		{Time: baseTime.Add(3 * time.Second), Lat: fusionPtrF64(48.2012), Lng: fusionPtrF64(16.3612)},
+		{Time: baseTime.Add(6 * time.Second), Lat: fusionPtrF64(48.2014), Lng: fusionPtrF64(16.3614)},
+		{Time: baseTime.Add(9 * time.Second), Lat: fusionPtrF64(48.2016), Lng: fusionPtrF64(16.3616)},
+		{Time: baseTime.Add(12 * time.Second), Lat: fusionPtrF64(48.2018), Lng: fusionPtrF64(16.3618)},
+		{Time: baseTime.Add(15 * time.Second), Lat: fusionPtrF64(48.2020), Lng: fusionPtrF64(16.3620)},
+	})
+	if err := db.EnsureActivityTrack(ctx, actID); err != nil {
+		t.Fatalf("EnsureActivityTrack: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activity_tracks WHERE activity_id = $1", actID) //nolint:errcheck
+	})
+
+	segID := uuid.New().String()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type)
+		VALUES ($1, $2, 'future-only-version-recompute-test', 'cycling', 'standard')
+	`, segID, userID)
+	if err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM segments WHERE id = $1", segID) //nolint:errcheck
+	})
+
+	segVersionID := uuid.New().String()
+	futureValidFrom := baseTime.Add(24 * time.Hour)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO segment_versions
+		  (id, segment_id, version_number, track, valid_from, valid_from_at, matching_contract_key, matching_contract_version)
+		VALUES ($1, $2, 1,
+			ST_GeomFromText('LINESTRING(16.361 48.201, 16.362 48.202)', 4326),
+			CURRENT_DATE + INTERVAL '1 day', $3, 'course_gps_v1', 1)
+	`, segVersionID, segID, futureValidFrom)
+	if err != nil {
+		t.Fatalf("insert future segment_version: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO segment_efforts
+		  (segment_id, segment_version_id, activity_id, user_id,
+		   started_at, elapsed_time_s, sport_type, sub_type)
+		VALUES ($1, $2, $3, $4, $5, 120, 'cycling', 'generic')
+	`, segID, segVersionID, actID, userID, baseTime)
+	if err != nil {
+		t.Fatalf("pre-seed segment_effort: %v", err)
+	}
+
+	if err := h.RecomputeEffortsForActivity(ctx, actID, userID); err != nil {
+		t.Fatalf("RecomputeEffortsForActivity: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+		segID, actID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count segment_efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("future-only version effort count = %d, want existing effort preserved", count)
 	}
 }
 
@@ -310,7 +395,7 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 		t.Helper()
 		var count int
 		if err := pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2`,
+			`SELECT COUNT(*) FROM segment_efforts WHERE segment_id = $1 AND activity_id = $2 AND superseded_at IS NULL`,
 			segID, actID,
 		).Scan(&count); err != nil {
 			t.Fatalf("count segment_efforts: %v", err)
@@ -321,10 +406,10 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 	}
 	assertEffortCount(1)
 
-	// Inject a TxFactory that fails on the DELETE inside the tx.
+	// Inject a TxFactory that fails while retiring old active rows inside the tx.
 	// This simulates any mid-transaction failure that would previously leave
 	// the (segment_id, activity_id) pair with zero efforts.
-	injectedErr := fmt.Errorf("injected: DELETE failure for R2-10 rollback test")
+	injectedErr := fmt.Errorf("injected: supersede failure for R2-10 rollback test")
 	h := &Handler{
 		DB: db,
 		TxFactory: func(txCtx context.Context) (pgx.Tx, error) {
@@ -334,7 +419,7 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 			}
 			return &mockTx{
 				Tx:          realTx,
-				shouldFail:  sqlContains("delete from segment_efforts"),
+				shouldFail:  sqlContains("update segment_efforts"),
 				injectedErr: injectedErr,
 			}, nil
 		},
@@ -346,6 +431,6 @@ func TestRecomputeSegmentEffortsForActivity_TxFailureRollsBack(t *testing.T) {
 		t.Fatal("expected error from recomputeSegmentEffortsForActivity, got nil")
 	}
 
-	// The pre-seeded effort must still be present — the DELETE was rolled back.
+	// The pre-seeded effort must still be active — superseding was rolled back.
 	assertEffortCount(1)
 }

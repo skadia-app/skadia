@@ -447,6 +447,10 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
+	if err := db.BackfillAndVerifyCourseEligibilityProjections(ctx); err != nil {
+		slog.Error("failed to prepare course eligibility projections", "error", err)
+		os.Exit(1)
+	}
 	if cfg.ReadonlyDatabaseURL != "" {
 		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
 			if !database.IsReadonlyAuthError(err) {
@@ -1230,6 +1234,22 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 
+	optionalJWTAuth := func(next http.Handler) http.Handler {
+		passwordGate := middleware.RequirePasswordChanged()
+		if cfg.DevAuth {
+			return middleware.DevAuthMiddleware(passwordGate(next))
+		}
+		jwtAuth := middleware.NewJWTAuthWithDB(cfg.JWTSecretBytes, db)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				jwtAuth.Middleware(passwordGate(next)).ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
 	// Public routes (no authentication required)
 	// Probe endpoints — outside /api/ prefix, accessed directly by container healthchecks
 	r.Get("/livez", h.Livez)
@@ -1239,6 +1259,23 @@ func main() {
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
+	r.With(optionalJWTAuth).Get("/api/v1/route-publications", h.ListRoutePublications)
+	r.With(optionalJWTAuth).Get("/api/v1/segments", h.ListSegments)
+	r.With(optionalJWTAuth).Post("/api/v1/segments/export", h.ExportSegments)
+	r.With(optionalJWTAuth).Get("/api/v1/segments/{id}", h.GetSegment)
+	r.With(optionalJWTAuth).Get("/api/v1/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
+	r.With(optionalJWTAuth).Get("/api/v1/segments/{id}/export", h.ExportSegment)
+	r.With(optionalJWTAuth).Get("/api/v1/target-places", h.ListTargetPlaces)
+	r.With(optionalJWTAuth).Get("/api/v1/target-places/{id}", h.GetTargetPlace)
+	r.With(optionalJWTAuth).Get("/api/v1/target-regions", h.ListTargetRegions)
+	r.With(optionalJWTAuth).Get("/api/v1/target-regions/{id}", h.GetTargetRegion)
+	r.With(optionalJWTAuth).Get("/api/v1/target-collections", h.ListTargetCollections)
+	r.With(optionalJWTAuth).Get("/api/v1/target-collections/{id}", h.GetTargetCollection)
+	r.With(optionalJWTAuth).Get("/api/v1/target-overlays/summary", h.GetTargetOverlaySummary)
+	r.With(optionalJWTAuth).Get("/api/v1/target-overlays/observations", h.ListTargetObservations)
+	r.With(optionalJWTAuth).Get("/api/v1/target-overlays/reports", h.ListTargetReports)
+	r.With(optionalJWTAuth).Get("/api/v1/target-overlays/reports/{id}", h.GetTargetReport)
+	r.With(optionalJWTAuth).Get("/api/v1/target-overlays/content", h.ListTargetUserContent)
 	// Public — no jwtAuth (sister of /sports/taxonomy; frontend fetches before login).
 	r.Get("/api/v1/system-layers/keys", h.GetSystemLayerKeys)
 	r.Get("/api/v1/downloads/gdpr/data-export/{jobID}/manifest", authHandler.DataExportDownloadManifest)
@@ -1746,13 +1783,48 @@ func main() {
 			// Isochrone
 			r.Post("/isochrone", h.Isochrone)
 
+			// Object access scopes
+			r.Post("/access-scopes", h.CreateObjectAccessScope)
+			r.Get("/access-scopes", h.ListObjectAccessScopes)
+			r.Patch("/access-scopes/{id}", h.UpdateObjectAccessScope)
+
+			// Target objects
+			r.Post("/target-places", h.CreateTargetPlace)
+			r.Patch("/target-places/{id}", h.UpdateTargetPlace)
+			r.Delete("/target-places/{id}", h.DeleteTargetPlace)
+
+			r.Post("/target-regions", h.CreateTargetRegion)
+			r.Patch("/target-regions/{id}", h.UpdateTargetRegion)
+			r.Delete("/target-regions/{id}", h.DeleteTargetRegion)
+
+			r.Post("/target-collections", h.CreateTargetCollection)
+			r.Patch("/target-collections/{id}", h.UpdateTargetCollection)
+			r.Delete("/target-collections/{id}", h.DeleteTargetCollection)
+			r.Post("/target-collections/{id}/members", h.AddTargetCollectionMember)
+			r.Patch("/target-collections/{id}/members/{member_id}", h.UpdateTargetCollectionMember)
+			r.Delete("/target-collections/{id}/members/{member_id}", h.DeleteTargetCollectionMember)
+
+			r.Post("/target-overlays/reports", h.CreateTargetReport)
+			r.Post("/target-overlays/reports/{id}/status", h.AddTargetReportStatus)
+			r.Post("/target-overlays/content", h.CreateTargetUserContent)
+			r.Delete("/target-overlays/content/{id}", h.DeleteTargetUserContent)
+
+			r.Get("/governance-scopes", h.ListGovernanceScopes)
+			r.Post("/governance-scopes", h.CreateGovernanceScope)
+			r.Get("/governance-scopes/{id}", h.GetGovernanceScope)
+			r.Patch("/governance-scopes/{id}", h.UpdateGovernanceScope)
+			r.Post("/governance-scopes/{id}/roles", h.AddGovernanceRole)
+			r.Patch("/governance-scopes/{id}/roles/{role_id}", h.UpdateGovernanceRole)
+			r.Post("/governance-scopes/{id}/bindings", h.AddGovernanceBinding)
+			r.Patch("/governance-scopes/{id}/bindings/{binding_id}", h.UpdateGovernanceBinding)
+			r.Get("/governance/effective-targets", h.ListGovernanceEffectiveTargets)
+
 			// Segments
 			r.Get("/segment-prs", h.GetSegmentPRs)
 			r.Get("/segment-prs/global-top", h.GetGlobalTopSegmentEfforts)
-			r.Get("/segments", h.ListSegments)
 			r.Post("/segments", h.CreateSegment)
 			r.Delete("/segments", h.DeleteSegments)
-			r.Post("/segments/export", h.ExportSegments)
+			r.Post("/segments/import", h.ImportSegment)
 			r.Post("/segments/import-lifts", h.ImportLiftsFromOSM)
 			// Rate-Limit: ~30/min per user, burst 5. Enrichment makes a Viterbi-match
 			// (~10ms, 1s graph timeout) + optional PostGIS fallback — without a cap
@@ -1760,12 +1832,18 @@ func main() {
 			// setups. Burst 5 covers normal editor usage (open, adjust range, reopen).
 			r.With(middleware.RateLimitPerUser(authRL, "segment-enrichment:", 30.0/60, 5)).
 				Post("/segments/enrichment-suggest", h.EnrichmentSuggest)
-			r.Get("/segments/{id}", h.GetSegment)
 			r.Put("/segments/{id}", h.UpdateSegment)
 			r.Delete("/segments/{id}", h.DeleteSegment)
-			r.Get("/segments/{id}/leaderboard", h.GetSegmentLeaderboard)
 			r.Post("/segments/{id}/recompute", h.RecomputeSegment)
 			r.Post("/segments/{id}/publish", h.PublishSegment)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Patch("/segments/{id}/versions/{version_id}/validity", h.UpdateSegmentVersionValidity)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Patch("/segments/{id}/versions/{version_id}/geometry", h.UpdateSegmentVersionGeometry)
+			r.Get("/segments/{id}/versions/revisions", h.ListSegmentVersionRevisions)
+			r.Get("/segments/{id}/versions/revisions/{revision_id}", h.GetSegmentVersionRevision)
+			r.With(middleware.RateLimitPerUser(authRL, "segment-version:", 10.0/60, 3)).
+				Post("/segments/{id}/versions/revisions/{revision_id}/rollback", h.RollbackSegmentVersionRevision)
 			// Rate-limit: ~10/min per user, burst 3. Reverse runs a tx with inline
 			// rank-recompute (~10-100ms DB time) — without a cap this is a DoS vector
 			// against the DB in multi-user self-hosted deployments.
@@ -1775,7 +1853,6 @@ func main() {
 			r.Post("/segments/{id}/favorite", h.AddSegmentFavorite)
 			r.Delete("/segments/{id}/favorite", h.RemoveSegmentFavorite)
 			r.Get("/segments/{id}/performances", h.GetSegmentPerformances)
-			r.Get("/segments/{id}/export", h.ExportSegment)
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
@@ -1960,6 +2037,12 @@ func main() {
 			r.Patch("/routes/{id}", h.UpdateRoute)
 			r.Delete("/routes/{id}", h.DeleteRoute)
 			r.Post("/routes/{id}/duplicate", h.DuplicateRoute)
+			r.Post("/routes/{id}/snapshots", h.CreateRouteSnapshot)
+			r.Post("/routes/{id}/publication-privacy-review", h.CreateRoutePublicationPrivacyReview)
+			r.Post("/routes/{id}/publish-course", h.PublishRouteCourse)
+			r.Post("/routes/{id}/fork", h.ForkRoute)
+			r.Post("/routes/{id}/relationships", h.CreateRouteRelationship)
+			r.Post("/route-publications/{id}/relationships", h.CreateRouteCourseRelationship)
 			r.Get("/routes/{id}/gpx", h.ExportRouteGPX)
 			r.Put("/routes/{id}/tags", h.SetRouteTags)
 			r.Post("/routes/{id}/tags/{tagId}", h.AddRouteTag)

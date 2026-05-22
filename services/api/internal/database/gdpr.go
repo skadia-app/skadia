@@ -287,6 +287,15 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	segIDs := db.getUserSegmentIDs(ctx, userID)
 	if len(segIDs) > 0 {
+		var hasCourseEligibilityProjection bool
+		if err := conn.QueryRow(ctx,
+			`SELECT to_regclass('public.target_course_eligibility_projection') IS NOT NULL`).Scan(&hasCourseEligibilityProjection); err != nil {
+			slog.Error("GDPR: detect target_course_eligibility_projection failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("target_course_eligibility_projection: %s", err))
+		} else if hasCourseEligibilityProjection {
+			retryDelete("target_course_eligibility_projection",
+				`DELETE FROM target_course_eligibility_projection WHERE target_id = ANY($1)`, segIDs)
+		}
 		retryDelete("segment_efforts(by_segment)",
 			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs)
 		var hasLegacySubtypeHints bool
@@ -385,6 +394,535 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	// already deleted in Phase 1, but the user_id FK still blocks user deletion).
 	if _, err := tx.Exec(ctx, `DELETE FROM segment_efforts WHERE user_id = $1`, userID); err != nil {
 		slog.Warn("GDPR: delete segment_efforts by user_id failed", "error", err)
+	}
+
+	userPublicationWhere := `
+		actor_user_id = $1
+		OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		OR route_snapshot_id IN (
+			SELECT id FROM planned_route_snapshots
+			WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		)
+		OR course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+	`
+	userAccessScopeWhere := `owner_user_id = $1 OR created_by = $1`
+
+	for _, stmt := range []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "target_places",
+			sql: `
+				WITH affected AS (
+					UPDATE target_places
+					SET visibility = 'private', access_scope_id = NULL
+					WHERE access_scope_id IN (
+						SELECT id FROM object_access_scopes
+						WHERE owner_user_id = $1 OR created_by = $1
+					)
+					RETURNING id
+				)
+				UPDATE target_object_search_projection p
+				SET visibility = 'private', access_scope_id = NULL
+				FROM affected
+				WHERE p.object_kind = 'place' AND p.object_id = affected.id
+			`,
+		},
+		{
+			name: "target_regions",
+			sql: `
+				WITH affected AS (
+					UPDATE target_regions
+					SET visibility = 'private', access_scope_id = NULL
+					WHERE access_scope_id IN (
+						SELECT id FROM object_access_scopes
+						WHERE owner_user_id = $1 OR created_by = $1
+					)
+					RETURNING id
+				)
+				UPDATE target_object_search_projection p
+				SET visibility = 'private', access_scope_id = NULL
+				FROM affected
+				WHERE p.object_kind = 'region' AND p.object_id = affected.id
+			`,
+		},
+		{
+			name: "target_collections",
+			sql: `
+				WITH affected AS (
+					UPDATE target_collections
+					SET visibility = 'private', access_scope_id = NULL
+					WHERE access_scope_id IN (
+						SELECT id FROM object_access_scopes
+						WHERE owner_user_id = $1 OR created_by = $1
+					)
+					RETURNING id
+				)
+				UPDATE target_collection_summary_projection p
+				SET visibility = 'private', access_scope_id = NULL
+				FROM affected
+				WHERE p.collection_id = affected.id
+			`,
+		},
+	} {
+		if _, err := tx.Exec(ctx, stmt.sql, userID); err != nil {
+			recordPurgeFailure("phase2_target_access_scopes", err.Error())
+			return fmt.Errorf("GDPR: clear %s access scopes: %w", stmt.name, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_collection_members
+		WHERE added_by = $1
+		   OR collection_id IN (
+			   SELECT id FROM target_collections
+			   WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		   )
+		   OR (member_kind = 'place' AND member_id IN (
+			   SELECT id FROM target_places
+			   WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		   ))
+		   OR (member_kind = 'region' AND member_id IN (
+			   SELECT id FROM target_regions
+			   WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		   ))
+		   OR (member_kind = 'collection' AND member_id IN (
+			   SELECT id FROM target_collections
+			   WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		   ))
+		   OR (member_kind = 'course' AND member_id IN (
+			   SELECT id FROM segments WHERE created_by = $1
+		   ))
+		   OR (member_kind = 'route_publication' AND member_id IN (
+			   SELECT id FROM route_course_publications WHERE %s
+		   ))
+	`, userPublicationWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_collection_members", err.Error())
+		return fmt.Errorf("GDPR: delete target collection members: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_collection_member_reverse_index
+		WHERE collection_member_id NOT IN (
+			SELECT id FROM target_collection_members WHERE removed_at IS NULL
+		)
+	`); err != nil {
+		recordPurgeFailure("phase2_target_collection_reverse_index", err.Error())
+		return fmt.Errorf("GDPR: delete target collection reverse index: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM governance_actor_target_projection
+		WHERE actor_user_id = $1
+		   OR scope_id IN (
+			   SELECT id FROM governance_scopes
+			   WHERE owner_scope = 'user' AND owner_user_id = $1
+		   )
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_governance_projection", err.Error())
+		return fmt.Errorf("GDPR: delete governance projection: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM governance_scope_target_bindings
+		WHERE created_by = $1
+		   OR scope_id IN (
+			   SELECT id FROM governance_scopes
+			   WHERE owner_scope = 'user' AND owner_user_id = $1
+		   )
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_governance_bindings", err.Error())
+		return fmt.Errorf("GDPR: delete governance bindings: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM governance_actor_roles
+		WHERE actor_user_id = $1
+		   OR created_by = $1
+		   OR scope_id IN (
+			   SELECT id FROM governance_scopes
+			   WHERE owner_scope = 'user' AND owner_user_id = $1
+		   )
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_governance_roles", err.Error())
+		return fmt.Errorf("GDPR: delete governance roles: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM governance_scopes
+		WHERE owner_scope = 'user' AND owner_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_governance_scopes", err.Error())
+		return fmt.Errorf("GDPR: delete governance scopes: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE governance_scopes SET created_by = NULL WHERE created_by = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_governance_creator", err.Error())
+		return fmt.Errorf("GDPR: anonymize governance scope creators: %w", err)
+	}
+	userOverlaySubjectWhere := `
+		(overlay_subject_kind = 'course' AND subject_id IN (SELECT id FROM segments WHERE created_by = $1))
+		OR (overlay_subject_kind = 'route_publication' AND subject_id IN (
+			SELECT id FROM route_course_publications
+			WHERE actor_user_id = $1
+			   OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+			   OR route_snapshot_id IN (
+					SELECT id FROM planned_route_snapshots
+					WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+			   )
+			   OR course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		))
+		OR (overlay_subject_kind = 'place' AND subject_id IN (
+			SELECT id FROM target_places WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+		OR (overlay_subject_kind = 'region' AND subject_id IN (
+			SELECT id FROM target_regions WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+		OR (overlay_subject_kind = 'collection' AND subject_id IN (
+			SELECT id FROM target_collections WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+	`
+	type overlaySummarySubject struct {
+		kind      string
+		id        string
+		versionID *string
+	}
+	affectedOverlaySubjects := map[string]overlaySummarySubject{}
+	affectedRows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_activity_observations
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+		UNION
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_reports
+		WHERE author_user_id = $1
+		   OR source_activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+		UNION
+		SELECT overlay_subject_kind, subject_id, target_version_id
+		FROM target_user_content
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere, userOverlaySubjectWhere, userOverlaySubjectWhere), userID)
+	if err != nil {
+		recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+		return fmt.Errorf("GDPR: collect target overlay summary subjects: %w", err)
+	}
+	for affectedRows.Next() {
+		var subject overlaySummarySubject
+		if err := affectedRows.Scan(&subject.kind, &subject.id, &subject.versionID); err != nil {
+			affectedRows.Close()
+			recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+			return fmt.Errorf("GDPR: scan target overlay summary subjects: %w", err)
+		}
+		key := subject.kind + "\x00" + subject.id
+		if subject.versionID != nil {
+			key += "\x00" + *subject.versionID
+		}
+		affectedOverlaySubjects[key] = subject
+	}
+	if err := affectedRows.Err(); err != nil {
+		affectedRows.Close()
+		recordPurgeFailure("phase2_target_overlay_summary_subjects", err.Error())
+		return fmt.Errorf("GDPR: scan target overlay summary subjects: %w", err)
+	}
+	affectedRows.Close()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_activity_observations
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_activity_observations", err.Error())
+		return fmt.Errorf("GDPR: delete target activity observations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_reports
+		WHERE author_user_id = $1
+		   OR source_activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_reports", err.Error())
+		return fmt.Errorf("GDPR: delete target reports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE target_report_status_events
+		SET actor_user_id = NULL
+		WHERE actor_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_report_status_events", err.Error())
+		return fmt.Errorf("GDPR: anonymize target report status events: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_user_content
+		WHERE user_id = $1
+		   OR activity_id IN (SELECT id FROM activities WHERE user_id = $1)
+		   OR %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_user_content", err.Error())
+		return fmt.Errorf("GDPR: delete target user content: %w", err)
+	}
+	for _, subject := range affectedOverlaySubjects {
+		if err := rebuildTargetOverlaySummaryTx(ctx, tx, subject.kind, subject.id, subject.versionID); err != nil {
+			recordPurgeFailure("phase2_target_overlay_summaries", err.Error())
+			return fmt.Errorf("GDPR: rebuild target overlay summary: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM target_overlay_summary_projection
+		WHERE %s
+	`, userOverlaySubjectWhere), userID); err != nil {
+		recordPurgeFailure("phase2_target_overlay_summaries", err.Error())
+		return fmt.Errorf("GDPR: delete target overlay summaries: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_change_events SET actor_user_id = NULL WHERE actor_user_id = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_target_change_events_actor", err.Error())
+		return fmt.Errorf("GDPR: anonymize target change events: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH doomed AS (
+			SELECT id
+			FROM target_revision_snapshots
+			WHERE redaction_policy = 'owner_private'
+			  AND (
+				created_by = $1
+				OR (subject_type = 'place' AND subject_id IN (
+					SELECT id FROM target_places
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'region' AND subject_id IN (
+					SELECT id FROM target_regions
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'collection' AND subject_id IN (
+					SELECT id FROM target_collections
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+			  )
+		)
+		UPDATE target_change_events
+		SET before_snapshot_id = NULL
+		WHERE before_snapshot_id IN (SELECT id FROM doomed)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_snapshot_links", err.Error())
+		return fmt.Errorf("GDPR: clear target before-snapshot links: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH doomed AS (
+			SELECT id
+			FROM target_revision_snapshots
+			WHERE redaction_policy = 'owner_private'
+			  AND (
+				created_by = $1
+				OR (subject_type = 'place' AND subject_id IN (
+					SELECT id FROM target_places
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'region' AND subject_id IN (
+					SELECT id FROM target_regions
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+				OR (subject_type = 'collection' AND subject_id IN (
+					SELECT id FROM target_collections
+					WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+				))
+			  )
+		)
+		UPDATE target_change_events
+		SET after_snapshot_id = NULL
+		WHERE after_snapshot_id IN (SELECT id FROM doomed)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_snapshot_links", err.Error())
+		return fmt.Errorf("GDPR: clear target after-snapshot links: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_revision_snapshots
+		WHERE redaction_policy = 'owner_private'
+		  AND (
+			created_by = $1
+			OR (subject_type = 'place' AND subject_id IN (
+				SELECT id FROM target_places
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+			OR (subject_type = 'region' AND subject_id IN (
+				SELECT id FROM target_regions
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+			OR (subject_type = 'collection' AND subject_id IN (
+				SELECT id FROM target_collections
+				WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+			))
+		  )
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_revision_snapshots", err.Error())
+		return fmt.Errorf("GDPR: delete private target revision snapshots: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_revision_snapshots SET created_by = NULL WHERE created_by = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_target_revision_snapshot_creator", err.Error())
+		return fmt.Errorf("GDPR: anonymize target revision snapshot creators: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_object_search_projection
+		WHERE (object_kind = 'place' AND object_id IN (
+			SELECT id FROM target_places
+			WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+		   OR (object_kind = 'region' AND object_id IN (
+			SELECT id FROM target_regions
+			WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+		))
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_search_projection", err.Error())
+		return fmt.Errorf("GDPR: delete target search projections: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_collections
+		WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_collections", err.Error())
+		return fmt.Errorf("GDPR: delete target collections: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_regions
+		WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_regions", err.Error())
+		return fmt.Errorf("GDPR: delete target regions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM target_places
+		WHERE lifecycle_owner_kind = 'user' AND owner_user_id = $1
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_target_places", err.Error())
+		return fmt.Errorf("GDPR: delete target places: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_collections SET created_by = NULL WHERE created_by = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_target_collection_creator", err.Error())
+		return fmt.Errorf("GDPR: anonymize target collection creators: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_regions SET created_by = NULL WHERE created_by = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_target_region_creator", err.Error())
+		return fmt.Errorf("GDPR: anonymize target region creators: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE target_places SET created_by = NULL WHERE created_by = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_target_place_creator", err.Error())
+		return fmt.Errorf("GDPR: anonymize target place creators: %w", err)
+	}
+	if err := rebuildAllTargetCollectionSummariesTx(ctx, tx); err != nil {
+		recordPurgeFailure("phase2_target_collection_summaries", err.Error())
+		return fmt.Errorf("GDPR: rebuild target collection summaries: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE segments
+		SET visibility = 'private', access_scope_id = NULL
+		WHERE access_scope_id IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_segment_access_scopes", err.Error())
+		return fmt.Errorf("GDPR: clear segment access scopes: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE route_course_profile_projection
+		SET visibility = 'private', access_scope_id = NULL
+		WHERE access_scope_id IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_route_course_projection_access_scopes", err.Error())
+		return fmt.Errorf("GDPR: clear route course projection access scopes: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE route_course_publications
+		SET visibility_snapshot = 'private', access_scope_id_snapshot = NULL
+		WHERE access_scope_id_snapshot IN (
+			SELECT id FROM object_access_scopes
+			WHERE owner_user_id = $1 OR created_by = $1
+		)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_route_publication_access_scope_snapshots", err.Error())
+		return fmt.Errorf("GDPR: clear route publication access scope snapshots: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM route_publication_events
+		WHERE (subject_kind = 'planned_route'
+		       AND subject_id IN (SELECT id FROM planned_routes WHERE user_id = $1))
+		   OR (subject_kind = 'planned_route_snapshot'
+		       AND subject_id IN (
+			       SELECT id FROM planned_route_snapshots
+			       WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		       ))
+		   OR (subject_kind = 'route_course_publication'
+		       AND subject_id IN (SELECT id FROM route_course_publications WHERE %s))
+		   OR (subject_kind = 'route_relationship'
+		       AND subject_id IN (
+			       SELECT id FROM route_relationships
+			       WHERE actor_user_id = $1
+			          OR source_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+			          OR target_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		       ))
+		   OR (subject_kind = 'route_course_relationship'
+		       AND subject_id IN (
+			       SELECT id FROM route_course_relationships
+			       WHERE actor_user_id = $1
+			          OR source_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+			          OR target_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+			          OR source_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+			          OR target_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+		       ))
+	`, userPublicationWhere, userPublicationWhere, userPublicationWhere), userID); err != nil {
+		recordPurgeFailure("phase2_route_publication_events_subjects", err.Error())
+		return fmt.Errorf("GDPR: delete route publication events for purged subjects: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM route_course_relationships
+		WHERE actor_user_id = $1
+		   OR source_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		   OR target_course_segment_id IN (SELECT id FROM segments WHERE created_by = $1)
+		   OR source_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+		   OR target_publication_id IN (SELECT id FROM route_course_publications WHERE %s)
+	`, userPublicationWhere, userPublicationWhere), userID); err != nil {
+		recordPurgeFailure("phase2_route_course_relationships", err.Error())
+		return fmt.Errorf("GDPR: delete route course relationships: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM route_relationships
+		WHERE actor_user_id = $1
+		   OR source_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+		   OR target_route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_route_relationships", err.Error())
+		return fmt.Errorf("GDPR: delete route relationships: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM route_course_publications
+		WHERE %s
+	`, userPublicationWhere), userID); err != nil {
+		recordPurgeFailure("phase2_route_course_publications", err.Error())
+		return fmt.Errorf("GDPR: delete route course publications: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM planned_route_snapshots
+		WHERE user_id = $1 OR route_id IN (SELECT id FROM planned_routes WHERE user_id = $1)
+	`, userID); err != nil {
+		recordPurgeFailure("phase2_planned_route_snapshots", err.Error())
+		return fmt.Errorf("GDPR: delete planned route snapshots: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM object_access_grants WHERE principal_user_id = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_object_access_grants_principal", err.Error())
+		return fmt.Errorf("GDPR: delete object access grants by principal: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM object_access_scopes
+		WHERE %s
+	`, userAccessScopeWhere), userID); err != nil {
+		recordPurgeFailure("phase2_object_access_scopes", err.Error())
+		return fmt.Errorf("GDPR: delete object access scopes: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE route_publication_events SET actor_user_id = NULL WHERE actor_user_id = $1`, userID); err != nil {
+		recordPurgeFailure("phase2_route_publication_events_actor", err.Error())
+		return fmt.Errorf("GDPR: anonymize route publication event actors: %w", err)
 	}
 
 	// segment_versions: created_by REFERENCES users(id) — NO ACTION.
@@ -508,6 +1046,31 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 
 	slog.Info("GDPR purge complete", "user_id", userID,
 		"activities", len(actIDs), "segments", len(segIDs), "duration_ms", durationMs)
+	return nil
+}
+
+func rebuildAllTargetCollectionSummariesTx(ctx context.Context, tx pgx.Tx) error {
+	rows, err := tx.Query(ctx, `SELECT id FROM target_collections WHERE archived_at IS NULL`)
+	if err != nil {
+		return fmt.Errorf("query target collections for summary rebuild: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan target collection summary rebuild id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate target collection summary rebuild ids: %w", err)
+	}
+	for _, id := range ids {
+		if err := rebuildTargetCollectionSummaryTx(ctx, tx, id); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

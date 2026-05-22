@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -19,10 +19,16 @@ import (
 
 // Sentinel errors for segment operations — use errors.Is() in handlers.
 var (
-	ErrSegmentNotFound      = errors.New("segment not found")
-	ErrSegmentNotAuthorized = errors.New("segment not authorized")
-	ErrSegmentOSMLift       = errors.New("OSM-imported lift segments cannot be deleted")
-	ErrSegmentValidation    = errors.New("segment validation failed")
+	ErrSegmentNotFound                           = errors.New("segment not found")
+	ErrSegmentNotAuthorized                      = errors.New("segment not authorized")
+	ErrSegmentOSMLift                            = errors.New("OSM-imported lift segments cannot be deleted")
+	ErrSegmentValidation                         = errors.New("segment validation failed")
+	ErrSegmentPublishPrivacyConfirmationRequired = errors.New("segment publish privacy confirmation required")
+)
+
+const (
+	segmentEffortActivePredicate = "se.superseded_at IS NULL"
+	segmentEffortActiveWhere     = "superseded_at IS NULL"
 )
 
 func normalizeSegmentPredicates(preds []sport.Predicate) ([]sport.Predicate, error) {
@@ -97,6 +103,55 @@ func segmentTypeUsesDerivedDefaultPredicates(segmentType string) bool {
 	default:
 		return false
 	}
+}
+
+func segmentTypeFilterIncludesLift(segmentType, segmentTypes string) bool {
+	if segmentType == "lift" {
+		return true
+	}
+	for t := range strings.SplitSeq(segmentTypes, ",") {
+		if strings.TrimSpace(t) == "lift" {
+			return true
+		}
+	}
+	return false
+}
+
+func activeCourseGPSV1VersionLateral(joinKind, segmentIDExpr, atExpr, selectList string) string {
+	return fmt.Sprintf(`
+		%s LATERAL (
+			SELECT %s
+			FROM segment_versions
+			WHERE segment_id = %s
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= %s)
+			  AND (valid_until_at IS NULL OR %s < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true`, joinKind, selectList, segmentIDExpr, atExpr, atExpr)
+}
+
+func activeSegmentCourseVersionLateral(joinKind, segmentIDExpr, courseKindExpr, atExpr, selectList string) string {
+	return fmt.Sprintf(`
+		%s LATERAL (
+			SELECT %s
+			FROM segment_versions
+			WHERE segment_id = %s
+			  AND matching_contract_key = CASE
+			      WHEN %s = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+			      ELSE 'course_gps_v1'
+			  END
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= %s)
+			  AND (valid_until_at IS NULL OR %s < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true`, joinKind, selectList, segmentIDExpr, courseKindExpr, atExpr, atExpr)
 }
 
 func defaultSegmentPredicatesForType(segmentType string) ([]sport.Predicate, error) {
@@ -174,11 +229,46 @@ func validateSegmentTypeChangePredicates(segmentType string, preds []sport.Predi
 	return validateSegmentPredicatesForType(segmentType, preds)
 }
 
+func normalizeSegmentTrackForTypeTx(ctx context.Context, tx pgx.Tx, segmentType, trackGeoJSON string) (string, error) {
+	if segmentType != "lap" {
+		return trackGeoJSON, nil
+	}
+	var gapM float64
+	if err := tx.QueryRow(ctx, `
+		SELECT ST_Distance(
+			ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography,
+			ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography
+		)`, trackGeoJSON).Scan(&gapM); err != nil {
+		return "", fmt.Errorf("check lap gap: %w", err)
+	}
+	if gapM > 50 {
+		return "", fmt.Errorf("%w: lap segment must be a closed loop; start-end gap is %.0fm (max 50m)", ErrSegmentValidation, gapM)
+	}
+	if gapM <= 0.1 {
+		return trackGeoJSON, nil
+	}
+	var normalized string
+	if err := tx.QueryRow(ctx, `
+		SELECT ST_AsGeoJSON(
+			ST_AddPoint(
+				ST_SetSRID(ST_GeomFromGeoJSON($1), 4326),
+				ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+			)
+		)`, trackGeoJSON).Scan(&normalized); err != nil {
+		return "", fmt.Errorf("auto-close lap track: %w", err)
+	}
+	return normalized, nil
+}
+
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
 	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
 	// visibility clause actually references it — otherwise pgx passes an orphan param
 	// and PG raises 42P18 "could not determine data type of parameter $2".
-	args := []any{p.UserID}
+	userArg := any(p.UserID)
+	if strings.TrimSpace(p.UserID) == "" {
+		userArg = nil
+	}
+	args := []any{userArg}
 	argIdx := 2
 
 	// --- CTE: user_favs ---
@@ -186,6 +276,7 @@ func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*mo
 WITH user_favs AS (
     SELECT segment_id FROM segment_favorites WHERE user_id = $1
 )`
+	useInlineRiddenCounts := p.CompletedOnly || p.LiftsOnlyRidden
 
 	// --- SELECT ---
 	selectCols := `
@@ -194,10 +285,19 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
        s.segment_type, s.segment_type_meta,
        s.source_activity_id, s.osm_lift_id,
        s.distance_m, s.elevation_gain_m,
-       s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
-       COALESCE(ue.ridden_count, 0) AS ridden_count,
+       `
+	if useInlineRiddenCounts {
+		selectCols += `s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
+       COALESCE(ue.ridden_count, 0) AS ridden_count,`
+	} else {
+		selectCols += `s.effort_count AS effort_count, s.athlete_count,
+       0 AS ridden_count,`
+	}
+	selectCols += `
        (uf.segment_id IS NOT NULL) AS is_favorite,
-       s.visibility, s.route_hash, s.created_at,`
+       s.visibility, s.access_scope_id,
+       ` + governanceEffectiveReportPermissionsSQL("course", "s.id", "$1::uuid") + ` AS effective_permissions,
+       s.route_hash, s.created_at,`
 
 	if p.IncludeGeoJSON {
 		selectCols += `
@@ -206,12 +306,28 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
 		selectCols += `
        NULL::text AS track_geojson,`
 	}
-	selectCols += `
-       s.terrain_type, s.climb_type`
+	needsCheckpointProjection := p.CourseKind == string(model.CourseKindCheckpointSequence) ||
+		slices.Contains(p.CourseKinds, string(model.CourseKindCheckpointSequence))
+	hasLineCourseFilter := len(p.CourseKinds) == 0 && p.CourseKind != string(model.CourseKindCheckpointSequence)
+	if p.CourseKind == string(model.CourseKindLine) || slices.Contains(p.CourseKinds, string(model.CourseKindLine)) {
+		hasLineCourseFilter = true
+	}
+	hasCheckpointCourseFilter := needsCheckpointProjection
+	if needsCheckpointProjection {
+		selectCols += `
+       s.terrain_type, s.climb_type, s.elevation_kind,
+       s.course_kind, cp.control_summary, COALESCE(cp.control_map_features, '[]'::jsonb)`
+	} else {
+		selectCols += `
+       s.terrain_type, s.climb_type, s.elevation_kind,
+       s.course_kind, NULL::jsonb AS control_summary, '[]'::jsonb AS control_map_features`
+	}
 
 	// --- FROM + JOINs ---
 	from := `
-FROM segments s
+FROM segments s`
+	if useInlineRiddenCounts {
+		from += `
 LEFT JOIN LATERAL (
     SELECT COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count,
            COUNT(*) FILTER (WHERE rn = 1 AND visibility != 'public')::int AS private_ridden_count
@@ -234,18 +350,35 @@ LEFT JOIN LATERAL (
         LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
         WHERE se.segment_id = s.id
           AND a.user_id = $1
+          AND se.superseded_at IS NULL
     ) ranked_efforts
-) ue ON true
+) ue ON true`
+	}
+	from += `
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 
 	if p.IncludeGeoJSON {
 		from += `
 LEFT JOIN LATERAL (
-    SELECT track FROM segment_versions
+    SELECT track
+    FROM segment_versions
     WHERE segment_id = s.id
-    ORDER BY version_number DESC
+      AND matching_contract_key = CASE
+          WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+          ELSE 'course_gps_v1'
+      END
+      AND matching_contract_version = 1
+      AND validity_basis <> 'rollback_retired'
+      AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+      AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+    ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+             version_number DESC
     LIMIT 1
 ) sv ON true`
+	}
+	if needsCheckpointProjection {
+		from += `
+LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 	}
 
 	// --- WHERE ---
@@ -265,31 +398,36 @@ LEFT JOIN LATERAL (
 		}
 		return fmt.Sprintf("$%d", isAdminPlaceholderIdx)
 	}
+	resolvedScopesExpr := "NULL::uuid[]"
+	if len(p.VisibleAccessScopeIDs) > 0 {
+		args = append(args, p.VisibleAccessScopeIDs)
+		resolvedScopesExpr = fmt.Sprintf("$%d::uuid[]", argIdx)
+		argIdx++
+	}
 
 	var visibilityClause string
 	if p.VisibilityFilter != "" {
 		parts := make([]string, 0, 2)
-		for _, v := range strings.Split(p.VisibilityFilter, ",") {
+		for v := range strings.SplitSeq(p.VisibilityFilter, ",") {
 			switch strings.TrimSpace(v) {
 			case "public":
 				parts = append(parts, "s.visibility = 'public'")
 			case "private":
-				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
+				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true OR %s))", isAdminPlaceholder(), governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid")))
+			case "shared":
+				parts = append(parts, "("+sharedSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr)+" OR "+governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid")+")")
 			}
 		}
 		switch len(parts) {
-		case 1:
-			visibilityClause = parts[0]
-		case 2:
-			visibilityClause = fmt.Sprintf("(%s OR %s)", parts[0], parts[1])
-		default:
-			// Defense-in-depth: whitelist + handler dedup ensure len is always 1 or 2.
-			// FALSE here closes the fail-open hole — unknown token count yields no results
-			// rather than silently showing everything. (#15, A1)
+		case 0:
+			// Defense-in-depth: unknown visibility tokens return no results rather
+			// than silently showing everything.
 			visibilityClause = "FALSE"
+		default:
+			visibilityClause = "(" + strings.Join(parts, " OR ") + ")"
 		}
 	} else {
-		visibilityClause = fmt.Sprintf("(s.visibility = 'public' OR s.created_by = $1 OR %s = true)", isAdminPlaceholder())
+		visibilityClause = "(" + visibleSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr) + " OR " + governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid") + ")"
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
@@ -297,6 +435,21 @@ LEFT JOIN LATERAL (
 		where += fmt.Sprintf(" AND s.sport_group = $%d", argIdx)
 		args = append(args, p.SportGroup)
 		argIdx++
+	}
+	if len(p.CourseKinds) > 0 {
+		placeholders := make([]string, len(p.CourseKinds))
+		for i, kind := range p.CourseKinds {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, kind)
+			argIdx++
+		}
+		where += " AND s.course_kind IN (" + strings.Join(placeholders, ", ") + ")"
+	} else if p.CourseKind != "" {
+		where += fmt.Sprintf(" AND s.course_kind = $%d", argIdx)
+		args = append(args, p.CourseKind)
+		argIdx++
+	} else {
+		where += " AND s.course_kind = 'line'"
 	}
 	if p.SegmentTypes != "" {
 		types := strings.Split(p.SegmentTypes, ",")
@@ -306,11 +459,21 @@ LEFT JOIN LATERAL (
 			args = append(args, strings.TrimSpace(t))
 			argIdx++
 		}
-		where += " AND s.segment_type IN (" + strings.Join(placeholders, ", ") + ")"
+		typeFilter := "s.segment_type IN (" + strings.Join(placeholders, ", ") + ")"
+		if hasCheckpointCourseFilter {
+			where += " AND (s.course_kind <> 'line' OR " + typeFilter + ")"
+		} else {
+			where += " AND " + typeFilter
+		}
 	} else if p.SegmentType != "" {
-		where += fmt.Sprintf(" AND s.segment_type = $%d", argIdx)
+		typeFilter := fmt.Sprintf("s.segment_type = $%d", argIdx)
 		args = append(args, p.SegmentType)
 		argIdx++
+		if hasCheckpointCourseFilter {
+			where += " AND (s.course_kind <> 'line' OR " + typeFilter + ")"
+		} else {
+			where += " AND " + typeFilter
+		}
 	}
 	if p.Name != "" {
 		where += fmt.Sprintf(" AND s.name ILIKE $%d", argIdx)
@@ -320,24 +483,54 @@ LEFT JOIN LATERAL (
 	if p.BBox != "" {
 		parts := strings.Split(p.BBox, ",")
 		if len(parts) == 4 {
-			// Wir nutzen sv wenn vorhanden, sonst sv_bbox (redundant aber funktional korrekt getrennt)
-			bboxTable := "sv"
-			if !p.IncludeGeoJSON {
-				bboxTable = "sv_bbox"
-				from += `
+			if hasCheckpointCourseFilter && !hasLineCourseFilter {
+				where += fmt.Sprintf(
+					` AND cp.display_bounds IS NOT NULL AND ST_Intersects(cp.display_bounds, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+					argIdx, argIdx+1, argIdx+2, argIdx+3,
+				)
+				args = append(args, parts[0], parts[1], parts[2], parts[3])
+				argIdx += 4
+			} else {
+				// Wir nutzen sv wenn vorhanden, sonst sv_bbox (redundant aber funktional korrekt getrennt)
+				bboxTable := "sv"
+				if !p.IncludeGeoJSON {
+					bboxTable = "sv_bbox"
+					from += `
 	LEFT JOIN LATERAL (
-		SELECT track FROM segment_versions
+		SELECT track
+		FROM segment_versions
 		WHERE segment_id = s.id
-		ORDER BY version_number DESC
+		  AND matching_contract_key = CASE
+		      WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+		      ELSE 'course_gps_v1'
+		  END
+		  AND matching_contract_version = 1
+		  AND validity_basis <> 'rollback_retired'
+		  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+		  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+		ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+		         version_number DESC
 		LIMIT 1
 	) sv_bbox ON true`
+				}
+				if hasCheckpointCourseFilter {
+					where += fmt.Sprintf(
+						` AND (
+							(s.course_kind = 'line' AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326)))
+							OR (s.course_kind = 'checkpoint_sequence' AND cp.display_bounds IS NOT NULL AND ST_Intersects(cp.display_bounds, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326)))
+						)`,
+						bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
+						argIdx, argIdx+1, argIdx+2, argIdx+3,
+					)
+				} else {
+					where += fmt.Sprintf(
+						` AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
+						bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
+					)
+				}
+				args = append(args, parts[0], parts[1], parts[2], parts[3])
+				argIdx += 4
 			}
-			where += fmt.Sprintf(
-				` AND %s.track IS NOT NULL AND ST_Intersects(%s.track, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))`,
-				bboxTable, bboxTable, argIdx, argIdx+1, argIdx+2, argIdx+3,
-			)
-			args = append(args, parts[0], parts[1], parts[2], parts[3])
-			argIdx += 4
 		}
 	}
 	if p.CompletedOnly {
@@ -396,6 +589,14 @@ LEFT JOIN LATERAL (
 		args = append(args, p.Surface)
 		argIdx++
 	}
+	if p.ElevationKind != "" {
+		where += fmt.Sprintf(" AND s.elevation_kind = $%d", argIdx)
+		args = append(args, p.ElevationKind)
+		argIdx++
+		if !segmentTypeFilterIncludesLift(p.SegmentType, p.SegmentTypes) {
+			where += " AND s.segment_type <> 'lift'"
+		}
+	}
 
 	// --- Cursor ---
 	if p.Cursor != "" {
@@ -430,6 +631,8 @@ LEFT JOIN LATERAL (
 	for rows.Next() {
 		var s model.Segment
 		var allowedPredicatesJSON []byte
+		var controlSummaryJSON []byte
+		var controlMapFeaturesJSON []byte
 		err := rows.Scan(
 			&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 			&allowedPredicatesJSON,
@@ -438,9 +641,10 @@ LEFT JOIN LATERAL (
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
 			&s.RiddenCount, &s.IsFavorite,
-			&s.Visibility, &s.RouteHash, &s.CreatedAt,
+			&s.Visibility, &s.AccessScopeID, &s.EffectivePermissions, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
-			&s.TerrainType, &s.ClimbType,
+			&s.TerrainType, &s.ClimbType, &s.ElevationKind,
+			&s.CourseKind, &controlSummaryJSON, &controlMapFeaturesJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan segment: %w", err)
@@ -448,6 +652,18 @@ LEFT JOIN LATERAL (
 		s.AllowedPredicates, err = decodeSegmentPredicates(allowedPredicatesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("decode segment predicates: %w", err)
+		}
+		if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+			var summary model.CheckpointControlSummary
+			if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+				return nil, fmt.Errorf("decode checkpoint control summary: %w", err)
+			}
+			s.ControlSummary = &summary
+		}
+		if len(controlMapFeaturesJSON) > 0 && string(controlMapFeaturesJSON) != "null" {
+			if err := json.Unmarshal(controlMapFeaturesJSON, &s.ControlMapFeatures); err != nil {
+				return nil, fmt.Errorf("decode checkpoint control map features: %w", err)
+			}
 		}
 		segments = append(segments, s)
 	}
@@ -466,12 +682,83 @@ LEFT JOIN LATERAL (
 		last := segments[len(segments)-1]
 		nextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
+	if !useInlineRiddenCounts {
+		if err := db.attachListSegmentRiddenCounts(ctx, p.UserID, segments); err != nil {
+			return nil, err
+		}
+	}
 
 	return &model.ListSegmentsResult{
 		Segments:   segments,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+func (db *DB) attachListSegmentRiddenCounts(ctx context.Context, userID string, segments []model.Segment) error {
+	if strings.TrimSpace(userID) == "" || len(segments) == 0 {
+		return nil
+	}
+	segmentIDs := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		segmentIDs = append(segmentIDs, segment.ID)
+	}
+	rows, err := db.Pool.Query(ctx, `
+		WITH ranked_efforts AS (
+			SELECT se.segment_id,
+			       a.visibility,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY se.segment_id, COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			           ORDER BY
+			               CASE
+			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+			                   WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+			                   ELSE 2
+			               END,
+			               se.created_at ASC,
+			               se.id ASC
+			       ) AS rn
+			FROM segment_efforts se
+			JOIN activities a ON se.activity_id = a.id
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+			WHERE se.segment_id = ANY($1::uuid[])
+			  AND a.user_id = $2
+			  AND se.superseded_at IS NULL
+		)
+		SELECT segment_id::text,
+		       COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count,
+		       COUNT(*) FILTER (WHERE rn = 1 AND visibility != 'public')::int AS private_ridden_count
+		FROM ranked_efforts
+		GROUP BY segment_id
+	`, segmentIDs, userID)
+	if err != nil {
+		return fmt.Errorf("list segment ridden counts: %w", err)
+	}
+	defer rows.Close()
+
+	type counts struct {
+		ridden  int
+		private int
+	}
+	bySegment := make(map[string]counts, len(segments))
+	for rows.Next() {
+		var segmentID string
+		var c counts
+		if err := rows.Scan(&segmentID, &c.ridden, &c.private); err != nil {
+			return fmt.Errorf("scan segment ridden count: %w", err)
+		}
+		bySegment[segmentID] = c
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list segment ridden counts: %w", err)
+	}
+	for i := range segments {
+		c := bySegment[segments[i].ID]
+		segments[i].RiddenCount = c.ridden
+		segments[i].EffortCount += c.private
+	}
+	return nil
 }
 
 func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.SegmentCreate) (*model.Segment, error) {
@@ -507,25 +794,49 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if allowedPredicates != nil {
 		segmentSportGroup = segmentSportGroupFromPredicates(allowedPredicates)
 	}
+	var elevationKind any
+	if create.ElevationKind != nil {
+		elevationKind = *create.ElevationKind
+	}
+	visibility := strings.TrimSpace(create.Visibility)
+	if visibility == "" {
+		visibility = "public"
+	}
+	if err := db.validateSegmentAccessScopeForOwner(ctx, visibility, create.AccessScopeID, userID); err != nil {
+		return nil, err
+	}
 
 	// Insert segment
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_predicates, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id, created_by, name, description, sport_group,
-		          allowed_predicates,
-		          segment_type, segment_type_meta,
+			INSERT INTO segments (
+				created_by, name, description, sport_group, segment_type,
+				segment_type_meta, source_activity_id, terrain_type, climb_type,
+				elevation_kind, visibility, access_scope_id, allowed_predicates,
+				bidirectional, source_activity_publish_confirmed_at,
+				source_activity_publish_confirmed_by
+			)
+			VALUES (
+				$1, $2, $3, $4, $5,
+				$6, $7, $8, $9,
+				$10, $11, $12, $13,
+				$14,
+				CASE WHEN $7::uuid IS NOT NULL AND $11 IN ('public', 'shared') AND $15 THEN NOW() ELSE NULL END,
+				CASE WHEN $7::uuid IS NOT NULL AND $11 IN ('public', 'shared') AND $15 THEN $1::uuid ELSE NULL END
+			)
+			RETURNING id, created_by, name, description, sport_group,
+			          allowed_predicates,
+			          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
 		          effort_count, athlete_count,
-		          visibility, route_hash, created_at,
-		          terrain_type, climb_type`,
+		          visibility, access_scope_id, route_hash, created_at,
+		          terrain_type, climb_type, elevation_kind`,
 		userID, create.Name, create.Description, segmentSportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
-		create.TerrainType, create.ClimbType, create.Visibility,
-		allowedPredicatesJSON, bidirectional,
+		create.TerrainType, create.ClimbType, elevationKind, visibility, create.AccessScopeID,
+		allowedPredicatesJSON, bidirectional, create.SourceActivityPublishConfirmed,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&scannedPredicatesJSON,
@@ -533,8 +844,8 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
-		&s.Visibility, &s.RouteHash, &s.CreatedAt,
-		&s.TerrainType, &s.ClimbType,
+		&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
+		&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment: %w", err)
@@ -544,50 +855,35 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		return nil, fmt.Errorf("decode segment predicates: %w", err)
 	}
 
-	// For lap-type segments: auto-close if start≈end (≤50m), error if >50m
-	trackGeoJSON := create.GeoJSONTrack
-	if create.SegmentType == "lap" {
-		var gapM float64
-		err = tx.QueryRow(ctx, `
-			SELECT ST_Distance(
-				ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography,
-				ST_EndPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))::geography
-			)`, create.GeoJSONTrack).Scan(&gapM)
-		if err != nil {
-			return nil, fmt.Errorf("check lap gap: %w", err)
-		}
-		if gapM > 50 {
-			return nil, fmt.Errorf("lap segment must be a closed loop; start-end gap is %.0fm (max 50m)", gapM)
-		}
-		// Auto-close: snap end point to start point
-		if gapM > 0.1 {
-			err = tx.QueryRow(ctx, `
-				SELECT ST_AsGeoJSON(
-					ST_AddPoint(
-						ST_SetSRID(ST_GeomFromGeoJSON($1), 4326),
-						ST_StartPoint(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
-					)
-				)`, create.GeoJSONTrack).Scan(&trackGeoJSON)
-			if err != nil {
-				return nil, fmt.Errorf("auto-close lap track: %w", err)
-			}
-		}
+	trackGeoJSON, err := normalizeSegmentTrackForTypeTx(ctx, tx, create.SegmentType, create.GeoJSONTrack)
+	if err != nil {
+		return nil, err
 	}
 
 	// Insert first version with track geometry
+	var versionID string
 	var returnedTrackGeoJSON string
 	err = tx.QueryRow(ctx, `
 		WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
 		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
 		FROM g
-		RETURNING ST_AsGeoJSON(track)`,
+		RETURNING id, ST_AsGeoJSON(track)`,
 		s.ID, trackGeoJSON, userID,
-	).Scan(&returnedTrackGeoJSON)
+	).Scan(&versionID, &returnedTrackGeoJSON)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment version: %w", err)
 	}
 	s.TrackGeoJSON = &returnedTrackGeoJSON
+	if create.SourceActivityID != nil && (visibility == "public" || visibility == "shared") && create.SourceActivityPublishConfirmed {
+		if _, err := tx.Exec(ctx, `
+			UPDATE segments
+			SET source_activity_publish_confirmed_segment_version_id = $2
+			WHERE id = $1
+		`, s.ID, versionID); err != nil {
+			return nil, fmt.Errorf("store source activity publish confirmation version: %w", err)
+		}
+	}
 
 	// Update distance_m via PostGIS
 	_, err = tx.Exec(ctx, `
@@ -602,6 +898,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Re-fetch distance
 	tx.QueryRow(ctx, `SELECT distance_m FROM segments WHERE id = $1`, s.ID).Scan(&s.DistanceM)
 
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, s.ID); err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
@@ -609,12 +909,32 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	return &s, nil
 }
 
+type GetSegmentOptions struct {
+	IncludeGeoJSON        bool
+	IncludeControls       bool
+	IncludeOverlaySummary bool
+	VisibleAccessScopeIDs []string
+}
+
 func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool, includeGeoJSON bool) (*model.Segment, error) {
+	return db.GetSegmentWithOptions(ctx, segmentID, userID, isAdmin, GetSegmentOptions{
+		IncludeGeoJSON: includeGeoJSON,
+	})
+}
+
+func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID string, isAdmin bool, opts GetSegmentOptions) (*model.Segment, error) {
 	var s model.Segment
 
 	trackSelect := "NULL::text"
-	if includeGeoJSON {
+	if opts.IncludeGeoJSON {
 		trackSelect = "ST_AsGeoJSON(sv.track)"
+	}
+
+	args := []any{segmentID, userID, isAdmin}
+	resolvedScopesExpr := "NULL::uuid[]"
+	if len(opts.VisibleAccessScopeIDs) > 0 {
+		args = append(args, opts.VisibleAccessScopeIDs)
+		resolvedScopesExpr = fmt.Sprintf("$%d::uuid[]", len(args))
 	}
 
 	query := fmt.Sprintf(`
@@ -628,7 +948,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                            FROM (
                                SELECT a.visibility,
                                       ROW_NUMBER() OVER (
-                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
                                           ORDER BY
                                               CASE
                                                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -643,6 +963,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                                LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
                                LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
                                WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                                 AND se.superseded_at IS NULL
                            ) user_efforts
                            WHERE rn = 1 AND visibility != 'public'
                        ), 0) AS effort_count, s.athlete_count,
@@ -650,7 +971,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                            SELECT COUNT(*)::int
                            FROM (
                                SELECT ROW_NUMBER() OVER (
-                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+                                          PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
                                           ORDER BY
                                               CASE
                                                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -665,6 +986,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                                LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
                                LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
                                WHERE se.segment_id = s.id AND a.user_id = NULLIF($2::text, '')::uuid
+                                 AND se.superseded_at IS NULL
                            ) user_efforts
                            WHERE rn = 1
                        ), 0) AS ridden_count,
@@ -672,21 +994,29 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
                            SELECT 1 FROM segment_favorites sf
                            WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
                        ) AS is_favorite,
-                       s.visibility, s.route_hash, s.created_at,
+                       s.visibility, s.access_scope_id,
+                       `+governanceEffectiveReportPermissionsSQL("course", "s.id", "NULLIF($2::text, '')::uuid")+` AS effective_permissions,
+                       s.route_hash, s.created_at,
                        %s AS track_geojson,
-                       s.terrain_type, s.climb_type, s.bidirectional
-                FROM segments s
-                LEFT JOIN LATERAL (
-                        SELECT track FROM segment_versions
-                        WHERE segment_id = s.id
-                        ORDER BY version_number DESC
-                        LIMIT 1
-                ) sv ON true
+                       s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional,
+                       s.course_kind, sv.id::text AS active_segment_version_id,
+	                       cp.control_summary
+	                FROM segments s
+	                %s
+	                LEFT JOIN checkpoint_course_projection cp
+	                       ON cp.segment_id = s.id
+	                      AND s.course_kind = 'checkpoint_sequence'
                 WHERE s.id = $1
-                  AND (s.visibility = 'public' OR s.created_by = NULLIF($2::text, '')::uuid OR $3 = true)`, trackSelect)
+                  AND (`+visibleSegmentAccessWithScopesSQL("s", "NULLIF($2::text, '')::uuid", "$3", resolvedScopesExpr)+`
+                       OR `+governanceTargetVisibleSQL("'course'", "s.id", "NULLIF($2::text, '')::uuid")+`)`,
+		trackSelect,
+		activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id, track"),
+	)
 
 	var allowedPredicatesJSON []byte
-	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
+	var activeSegmentVersionID *string
+	var controlSummaryJSON []byte
+	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&allowedPredicatesJSON,
 		&s.SegmentType, &s.SegmentTypeMeta,
@@ -694,9 +1024,10 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.RiddenCount, &s.IsFavorite,
-		&s.Visibility, &s.RouteHash, &s.CreatedAt,
+		&s.Visibility, &s.AccessScopeID, &s.EffectivePermissions, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
-		&s.TerrainType, &s.ClimbType, &s.Bidirectional,
+		&s.TerrainType, &s.ClimbType, &s.ElevationKind, &s.Bidirectional,
+		&s.CourseKind, &activeSegmentVersionID, &controlSummaryJSON,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -709,16 +1040,42 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 	if err != nil {
 		return nil, fmt.Errorf("decode segment predicates: %w", err)
 	}
+	if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+		var summary model.CheckpointControlSummary
+		if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+			return nil, fmt.Errorf("decode checkpoint control summary: %w", err)
+		}
+		s.ControlSummary = &summary
+	}
+	if opts.IncludeControls {
+		if s.CourseKind != string(model.CourseKindCheckpointSequence) {
+			s.Controls = []model.CheckpointControl{}
+		} else {
+			if activeSegmentVersionID == nil || *activeSegmentVersionID == "" {
+				return nil, fmt.Errorf("%w: checkpoint course has no active version", ErrSegmentValidation)
+			}
+			controls, err := db.GetCheckpointControls(ctx, *activeSegmentVersionID)
+			if err != nil {
+				return nil, err
+			}
+			s.Controls = controls
+		}
+	}
+	if opts.IncludeOverlaySummary {
+		summary, err := db.GetTargetOverlaySummary(ctx, "course", s.ID, nil)
+		if err != nil {
+			return nil, err
+		}
+		s.OverlaySummary = summary
+	}
 	return &s, nil
 }
 
 func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdmin bool, update *model.SegmentUpdate) (*model.Segment, error) {
-	// If new_version requested: copy latest segment_version to create a new one
-	if update.NewVersion {
-		if err := db.createNewSegmentVersion(ctx, segmentID); err != nil {
-			return nil, err
-		}
+	if segmentUpdateTouchesVersionedFields(update) && !update.NewVersion {
+		return nil, fmt.Errorf("%w: segment matching, eligibility, privacy, and leaderboard metadata must use the versioned segment workflow", ErrSegmentValidation)
 	}
+
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin segment update tx: %w", err)
@@ -728,6 +1085,41 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
+	if update.Visibility != nil || update.AccessScopeID != nil {
+		var ownerUserID, currentVisibility string
+		var currentAccessScopeID *string
+		var err error
+		if isAdmin {
+			err = tx.QueryRow(ctx, `SELECT created_by, visibility, access_scope_id FROM segments WHERE id = $1 FOR UPDATE`, segmentID).
+				Scan(&ownerUserID, &currentVisibility, &currentAccessScopeID)
+		} else {
+			err = tx.QueryRow(ctx, `SELECT created_by, visibility, access_scope_id FROM segments WHERE id = $1 AND created_by = $2 FOR UPDATE`, segmentID, userID).
+				Scan(&ownerUserID, &currentVisibility, &currentAccessScopeID)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get segment access state for update: %w", err)
+		}
+		effectiveVisibility := currentVisibility
+		if update.Visibility != nil {
+			effectiveVisibility = strings.TrimSpace(*update.Visibility)
+		}
+		effectiveAccessScopeID := currentAccessScopeID
+		if update.AccessScopeID != nil {
+			effectiveAccessScopeID = update.AccessScopeID
+		}
+		if effectiveVisibility != "shared" {
+			if update.AccessScopeID != nil {
+				return nil, validateSegmentAccessScopePair(effectiveVisibility, update.AccessScopeID)
+			}
+			effectiveAccessScopeID = nil
+		}
+		if err := db.validateSegmentAccessScopeForOwner(ctx, effectiveVisibility, effectiveAccessScopeID, ownerUserID); err != nil {
+			return nil, err
+		}
+	}
 
 	if update.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
@@ -759,11 +1151,24 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		args = append(args, *update.ClimbType)
 		argIdx++
 	}
+	if update.ElevationKind != nil {
+		setClauses = append(setClauses, fmt.Sprintf("elevation_kind = $%d", argIdx))
+		args = append(args, *update.ElevationKind)
+		argIdx++
+	}
 	// Note: private→public MUST go through PublishSegment (handler blocks it via 400).
 	// This SET clause only handles public→private or same-value updates.
 	if update.Visibility != nil {
 		setClauses = append(setClauses, fmt.Sprintf("visibility = $%d", argIdx))
-		args = append(args, *update.Visibility)
+		args = append(args, strings.TrimSpace(*update.Visibility))
+		argIdx++
+		if strings.TrimSpace(*update.Visibility) != "shared" {
+			setClauses = append(setClauses, "access_scope_id = NULL")
+		}
+	}
+	if update.AccessScopeID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("access_scope_id = $%d", argIdx))
+		args = append(args, *update.AccessScopeID)
 		argIdx++
 	}
 	if len(update.AllowedPredicates) > 0 {
@@ -834,6 +1239,20 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 
 	if len(setClauses) == 0 {
+		if update.NewVersion {
+			if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+				return nil, err
+			}
+			if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+				return nil, err
+			}
+			if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit segment update tx: %w", err)
+			}
+		}
 		return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 	}
 
@@ -856,11 +1275,38 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	if tag.RowsAffected() == 0 {
 		return nil, nil
 	}
+	if update.NewVersion {
+		if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+			return nil, err
+		}
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return nil, err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit segment update tx: %w", err)
 	}
 
 	return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
+}
+
+func segmentUpdateTouchesVersionedFields(update *model.SegmentUpdate) bool {
+	if update == nil {
+		return false
+	}
+	return update.SegmentType != nil ||
+		update.SegmentTypeMeta != nil ||
+		update.Visibility != nil ||
+		update.AccessScopeID != nil ||
+		len(update.AllowedPredicates) > 0 ||
+		update.Bidirectional != nil
 }
 
 func segmentTypeForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, userID string, isAdmin bool) (string, bool, error) {
@@ -903,19 +1349,130 @@ func segmentPredicatesForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, use
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
 func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) error {
-	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
-		SELECT segment_id,
-		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
-		       track, start_point, end_point, CURRENT_DATE, created_by
-		FROM segment_versions
-		WHERE segment_id = $1
-		ORDER BY version_number DESC
-		LIMIT 1`, segmentID)
+	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("create new segment version: %w", err)
+		return fmt.Errorf("begin create new segment version tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := db.createNewSegmentVersionTx(ctx, tx, segmentID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit create new segment version tx: %w", err)
 	}
 	return nil
+}
+
+// createNewSegmentVersionTx copies the latest segment_version into a new version row.
+func (db *DB) createNewSegmentVersionTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	var actorUserID string
+	if err := tx.QueryRow(ctx, `SELECT created_by FROM segments WHERE id = $1`, segmentID).Scan(&actorUserID); err != nil {
+		return fmt.Errorf("select segment owner for new version: %w", err)
+	}
+	_, _, err := db.createNewSegmentVersionWithPolicyTx(ctx, tx, segmentID, actorUserID, "manual_new_version", "version_specific")
+	return err
+}
+
+func (db *DB) createNewSegmentVersionWithPolicyTx(ctx context.Context, tx pgx.Tx, segmentID, actorUserID, operation, equivalenceDecision string) (string, string, error) {
+	operationID := stableOperationHash(segmentID, actorUserID, operation, time.Now().UTC().Format(time.RFC3339Nano))
+	isCheckpoint, err := segmentIsCheckpointCourseTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	if isCheckpoint {
+		return "", "", fmt.Errorf("%w: checkpoint course controls require a checkpoint version operation", ErrSegmentValidation)
+	}
+	before, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	var versionID string
+	if err := tx.QueryRow(ctx, `
+		WITH boundary AS (
+			SELECT NOW() AS at
+		),
+		next_version AS (
+			SELECT COALESCE(MAX(version_number), 0) + 1 AS number
+			FROM segment_versions
+			WHERE segment_id = $1
+		),
+		active AS (
+			SELECT id, segment_id, version_number, track, start_point, end_point, created_by
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= (SELECT at FROM boundary))
+			  AND (valid_until_at IS NULL OR (SELECT at FROM boundary) < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		),
+		next_future AS (
+			SELECT MIN(valid_from_at) AS at
+			FROM segment_versions
+			WHERE segment_id = $1
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND valid_from_at > (SELECT at FROM boundary)
+		),
+		closed AS (
+			UPDATE segment_versions sv
+			SET valid_until_at = boundary.at
+			FROM active, boundary
+			WHERE sv.id = active.id
+			  AND (sv.valid_until_at IS NULL OR sv.valid_until_at > boundary.at)
+			RETURNING sv.id
+		)
+		INSERT INTO segment_versions (
+			segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, valid_until_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT segment_id,
+		       next_version.number,
+		       track,
+		       start_point,
+		       end_point,
+		       CURRENT_DATE,
+		       created_by,
+		       boundary.at,
+		       next_future.at,
+		       'editor_asserted',
+		       'course_gps_v1',
+		       1,
+		       boundary.at
+		FROM active, next_version, next_future, boundary, closed
+		RETURNING id`, segmentID).Scan(&versionID); err != nil {
+		return "", "", fmt.Errorf("create new segment version: %w", err)
+	}
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, versionID, "", actorUserID, operationID, equivalenceDecision, operation, nil); err != nil {
+		return "", "", err
+	}
+	after, err := LoadSegmentVersionSnapshotTx(ctx, tx, segmentID)
+	if err != nil {
+		return "", "", err
+	}
+	beforeHash, err := segmentVersionSnapshotHash(before)
+	if err != nil {
+		return "", "", err
+	}
+	inputHash, err := segmentVersionOperationInputHash(operation, map[string]any{
+		"operation":            operation,
+		"equivalence_decision": equivalenceDecision,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := insertSegmentVersionRevisionTx(ctx, tx, segmentID, actorUserID, operation, operation, before, after, nil, nil, nil, nil, operationID, inputHash, nil, beforeHash); err != nil {
+		return "", "", err
+	}
+	groupID, err := activeLeaderboardEquivalenceGroupTx(ctx, tx, segmentID, versionID)
+	if err != nil {
+		return "", "", err
+	}
+	return versionID, groupID, nil
 }
 
 func (db *DB) DeleteSegment(ctx context.Context, userID, segmentID string, isAdmin bool) error {
@@ -977,41 +1534,313 @@ func (db *DB) DeleteSegments(ctx context.Context, ids []string, userID string) (
 // Owner may publish; admins may publish any private segment (isAdmin skips ownership check).
 // Returns false if segment not found, not owned (and not admin), or already public.
 func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isAdmin bool) (bool, error) {
-	var (
-		tag pgconn.CommandTag
-		err error
-	)
-	if isAdmin {
-		tag, err = db.Pool.Exec(ctx,
-			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND visibility = 'private'`,
-			segmentID)
-	} else {
-		tag, err = db.Pool.Exec(ctx,
-			`UPDATE segments SET visibility = 'public' WHERE id = $1 AND created_by = $2 AND visibility = 'private'`,
-			segmentID, actorID)
-	}
+	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("publish segment: %w", err)
+		return false, fmt.Errorf("begin publish segment tx: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	defer tx.Rollback(ctx)
+	published, _, _, err := db.publishSegmentTx(ctx, tx, segmentID, actorID, isAdmin, false)
+	if err != nil {
+		return false, err
+	}
+	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit publish segment tx: %w", err)
+	}
+	return published, nil
+}
+
+func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segmentID, actorID string, isAdmin bool, operationID string, sourceActivityPublishConfirmed bool, metadata map[string]any) (bool, string, int, error) {
+	if strings.TrimSpace(operationID) == "" {
+		return false, "", 0, fmt.Errorf("%w: operation_id is required", ErrSegmentValidation)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return false, "", 0, fmt.Errorf("begin publish segment tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	published, ownerID, name, err := db.publishSegmentTx(ctx, tx, segmentID, actorID, isAdmin, sourceActivityPublishConfirmed)
+	if err != nil {
+		return false, "", 0, err
+	}
+	if !published {
+		return false, "", 0, nil
+	}
+	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if err := syncPublishedCourseProjectionAccessTx(ctx, tx, segmentID); err != nil {
+		return false, "", 0, err
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if _, ok := metadata["visibility"]; !ok {
+		metadata["visibility"] = "user_visible"
+	}
+	if _, ok := metadata["source"]; !ok {
+		metadata["source"] = "segment_publish"
+	}
+	if _, ok := metadata["entity_name"]; !ok {
+		metadata["entity_name"] = name
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return false, "", 0, fmt.Errorf("marshal publish recalculation metadata: %w", err)
+	}
+	scope := SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     ownerID,
+		IncludeAllUsers: true,
+		OperationID:     operationID,
+	}
+	reason := "segment publish recompute"
+	idempotencyKey := segmentRecalculationIdempotencyKey(scope, reason)
+	runID, total, err := seedSegmentRecalculationRunTx(ctx, tx, actorID, scope, reason, idempotencyKey, metadataJSON)
+	if err != nil {
+		return false, "", 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, "", 0, fmt.Errorf("commit publish segment tx: %w", err)
+	}
+	return true, runID, total, nil
+}
+
+func (db *DB) publishSegmentTx(ctx context.Context, tx pgx.Tx, segmentID, actorID string, isAdmin bool, sourceActivityPublishConfirmed bool) (bool, string, string, error) {
+	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
+		return false, "", "", err
+	}
+	query := `
+		SELECT s.created_by::text, s.name, s.source_activity_id::text,
+		       s.source_activity_publish_confirmed_segment_version_id::text,
+		       sv.id::text
+		FROM segments s
+		JOIN LATERAL (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = s.id
+			  AND matching_contract_key = CASE
+			      WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+			      ELSE 'course_gps_v1'
+			  END
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true
+		WHERE s.id = $1
+		  AND s.visibility IN ('private', 'shared')`
+	args := []any{segmentID}
+	if !isAdmin {
+		query += " AND s.created_by = $2"
+		args = append(args, actorID)
+	}
+	query += " FOR UPDATE OF s"
+
+	var ownerID, name string
+	var sourceActivityID, confirmedVersionID, activeVersionID *string
+	if err := tx.QueryRow(ctx, query, args...).Scan(&ownerID, &name, &sourceActivityID, &confirmedVersionID, &activeVersionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("load segment publish state: %w", err)
+	}
+
+	needsConfirmationUpdate := false
+	if sourceActivityID != nil && activeVersionID != nil {
+		intersects, err := sourceActivityIntersectsActivePrivacyZonesTx(ctx, tx, ownerID, *sourceActivityID)
+		if err != nil {
+			return false, "", "", err
+		}
+		if intersects && (confirmedVersionID == nil || *confirmedVersionID != *activeVersionID) {
+			if !sourceActivityPublishConfirmed {
+				return false, "", "", ErrSegmentPublishPrivacyConfirmationRequired
+			}
+			needsConfirmationUpdate = true
+		}
+	}
+
+	if needsConfirmationUpdate {
+		_, err := tx.Exec(ctx, `
+			UPDATE segments
+			SET visibility = 'public',
+			    access_scope_id = NULL,
+			    source_activity_publish_confirmed_at = NOW(),
+			    source_activity_publish_confirmed_by = $2,
+			    source_activity_publish_confirmed_segment_version_id = $3
+			WHERE id = $1
+		`, segmentID, actorID, activeVersionID)
+		if err != nil {
+			return false, "", "", fmt.Errorf("publish segment: %w", err)
+		}
+		return true, ownerID, name, nil
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1`, segmentID); err != nil {
+		return false, "", "", fmt.Errorf("publish segment: %w", err)
+	}
+	return true, ownerID, name, nil
+}
+
+func sourceActivityIntersectsActivePrivacyZonesTx(ctx context.Context, q Querier, userID, activityID string) (bool, error) {
+	var intersects bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM activities a
+			JOIN activity_tracks t ON t.activity_id = a.id
+			JOIN user_privacy_zones z ON z.user_id = a.user_id
+			WHERE a.id = $2
+			  AND a.user_id = $1
+			  AND z.is_active = true
+			  AND t.track_full IS NOT NULL
+			  AND ST_Intersects(
+			      t.track_full,
+			      CASE
+			          WHEN z.zone_type = 'polygon' AND z.polygon IS NOT NULL THEN z.polygon
+			          ELSE ST_Buffer(z.center::geography, z.radius_m)::geometry
+			      END
+			  )
+		)
+	`, userID, activityID).Scan(&intersects)
+	if err != nil {
+		return false, fmt.Errorf("check source activity privacy-zone intersection: %w", err)
+	}
+	return intersects, nil
+}
+
+func ensureSegmentPublishAllowedTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	var routeDerived bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM route_course_publications
+			WHERE course_segment_id = $1
+			  AND publication_state = 'published'
+		)
+	`, segmentID).Scan(&routeDerived); err != nil {
+		return fmt.Errorf("check route-derived segment publish: %w", err)
+	}
+	if routeDerived {
+		return fmt.Errorf("%w: route-derived courses must be published through route publication", ErrRoutePublicationValidation)
+	}
+	return nil
 }
 
 func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType string, isReverse *bool, gearID string, onlyUserID string) ([]model.SegmentEffort, error) {
+	return db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:    segmentID,
+		SportType:    sportType,
+		IsReverse:    isReverse,
+		GearID:       gearID,
+		OnlyUserID:   onlyUserID,
+		Scope:        "current_version",
+		ElectricMode: "all",
+	})
+}
+
+func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.SegmentLeaderboardQuery) ([]model.SegmentEffort, error) {
+	scope := strings.TrimSpace(q.Scope)
+	if scope == "" {
+		scope = "current_version"
+	}
+	electricMode := strings.TrimSpace(q.ElectricMode)
+	if electricMode == "" {
+		electricMode = "all"
+	}
+	if electricMode != "all" && electricMode != "exclude_electric" && electricMode != "only_electric" {
+		return nil, fmt.Errorf("%w: invalid leaderboard electric mode", ErrSegmentValidation)
+	}
+	var courseKind string
+	var activeVersionID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT s.course_kind, COALESCE(sv.id::text, '')
+		FROM segments s
+		`+activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id")+`
+		WHERE s.id = $1
+	`, q.SegmentID).Scan(&courseKind, &activeVersionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSegmentNotFound
+		}
+		return nil, fmt.Errorf("load segment leaderboard course kind: %w", err)
+	}
+	groupID := q.LeaderboardEquivalenceGroupID
+	useVersionFilter := false
+	versionFilterID := ""
+	if courseKind == string(model.CourseKindCheckpointSequence) {
+		switch scope {
+		case "current_version":
+			if activeVersionID == "" {
+				return []model.SegmentEffort{}, nil
+			}
+			useVersionFilter = true
+			versionFilterID = activeVersionID
+		case "version":
+			if strings.TrimSpace(q.VersionID) == "" {
+				return nil, fmt.Errorf("%w: version leaderboard scope requires version id", ErrSegmentValidation)
+			}
+			useVersionFilter = true
+			versionFilterID = q.VersionID
+		case "sport_overall":
+			if strings.TrimSpace(q.SportType) == "" {
+				return nil, fmt.Errorf("%w: sport_overall leaderboard requires sport type", ErrSegmentValidation)
+			}
+		case "equivalence_group":
+			var err error
+			groupID, err = db.resolveSegmentLeaderboardGroup(ctx, q.SegmentID, scope, q.VersionID, groupID)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("%w: unsupported checkpoint leaderboard scope", ErrSegmentValidation)
+		}
+	} else if scope != "sport_overall" {
+		var err error
+		groupID, err = db.resolveSegmentLeaderboardGroup(ctx, q.SegmentID, scope, q.VersionID, groupID)
+		if err != nil {
+			return nil, err
+		}
+		if groupID == "" {
+			return []model.SegmentEffort{}, nil
+		}
+	} else if strings.TrimSpace(q.SportType) == "" {
+		return nil, fmt.Errorf("%w: sport_overall leaderboard requires sport type", ErrSegmentValidation)
+	}
+
 	query := `
-		WITH ranked AS (
-		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
-		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type,
+		WITH matching AS (
+			SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
+			       se.user_id, se.started_at, se.elapsed_time_s,
+			       se.is_reverse, se.sport_type, se.sub_type,
 		       COALESCE(act.is_indoor, false) AS is_indoor,
 		       COALESCE(act.is_virtual, false) AS is_virtual,
 		       COALESCE(act.is_electric, false) AS is_electric,
 		       se.gear_id,
-		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
-		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
+			       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
+			       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
+			       COALESCE(current_gv.group_id::text, se.leaderboard_equivalence_group_id::text, '') AS current_leaderboard_equivalence_group_id,
+			       se.leaderboard_sport_type,
+		       se.leaderboard_direction,
+		       sv.version_number,
 		       se.in_leaderboard, se.created_at,
 		       s.name AS segment_name,
 		       u.display_name,
 		       g.name AS gear_name,
+		       act.visibility,
 		       ROW_NUMBER() OVER (
 		           PARTITION BY COALESCE(rg.id::text, act.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
 		           ORDER BY
@@ -1025,44 +1854,88 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
 		JOIN users u ON u.id = se.user_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
-		JOIN activities act ON act.id = se.activity_id
-		LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
+			JOIN activities act ON act.id = se.activity_id
+			LEFT JOIN segment_leaderboard_equivalence_group_versions current_gv
+			       ON current_gv.segment_version_id = se.segment_version_id
+			      AND current_gv.leaderboard_surface = 'default'
+			      AND current_gv.retired_at IS NULL
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
 		LEFT JOIN recording_groups rg ON rg.id = rgm.group_id`
 
-	args := []any{segmentID}
+	args := []any{q.SegmentID}
 	argIdx := 2
 
-	if onlyUserID != "" {
-		// "Nur ich": show canonical own efforts including from private activities.
-		query += `
-		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND se.user_id = $` + fmt.Sprint(argIdx)
-		args = append(args, onlyUserID)
+	query += `
+		WHERE se.segment_id = $1 AND se.in_leaderboard = true
+		  AND se.superseded_at IS NULL`
+
+	if useVersionFilter {
+		query += fmt.Sprintf(" AND se.segment_version_id = $%d", argIdx)
+		args = append(args, versionFilterID)
 		argIdx++
+	} else if scope != "sport_overall" {
+		query += fmt.Sprintf(" AND COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id) = $%d::uuid", argIdx)
+		args = append(args, groupID)
+		argIdx++
+	}
+	if courseKind == string(model.CourseKindCheckpointSequence) {
+		query += " AND se.leaderboard_contract_key = 'checkpoint_sequence_v1'"
 	} else {
-		// "Alle": exclude private activity efforts.
-		query += `
-		WHERE se.segment_id = $1 AND se.in_leaderboard = true AND act.visibility = 'public'`
+		query += " AND se.leaderboard_contract_key = 'course_gps_v1'"
 	}
 
-	if sportType != "" {
-		query += fmt.Sprintf(" AND se.sport_type = $%d", argIdx)
-		args = append(args, sportType)
+	if q.SportType != "" {
+		query += fmt.Sprintf(" AND se.leaderboard_sport_type = $%d", argIdx)
+		args = append(args, q.SportType)
 		argIdx++
 	}
-	if isReverse != nil {
-		query += fmt.Sprintf(" AND se.is_reverse = $%d", argIdx)
-		args = append(args, *isReverse)
+	if q.IsReverse != nil {
+		query += fmt.Sprintf(" AND se.leaderboard_direction = $%d", argIdx)
+		if *q.IsReverse {
+			args = append(args, "reverse")
+		} else {
+			args = append(args, "forward")
+		}
 		argIdx++
 	}
-	if gearID != "" {
+	if q.GearID != "" {
 		query += fmt.Sprintf(" AND se.gear_id = $%d", argIdx)
-		args = append(args, gearID)
+		args = append(args, q.GearID)
 		argIdx++
+	}
+	switch electricMode {
+	case "exclude_electric":
+		query += " AND COALESCE(act.is_electric, false) = false"
+	case "only_electric":
+		query += " AND COALESCE(act.is_electric, false) = true"
 	}
 
 	query += `
+		),
+		global_ranked AS (
+			SELECT id, started_at,
+			       ROW_NUMBER() OVER (
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction
+			           ORDER BY elapsed_time_s ASC
+			       ) AS rank_overall,
+			       (ROW_NUMBER() OVER (
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction
+			           ORDER BY elapsed_time_s ASC
+			       ) = 1) AS is_segment_record
+			FROM matching
+			WHERE canonical_rank = 1 AND visibility = 'public'
+		),
+		personal_ranked AS (
+			SELECT id, started_at,
+			       ROW_NUMBER() OVER (
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction, user_id
+			           ORDER BY elapsed_time_s ASC
+			       ) AS personal_rank
+			FROM matching
+			WHERE canonical_rank = 1
 		)
 		SELECT id, segment_id, segment_version_id, activity_id,
 		       user_id, started_at, elapsed_time_s,
@@ -1070,13 +1943,29 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		       is_indoor, is_virtual, is_electric,
 		       gear_id,
 		       avg_power_w, avg_heart_rate, avg_speed_ms,
-		       rank_overall, is_personal_best, personal_rank, is_segment_record,
+		       gr.rank_overall, COALESCE(pr.personal_rank = 1, false),
+		       CASE WHEN pr.personal_rank <= 3 THEN pr.personal_rank::smallint ELSE NULL END,
+		       COALESCE(gr.is_segment_record, false),
 		       in_leaderboard, created_at,
 		       segment_name,
 		       display_name,
-		       gear_name
-		FROM ranked
-		WHERE canonical_rank = 1
+		       gear_name,
+		       version_number,
+		       leaderboard_equivalence_group_id
+		FROM matching
+		LEFT JOIN global_ranked gr USING (id, started_at)
+		LEFT JOIN personal_ranked pr USING (id, started_at)
+		WHERE canonical_rank = 1`
+
+	if q.OnlyUserID != "" {
+		query += fmt.Sprintf(" AND user_id = $%d", argIdx)
+		args = append(args, q.OnlyUserID)
+		argIdx++
+	} else {
+		query += " AND visibility = 'public'"
+	}
+
+	query += `
 		ORDER BY elapsed_time_s ASC
 		LIMIT 100`
 
@@ -1099,6 +1988,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
+			&e.VersionNumber, &e.LeaderboardEquivalenceGroupID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan effort: %w", err)
@@ -1112,6 +2002,81 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		efforts = []model.SegmentEffort{}
 	}
 	return efforts, nil
+}
+
+func (db *DB) resolveSegmentLeaderboardGroup(ctx context.Context, segmentID, scope, versionID, groupID string) (string, error) {
+	switch scope {
+	case "current_version":
+		err := db.Pool.QueryRow(ctx, `
+			WITH active_version AS (
+				SELECT id
+				FROM segment_versions
+					WHERE segment_id = $1
+					  AND matching_contract_key = 'course_gps_v1'
+					  AND matching_contract_version = 1
+					  AND validity_basis <> 'rollback_retired'
+					  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+					  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+				ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+				         version_number DESC
+				LIMIT 1
+			)
+			SELECT gv.group_id
+			FROM segment_leaderboard_equivalence_group_versions gv
+			JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+			WHERE gv.segment_version_id = (SELECT id FROM active_version)
+			  AND gv.leaderboard_surface = 'default'
+			  AND gv.retired_at IS NULL
+			  AND g.segment_id = $1
+		`, segmentID).Scan(&groupID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve current leaderboard group: %w", err)
+		}
+		return groupID, nil
+	case "version":
+		if versionID == "" {
+			return "", fmt.Errorf("%w: version leaderboard scope requires version id", ErrSegmentValidation)
+		}
+		err := db.Pool.QueryRow(ctx, `
+			SELECT gv.group_id
+			FROM segment_leaderboard_equivalence_group_versions gv
+			JOIN segment_leaderboard_equivalence_groups g ON g.id = gv.group_id
+			WHERE gv.segment_version_id = $2
+			  AND gv.leaderboard_surface = 'default'
+			  AND gv.retired_at IS NULL
+			  AND g.segment_id = $1
+		`, segmentID, versionID).Scan(&groupID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve version leaderboard group: %w", err)
+		}
+		return groupID, nil
+	case "equivalence_group":
+		if groupID == "" {
+			return "", fmt.Errorf("%w: equivalence_group leaderboard scope requires group id", ErrSegmentValidation)
+		}
+		var exists bool
+		if err := db.Pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM segment_leaderboard_equivalence_groups
+				WHERE id = $2 AND segment_id = $1
+			)
+		`, segmentID, groupID).Scan(&exists); err != nil {
+			return "", fmt.Errorf("verify leaderboard group: %w", err)
+		}
+		if !exists {
+			return "", ErrSegmentNotFound
+		}
+		return groupID, nil
+	default:
+		return "", fmt.Errorf("%w: invalid leaderboard scope", ErrSegmentValidation)
+	}
 }
 
 func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) ([]model.SegmentEffort, error) {
@@ -1131,15 +2096,21 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       NULL::text AS display_name,
 		       g.name AS gear_name,
 		       s.segment_type_meta,
+		       s.course_kind,
+		       cp.control_summary,
 		       ROW_NUMBER() OVER (
 		           PARTITION BY se.segment_id, se.started_at, se.elapsed_time_s, se.is_reverse
 		           ORDER BY se.created_at ASC, se.id ASC
 		       ) AS canonical_rank
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		LEFT JOIN checkpoint_course_projection cp
+		       ON cp.segment_id = s.id
+		      AND s.course_kind = 'checkpoint_sequence'
 		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1
+		  AND se.superseded_at IS NULL
 		)
 		SELECT id, segment_id, segment_version_id, activity_id,
 		       user_id, started_at, elapsed_time_s,
@@ -1152,7 +2123,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       segment_name,
 		       display_name,
 		       gear_name,
-		       segment_type_meta
+		       segment_type_meta,
+		       course_kind,
+		       control_summary
 		FROM ranked
 		WHERE canonical_rank = 1
 		ORDER BY started_at ASC`, activityID)
@@ -1164,6 +2137,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 	var efforts []model.SegmentEffort
 	for rows.Next() {
 		var e model.SegmentEffort
+		var controlSummaryJSON []byte
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
@@ -1175,9 +2149,17 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 			&e.InLeaderboard, &e.CreatedAt,
 			&e.SegmentName, &e.DisplayName, &e.GearName,
 			&e.SegmentTypeMeta,
+			&e.CourseKind, &controlSummaryJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan effort: %w", err)
+		}
+		if len(controlSummaryJSON) > 0 && string(controlSummaryJSON) != "null" {
+			var summary model.CheckpointControlSummary
+			if err := json.Unmarshal(controlSummaryJSON, &summary); err != nil {
+				return nil, fmt.Errorf("decode effort checkpoint summary: %w", err)
+			}
+			e.ControlSummary = &summary
 		}
 		efforts = append(efforts, e)
 	}
@@ -1190,18 +2172,129 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 	return efforts, nil
 }
 
+func (db *DB) GetActivitySegmentEffortHistory(ctx context.Context, activityID, segmentID string) ([]model.SegmentEffort, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT se.id, se.segment_id, se.segment_version_id, sv.version_number, se.activity_id,
+		       se.user_id, se.started_at, se.elapsed_time_s,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(a.is_indoor, false) AS is_indoor,
+		       COALESCE(a.is_virtual, false) AS is_virtual,
+		       COALESCE(a.is_electric, false) AS is_electric,
+		       se.gear_id,
+		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
+		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
+		       se.in_leaderboard, se.created_at,
+		       se.superseded_by_effort_id, se.superseded_at, se.superseded_reason,
+		       se.superseded_by_recalculation_run_id, se.created_by_recalculation_run_id,
+		       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
+		       s.name AS segment_name,
+		       NULL::text AS display_name,
+		       g.name AS gear_name
+		FROM segment_efforts se
+		JOIN segment_versions sv ON sv.id = se.segment_version_id
+		JOIN segments s ON s.id = se.segment_id
+		JOIN activities a ON a.id = se.activity_id
+		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
+		WHERE se.activity_id = $1
+		  AND se.segment_id = $2
+		ORDER BY se.started_at ASC, se.created_at ASC, se.id ASC`, activityID, segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("get activity segment effort history: %w", err)
+	}
+	defer rows.Close()
+
+	var efforts []model.SegmentEffort
+	for rows.Next() {
+		var e model.SegmentEffort
+		if err := rows.Scan(
+			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.VersionNumber, &e.ActivityID,
+			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
+			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
+			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
+			&e.InLeaderboard, &e.CreatedAt,
+			&e.SupersededByEffortID, &e.SupersededAt, &e.SupersededReason,
+			&e.SupersededByRecalculationRunID, &e.CreatedByRecalculationRunID,
+			&e.LeaderboardEquivalenceGroupID,
+			&e.SegmentName, &e.DisplayName, &e.GearName,
+		); err != nil {
+			return nil, fmt.Errorf("scan segment effort history: %w", err)
+		}
+		efforts = append(efforts, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get activity segment effort history: %w", err)
+	}
+	if efforts == nil {
+		efforts = []model.SegmentEffort{}
+	}
+	return efforts, nil
+}
+
 func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffort) error {
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO segment_efforts (
 			segment_id, segment_version_id, activity_id, user_id,
-			started_at, elapsed_time_s, is_reverse, sport_type, sub_type,
-			gear_id, avg_power_w, avg_heart_rate, avg_speed_ms,
-			distance_m, elevation_gain_m
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			started_at, elapsed_time_s, is_reverse,
+			sport_type, sub_type, gear_id,
+			avg_speed_ms, avg_heart_rate, avg_power_w,
+			distance_m, elevation_gain_m,
+			matching_contract_key, matching_contract_version,
+			match_source_type, match_source_id, match_identity_key,
+			occurrence_index, occurrence_hash, superseded_by_effort_id,
+			superseded_at, superseded_reason, superseded_by_recalculation_run_id,
+			created_by_recalculation_run_id, leaderboard_equivalence_group_id,
+			leaderboard_sport_type, leaderboard_sub_type,
+			leaderboard_equipment_class, leaderboard_assist_class,
+			leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
+			leaderboard_electric_policy_state, leaderboard_direction,
+			leaderboard_version_policy_key,
+			leaderboard_contract_key, leaderboard_contract_version,
+			activity_trait_bucket_key, eligibility_policy_key,
+			eligibility_policy_version, eligibility_source_hash,
+			in_leaderboard
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10,
+			$11, $12, $13,
+			$14, $15,
+			$16, $17,
+			$18, $19, $20,
+			$21, $22, $23,
+			$24, $25, $26,
+			$27, $28,
+			$29, $30,
+			$31, $32,
+			$33, $34,
+			$35, $36,
+			$37,
+			$38, $39,
+			$40, $41,
+			$42, $43,
+			$44
+		)
+		ON CONFLICT DO NOTHING`,
 		effort.SegmentID, effort.SegmentVersionID, effort.ActivityID, effort.UserID,
 		effort.StartedAt, effort.ElapsedTimeS, effort.IsReverse, effort.SportType, effort.SubType,
-		effort.GearID, effort.AvgPowerW, effort.AvgHeartRate, effort.AvgSpeedMs,
+		effort.GearID, effort.AvgSpeedMs, effort.AvgHeartRate, effort.AvgPowerW,
 		effort.DistanceM, effort.ElevationGainM,
+		nullableString(effort.MatchingContractKey), nullableInt(effort.MatchingContractVersion),
+		nullableString(effort.MatchSourceType), nullableString(effort.MatchSourceID), nullableString(effort.MatchIdentityKey),
+		effort.OccurrenceIndex, effort.OccurrenceHash, effort.SupersededByEffortID,
+		effort.SupersededAt, effort.SupersededReason, effort.SupersededByRecalculationRunID,
+		effort.CreatedByRecalculationRunID, nullableString(effort.LeaderboardEquivalenceGroupID),
+		nullableString(effort.LeaderboardSportType), nullableString(effort.LeaderboardSubType),
+		nullableString(effort.LeaderboardEquipmentClass), nullableString(effort.LeaderboardAssistClass),
+		nullableString(effort.LeaderboardIndoorPolicyState), nullableString(effort.LeaderboardVirtualPolicyState),
+		nullableString(effort.LeaderboardElectricPolicyState), nullableString(effort.LeaderboardDirection),
+		nullableString(effort.LeaderboardVersionPolicyKey),
+		nullableString(effort.LeaderboardContractKey), nullableInt(effort.LeaderboardContractVersion),
+		nullableString(effort.ActivityTraitBucketKey), segmentEffortEligibilityPolicyKey(effort),
+		segmentEffortEligibilityPolicyVersion(effort), nullableString(effort.EligibilitySourceHash),
+		segmentEffortInLeaderboard(effort),
 	)
 	if err != nil {
 		return fmt.Errorf("insert segment effort: %w", err)
@@ -1210,6 +2303,14 @@ func (db *DB) InsertSegmentEffort(ctx context.Context, effort *model.SegmentEffo
 }
 
 func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) error {
+	return updateSegmentEffortRanks(ctx, db.Pool, segmentID)
+}
+
+func UpdateSegmentEffortRanksTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
+	return updateSegmentEffortRanks(ctx, tx, segmentID)
+}
+
+func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID string) error {
 	// Two CTEs:
 	// global_ranked: ranks efforts from non-private activities only (for public leaderboard).
 	// personal_ranked: ranks ALL of a user's efforts, including private activities.
@@ -1218,13 +2319,16 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 	//
 	// TimescaleDB note: both CTEs include started_at so the UPDATE WHERE clause can use the
 	// composite PK (id, started_at) — required for efficient chunk pruning on the hypertable.
-	_, err := db.Pool.Exec(ctx, `
+	_, err := conn.Exec(ctx, `
 		WITH
-		canonical AS (
-			SELECT se.id, se.started_at, se.user_id, se.sport_type, se.is_reverse, se.elapsed_time_s,
-			       a.visibility,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			canonical AS (
+				SELECT se.id, se.started_at, se.user_id,
+				       se.leaderboard_equivalence_group_id,
+				       COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id) AS current_leaderboard_equivalence_group_id,
+				       se.leaderboard_sport_type, se.leaderboard_direction, se.elapsed_time_s,
+				       a.visibility,
+				       ROW_NUMBER() OVER (
+				           PARTITION BY COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id), COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
 			           ORDER BY
 			               CASE
 			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -1234,20 +2338,26 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 			               se.created_at ASC,
 			               se.id ASC
 			       ) AS canonical_rank
-			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id
-			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+				FROM segment_efforts se
+				JOIN activities a ON a.id = se.activity_id
+				LEFT JOIN segment_leaderboard_equivalence_group_versions current_gv
+				       ON current_gv.segment_version_id = se.segment_version_id
+				      AND current_gv.leaderboard_surface = 'default'
+				      AND current_gv.retired_at IS NULL
+				LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
-			WHERE se.segment_id = $1 AND se.in_leaderboard = true
+			WHERE se.segment_id = $1
+			  AND se.in_leaderboard = true
+			  AND se.superseded_at IS NULL
 		),
 		global_ranked AS (
 			SELECT c.id, c.started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY c.sport_type, c.is_reverse
+				       ROW_NUMBER() OVER (
+				           PARTITION BY c.current_leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) AS rk,
-			       (ROW_NUMBER() OVER (
-			           PARTITION BY c.sport_type, c.is_reverse
+				       (ROW_NUMBER() OVER (
+				           PARTITION BY c.current_leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) = 1) AS is_record
 			FROM canonical c
@@ -1255,8 +2365,8 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 		),
 		personal_ranked AS (
 			SELECT id, started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY sport_type, is_reverse, user_id
+				       ROW_NUMBER() OVER (
+				           PARTITION BY current_leaderboard_equivalence_group_id, leaderboard_sport_type, leaderboard_direction, user_id
 			           ORDER BY elapsed_time_s ASC
 			       ) AS user_rk
 			FROM canonical
@@ -1279,12 +2389,12 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 		return fmt.Errorf("update effort ranks: %w", err)
 	}
 
-	// Update effort_count and athlete_count: public, non-group-secondary activities only.
-	_, err = db.Pool.Exec(ctx, `
+	// Update effort_count and athlete_count: public canonical efforts only.
+	_, err = conn.Exec(ctx, `
 		WITH canonical AS (
 			SELECT se.user_id,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			           PARTITION BY COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
 			           ORDER BY
 			               CASE
 			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -1299,6 +2409,7 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 			WHERE se.segment_id = $1
+			  AND se.superseded_at IS NULL
 		)
 		UPDATE segments SET
 			effort_count = (
@@ -1317,60 +2428,49 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 
 // CandidateSegment holds info for spatial pre-filtered segment matching.
 type CandidateSegment struct {
-	SegmentID     string
-	VersionID     string
-	SportGroup    string
-	DistanceM     float64
-	SegmentType   string
-	TypeMeta      map[string]any
-	TrackWKB      []byte // Segment track as WKB for in-memory Hausdorff
-	Bidirectional bool
+	SegmentID              string
+	VersionID              string
+	SportGroup             string
+	DistanceM              float64
+	SegmentType            string
+	TypeMeta               map[string]any
+	TrackWKB               []byte // Segment track as WKB for in-memory Hausdorff
+	Bidirectional          bool
+	ActivityTraitBucketKey string
+	RankAllowed            bool
+	CompletionAllowed      bool
+	EligibilitySourceHash  string
+}
+
+type CheckpointCandidateSegment struct {
+	CandidateSegment
+	Controls []model.CheckpointControl
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
-// filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
-func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time, subType string) ([]CandidateSegment, error) {
-	sportGroup := sportGroupFromTuple(sportType, subType)
-
-	// $5/$6 form the canonical activity tuple for allowed_predicates.
-	// allowed_predicates NULL means all tuples inside the segment's stored prefilter group.
-	// allowed_predicates = '[]' means "none" — matched never.
-	rows, err := db.Pool.Query(ctx, `
+// filtered by the course eligibility projection. Uses ST_DWithin with GIST
+// index for fast spatial pre-filtering after indexed eligibility lookup.
+func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, activityTraitBucketKey string, activityDate time.Time) ([]CandidateSegment, error) {
+	query := `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
 		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
-		       ST_AsBinary(sv.track), s.bidirectional
+		       ST_AsBinary(sv.track), s.bidirectional,
+		       cep.activity_trait_bucket_key, cep.rank_allowed,
+		       cep.completion_allowed, cep.source_hash
 		FROM segments s
-		JOIN LATERAL (
-			SELECT id, track FROM (
-				(SELECT id, track FROM segment_versions
-				 WHERE segment_id = s.id AND valid_from <= $4
-				 ORDER BY valid_from DESC, version_number DESC LIMIT 1)
-				UNION ALL
-				(SELECT id, track FROM segment_versions
-				 WHERE segment_id = s.id
-				 ORDER BY version_number ASC LIMIT 1)
-			) versioned LIMIT 1
-		) sv ON true
+		` + activeCourseGPSV1VersionLateral("JOIN", "s.id", "$4", "id, track") + `
+		JOIN target_course_eligibility_projection cep
+		  ON cep.target_kind = 'segment'
+		 AND cep.target_id = s.id
+		 AND cep.target_version_id = sv.id
+		 AND cep.activity_trait_bucket_key = $3
+		 AND cep.match_allowed = true
 		JOIN activity_tracks at ON at.activity_id = $1
-		WHERE (s.visibility = 'public' OR s.created_by = $2)
-		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
-			  AND (
-			      (s.allowed_predicates IS NULL AND s.segment_type NOT IN ('wintersport', 'wassersport'))
-			      OR jsonb_array_length(s.allowed_predicates) > 0
-			  )
-			  AND (
-			      s.allowed_predicates IS NULL
-			      OR EXISTS (
-			          SELECT 1
-			          FROM jsonb_array_elements(s.allowed_predicates) pred
-			          WHERE pred->>'sport' = $5
-			            AND (NOT pred ? 'sub_type' OR pred->>'sub_type' = $6)
-			      )
-			  )
+		WHERE ` + visibleSegmentExportSQL("s", "$2") + `
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activityID, userID, sportGroup, activityDate, sportType, subType)
+		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`
+	rows, err := db.Pool.Query(ctx, query, activityID, userID, activityTraitBucketKey, activityDate)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
@@ -1381,7 +2481,9 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		var c CandidateSegment
 		var rawMeta json.RawMessage
 		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
-			&c.SegmentType, &rawMeta, &c.TrackWKB, &c.Bidirectional); err != nil {
+			&c.SegmentType, &rawMeta, &c.TrackWKB, &c.Bidirectional,
+			&c.ActivityTraitBucketKey, &c.RankAllowed, &c.CompletionAllowed,
+			&c.EligibilitySourceHash); err != nil {
 			return nil, fmt.Errorf("scan candidate segment: %w", err)
 		}
 		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
@@ -1391,6 +2493,143 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
+	}
+	return result, nil
+}
+
+func ApplyCandidateEligibilityToEffort(e *model.SegmentEffort, candidate CandidateSegment) {
+	e.ActivityTraitBucketKey = candidate.ActivityTraitBucketKey
+	e.EligibilityPolicyKey = courseEligibilityPolicyKey
+	e.EligibilityPolicyVersion = courseEligibilityPolicyVersion
+	e.EligibilitySourceHash = candidate.EligibilitySourceHash
+	e.InLeaderboard = candidate.RankAllowed
+}
+
+func (db *DB) GetCheckpointCandidateSegments(ctx context.Context, activityID, userID, activityTraitBucketKey string, activityDate time.Time) ([]CheckpointCandidateSegment, error) {
+	query := `
+		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
+		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
+		       s.bidirectional,
+		       cep.activity_trait_bucket_key, cep.rank_allowed,
+		       cep.completion_allowed, cep.source_hash
+		FROM segments s
+		` + activeSegmentCourseVersionLateral("JOIN", "s.id", "s.course_kind", "$4", "id") + `
+		JOIN checkpoint_course_projection cp ON cp.segment_id = s.id AND cp.active_segment_version_id = sv.id
+		JOIN target_course_eligibility_projection cep
+		  ON cep.target_kind = 'segment'
+		 AND cep.target_id = s.id
+		 AND cep.target_version_id = sv.id
+		 AND cep.activity_trait_bucket_key = $3
+		 AND cep.match_allowed = true
+		JOIN activity_tracks at ON at.activity_id = $1
+		WHERE s.course_kind = 'checkpoint_sequence'
+		  AND ` + visibleSegmentExportSQL("s", "$2") + `
+		  AND at.track_full IS NOT NULL
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM course_version_controls c
+		      WHERE c.segment_version_id = sv.id
+		        AND c.required = true
+		        AND NOT (
+		            (
+		                c.geometry_shape IN ('point', 'circle')
+		                AND ST_DWithin(
+		                    at.track_full::geography,
+		                    c.geom::geography,
+		                    GREATEST(COALESCE(c.hit_radius_m, c.area_radius_m, 0), 1)
+		                )
+		            )
+		            OR (
+		                c.geometry_shape IN ('polygon', 'multipolygon')
+		                AND ST_Intersects(at.track_full, c.geom)
+		            )
+		        )
+		  )`
+	rows, err := db.Pool.Query(ctx, query, activityID, userID, activityTraitBucketKey, activityDate)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint candidate segments: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CheckpointCandidateSegment
+	var versionIDs []string
+	for rows.Next() {
+		var c CheckpointCandidateSegment
+		var rawMeta json.RawMessage
+		if err := rows.Scan(&c.SegmentID, &c.VersionID, &c.SportGroup, &c.DistanceM,
+			&c.SegmentType, &rawMeta, &c.Bidirectional,
+			&c.ActivityTraitBucketKey, &c.RankAllowed, &c.CompletionAllowed,
+			&c.EligibilitySourceHash); err != nil {
+			return nil, fmt.Errorf("scan checkpoint candidate segment: %w", err)
+		}
+		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
+			_ = json.Unmarshal(rawMeta, &c.TypeMeta)
+		}
+		result = append(result, c)
+		versionIDs = append(versionIDs, c.VersionID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get checkpoint candidate segments: %w", err)
+	}
+	controlsByVersionID, err := db.getCheckpointControlsByVersionIDs(ctx, versionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result {
+		controls := controlsByVersionID[result[i].VersionID]
+		if controls == nil {
+			controls = []model.CheckpointControl{}
+		}
+		result[i].Controls = controls
+	}
+	return result, nil
+}
+
+func (db *DB) getCheckpointControlsByVersionIDs(ctx context.Context, segmentVersionIDs []string) (map[string][]model.CheckpointControl, error) {
+	controlsByVersionID := make(map[string][]model.CheckpointControl, len(segmentVersionIDs))
+	if len(segmentVersionIDs) == 0 {
+		return controlsByVersionID, nil
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT segment_version_id::text, id::text, sequence_index, role, primitive, geometry_shape, label,
+		       ST_AsGeoJSON(geom), hit_radius_m, area_radius_m, required
+		FROM course_version_controls
+		WHERE segment_version_id = ANY($1)
+		ORDER BY segment_version_id, sequence_index
+	`, segmentVersionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch load checkpoint controls: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var versionID string
+		var control model.CheckpointControl
+		var geometry string
+		if err := rows.Scan(&versionID, &control.ID, &control.SequenceIndex, &control.Role, &control.Primitive,
+			&control.GeometryShape, &control.Label, &geometry, &control.HitRadiusM,
+			&control.AreaRadiusM, &control.Required); err != nil {
+			return nil, fmt.Errorf("scan checkpoint control: %w", err)
+		}
+		control.Geometry = json.RawMessage(geometry)
+		controlsByVersionID[versionID] = append(controlsByVersionID[versionID], control)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate checkpoint controls: %w", err)
+	}
+	return controlsByVersionID, nil
+}
+
+func (db *DB) GetSegmentMatchActivityContext(ctx context.Context, activityID string) (SegmentMatchActivityContext, error) {
+	var result SegmentMatchActivityContext
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(is_indoor, false),
+		       COALESCE(is_virtual, false),
+		       COALESCE(is_electric, false)
+		FROM activities
+		WHERE id = $1`, activityID).Scan(&result.IsIndoor, &result.IsVirtual, &result.IsElectric)
+	if err != nil {
+		return result, fmt.Errorf("get segment match activity context: %w", err)
 	}
 	return result, nil
 }
@@ -1519,10 +2758,32 @@ func (db *DB) DeleteSegmentEffortsBySegment(ctx context.Context, segmentID, user
 	return nil
 }
 
+// DeleteSegmentEffortsBySegmentForActivities removes efforts only for the
+// activity set that will be recomputed. Historical efforts outside the current
+// backfill candidate set remain attached to their original segment version.
+func (db *DB) DeleteSegmentEffortsBySegmentForActivities(ctx context.Context, segmentID, userID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts
+		 WHERE segment_id = $1
+		   AND user_id = $2
+		   AND activity_id = ANY($3::uuid[])`,
+		segmentID, userID, activityIDs)
+	if err != nil {
+		return fmt.Errorf("delete segment efforts by segment activities: %w", err)
+	}
+	return nil
+}
+
 // GetAffectedSegmentIDs returns all segment IDs that have efforts for a given activity.
 func (db *DB) GetAffectedSegmentIDs(ctx context.Context, activityID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT DISTINCT segment_id FROM segment_efforts WHERE activity_id = $1`, activityID)
+		`SELECT DISTINCT segment_id
+		 FROM segment_efforts
+		 WHERE activity_id = $1
+		   AND superseded_at IS NULL`, activityID)
 	if err != nil {
 		return nil, fmt.Errorf("get affected segment IDs: %w", err)
 	}
@@ -1673,8 +2934,11 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 
 	count := 0
 	for _, c := range candidates {
-		created, err := ensureImportedLiftSegment(ctx, tx, userID, c)
+		segID, created, err := ensureImportedLiftSegment(ctx, tx, userID, c)
 		if err != nil {
+			return count, err
+		}
+		if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segID); err != nil {
 			return count, err
 		}
 		if created {
@@ -1688,10 +2952,10 @@ func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error
 	return count, nil
 }
 
-func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (bool, error) {
+func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (string, bool, error) {
 	segID, created, err := findOrCreateImportedLiftSegment(ctx, tx, userID, c)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -1704,9 +2968,9 @@ func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c 
 			SELECT 1 FROM segment_versions WHERE segment_id = $1
 		)
 	`, segID, c.geojson, userID); err != nil {
-		return false, fmt.Errorf("ensure lift segment version osm_id=%d: %w", c.osmID, err)
+		return "", false, fmt.Errorf("ensure lift segment version osm_id=%d: %w", c.osmID, err)
 	}
-	return created, nil
+	return segID, created, nil
 }
 
 func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (string, bool, error) {
@@ -1733,35 +2997,36 @@ func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID stri
 		segName = *c.name
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, sport_group, segment_type,
-		                      segment_type_meta, osm_lift_id, visibility)
-		VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
-		RETURNING id
-	`, userID, segName, c.osmID).Scan(&segID); err != nil {
+			INSERT INTO segments (created_by, name, sport_group, segment_type,
+			                      terrain_type, climb_type, elevation_kind,
+			                      segment_type_meta, osm_lift_id, visibility)
+			VALUES ($1, $2, 'generic', 'lift', 'lift', 'bergfahrt', 'uphill', '{}', $3, 'public')
+			RETURNING id
+		`, userID, segName, c.osmID).Scan(&segID); err != nil {
 		return "", false, fmt.Errorf("insert lift segment osm_id=%d: %w", c.osmID, err)
 	}
 	return segID, true, nil
 }
 
 // ListActivityIDsForSegmentBackfill returns IDs of all GPS activities belonging
-// to userID whose track passes within 50 m of the given segment's latest version track.
-// This mirrors GetSpatialCandidateSegments but in the opposite direction:
-// given a new segment, find which activities may traverse it.
+// to userID whose track passes near the segment version active at the activity
+// start time. This mirrors GetSpatialCandidateSegments in the opposite direction:
+// given a segment, find activities that may traverse the version they would have
+// matched historically.
 func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT at.activity_id
-		FROM activity_tracks at
-		JOIN activities a ON a.id = at.activity_id
-		JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = $2
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
-		WHERE a.user_id = $1
-		  AND at.track_full IS NOT NULL
-		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
+	query := fmt.Sprintf(`
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN activities a ON a.id = at.activity_id
+			%s
+			WHERE a.user_id = $1
+			  AND at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+			ORDER BY a.started_at, at.activity_id`,
+		activeCourseGPSV1VersionLateral("JOIN", "$2", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		userID, segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list activity ids for segment backfill: %w", err)
@@ -1787,18 +3052,13 @@ func (db *DB) ListActivityIDsForSegmentBackfill(ctx context.Context, userID, seg
 // callers clear stale matches via per-activity transactional replacement instead
 // of deleting the whole segment upfront.
 func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT DISTINCT activity_id
 		FROM (
 			SELECT at.activity_id
 			FROM activity_tracks at
 			JOIN activities a ON a.id = at.activity_id
-			JOIN LATERAL (
-				SELECT track FROM segment_versions
-				WHERE segment_id = $2
-				ORDER BY version_number DESC
-				LIMIT 1
-			) sv ON true
+			%s
 			WHERE a.user_id = $1
 			  AND at.track_full IS NOT NULL
 			  AND sv.track IS NOT NULL
@@ -1810,8 +3070,12 @@ func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, se
 			FROM segment_efforts se
 			JOIN activities a ON a.id = se.activity_id
 			WHERE se.segment_id = $2
+			  AND se.superseded_at IS NULL
 			  AND a.user_id = $1
 		) ids`,
+		activeCourseGPSV1VersionLateral("JOIN", "$2", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		userID, segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list activity ids for segment recompute: %w", err)
@@ -1820,21 +3084,21 @@ func (db *DB) ListActivityIDsForSegmentRecompute(ctx context.Context, userID, se
 }
 
 // ListAllActivityIDsForSegmentBackfill returns activity IDs from ALL users
-// whose track passes within 100m of the given segment. Used when publishing
-// a previously private segment (full recompute across all users).
+// whose track passes near the segment version active at each activity's start.
+// Used when publishing a previously private segment.
 func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT at.activity_id
-		FROM activity_tracks at
-		JOIN LATERAL (
-			SELECT track FROM segment_versions
-			WHERE segment_id = $1
-			ORDER BY version_number DESC
-			LIMIT 1
-		) sv ON true
-		WHERE at.track_full IS NOT NULL
-		  AND sv.track IS NOT NULL
-		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
+	query := fmt.Sprintf(`
+			SELECT at.activity_id
+			FROM activity_tracks at
+			JOIN activities a ON a.id = at.activity_id
+			%s
+			WHERE at.track_full IS NOT NULL
+			  AND sv.track IS NOT NULL
+			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
+			ORDER BY a.started_at, at.activity_id`,
+		activeCourseGPSV1VersionLateral("JOIN", "$1", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list all activity ids for segment backfill: %w", err)
@@ -1856,17 +3120,13 @@ func (db *DB) ListAllActivityIDsForSegmentBackfill(ctx context.Context, segmentI
 // segment is published. It includes already-matched activities so stale efforts
 // are cleared without a segment-wide pre-delete.
 func (db *DB) ListAllActivityIDsForSegmentRecompute(ctx context.Context, segmentID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT DISTINCT activity_id
 		FROM (
 			SELECT at.activity_id
 			FROM activity_tracks at
-			JOIN LATERAL (
-				SELECT track FROM segment_versions
-				WHERE segment_id = $1
-				ORDER BY version_number DESC
-				LIMIT 1
-			) sv ON true
+			JOIN activities a ON a.id = at.activity_id
+			%s
 			WHERE at.track_full IS NOT NULL
 			  AND sv.track IS NOT NULL
 			  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)
@@ -1876,7 +3136,11 @@ func (db *DB) ListAllActivityIDsForSegmentRecompute(ctx context.Context, segment
 			SELECT activity_id
 			FROM segment_efforts
 			WHERE segment_id = $1
+			  AND superseded_at IS NULL
 		) ids`,
+		activeCourseGPSV1VersionLateral("JOIN", "$1", "a.started_at", "track"),
+	)
+	rows, err := db.Pool.Query(ctx, query,
 		segmentID)
 	if err != nil {
 		return nil, fmt.Errorf("list all activity ids for segment recompute: %w", err)
@@ -1912,6 +3176,23 @@ func (db *DB) DeleteAllSegmentEffortsBySegment(ctx context.Context, segmentID st
 	return nil
 }
 
+// DeleteAllSegmentEffortsBySegmentForActivities removes efforts for a segment
+// only inside the activity set scheduled for publish recompute.
+func (db *DB) DeleteAllSegmentEffortsBySegmentForActivities(ctx context.Context, segmentID string, activityIDs []string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM segment_efforts
+		 WHERE segment_id = $1
+		   AND activity_id = ANY($2::uuid[])`,
+		segmentID, activityIDs)
+	if err != nil {
+		return fmt.Errorf("delete all segment efforts by segment activities: %w", err)
+	}
+	return nil
+}
+
 // InsertSegmentEffortsBatch inserts multiple segment efforts in a single multi-row INSERT.
 func (db *DB) InsertSegmentEffortsBatch(ctx context.Context, efforts []*model.SegmentEffort) error {
 	return insertSegmentEffortsBatch(ctx, db.Pool, efforts)
@@ -1940,34 +3221,8 @@ func LockSegmentEffortReplacementTx(ctx context.Context, tx pgx.Tx, activityID s
 // for one activity across the provided segment IDs. It keeps repeated matcher runs
 // idempotent even though segment_efforts uses UUID primary keys.
 func (db *DB) ReplaceSegmentEffortsForActivitySegments(ctx context.Context, activityID, userID string, segmentIDs []string, efforts []*model.SegmentEffort) error {
-	if len(segmentIDs) == 0 {
-		return nil
-	}
-
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin replace segment efforts: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	if err := LockSegmentEffortReplacementTx(ctx, tx, activityID); err != nil {
+	if _, err := db.SupersedeSegmentEffortsForActivitySegments(ctx, activityID, userID, segmentIDs, efforts, nil, nil, nil); err != nil {
 		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM segment_efforts
-		WHERE activity_id = $1
-		  AND user_id = $2
-		  AND segment_id = ANY($3::uuid[])
-	`, activityID, userID, segmentIDs); err != nil {
-		return fmt.Errorf("delete existing matched segment efforts: %w", err)
-	}
-
-	if err := InsertSegmentEffortsBatchTx(ctx, tx, efforts); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit replace segment efforts: %w", err)
 	}
 	return nil
 }
@@ -1979,16 +3234,21 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return nil
 	}
 
-	const cols = 15
+	const cols = 44
 	valueParts := make([]string, 0, len(efforts))
 	args := make([]any, 0, len(efforts)*cols)
 
 	for i, e := range efforts {
 		base := i * cols
 		valueParts = append(valueParts, fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
 			base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
+			base+16, base+17, base+18, base+19, base+20, base+21, base+22,
+			base+23, base+24, base+25, base+26, base+27, base+28, base+29,
+			base+30, base+31, base+32, base+33, base+34, base+35, base+36,
+			base+37, base+38, base+39, base+40, base+41, base+42, base+43,
+			base+44,
 		))
 		args = append(args,
 			e.SegmentID, e.SegmentVersionID, e.ActivityID, e.UserID,
@@ -1996,6 +3256,20 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 			e.SportType, e.SubType, e.GearID,
 			e.AvgSpeedMs, e.AvgHeartRate, e.AvgPowerW,
 			e.DistanceM, e.ElevationGainM,
+			nullableString(e.MatchingContractKey), nullableInt(e.MatchingContractVersion),
+			nullableString(e.MatchSourceType), nullableString(e.MatchSourceID), nullableString(e.MatchIdentityKey),
+			e.OccurrenceIndex, e.OccurrenceHash, e.SupersededByEffortID,
+			e.SupersededAt, e.SupersededReason, e.SupersededByRecalculationRunID,
+			e.CreatedByRecalculationRunID, nullableString(e.LeaderboardEquivalenceGroupID),
+			nullableString(e.LeaderboardSportType), nullableString(e.LeaderboardSubType),
+			nullableString(e.LeaderboardEquipmentClass), nullableString(e.LeaderboardAssistClass),
+			nullableString(e.LeaderboardIndoorPolicyState), nullableString(e.LeaderboardVirtualPolicyState),
+			nullableString(e.LeaderboardElectricPolicyState), nullableString(e.LeaderboardDirection),
+			nullableString(e.LeaderboardVersionPolicyKey),
+			nullableString(e.LeaderboardContractKey), nullableInt(e.LeaderboardContractVersion),
+			nullableString(e.ActivityTraitBucketKey), segmentEffortEligibilityPolicyKey(e),
+			segmentEffortEligibilityPolicyVersion(e), nullableString(e.EligibilitySourceHash),
+			segmentEffortInLeaderboard(e),
 		)
 	}
 
@@ -2004,7 +3278,21 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		 started_at, elapsed_time_s, is_reverse,
 		 sport_type, sub_type, gear_id,
 		 avg_speed_ms, avg_heart_rate, avg_power_w,
-		 distance_m, elevation_gain_m)
+		 distance_m, elevation_gain_m,
+		 matching_contract_key, matching_contract_version,
+		 match_source_type, match_source_id, match_identity_key,
+		 occurrence_index, occurrence_hash, superseded_by_effort_id,
+		 superseded_at, superseded_reason, superseded_by_recalculation_run_id,
+		 created_by_recalculation_run_id, leaderboard_equivalence_group_id,
+		 leaderboard_sport_type, leaderboard_sub_type,
+		 leaderboard_equipment_class, leaderboard_assist_class,
+		 leaderboard_indoor_policy_state, leaderboard_virtual_policy_state,
+		 leaderboard_electric_policy_state, leaderboard_direction,
+		 leaderboard_version_policy_key,
+		 leaderboard_contract_key, leaderboard_contract_version,
+		 activity_trait_bucket_key, eligibility_policy_key,
+		 eligibility_policy_version, eligibility_source_hash,
+		 in_leaderboard)
 		VALUES ` + strings.Join(valueParts, ", ") + `
 		ON CONFLICT DO NOTHING`
 
@@ -2013,6 +3301,36 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 		return fmt.Errorf("batch insert segment efforts: %w", err)
 	}
 	return nil
+}
+
+func segmentEffortInLeaderboard(e *model.SegmentEffort) bool {
+	if !e.InLeaderboard {
+		return false
+	}
+	if e.LeaderboardContractKey == CheckpointSequenceV1Key {
+		return true
+	}
+	if e.ActivityTraitBucketKey != "" &&
+		e.EligibilityPolicyKey == courseEligibilityPolicyKey &&
+		e.EligibilityPolicyVersion == courseEligibilityPolicyVersion &&
+		e.EligibilitySourceHash != "" {
+		return true
+	}
+	return e.EligibilityPolicyKey == "legacy_leaderboard_bypass" && e.EligibilitySourceHash != ""
+}
+
+func segmentEffortEligibilityPolicyKey(e *model.SegmentEffort) string {
+	if e.EligibilityPolicyKey == "" {
+		return courseEligibilityPolicyKey
+	}
+	return e.EligibilityPolicyKey
+}
+
+func segmentEffortEligibilityPolicyVersion(e *model.SegmentEffort) int {
+	if e.EligibilityPolicyVersion == 0 {
+		return courseEligibilityPolicyVersion
+	}
+	return e.EligibilityPolicyVersion
 }
 
 // IsSegmentFavoriteByUser checks if a segment is favorited by a user.
@@ -2082,7 +3400,9 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 	LEFT JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary' AND aga.user_id = a.user_id
 	LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id
-	WHERE se.segment_id = $1 AND a.user_id = $2`
+	WHERE se.segment_id = $1
+	  AND a.user_id = $2
+	  AND se.superseded_at IS NULL`
 
 	args := []any{segmentID, userID}
 	if isReverse != nil {
@@ -2143,6 +3463,7 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 		WHERE se.user_id = $1
 		  AND se.personal_rank IS NOT NULL
 		  AND se.personal_rank <= 3
+		  AND se.superseded_at IS NULL
 		ORDER BY s.name ASC, se.personal_rank ASC`,
 		userID)
 	if err != nil {
@@ -2209,6 +3530,7 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 		  AND se.rank_overall IS NOT NULL
 		  AND se.rank_overall <= 10
 		  AND se.in_leaderboard = true
+		  AND se.superseded_at IS NULL
 		ORDER BY se.rank_overall ASC, s.name ASC`,
 		userID)
 	if err != nil {
@@ -2251,34 +3573,28 @@ func encodeCursor(t time.Time, id string) string {
 }
 
 // GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
-// Only returns segments the user can access (own or public).
-func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string) ([]model.Segment, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT s.id, s.name, s.distance_m, s.elevation_gain_m,
-		       ST_AsGeoJSON(sv.track) AS track_geojson
-		FROM segments s
-		LEFT JOIN LATERAL (
-		    SELECT track FROM segment_versions
-		    WHERE segment_id = s.id
-		    ORDER BY version_number DESC LIMIT 1
-		) sv ON true
-		WHERE s.id = ANY($1)
-		  AND (s.visibility = 'public' OR s.created_by = $2)
-		  AND sv.track IS NOT NULL`, ids, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+// Only returns segments the user can access.
+func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string, visibleAccessScopeIDs []string) ([]model.Segment, error) {
+	return db.GetSegmentsForExportWithAccess(ctx, ids, userID, false, visibleAccessScopeIDs)
+}
 
-	var result []model.Segment
-	for rows.Next() {
-		var seg model.Segment
-		if err := rows.Scan(&seg.ID, &seg.Name, &seg.DistanceM, &seg.ElevationGainM, &seg.TrackGeoJSON); err != nil {
+func (db *DB) GetSegmentsForExportWithAccess(ctx context.Context, ids []string, userID string, isAdmin bool, visibleAccessScopeIDs []string) ([]model.Segment, error) {
+	result := make([]model.Segment, 0, len(ids))
+	for _, id := range ids {
+		seg, err := db.GetSegmentWithOptions(ctx, id, userID, isAdmin, GetSegmentOptions{
+			IncludeGeoJSON:        true,
+			IncludeControls:       true,
+			VisibleAccessScopeIDs: visibleAccessScopeIDs,
+		})
+		if err != nil {
 			return nil, err
 		}
-		result = append(result, seg)
+		if seg == nil || seg.TrackGeoJSON == nil {
+			continue
+		}
+		result = append(result, *seg)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func decodeCursor(cursor string) (time.Time, string, error) {

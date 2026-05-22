@@ -271,6 +271,70 @@ func TestSystemCacheTablesExplicitlyRegistered(t *testing.T) {
 	}
 }
 
+func TestCheckpointCourseTablesHaveGDPRContract(t *testing.T) {
+	expected := map[string]TableCategory{
+		"course_version_controls":           Export,
+		"checkpoint_course_effort_controls": Derived,
+		"checkpoint_course_projection":      Derived,
+	}
+	for table, want := range expected {
+		got, ok := GDPRRegistry[table]
+		if !ok {
+			t.Fatalf("%s missing from GDPRRegistry", table)
+		}
+		if got != want {
+			t.Fatalf("%s category = %v, want %v", table, got, want)
+		}
+	}
+
+	exported := false
+	for _, spec := range gdprExportTables() {
+		if spec.table == "course_version_controls" {
+			exported = true
+			if spec.where != "segment_id IN (SELECT id FROM segments WHERE created_by = $1) ORDER BY segment_version_id, sequence_index" {
+				t.Fatalf("course_version_controls export where = %q", spec.where)
+			}
+		}
+		if spec.table == "checkpoint_course_projection" {
+			t.Fatal("derived checkpoint projection must not be exported as user-authored content")
+		}
+	}
+	if !exported {
+		t.Fatal("course_version_controls missing from gdprExportTables")
+	}
+}
+
+func TestTargetOverlayExportsDoNotIncludeRowsOnlyBecauseUserOwnsSubject(t *testing.T) {
+	specs := map[string]string{}
+	for _, spec := range gdprExportTables() {
+		specs[spec.table] = spec.where
+	}
+
+	for _, table := range []string{"target_activity_observations", "target_reports", "target_user_content"} {
+		where := specs[table]
+		if where == "" {
+			t.Fatalf("%s missing from gdprExportTables", table)
+		}
+		for _, forbidden := range []string{"target_places", "target_regions", "target_collections", "route_course_publications"} {
+			if strings.Contains(where, forbidden) {
+				t.Fatalf("%s export where leaks subject-owner rows via %s: %s", table, forbidden, where)
+			}
+		}
+	}
+	if where := specs["target_report_status_events"]; strings.Contains(where, "target_places") || strings.Contains(where, "target_regions") || strings.Contains(where, "target_collections") {
+		t.Fatalf("target_report_status_events export where leaks subject-owner rows: %s", where)
+	}
+}
+
+func TestCourseEligibilityProjectionGDPRClassification(t *testing.T) {
+	if got := GDPRRegistry["target_course_eligibility_projection"]; got != Derived {
+		t.Fatalf("target_course_eligibility_projection category = %v, want Derived", got)
+	}
+	if got := GDPRRegistry["activity_trait_projection"]; got != Global {
+		t.Fatalf("activity_trait_projection category = %v, want Global", got)
+	}
+}
+
 // TestRegistryCategoryMatchesSchema verifies that each table's GDPRRegistry
 // category is consistent with the actual columns/foreign keys in the live
 // schema. This catches *misclassification on schema drift* — the failure mode
@@ -536,17 +600,24 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		"health_training_load":      true,
 		"health_readiness_scores":   true,
 		// user_daily_features: no FK at all (TEXT user_id) — explicit delete required.
-		"user_daily_features":            true,
-		"llm_user_config":                true, // no FK at all
-		"segment_efforts":                true, // user_id NO ACTION
-		"segment_versions":               true, // created_by NO ACTION
-		"segments":                       true, // created_by NO ACTION
-		"segments_legacy_sub_type_hints": true, // segment_id handoff table; explicit delete before segment purge
-		"route_photos":                   true, // user_id NO ACTION
-		"planned_routes":                 true, // user_id NO ACTION
-		"heatmap_trail_matches":          true, // user_id NO ACTION
-		"terra_incognita_cache":          true, // user_id TEXT, no FK
-		"background_jobs":                true, // user_id TEXT, no FK; gdpr_purge row kept as audit
+		"user_daily_features":                            true,
+		"llm_user_config":                                true, // no FK at all
+		"segment_efforts":                                true, // user_id NO ACTION
+		"segment_versions":                               true, // created_by NO ACTION
+		"segments":                                       true, // created_by NO ACTION
+		"course_version_controls":                        true, // segment-owned rows cascade through explicit segment purge
+		"checkpoint_course_effort_controls":              true, // derived effort evidence cascades through explicit effort/segment purge
+		"checkpoint_course_projection":                   true, // derived segment projection cascades through explicit segment purge
+		"segment_leaderboard_equivalence_groups":         true, // segment-owned rows cascade through explicit segment purge; created_by SET NULL otherwise
+		"segment_leaderboard_equivalence_group_versions": true, // cascades through segment/version/equivalence purge
+		"segment_version_revisions":                      true, // segment-owned rows cascade through explicit segment purge; actor_user_id SET NULL otherwise
+		"target_course_eligibility_projection":           true, // derived segment projection; explicit delete before segment purge
+		"segments_legacy_sub_type_hints":                 true, // segment_id handoff table; explicit delete before segment purge
+		"route_photos":                                   true, // user_id NO ACTION
+		"planned_routes":                                 true, // user_id NO ACTION
+		"heatmap_trail_matches":                          true, // user_id NO ACTION
+		"terra_incognita_cache":                          true, // user_id TEXT, no FK
+		"background_jobs":                                true, // user_id TEXT, no FK; gdpr_purge row kept as audit
 		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
 		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
 		"auth_audit_log": true,
@@ -564,6 +635,38 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		// email_templates: System-wide admin config. updated_by is nulled by the FK
 		// so the instance template remains while the deleted user's identifier is removed.
 		"email_templates": true,
+		// Segment recalculation rows are segment-owned operational state:
+		// own-segment rows cascade through explicit segment purge; actor
+		// references on other segments are nulled by ON DELETE SET NULL.
+		"segment_recalculation_runs":             true,
+		"segment_recalculation_segment_state":    true,
+		"object_access_grants":                   true,
+		"object_access_scopes":                   true,
+		"planned_route_snapshots":                true,
+		"route_course_profile_projection":        true,
+		"route_course_publications":              true,
+		"route_course_relationships":             true,
+		"route_profile_snapshots":                true,
+		"route_publication_events":               true,
+		"route_publication_privacy_reviews":      true,
+		"route_relationships":                    true,
+		"target_places":                          true,
+		"target_regions":                         true,
+		"target_collections":                     true,
+		"target_collection_members":              true,
+		"target_collection_member_reverse_index": true,
+		"target_object_search_projection":        true,
+		"target_collection_summary_projection":   true,
+		"governance_scopes":                      true,
+		"governance_scope_target_bindings":       true,
+		"governance_actor_target_projection":     true,
+		"target_activity_observations":           true,
+		"target_reports":                         true,
+		"target_report_status_events":            true,
+		"target_user_content":                    true,
+		"target_overlay_summary_projection":      true,
+		"target_change_events":                   true,
+		"target_revision_snapshots":              true,
 	}
 
 	// Query: which tables are reachable via ON DELETE CASCADE from users?
