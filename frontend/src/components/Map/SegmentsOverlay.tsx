@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { fetchSegments, type Segment, type SegmentsResponse } from '@/api/segments'
+import { fetchSegments, type FetchSegmentsOpts, type Segment, type SegmentsResponse } from '@/api/segments'
 import { enforceRouteLayersOnTop } from '@/lib/mapRouteLayers'
 
 export interface SegmentColorConfig {
@@ -41,6 +41,39 @@ export const DEFAULT_SEGMENT_FILTERS: SegmentsOverlayFilters = {
   sportGroups: [],
 }
 
+export function buildSegmentsOverlayFetchParams({
+  bbox,
+  filters,
+  cursor,
+}: {
+  bbox: string
+  filters: SegmentsOverlayFilters
+  cursor?: string
+}): FetchSegmentsOpts {
+  const requestedCourseKinds = filters.courseKinds.length > 0 ? filters.courseKinds : ['line']
+  const fetchCourseKinds = requestedCourseKinds.includes('checkpoint_sequence') && requestedCourseKinds.includes('line')
+    ? ['line', 'checkpoint_sequence'] as const
+    : undefined
+  const fetchCourseKind = !fetchCourseKinds && requestedCourseKinds.includes('checkpoint_sequence')
+    ? 'checkpoint_sequence' as const
+    : !fetchCourseKinds && requestedCourseKinds.includes('line')
+      ? 'line' as const
+    : undefined
+
+  return {
+    include_geojson: true,
+    limit: 500,
+    ...(bbox ? { bbox } : {}),
+    ...(cursor ? { cursor } : {}),
+    ...(requestedCourseKinds.includes('checkpoint_sequence') ? { include_control_map_features: true } : {}),
+    ...(filters.riddenOnly ? { completed_only: true } : {}),
+    ...(filters.terrainTypes.length > 0 && requestedCourseKinds.includes('line') ? { segment_types: filters.terrainTypes.join(',') } : {}),
+    ...(filters.sportGroups.length === 1 ? { sport_group: filters.sportGroups[0] } : {}),
+    ...(fetchCourseKinds ? { course_kinds: [...fetchCourseKinds] } : {}),
+    ...(fetchCourseKind ? { course_kind: fetchCourseKind } : {}),
+  }
+}
+
 interface SegmentsOverlayProps {
   map: maplibregl.Map | null
   enabled: boolean
@@ -71,24 +104,20 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
     return () => { map.off('moveend', updateBbox) }
   }, [map, enabled, updateBbox])
 
-  const requestedCourseKinds = mergedFilters.courseKinds.length > 0 ? mergedFilters.courseKinds : ['line']
-  const fetchCourseKinds = requestedCourseKinds.includes('checkpoint_sequence') && requestedCourseKinds.includes('line')
-    ? ['line', 'checkpoint_sequence'] as const
-    : undefined
-  const fetchCourseKind = !fetchCourseKinds && requestedCourseKinds.includes('checkpoint_sequence')
-    ? 'checkpoint_sequence' as const
-    : undefined
-
   const { data: rawData } = useQuery<SegmentsResponse>({
-    queryKey: ['segments-overlay-list', bbox, requestedCourseKinds.join(',')],
-    queryFn: () => fetchSegments({
-      include_geojson: true,
-      include_control_map_features: requestedCourseKinds.includes('checkpoint_sequence'),
-      limit: 500,
-      ...(bbox ? { bbox } : {}),
-      ...(fetchCourseKinds ? { course_kinds: [...fetchCourseKinds] } : {}),
-      ...(fetchCourseKind ? { course_kind: fetchCourseKind } : {}),
-    }),
+    queryKey: ['segments-overlay-list', bbox, mergedFilters],
+    queryFn: async () => {
+      const segments: Segment[] = []
+      let cursor: string | undefined
+      let hasMore = true
+      while (hasMore) {
+        const page = await fetchSegments(buildSegmentsOverlayFetchParams({ bbox, filters: mergedFilters, cursor }))
+        segments.push(...page.segments)
+        cursor = page.next_cursor
+        hasMore = Boolean(page.has_more && cursor)
+      }
+      return { segments, has_more: false }
+    },
     enabled: enabled && !!map && bbox !== '',
     staleTime: 5 * 60 * 1000,
   })

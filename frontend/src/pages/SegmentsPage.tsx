@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment, type SegmentLeaderboardQuery } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
@@ -63,6 +63,14 @@ const VISIBILITY_LABELS: Record<(typeof VISIBILITY_ALL)[number], string> = {
   private: 'Privat',
   shared: 'Geteilt',
 }
+const ELEVATION_KIND_ALL = ['flat', 'hilly', 'uphill', 'downhill'] as const
+type ElevationKind = (typeof ELEVATION_KIND_ALL)[number]
+const ELEVATION_KIND_LABELS: Record<ElevationKind, string> = {
+  flat: 'Flach',
+  hilly: 'Wellig',
+  uphill: 'Bergauf',
+  downhill: 'Bergab',
+}
 
 export function shouldFetchNextSegmentPage({
   isIntersecting,
@@ -107,10 +115,13 @@ export default function SegmentsPage() {
     () => searchParams.get('visibility')?.split(',').filter(Boolean) ?? [],
     [searchParams.get('visibility')],
   )
+  const elevationKind = ELEVATION_KIND_ALL.includes(searchParams.get('elevation_kind') as ElevationKind)
+    ? searchParams.get('elevation_kind') as ElevationKind
+    : ''
   const difficultyMatch = (searchParams.get('difficulty_match') ?? 'all') as 'any' | 'all'
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
-    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0
+    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0 || !!elevationKind
   )
 
   // Functional-form update avoids stale-closure races: two setFilter calls in
@@ -204,11 +215,12 @@ export default function SegmentsPage() {
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
+    elevation_kind: elevationKind || undefined,
     visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
     difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? ('any' as const) : undefined,
     ...(includeCheckpointCourses && includeLineCourses ? { course_kinds: ['line' as const, 'checkpoint_sequence' as const] } : {}),
     ...(includeCheckpointCourses && !includeLineCourses ? { course_kind: 'checkpoint_sequence' as const } : {}),
-  }), [sportGroup, search, includeLineCourses, includeCheckpointCourses, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
+  }), [sportGroup, search, includeLineCourses, includeCheckpointCourses, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, elevationKind, visibilityFilter, difficultyMatch])
 
   const {
     data,
@@ -398,7 +410,7 @@ export default function SegmentsPage() {
     )
   }
 
-  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0) + (includeCheckpointCourses ? 1 : 0))
+  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (elevationKind ? 1 : 0) + (visibilityFilter.length === 1 ? 1 : 0) + (includeCheckpointCourses ? 1 : 0))
   const completedOnlyEmpty = segments.length === 0 && !showAllSegments && !hasExplicitEmptySegmentTypes
 
   return (
@@ -644,6 +656,23 @@ export default function SegmentsPage() {
             </div>
             )}
 
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Höhenprofil</label>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {ELEVATION_KIND_ALL.map(kind => (
+                  <label key={kind} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={elevationKind === kind}
+                      onChange={e => setFilter('elevation_kind', e.target.checked ? kind : null)}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{ELEVATION_KIND_LABELS[kind]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             {/* Visibility — multi-checkbox: both checked = default (all), one checked = filter */}
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Sichtbarkeit</label>
@@ -884,6 +913,7 @@ export default function SegmentsPage() {
         <LeaderboardModal
           segmentId={selectedSegmentId}
           segmentName={segments.find(s => s.id === selectedSegmentId)?.name ?? 'Segment'}
+          segment={segments.find(s => s.id === selectedSegmentId)}
           onClose={() => setSelectedSegmentId(null)}
         />
       )}
@@ -893,15 +923,27 @@ export default function SegmentsPage() {
   )
 }
 
-function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: string; segmentName: string; onClose: () => void }) {
+function LeaderboardModal({ segmentId, segmentName, segment, onClose }: { segmentId: string; segmentName: string; segment?: Segment; onClose: () => void }) {
   const [direction, setDirection] = useState<'all' | 'forward' | 'reverse'>('all')
-  const [scope, setScope] = useState<'all' | 'mine'>('all')
+  const [audience, setAudience] = useState<'all' | 'mine'>('all')
+  const [leaderboardScope, setLeaderboardScope] = useState<NonNullable<SegmentLeaderboardQuery['scope']>>('current_version')
 
   const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
+  const leaderboardQuery = useMemo<SegmentLeaderboardQuery>(() => ({
+    is_reverse: isReverse,
+    only_mine: audience === 'mine',
+    scope: leaderboardScope,
+    ...(leaderboardScope === 'current_version' || leaderboardScope === 'version'
+      ? { version_id: segment?.segment_version_id }
+      : {}),
+    ...(leaderboardScope === 'equivalence_group'
+      ? { leaderboard_equivalence_group_id: segment?.leaderboard_equivalence_group_id }
+      : {}),
+  }), [audience, isReverse, leaderboardScope, segment?.leaderboard_equivalence_group_id, segment?.segment_version_id])
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['segment-leaderboard', segmentId, direction, scope],
-    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse, scope === 'mine'),
+    queryKey: ['segment-leaderboard', segmentId, leaderboardQuery],
+    queryFn: () => fetchSegmentLeaderboard(segmentId, leaderboardQuery),
   })
 
   return (
@@ -920,13 +962,23 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
             <div className="flex gap-1">
               {(['all', 'mine'] as const).map(s => (
                 <button key={s}
-                  onClick={() => setScope(s)}
-                  className={`px-2 py-1 text-xs rounded cursor-pointer ${scope === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  onClick={() => setAudience(s)}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${audience === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                 >
                   {s === 'all' ? 'Alle' : 'Nur ich'}
                 </button>
               ))}
             </div>
+            <select
+              aria-label="Bestenlisten-Bereich"
+              value={leaderboardScope}
+              onChange={event => setLeaderboardScope(event.target.value as NonNullable<SegmentLeaderboardQuery['scope']>)}
+              className="rounded bg-neutral-100 px-2 py-1 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+            >
+              <option value="current_version">Aktuelle Version</option>
+              <option value="equivalence_group" disabled={!segment?.leaderboard_equivalence_group_id}>Äquivalenzgruppe</option>
+              <option value="sport_overall">Gesamt</option>
+            </select>
             {/* Direction */}
             <div className="flex gap-1">
               {(['all', 'forward', 'reverse'] as const).map(dir => (

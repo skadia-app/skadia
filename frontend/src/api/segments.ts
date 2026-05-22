@@ -45,6 +45,9 @@ export interface CheckpointControlMapFeature {
 export interface Segment {
   id: string
   name: string
+  segment_version_id?: string
+  version_number?: number
+  leaderboard_equivalence_group_id?: string
   description?: string
   sport_group: string
   segment_type: string
@@ -57,6 +60,7 @@ export interface Segment {
   is_favorite: boolean
   visibility: SegmentVisibility
   access_scope_id?: string | null
+  effective_permissions?: string[]
   created_by: string
   created_at: string
   track_geojson?: string

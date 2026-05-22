@@ -38,6 +38,7 @@ export interface TargetPlace {
   updated_at?: string
   archived_at?: string | null
   overlay_summary?: TargetOverlaySummary | null
+  effective_permissions?: string[]
 }
 
 export interface TargetRegion {
@@ -54,6 +55,7 @@ export interface TargetRegion {
   updated_at?: string
   archived_at?: string | null
   overlay_summary?: TargetOverlaySummary | null
+  effective_permissions?: string[]
 }
 
 export interface TargetCollectionSummary {
@@ -69,6 +71,7 @@ export interface TargetCollectionSummary {
   updated_at?: string
   archived_at?: string | null
   overlay_summary?: TargetOverlaySummary | null
+  effective_permissions?: string[]
 }
 
 export interface TargetCollection extends TargetCollectionSummary {

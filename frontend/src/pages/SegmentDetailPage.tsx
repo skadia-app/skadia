@@ -110,6 +110,7 @@ export default function SegmentDetailPage() {
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segment...</div>
   if (!segment) return <div className="p-6 text-neutral-400">Segment nicht gefunden</div>
+  const segmentPermissions = new Set(segment.effective_permissions ?? [])
 
   // Build a minimal activity filter from the date range for SegmentActivityList
   const dateFilter: ActivityFilterState | undefined =
@@ -321,7 +322,7 @@ export default function SegmentDetailPage() {
         subjectKind="course"
         subjectId={segment.id}
         canWrite={Boolean(me)}
-        canManageReports={Boolean(me?.is_admin || me?.user_id === segment.created_by)}
+        canManageReports={Boolean(me?.is_admin || me?.user_id === segment.created_by || segmentPermissions.has('manage_reports'))}
       />
 
       {/* Edit Modal */}

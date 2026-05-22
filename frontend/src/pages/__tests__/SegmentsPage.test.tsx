@@ -282,6 +282,70 @@ describe('SegmentsPage filters', () => {
     expect(screen.getByText('Checkpoint-Kurs')).toBeInTheDocument()
     expect(screen.getByText('3 Checkpoints')).toBeInTheDocument()
   })
+
+  it('adds elevation-kind filters to URL state and segment requests', async () => {
+    renderSegmentsPage('/segments?elevation_kind=uphill')
+
+    expect(await screen.findByRole('checkbox', { name: 'Bergauf' })).toBeChecked()
+    await waitFor(() => {
+      expect(mocks.fetchSegments).toHaveBeenCalledWith(expect.objectContaining({
+        elevation_kind: 'uphill',
+      }))
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bergauf' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).not.toHaveTextContent('elevation_kind')
+    })
+  })
+
+  it('passes version and equivalence scope to leaderboard requests', async () => {
+    const leaderboardMock = (await import('@/api/segments')).fetchSegmentLeaderboard as unknown as ReturnType<typeof vi.fn>
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'seg-versioned',
+          name: 'Versioniertes Segment',
+          sport_group: 'bike',
+          segment_type: 'trail',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: true,
+          segment_version_id: 'version-2',
+          leaderboard_equivalence_group_id: 'equiv-1',
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments')
+
+    expect(await screen.findByText('Versioniertes Segment')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Bestenliste'))
+
+    await waitFor(() => {
+      expect(leaderboardMock).toHaveBeenCalledWith('seg-versioned', expect.objectContaining({
+        scope: 'current_version',
+        version_id: 'version-2',
+      }))
+    })
+
+    fireEvent.change(screen.getByLabelText('Bestenlisten-Bereich'), { target: { value: 'equivalence_group' } })
+
+    await waitFor(() => {
+      expect(leaderboardMock).toHaveBeenLastCalledWith('seg-versioned', expect.objectContaining({
+        scope: 'equivalence_group',
+        leaderboard_equivalence_group_id: 'equiv-1',
+      }))
+    })
+  })
 })
 
 describe('shouldFetchNextSegmentPage', () => {

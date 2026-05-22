@@ -5,6 +5,7 @@ import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
+import { fetchSegments, type Segment } from '@/api/segments'
 import type { AutomationRule, Gear, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
 import { SPORT_DEFS, getSportDef, normalizeSportTuple } from '@/lib/sportTaxonomy'
 import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOptions } from '@/lib/ruleSportProjection'
@@ -32,6 +33,44 @@ const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
   label: d.label,
   category: d.categoryKey,
 }))
+
+const SEGMENT_TYPE_LABELS: Record<string, string> = {
+  standard: 'Standard',
+  trail: 'Trail',
+  lap: 'Runde',
+  lift: 'Lift',
+  wintersport: 'Wintersport',
+  wassersport: 'Wassersport',
+}
+const SEGMENT_SPORT_GROUP_LABELS: Record<string, string> = {
+  bike: 'Radfahren',
+  foot: 'Laufsport',
+  swim: 'Schwimmen',
+  ski: 'Wintersport',
+  paddle: 'Wassersport',
+  generic: 'Sonstiges',
+}
+const SEGMENT_VISIBILITY_LABELS: Record<string, string> = {
+  public: 'Öffentlich',
+  private: 'Privat',
+  shared: 'Geteilt',
+}
+
+function formatSegmentDistance(m?: number): string | null {
+  if (m == null) return null
+  if (m >= 1000) return `${(m / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`
+  return `${Math.round(m)} m`
+}
+
+function segmentPreview(segment: Segment): string {
+  return [
+    SEGMENT_TYPE_LABELS[segment.segment_type] ?? segment.segment_type,
+    SEGMENT_SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group,
+    formatSegmentDistance(segment.distance_m),
+    segment.elevation_gain_m != null ? `${Math.round(segment.elevation_gain_m)} hm` : null,
+    SEGMENT_VISIBILITY_LABELS[segment.visibility] ?? segment.visibility,
+  ].filter(Boolean).join(' · ')
+}
 
 const RULE_TUPLE_OPTIONS = ruleTupleOptions()
 const RULE_TRAIT_CONDITION_FIELDS = ruleTraitConditionFields()
@@ -1114,6 +1153,14 @@ function ConditionValueEditor({
   sensors?: Device[]
 }) {
   const { inputType } = fieldDef
+  const segmentQuery = useQuery({
+    queryKey: ['rule-editor-segments'],
+    queryFn: () => fetchSegments({ limit: 100 }),
+    enabled: inputType === 'segment',
+    staleTime: 60_000,
+  })
+  const segmentOptions = segmentQuery.data?.segments ?? []
+  const selectedSegment = segmentOptions.find(segment => segment.id === String(cond.value ?? ''))
 
   // Resolve dynamic options for device fields
   function deviceOption(d: Device) {
@@ -1265,11 +1312,27 @@ function ConditionValueEditor({
 
   if (inputType === 'segment') {
     return (
-      <input type="text" value={cond.value ?? ''}
-        onChange={(e) => onChange({ value: e.target.value })}
-        placeholder="Segment-ID"
-        className={inputClass + ' flex-1 min-w-0'}
-      />
+      <div className="flex-1 min-w-0 space-y-1">
+        <select
+          aria-label="Segment wählen"
+          value={String(cond.value ?? '')}
+          onChange={(e) => onChange({ value: e.target.value })}
+          className={inputClass + ' w-full min-w-0'}
+        >
+          <option value="">Segment wählen...</option>
+          {segmentOptions.map(segment => (
+            <option key={segment.id} value={segment.id}>{segment.name}</option>
+          ))}
+          {cond.value && !selectedSegment && (
+            <option value={String(cond.value)}>Nicht gelistetes Segment ({String(cond.value)})</option>
+          )}
+        </select>
+        {selectedSegment && (
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+            {segmentPreview(selectedSegment)}
+          </p>
+        )}
+      </div>
     )
   }
 
