@@ -16,9 +16,18 @@ func (h *Handler) ListTargetCollections(w http.ResponseWriter, r *http.Request) 
 	if scopes == nil && userID != "" {
 		return
 	}
+	visibilityMode, ok := parseTargetVisibilityMode(w, r)
+	if !ok {
+		return
+	}
+	if r.URL.Query().Has("include_geometry") {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "include_geometry is not supported for target collection lists", r.URL.Path)
+		return
+	}
 	collections, err := h.DB.ListTargetCollections(r.Context(), model.ListTargetCollectionsParams{
 		UserID:                userID,
 		IsAdmin:               middleware.GetIsAdmin(r.Context()),
+		VisibilityMode:        visibilityMode,
 		VisibleAccessScopeIDs: scopes,
 		CollectionKinds:       splitCSV(r.URL.Query().Get("kinds")),
 		BBox:                  parseTargetBBox(r.URL.Query().Get("bbox")),
@@ -50,11 +59,12 @@ func (h *Handler) CreateTargetCollection(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) GetTargetCollection(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	isAdmin := middleware.GetIsAdmin(r.Context())
 	scopes := h.resolveTargetVisibleScopes(w, r, userID)
 	if scopes == nil && userID != "" {
 		return
 	}
-	collection, err := h.DB.GetTargetCollection(r.Context(), userID, chi.URLParam(r, "id"), scopes, r.URL.Query().Get("include_members") == "true")
+	collection, err := h.DB.GetTargetCollectionWithAccess(r.Context(), userID, chi.URLParam(r, "id"), scopes, isAdmin, r.URL.Query().Get("include_members") == "true")
 	if handleTargetHandlerErr(w, r, err) {
 		return
 	}

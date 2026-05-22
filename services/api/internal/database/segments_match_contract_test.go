@@ -461,6 +461,48 @@ func TestSegmentLeaderboardAggregatesOnlyWithinEquivalenceGroup(t *testing.T) {
 	}
 }
 
+func TestCheckpointLeaderboardSupportsEquivalenceGroupScope(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	radius := 30.0
+	course, err := db.CreateCheckpointCourse(ctx, userID, &model.CheckpointCourseCreate{
+		Name:       "Checkpoint Leaderboard Equivalence",
+		SportGroup: "bike",
+		Visibility: "private",
+		Controls: []model.CheckpointControl{
+			checkpointPoint(0, model.CheckpointControlStart, 8.000, 49.000, radius),
+			checkpointPoint(1, model.CheckpointControlFinish, 8.020, 49.020, radius),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateCheckpointCourse: %v", err)
+	}
+	var versionID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id
+		FROM segment_versions
+		WHERE segment_id = $1 AND matching_contract_key = 'checkpoint_sequence_v1'
+	`, course.ID).Scan(&versionID); err != nil {
+		t.Fatalf("load checkpoint version: %v", err)
+	}
+	groupID := leaderboardGroupForVersion(t, db, versionID)
+	activityID, startedAt := insertLeaderboardTestActivity(t, db, userID, "cycling", "mountain", false, time.Date(2026, 5, 21, 8, 0, 0, 0, time.UTC))
+	insertPreparedCheckpointLeaderboardEffort(t, db, userID, course.ID, versionID, activityID, startedAt, 75)
+
+	efforts, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:                     course.ID,
+		SportType:                     "cycling",
+		Scope:                         "equivalence_group",
+		LeaderboardEquivalenceGroupID: groupID,
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery checkpoint equivalence_group: %v", err)
+	}
+	if len(efforts) != 1 || efforts[0].SegmentVersionID != versionID || efforts[0].LeaderboardEquivalenceGroupID != groupID {
+		t.Fatalf("checkpoint equivalence-group leaderboard = %#v, want version %s group %s", efforts, versionID, groupID)
+	}
+}
+
 func TestSegmentLeaderboardCanRequestSportOverallAcrossVersions(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -626,6 +668,29 @@ func insertPreparedLeaderboardEffort(t *testing.T, db *DB, userID, segmentID, ve
 	effort.EligibilitySourceHash = "test-leaderboard"
 	if err := db.InsertSegmentEffort(context.Background(), effort); err != nil {
 		t.Fatalf("insert segment effort: %v", err)
+	}
+}
+
+func insertPreparedCheckpointLeaderboardEffort(t *testing.T, db *DB, userID, segmentID, versionID, activityID string, startedAt time.Time, elapsed int) {
+	t.Helper()
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     elapsed,
+		SportType:        "cycling",
+		SubType:          "mountain",
+		InLeaderboard:    true,
+	}
+	PrepareCheckpointSequenceV1EffortMetadata(effort, SegmentMatchActivityContext{})
+	effort.ActivityTraitBucketKey = "test-checkpoint-leaderboard"
+	effort.EligibilityPolicyKey = courseEligibilityPolicyKey
+	effort.EligibilityPolicyVersion = courseEligibilityPolicyVersion
+	effort.EligibilitySourceHash = "test-checkpoint-leaderboard"
+	if err := db.InsertSegmentEffort(context.Background(), effort); err != nil {
+		t.Fatalf("insert checkpoint segment effort: %v", err)
 	}
 }
 

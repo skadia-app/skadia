@@ -1,3 +1,14 @@
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM segments WHERE course_kind = 'checkpoint_sequence')
+        OR EXISTS (SELECT 1 FROM course_version_controls)
+        OR EXISTS (SELECT 1 FROM checkpoint_course_effort_controls)
+        OR EXISTS (SELECT 1 FROM checkpoint_course_projection)
+    THEN
+        RAISE EXCEPTION 'refusing destructive checkpoint course rollback while checkpoint data exists';
+    END IF;
+END $$;
+
 DROP TABLE IF EXISTS checkpoint_course_effort_controls;
 DROP TABLE IF EXISTS checkpoint_course_projection;
 DROP TABLE IF EXISTS course_version_controls;

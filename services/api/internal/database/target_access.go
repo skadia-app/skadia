@@ -35,6 +35,33 @@ var allowedCollectionMemberKinds = map[string]struct{}{
 	"external_ref":      {},
 }
 
+var allowedTargetPlaceKinds = map[string]struct{}{
+	"custom": {}, "private_place": {}, "poi": {}, "entrance": {}, "parking": {},
+	"summit": {}, "pass": {}, "water": {}, "settlement": {}, "amenity": {},
+}
+
+var allowedTargetRegionKinds = map[string]struct{}{
+	"custom": {}, "private_area": {}, "public_pool": {}, "venue_area": {},
+	"privacy_zone_mirror": {}, "admin_area": {}, "protected_area": {},
+}
+
+var allowedTargetCollectionKinds = map[string]struct{}{
+	"private_map": {}, "public_pool": {}, "venue_pool": {}, "route_set": {},
+	"course_set": {}, "rule_set": {}, "privacy_set": {}, "custom": {},
+}
+
+var allowedTargetDisplayStyles = map[string]struct{}{
+	"map_list": {}, "ordered_list": {}, "directory": {}, "compact": {},
+}
+
+var allowedTargetDefaultSorts = map[string]struct{}{
+	"manual": {}, "name": {}, "distance": {}, "updated_at": {}, "role_then_manual": {},
+}
+
+var allowedTargetExternalRefVisibility = map[string]struct{}{
+	"owner_only": {}, "shared_safe": {}, "public_safe": {},
+}
+
 func validateTargetVisibilityAccessPair(visibility string, accessScopeID *string) error {
 	visibility = strings.TrimSpace(visibility)
 	switch visibility {
@@ -48,6 +75,14 @@ func validateTargetVisibilityAccessPair(visibility string, accessScopeID *string
 		}
 	default:
 		return fmt.Errorf("%w: invalid target visibility %q", ErrTargetValidation, visibility)
+	}
+	return nil
+}
+
+func validateTargetEnum(value, field string, allowed map[string]struct{}) error {
+	value = strings.TrimSpace(value)
+	if _, ok := allowed[value]; !ok {
+		return fmt.Errorf("%w: invalid %s %q", ErrTargetValidation, field, value)
 	}
 	return nil
 }

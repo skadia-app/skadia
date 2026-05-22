@@ -62,6 +62,10 @@ func TestMigration_CheckpointCourses_TablesChecksAndIndexes(t *testing.T) {
 		"idx_course_version_controls_segment_version",
 		"idx_course_version_controls_geom",
 		"idx_checkpoint_course_projection_bounds",
+		"idx_segments_public_line_order",
+		"idx_segments_owner_course_kind_order",
+		"idx_segments_shared_scope_course_kind_order",
+		"idx_segment_efforts_active_user_segment_counts",
 	} {
 		assertCheckpointIndexExists(t, ctx, pool, index)
 	}
@@ -157,7 +161,7 @@ func TestMigration_CheckpointCourses_TablesChecksAndIndexes(t *testing.T) {
 	}
 }
 
-func TestMigration_CheckpointCourses_DownRestoresLineOnlyContracts(t *testing.T) {
+func TestMigration_CheckpointCourses_DownRefusesLiveCheckpointData(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 	_, _, segmentID, _ := insertCheckpointCourseMigrationFixture(t, ctx, pool)
@@ -172,25 +176,24 @@ func TestMigration_CheckpointCourses_DownRestoresLineOnlyContracts(t *testing.T)
 	if err != nil {
 		t.Fatalf("read down migration: %v", err)
 	}
-	if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
-		t.Fatalf("execute down migration: %v", err)
+	if _, err := tx.Exec(ctx, string(downSQL)); err == nil {
+		t.Fatal("down migration succeeded with live checkpoint course data; want refusal")
+	} else {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "P0001" {
+			t.Fatalf("down migration error = %v, want guard exception", err)
+		}
+	}
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		t.Fatalf("rollback refused down tx: %v", err)
 	}
 
-	assertCheckpointColumnMissingTx(t, ctx, tx, "segments", "course_kind")
-	assertCheckpointTableMissingTx(t, ctx, tx, "course_version_controls")
-	assertCheckpointTableMissingTx(t, ctx, tx, "checkpoint_course_effort_controls")
-	assertCheckpointTableMissingTx(t, ctx, tx, "checkpoint_course_projection")
-
-	_, err = tx.Exec(ctx, `
-		INSERT INTO segment_versions (
-			segment_id, version_number, track, valid_from,
-			matching_contract_key, matching_contract_version
-		)
-		VALUES ($1, 20, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326),
-		        CURRENT_DATE, 'checkpoint_sequence_v1', 1)
-	`, segmentID)
-	if err == nil {
-		t.Fatal("down migration left checkpoint_sequence_v1 accepted on segment_versions")
+	var courseKind string
+	if err := pool.QueryRow(ctx, `SELECT course_kind FROM segments WHERE id = $1`, segmentID).Scan(&courseKind); err != nil {
+		t.Fatalf("query checkpoint segment after refused down: %v", err)
+	}
+	if courseKind != "checkpoint_sequence" {
+		t.Fatalf("course_kind after refused down = %q, want checkpoint_sequence", courseKind)
 	}
 }
 

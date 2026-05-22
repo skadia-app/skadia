@@ -227,6 +227,7 @@ CREATE INDEX idx_target_object_search_projection_owner ON target_object_search_p
 CREATE INDEX idx_target_object_search_projection_shared ON target_object_search_projection (access_scope_id, object_kind, updated_at DESC) WHERE visibility = 'shared' AND archived_at IS NULL;
 CREATE INDEX idx_target_object_search_projection_geom ON target_object_search_projection USING GIST (geom) WHERE archived_at IS NULL;
 CREATE INDEX idx_target_object_search_projection_bounds ON target_object_search_projection USING GIST (bounds) WHERE archived_at IS NULL;
+CREATE INDEX idx_target_object_search_projection_name_trgm ON target_object_search_projection USING GIN (name gin_trgm_ops) WHERE archived_at IS NULL;
 
 CREATE TABLE target_collection_summary_projection (
     collection_id UUID PRIMARY KEY REFERENCES target_collections(id) ON DELETE CASCADE,
@@ -260,6 +261,7 @@ CREATE INDEX idx_target_collection_summary_projection_public ON target_collectio
 CREATE INDEX idx_target_collection_summary_projection_owner ON target_collection_summary_projection (owner_user_id, collection_kind, updated_at DESC) WHERE archived_at IS NULL;
 CREATE INDEX idx_target_collection_summary_projection_shared ON target_collection_summary_projection (access_scope_id, collection_kind, updated_at DESC) WHERE visibility = 'shared' AND archived_at IS NULL;
 CREATE INDEX idx_target_collection_summary_projection_bounds ON target_collection_summary_projection USING GIST (bounds) WHERE bounds IS NOT NULL AND archived_at IS NULL;
+CREATE INDEX idx_target_collection_summary_projection_name_trgm ON target_collection_summary_projection USING GIN (name gin_trgm_ops) WHERE archived_at IS NULL;
 
 CREATE TABLE governance_scopes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

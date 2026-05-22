@@ -29,6 +29,9 @@ func TestDataImportRegistersTargetObjectTables(t *testing.T) {
 		{table: "target_regions", phase: 3, userCol: "owner_user_id"},
 		{table: "target_collections", phase: 3, userCol: "owner_user_id"},
 		{table: "target_collection_members", phase: 4, userCol: "added_by"},
+		{table: "target_activity_observations", phase: 7, userCol: "user_id"},
+		{table: "target_reports", phase: 7, userCol: "author_user_id"},
+		{table: "target_user_content", phase: 7, userCol: "user_id"},
 	} {
 		got, ok := specsByName[tc.table]
 		if !ok {
@@ -44,16 +47,12 @@ func TestDataImportRegistersTargetObjectTables(t *testing.T) {
 
 	skipped := dataimport.ImportSkippedTableRationalesForGDPRGuard()
 	for _, table := range []string{
-		"course_version_controls",
 		"governance_scopes",
 		"governance_actor_roles",
 		"governance_scope_target_bindings",
-		"target_activity_observations",
 		"target_change_events",
-		"target_reports",
 		"target_report_status_events",
 		"target_revision_snapshots",
-		"target_user_content",
 		"governance_actor_target_projection",
 		"target_object_search_projection",
 		"target_collection_summary_projection",

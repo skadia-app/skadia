@@ -82,6 +82,47 @@ func TestRouteVariantRelationship(t *testing.T) {
 	}
 }
 
+func TestRouteRelationshipIdempotencyRejectsDifferentSource(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	source := createRouteRelationshipTestRoute(t, db, userID, "variant source a")
+	otherSource := createRouteRelationshipTestRoute(t, db, userID, "variant source b")
+	target := createRouteRelationshipTestRoute(t, db, userID, "variant target")
+
+	relationshipID, err := db.CreateRouteRelationship(ctx, source.ID, target.ID, userID, "variant_of", "variant-op-reused-source", "hash:variant-reused-source")
+	if err != nil {
+		t.Fatalf("CreateRouteRelationship first: %v", err)
+	}
+	if relationshipID == "" {
+		t.Fatal("CreateRouteRelationship first returned empty id")
+	}
+
+	_, err = db.CreateRouteRelationship(ctx, otherSource.ID, target.ID, userID, "variant_of", "variant-op-reused-source", "hash:variant-reused-source")
+	if !errors.Is(err, ErrRoutePublicationConflict) {
+		t.Fatalf("reused operation for different source error = %v, want ErrRoutePublicationConflict", err)
+	}
+}
+
+func TestForkRouteIdempotencyRejectsDifferentSource(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	source := createRouteRelationshipTestRoute(t, db, userID, "fork source a")
+	otherSource := createRouteRelationshipTestRoute(t, db, userID, "fork source b")
+
+	fork, relationshipID, err := db.ForkRoute(ctx, source.ID, userID, "forked route", "fork-op-reused-source", "hash:fork-reused-source", source.Version)
+	if err != nil {
+		t.Fatalf("ForkRoute first: %v", err)
+	}
+	if fork.ID == "" || relationshipID == "" {
+		t.Fatalf("ForkRoute first missing ids: route=%#v relationship=%q", fork, relationshipID)
+	}
+
+	_, _, err = db.ForkRoute(ctx, otherSource.ID, userID, "forked route", "fork-op-reused-source", "hash:fork-reused-source", otherSource.Version)
+	if !errors.Is(err, ErrRoutePublicationConflict) {
+		t.Fatalf("reused fork operation for different source error = %v, want ErrRoutePublicationConflict", err)
+	}
+}
+
 func TestRouteRelationshipOwnership(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()
@@ -126,6 +167,30 @@ func TestRouteCourseVariantRelationship(t *testing.T) {
 	}
 	if sourceVersion != firstPublication.CourseSegmentVersionID || targetVersion != secondPublication.CourseSegmentVersionID {
 		t.Fatalf("course relation versions = %s/%s, want %s/%s", sourceVersion, targetVersion, firstPublication.CourseSegmentVersionID, secondPublication.CourseSegmentVersionID)
+	}
+}
+
+func TestRouteCourseRelationshipIdempotencyRejectsDifferentSourcePublication(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, firstSnapshot := createRouteRelationshipPublicationSnapshot(t, db, userID, "course source a")
+	_, otherSourceSnapshot := createRouteRelationshipPublicationSnapshot(t, db, userID, "course source b")
+	_, targetSnapshot := createRouteRelationshipPublicationSnapshot(t, db, userID, "course target")
+	firstPublication := publishRouteRelationshipTestCourse(t, db, userID, firstSnapshot, "course-rel-reused-source-publish-1")
+	otherSourcePublication := publishRouteRelationshipTestCourse(t, db, userID, otherSourceSnapshot, "course-rel-reused-source-publish-2")
+	targetPublication := publishRouteRelationshipTestCourse(t, db, userID, targetSnapshot, "course-rel-reused-source-publish-3")
+
+	relationshipID, err := db.CreateRouteCourseRelationship(ctx, firstPublication.ID, targetPublication.ID, userID, "variant_of", "course-rel-op-reused-source", "hash:course-rel-reused-source")
+	if err != nil {
+		t.Fatalf("CreateRouteCourseRelationship first: %v", err)
+	}
+	if relationshipID == "" {
+		t.Fatal("CreateRouteCourseRelationship first returned empty id")
+	}
+
+	_, err = db.CreateRouteCourseRelationship(ctx, otherSourcePublication.ID, targetPublication.ID, userID, "variant_of", "course-rel-op-reused-source", "hash:course-rel-reused-source")
+	if !errors.Is(err, ErrRoutePublicationConflict) {
+		t.Fatalf("reused course operation for different source error = %v, want ErrRoutePublicationConflict", err)
 	}
 }
 

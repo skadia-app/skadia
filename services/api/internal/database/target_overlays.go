@@ -231,6 +231,104 @@ func (db *DB) userHasTargetGovernancePermission(ctx context.Context, userID, tar
 	return len(targets) > 0, nil
 }
 
+func (db *DB) validateTargetOverlayAccessScopeForSubject(ctx context.Context, actorUserID, subjectKind, subjectID, visibility string, accessScopeID *string) error {
+	if strings.TrimSpace(visibility) != "shared" {
+		return nil
+	}
+	if accessScopeID == nil || strings.TrimSpace(*accessScopeID) == "" {
+		return fmt.Errorf("%w: shared overlays require access_scope_id", ErrTargetOverlayValidation)
+	}
+	ownerUserID, err := db.targetOverlaySubjectOwnerUserID(ctx, subjectKind, subjectID)
+	if err != nil {
+		return err
+	}
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM object_access_scopes s
+			WHERE s.id = $1
+			  AND s.owner_kind = 'user'
+			  AND (
+			      s.owner_user_id = $2::uuid
+			      OR (
+			          s.owner_user_id = NULLIF($3, '')::uuid
+			          AND EXISTS (
+			              SELECT 1
+			              FROM object_access_grants actor_grant
+			              WHERE actor_grant.access_scope_id = s.id
+			                AND actor_grant.permission = 'view'
+			                AND actor_grant.revoked_at IS NULL
+			                AND actor_grant.principal_kind = 'user'
+			                AND actor_grant.principal_user_id = $2::uuid
+			          )
+			      )
+			  )
+			  AND s.revoked_at IS NULL
+			  AND EXISTS (
+			      SELECT 1
+			      FROM object_access_grants g
+			      WHERE g.access_scope_id = s.id
+			        AND g.permission = 'view'
+			        AND g.revoked_at IS NULL
+			  )
+		)
+	`, *accessScopeID, strings.TrimSpace(actorUserID), strings.TrimSpace(ownerUserID)).Scan(&exists); err != nil {
+		return fmt.Errorf("validate target overlay access scope: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: access_scope_id is not valid for this overlay subject", ErrTargetOverlayValidation)
+	}
+	return nil
+}
+
+func (db *DB) targetOverlaySubjectOwnerUserID(ctx context.Context, subjectKind, subjectID string) (string, error) {
+	var owner *string
+	switch strings.TrimSpace(subjectKind) {
+	case "course":
+		if err := db.Pool.QueryRow(ctx, `SELECT created_by::text FROM segments WHERE id = $1`, subjectID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrTargetNotFound
+			}
+			return "", err
+		}
+	case "route_publication":
+		if err := db.Pool.QueryRow(ctx, `SELECT actor_user_id::text FROM route_course_publications WHERE id = $1 AND retired_at IS NULL`, subjectID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrTargetNotFound
+			}
+			return "", err
+		}
+	case "place":
+		if err := db.Pool.QueryRow(ctx, `SELECT owner_user_id::text FROM target_places WHERE id = $1 AND archived_at IS NULL`, subjectID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrTargetNotFound
+			}
+			return "", err
+		}
+	case "region":
+		if err := db.Pool.QueryRow(ctx, `SELECT owner_user_id::text FROM target_regions WHERE id = $1 AND archived_at IS NULL`, subjectID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrTargetNotFound
+			}
+			return "", err
+		}
+	case "collection":
+		if err := db.Pool.QueryRow(ctx, `SELECT owner_user_id::text FROM target_collections WHERE id = $1 AND archived_at IS NULL`, subjectID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ErrTargetNotFound
+			}
+			return "", err
+		}
+	default:
+		return "", fmt.Errorf("%w: invalid overlay subject kind %q", ErrTargetOverlayValidation, subjectKind)
+	}
+	if owner == nil {
+		return "", nil
+	}
+	return *owner, nil
+}
+
 func (db *DB) CreateTargetReport(ctx context.Context, userID string, input model.CreateTargetReportInput) (*model.TargetReport, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -249,6 +347,9 @@ func (db *DB) CreateTargetReport(ctx context.Context, userID string, input model
 	}
 	if !visible {
 		return nil, ErrTargetNotFound
+	}
+	if err := db.validateTargetOverlayAccessScopeForSubject(ctx, userID, input.SubjectKind, input.SubjectID, targetOverlayVisibilityOrDefault(input.Visibility), input.AccessScopeID); err != nil {
+		return nil, err
 	}
 	if input.SourceActivityID != nil {
 		if owns, err := db.userOwnsActivity(ctx, userID, *input.SourceActivityID); err != nil {
@@ -556,6 +657,9 @@ func (db *DB) CreateTargetActivityObservation(ctx context.Context, actor model.T
 		if input.UserID != nil && *input.UserID != actor.UserID {
 			return nil, fmt.Errorf("%w: user_id must match actor", ErrTargetOverlayValidation)
 		}
+		if err := db.validateTargetOverlayAccessScopeForSubject(ctx, actor.UserID, input.SubjectKind, input.SubjectID, targetOverlayVisibilityOrDefault(input.Visibility), input.AccessScopeID); err != nil {
+			return nil, err
+		}
 	}
 	if err := validateTargetOverlayVersion(ctx, db.Pool, input.SubjectKind, input.SubjectID, input.TargetVersionID); err != nil {
 		return nil, err
@@ -690,10 +794,28 @@ func (db *DB) RebuildTargetObservationsFromSegmentEfforts(ctx context.Context, s
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE target_activity_observations o
+		SET superseded_at = NOW()
+		WHERE o.overlay_subject_kind = 'course'
+		  AND o.subject_id = $1
+		  AND o.source_type = 'segment_effort'
+		  AND o.observation_type = 'matched_traversal'
+		  AND o.superseded_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM segment_efforts se
+			WHERE se.id::text = o.source_id
+			  AND se.segment_id = $1
+			  AND se.superseded_at IS NULL
+		  )
+	`, segmentID); err != nil {
+		return 0, fmt.Errorf("retire stale segment effort observations: %w", err)
+	}
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, segment_id, segment_version_id, activity_id, user_id, started_at
 		FROM segment_efforts
-		WHERE segment_id = $1 AND superseded_by_effort_id IS NULL
+		WHERE segment_id = $1 AND superseded_at IS NULL
 		ORDER BY started_at DESC
 		LIMIT $2
 	`, segmentID, limit)
@@ -748,6 +870,9 @@ func (db *DB) CreateTargetUserContent(ctx context.Context, userID string, input 
 		return nil, err
 	} else if !ok {
 		return nil, ErrTargetNotFound
+	}
+	if err := db.validateTargetOverlayAccessScopeForSubject(ctx, userID, input.SubjectKind, input.SubjectID, targetOverlayVisibilityOrDefault(input.Visibility), input.AccessScopeID); err != nil {
+		return nil, err
 	}
 	if err := validateTargetOverlayVersion(ctx, db.Pool, input.SubjectKind, input.SubjectID, input.TargetVersionID); err != nil {
 		return nil, err

@@ -8,35 +8,36 @@ import (
 )
 
 type Segment struct {
-	ID                 string                        `json:"id" db:"id"`
-	CreatedBy          string                        `json:"created_by" db:"created_by"`
-	Name               string                        `json:"name" db:"name"`
-	Description        *string                       `json:"description,omitempty" db:"description"`
-	SportGroup         string                        `json:"sport_group" db:"sport_group"`
-	AllowedPredicates  []sport.Predicate             `json:"allowed_predicates" db:"allowed_predicates"`
-	SegmentType        string                        `json:"segment_type" db:"segment_type"`
-	SegmentTypeMeta    json.RawMessage               `json:"segment_type_meta" db:"segment_type_meta"`
-	SourceActivityID   *string                       `json:"source_activity_id,omitempty" db:"source_activity_id"`
-	OsmLiftID          *int64                        `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
-	DistanceM          *float64                      `json:"distance_m,omitempty" db:"distance_m"`
-	ElevationGainM     *float64                      `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
-	EffortCount        int                           `json:"effort_count" db:"effort_count"`
-	AthleteCount       int                           `json:"athlete_count" db:"athlete_count"`
-	RiddenCount        int                           `json:"ridden_count" db:"ridden_count"`
-	IsFavorite         bool                          `json:"is_favorite" db:"is_favorite"`
-	Visibility         string                        `json:"visibility" db:"visibility"`
-	AccessScopeID      *string                       `json:"access_scope_id,omitempty" db:"access_scope_id"`
-	RouteHash          *string                       `json:"route_hash,omitempty" db:"route_hash"`
-	CreatedAt          time.Time                     `json:"created_at" db:"created_at"`
-	TerrainType        *string                       `json:"terrain_type,omitempty" db:"terrain_type"`
-	ClimbType          *string                       `json:"climb_type,omitempty" db:"climb_type"`
-	ElevationKind      string                        `json:"elevation_kind" db:"elevation_kind"`
-	Bidirectional      bool                          `json:"bidirectional" db:"bidirectional"`
-	CourseKind         string                        `json:"course_kind" db:"course_kind"`
-	ControlSummary     *CheckpointControlSummary     `json:"control_summary,omitempty" db:"control_summary"`
-	ControlMapFeatures []CheckpointControlMapFeature `json:"control_map_features,omitempty" db:"control_map_features"`
-	Controls           []CheckpointControl           `json:"controls,omitempty"`
-	OverlaySummary     *TargetOverlaySummary         `json:"overlay_summary,omitempty"`
+	ID                   string                        `json:"id" db:"id"`
+	CreatedBy            string                        `json:"created_by" db:"created_by"`
+	Name                 string                        `json:"name" db:"name"`
+	Description          *string                       `json:"description,omitempty" db:"description"`
+	SportGroup           string                        `json:"sport_group" db:"sport_group"`
+	AllowedPredicates    []sport.Predicate             `json:"allowed_predicates" db:"allowed_predicates"`
+	SegmentType          string                        `json:"segment_type" db:"segment_type"`
+	SegmentTypeMeta      json.RawMessage               `json:"segment_type_meta" db:"segment_type_meta"`
+	SourceActivityID     *string                       `json:"source_activity_id,omitempty" db:"source_activity_id"`
+	OsmLiftID            *int64                        `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
+	DistanceM            *float64                      `json:"distance_m,omitempty" db:"distance_m"`
+	ElevationGainM       *float64                      `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
+	EffortCount          int                           `json:"effort_count" db:"effort_count"`
+	AthleteCount         int                           `json:"athlete_count" db:"athlete_count"`
+	RiddenCount          int                           `json:"ridden_count" db:"ridden_count"`
+	IsFavorite           bool                          `json:"is_favorite" db:"is_favorite"`
+	Visibility           string                        `json:"visibility" db:"visibility"`
+	AccessScopeID        *string                       `json:"access_scope_id,omitempty" db:"access_scope_id"`
+	EffectivePermissions []string                      `json:"effective_permissions,omitempty" db:"effective_permissions"`
+	RouteHash            *string                       `json:"route_hash,omitempty" db:"route_hash"`
+	CreatedAt            time.Time                     `json:"created_at" db:"created_at"`
+	TerrainType          *string                       `json:"terrain_type,omitempty" db:"terrain_type"`
+	ClimbType            *string                       `json:"climb_type,omitempty" db:"climb_type"`
+	ElevationKind        string                        `json:"elevation_kind" db:"elevation_kind"`
+	Bidirectional        bool                          `json:"bidirectional" db:"bidirectional"`
+	CourseKind           string                        `json:"course_kind" db:"course_kind"`
+	ControlSummary       *CheckpointControlSummary     `json:"control_summary,omitempty" db:"control_summary"`
+	ControlMapFeatures   []CheckpointControlMapFeature `json:"control_map_features,omitempty" db:"control_map_features"`
+	Controls             []CheckpointControl           `json:"controls,omitempty"`
+	OverlaySummary       *TargetOverlaySummary         `json:"overlay_summary,omitempty"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }

@@ -13,15 +13,14 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ExportSegment handles GET /api/v1/segments/{id}/export?format=gpx|geojson
 func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
+	isAdmin := middleware.GetIsAdmin(r.Context())
 	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
 	if scopes == nil {
 		return
@@ -33,7 +32,7 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 		format = "gpx"
 	}
 
-	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segID, userID, false, database.GetSegmentOptions{
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segID, userID, isAdmin, database.GetSegmentOptions{
 		IncludeGeoJSON:        true,
 		IncludeControls:       true,
 		VisibleAccessScopeIDs: scopes,
@@ -84,10 +83,8 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 // Body: {"ids": [...], "format": "gpx"|"geojson"}
 // Returns a ZIP archive containing one file per segment.
 func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
+	isAdmin := middleware.GetIsAdmin(r.Context())
 	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
 	if scopes == nil {
 		return
@@ -118,7 +115,7 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	segments, err := h.DB.GetSegmentsForExport(r.Context(), body.IDs, userID, scopes)
+	segments, err := h.DB.GetSegmentsForExportWithAccess(r.Context(), body.IDs, userID, isAdmin, scopes)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segments", r.URL.Path)
 		return

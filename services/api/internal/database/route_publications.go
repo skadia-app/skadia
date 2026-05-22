@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,8 @@ type routePublicationSnapshot struct {
 	GeometryGeoJSON    string
 	GeometryHash       string
 	SnapshotHash       string
+	Waypoints          json.RawMessage
+	Enrichment         json.RawMessage
 	TotalDistanceM     *float64
 	TotalElevationGain *float64
 	TotalElevationLoss *float64
@@ -486,6 +489,7 @@ func loadRoutePublicationSnapshotTx(ctx context.Context, tx pgx.Tx, snapshotID s
 		SELECT id, route_id, user_id, source_route_version, route_name, route_description,
 		       sport_type, sub_type, is_electric, is_indoor, is_virtual, is_commute,
 		       ST_AsGeoJSON(geometry), geometry_hash, snapshot_hash,
+		       waypoints, enrichment,
 		       total_distance_m, total_elevation_gain, total_elevation_loss
 		FROM planned_route_snapshots
 		WHERE id = $1
@@ -495,6 +499,7 @@ func loadRoutePublicationSnapshotTx(ctx context.Context, tx pgx.Tx, snapshotID s
 		&snapshot.SportType, &snapshot.SubType,
 		&snapshot.IsElectric, &snapshot.IsIndoor, &snapshot.IsVirtual, &snapshot.IsCommute,
 		&snapshot.GeometryGeoJSON, &snapshot.GeometryHash, &snapshot.SnapshotHash,
+		&snapshot.Waypoints, &snapshot.Enrichment,
 		&snapshot.TotalDistanceM, &snapshot.TotalElevationGain, &snapshot.TotalElevationLoss,
 	); err != nil {
 		return nil, err
@@ -583,6 +588,183 @@ func normalizeRoutePublicationPolicy(input model.PublishRouteSnapshotInput, publ
 		return "", "", fmt.Errorf("%w: unsupported publish policy %q", ErrRoutePublicationValidation, publishPolicy)
 	}
 	return publishPolicy, equivalenceDecision, nil
+}
+
+func (db *DB) CreateRoutePublicationPrivacyReview(ctx context.Context, routeID, snapshotID, actorUserID string, sourceRouteVersion int64, audienceClass string, ownerConfirmed bool) (string, error) {
+	audienceClass = strings.TrimSpace(audienceClass)
+	if audienceClass != "public" && audienceClass != "shared" {
+		return "", fmt.Errorf("%w: audience_class must be public or shared", ErrRoutePublicationValidation)
+	}
+	if strings.TrimSpace(routeID) == "" || strings.TrimSpace(snapshotID) == "" || strings.TrimSpace(actorUserID) == "" || sourceRouteVersion == 0 {
+		return "", fmt.Errorf("%w: route id, snapshot id, actor, and source version are required", ErrRoutePublicationValidation)
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin route publication privacy review: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	snapshot, err := loadRoutePublicationSnapshotTx(ctx, tx, snapshotID)
+	if err != nil {
+		return "", err
+	}
+	if snapshot.RouteID == nil || *snapshot.RouteID != routeID {
+		return "", fmt.Errorf("%w: snapshot does not belong to route", ErrRoutePublicationValidation)
+	}
+	if snapshot.UserID == nil || *snapshot.UserID != actorUserID {
+		return "", fmt.Errorf("%w: snapshot is not owned by actor", ErrRoutePublicationValidation)
+	}
+	if snapshot.SourceRouteVersion != sourceRouteVersion {
+		return "", ErrVersionMismatch
+	}
+
+	states := classifyRoutePublicationPrivacySnapshot(snapshot, ownerConfirmed)
+	hashInput, err := json.Marshal(struct {
+		SnapshotID     string `json:"snapshot_id"`
+		SnapshotHash   string `json:"snapshot_hash"`
+		AudienceClass  string `json:"audience_class"`
+		ActorUserID    string `json:"actor_user_id"`
+		OwnerConfirmed bool   `json:"owner_confirmed"`
+		States         any    `json:"states"`
+	}{
+		SnapshotID:     snapshot.ID,
+		SnapshotHash:   snapshot.SnapshotHash,
+		AudienceClass:  audienceClass,
+		ActorUserID:    actorUserID,
+		OwnerConfirmed: ownerConfirmed,
+		States:         states,
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal route publication privacy review hash: %w", err)
+	}
+	hash := sha256.Sum256(hashInput)
+	reviewHash := fmt.Sprintf("sha256:%x", hash[:])
+	ownerApprovedExpr := "NULL"
+	if states.OwnerApproved {
+		ownerApprovedExpr = "NOW()"
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO route_publication_privacy_reviews (
+			route_snapshot_id, snapshot_hash, audience_class,
+			route_name_state, description_state, waypoints_state,
+			source_metadata_state, geometry_state, enrichment_state, media_pointer_state,
+			overall_state, owner_approved_at, reviewer_user_id, review_hash
+		)
+		VALUES (
+			$1, $2, $3,
+			$4, $5, $6,
+			$7, $8, $9, $10,
+			$11, `+ownerApprovedExpr+`, $12, $13
+		)
+		ON CONFLICT (route_snapshot_id, snapshot_hash, audience_class) DO UPDATE SET
+			route_name_state = EXCLUDED.route_name_state,
+			description_state = EXCLUDED.description_state,
+			waypoints_state = EXCLUDED.waypoints_state,
+			source_metadata_state = EXCLUDED.source_metadata_state,
+			geometry_state = EXCLUDED.geometry_state,
+			enrichment_state = EXCLUDED.enrichment_state,
+			media_pointer_state = EXCLUDED.media_pointer_state,
+			overall_state = EXCLUDED.overall_state,
+			owner_approved_at = EXCLUDED.owner_approved_at,
+			reviewer_user_id = EXCLUDED.reviewer_user_id,
+			review_hash = EXCLUDED.review_hash,
+			updated_at = NOW()
+	`, snapshot.ID, snapshot.SnapshotHash, audienceClass,
+		states.RouteName, states.Description, states.Waypoints,
+		states.SourceMetadata, states.Geometry, states.Enrichment, states.MediaPointer,
+		states.Overall, actorUserID, reviewHash); err != nil {
+		return "", fmt.Errorf("insert route publication privacy review: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit route publication privacy review: %w", err)
+	}
+	return reviewHash, nil
+}
+
+type routePublicationPrivacyComponentStates struct {
+	RouteName      string
+	Description    string
+	Waypoints      string
+	SourceMetadata string
+	Geometry       string
+	Enrichment     string
+	MediaPointer   string
+	Overall        string
+	OwnerApproved  bool
+}
+
+func classifyRoutePublicationPrivacySnapshot(snapshot *routePublicationSnapshot, ownerConfirmed bool) routePublicationPrivacyComponentStates {
+	warningState := "requires_confirmation"
+	if ownerConfirmed {
+		warningState = "confirmed"
+	}
+	states := routePublicationPrivacyComponentStates{
+		RouteName:      warningState,
+		Description:    "safe",
+		Waypoints:      "safe",
+		SourceMetadata: "unknown",
+		Geometry:       "unknown",
+		Enrichment:     "safe",
+		MediaPointer:   "safe",
+	}
+	if strings.TrimSpace(snapshot.RouteName) == "" {
+		states.RouteName = "unknown"
+	}
+	if snapshot.RouteDescription != nil && strings.TrimSpace(*snapshot.RouteDescription) != "" {
+		states.Description = warningState
+	}
+	if jsonValuePresent(snapshot.Waypoints) {
+		states.Waypoints = warningState
+	}
+	if strings.TrimSpace(snapshot.SportType) != "" {
+		states.SourceMetadata = "safe"
+	}
+	if strings.TrimSpace(snapshot.GeometryGeoJSON) != "" && strings.TrimSpace(snapshot.GeometryHash) != "" {
+		states.Geometry = warningState
+	}
+	if jsonValuePresent(snapshot.Enrichment) {
+		states.Enrichment = warningState
+	}
+	states.Overall = routePublicationOverallPrivacyState([]string{
+		states.RouteName,
+		states.Description,
+		states.Waypoints,
+		states.SourceMetadata,
+		states.Geometry,
+		states.Enrichment,
+		states.MediaPointer,
+	})
+	states.OwnerApproved = ownerConfirmed && states.Overall == "confirmed"
+	return states
+}
+
+func jsonValuePresent(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null" && trimmed != "{}" && trimmed != "[]"
+}
+
+func routePublicationOverallPrivacyState(states []string) string {
+	hasConfirmed := false
+	hasWarning := false
+	for _, state := range states {
+		switch state {
+		case "blocked":
+			return "blocked"
+		case "unknown":
+			return "unknown"
+		case "confirmed":
+			hasConfirmed = true
+		case "requires_confirmation":
+			hasWarning = true
+		}
+	}
+	if hasWarning {
+		return "requires_confirmation"
+	}
+	if hasConfirmed {
+		return "confirmed"
+	}
+	return "safe"
 }
 
 func validateRoutePublicationPrivacyGateTx(ctx context.Context, tx pgx.Tx, snapshotID, snapshotHash, visibility string) error {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routefilter"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -63,6 +64,20 @@ type PublishRouteCourseResponse struct {
 	PublicationID          string `json:"publication_id"`
 	CourseSegmentID        string `json:"course_segment_id"`
 	CourseSegmentVersionID string `json:"course_segment_version_id"`
+}
+
+type CreateRoutePublicationPrivacyReviewRequest struct {
+	RouteSnapshotID    string `json:"route_snapshot_id,omitempty"`
+	SnapshotID         string `json:"snapshot_id,omitempty"`
+	SourceRouteVersion int64  `json:"source_route_version"`
+	AudienceClass      string `json:"audience_class"`
+	OwnerConfirmed     bool   `json:"owner_confirmed"`
+}
+
+type CreateRoutePublicationPrivacyReviewResponse struct {
+	RouteSnapshotID string `json:"route_snapshot_id"`
+	AudienceClass   string `json:"audience_class"`
+	ReviewHash      string `json:"review_hash"`
 }
 
 type ForkRouteRequest struct {
@@ -202,13 +217,21 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListRoutePublications(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
+	hasLinkToken := routePublicationRequestHasLinkToken(r)
 	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
 	if scopes == nil {
 		return
+	}
+	if strings.TrimSpace(userID) == "" {
+		if !hasLinkToken {
+			httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "authentication or link token is required", r.URL.Path)
+			return
+		}
+		if len(scopes) == 0 {
+			httputil.WriteError(w, http.StatusUnauthorized, "Unauthorized", "invalid or expired link token", r.URL.Path)
+			return
+		}
 	}
 	limit, offset := httputil.ParsePagination(r, 50, 200)
 	q := r.URL.Query()
@@ -267,6 +290,13 @@ func (h *Handler) ListRoutePublications(w http.ResponseWriter, r *http.Request) 
 		"limit":   limit,
 		"offset":  offset,
 	})
+}
+
+func routePublicationRequestHasLinkToken(r *http.Request) bool {
+	if strings.TrimSpace(r.URL.Query().Get("link_token")) != "" {
+		return true
+	}
+	return strings.TrimSpace(r.Header.Get("X-Skadia-Link-Token")) != ""
 }
 
 func parseOptionalIntPointer(raw string) (*int, error) {
@@ -770,6 +800,51 @@ func (h *Handler) PublishRouteCourse(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) CreateRoutePublicationPrivacyReview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	req, ok := httputil.DecodeJSON[CreateRoutePublicationPrivacyReviewRequest](w, r)
+	if !ok {
+		return
+	}
+	snapshotID := req.RouteSnapshotID
+	if snapshotID == "" {
+		snapshotID = req.SnapshotID
+	}
+	if snapshotID == "" || req.SourceRouteVersion == 0 || strings.TrimSpace(req.AudienceClass) == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "route_snapshot_id, source_route_version, and audience_class are required", r.URL.Path)
+		return
+	}
+	reviewHash, err := h.DB.CreateRoutePublicationPrivacyReview(
+		r.Context(),
+		routeID,
+		snapshotID,
+		userID,
+		req.SourceRouteVersion,
+		req.AudienceClass,
+		req.OwnerConfirmed,
+	)
+	if errors.Is(err, database.ErrVersionMismatch) {
+		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route snapshot version changed", r.URL.Path)
+		return
+	}
+	if errors.Is(err, database.ErrRoutePublicationValidation) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "snapshot not found", "snapshot_id", snapshotID, "user_id", userID) {
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, CreateRoutePublicationPrivacyReviewResponse{
+		RouteSnapshotID: snapshotID,
+		AudienceClass:   strings.TrimSpace(req.AudienceClass),
+		ReviewHash:      reviewHash,
+	})
+}
+
 func (h *Handler) ForkRoute(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -784,7 +859,10 @@ func (h *Handler) ForkRoute(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name, source_route_version, and operation_id are required", r.URL.Path)
 		return
 	}
-	route, relationshipID, err := h.DB.ForkRoute(r.Context(), routeID, userID, req.Name, req.OperationID, routeHandlerOperationHash(req), req.SourceRouteVersion)
+	route, relationshipID, err := h.DB.ForkRoute(r.Context(), routeID, userID, req.Name, req.OperationID, routeHandlerOperationHash(routeScopedOperationHashInput{
+		RouteID: routeID,
+		Request: req,
+	}), req.SourceRouteVersion)
 	if errors.Is(err, database.ErrVersionMismatch) {
 		httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
 		return
@@ -809,7 +887,10 @@ func (h *Handler) CreateRouteRelationship(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	relationshipID, err := h.DB.CreateRouteRelationship(r.Context(), routeID, req.TargetRouteID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(req))
+	relationshipID, err := h.DB.CreateRouteRelationship(r.Context(), routeID, req.TargetRouteID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(routeScopedOperationHashInput{
+		RouteID: routeID,
+		Request: req,
+	}))
 	if errors.Is(err, database.ErrRoutePublicationConflict) {
 		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
 		return
@@ -834,7 +915,10 @@ func (h *Handler) CreateRouteCourseRelationship(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	relationshipID, err := h.DB.CreateRouteCourseRelationship(r.Context(), publicationID, req.TargetPublicationID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(req))
+	relationshipID, err := h.DB.CreateRouteCourseRelationship(r.Context(), publicationID, req.TargetPublicationID, userID, req.RelationType, req.OperationID, routeHandlerOperationHash(routePublicationScopedOperationHashInput{
+		PublicationID: publicationID,
+		Request:       req,
+	}))
 	if errors.Is(err, database.ErrRoutePublicationConflict) {
 		httputil.WriteError(w, http.StatusConflict, "Conflict", "operation_id was already used with different input", r.URL.Path)
 		return
@@ -853,6 +937,16 @@ func routeHandlerOperationHash(value any) string {
 	raw, _ := json.Marshal(value)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+type routeScopedOperationHashInput struct {
+	RouteID string `json:"route_id"`
+	Request any    `json:"request"`
+}
+
+type routePublicationScopedOperationHashInput struct {
+	PublicationID string `json:"publication_id"`
+	Request       any    `json:"request"`
 }
 
 // collectRoutePhotoFileIDs captures ShadowFS (or legacy S3) file IDs for all

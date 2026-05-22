@@ -153,9 +153,11 @@ func TestMigration_RoutePublicationCoursesAndVariants_TablesColumnsIndexesAndChe
 		"idx_route_publication_privacy_reviews_snapshot",
 		"idx_route_course_publications_public",
 		"idx_route_course_publications_access_scope",
+		"idx_route_course_publications_published_order",
 		"idx_rcpp_public_search",
 		"idx_rcpp_difficulty_search",
 		"idx_rcpp_shared_access_scope",
+		"idx_rcpp_published_course_visibility_access",
 	} {
 		assertRoutePublicationIndexExists(t, ctx, pool, index)
 	}
@@ -261,10 +263,10 @@ func TestMigration_RoutePublicationCoursesAndVariants_TablesColumnsIndexesAndChe
 	}
 }
 
-func TestMigration_RoutePublicationCoursesAndVariants_DownRestoresLegacySegmentVisibility(t *testing.T) {
+func TestMigration_RoutePublicationCoursesAndVariants_DownRefusesLiveSharedPublicationData(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
-	userID, _, scopeID, segmentID, _, _ := insertRoutePublicationMigrationFixture(t, ctx, pool)
+	_, _, scopeID, segmentID, _, _ := insertRoutePublicationMigrationFixture(t, ctx, pool)
 
 	if _, err := pool.Exec(ctx, `UPDATE segments SET visibility = 'shared', access_scope_id = $2 WHERE id = $1`, segmentID, scopeID); err != nil {
 		t.Fatalf("set segment shared before down: %v", err)
@@ -280,27 +282,24 @@ func TestMigration_RoutePublicationCoursesAndVariants_DownRestoresLegacySegmentV
 	if err != nil {
 		t.Fatalf("read down migration: %v", err)
 	}
-	if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
-		t.Fatalf("execute down migration: %v", err)
+	if _, err := tx.Exec(ctx, string(downSQL)); err == nil {
+		t.Fatal("down migration succeeded with live shared/publication data; want refusal")
+	} else {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "P0001" {
+			t.Fatalf("down migration error = %v, want guard exception", err)
+		}
+	}
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		t.Fatalf("rollback refused down tx: %v", err)
 	}
 
-	var visibility string
-	if err := tx.QueryRow(ctx, `SELECT visibility FROM segments WHERE id = $1`, segmentID).Scan(&visibility); err != nil {
-		t.Fatalf("query segment visibility after down: %v", err)
+	var stillExists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM object_access_scopes WHERE id = $1)`, scopeID).Scan(&stillExists); err != nil {
+		t.Fatalf("query access scope after refused down: %v", err)
 	}
-	if visibility != "private" {
-		t.Fatalf("visibility after down = %q, want private", visibility)
-	}
-	assertRoutePublicationColumnMissingTx(t, ctx, tx, "segments", "access_scope_id")
-	assertRoutePublicationTableMissingTx(t, ctx, tx, "object_access_scopes")
-
-	_, err = tx.Exec(ctx, `UPDATE segments SET visibility = 'shared' WHERE id = $1`, segmentID)
-	if err == nil {
-		t.Fatal("legacy visibility check accepted shared after down migration")
-	}
-
-	if userID == "" {
-		t.Fatal("unreachable: keep fixture owner used")
+	if !stillExists {
+		t.Fatal("guarded down migration removed live access scope before refusing")
 	}
 }
 

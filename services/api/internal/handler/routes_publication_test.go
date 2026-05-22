@@ -252,6 +252,54 @@ func TestRoutePublishCourseHandlerRejectsForeignSnapshotAndPublicWithoutReview(t
 	}
 }
 
+func TestRoutePublicationPrivacyReviewHandlerPersistsReviewForPublicPublish(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := routePublicationRouter(h)
+
+	userID := insertTestUser(t, pool)
+	routeID := insertRoutePublicationPrivacyTestRoute(t, h, userID)
+	snapshotID := createRouteSnapshotViaHandler(t, r, routeID, userID, "publish-public-review-snapshot")
+
+	reviewBody := `{
+		"route_snapshot_id":"` + snapshotID + `",
+		"source_route_version":1,
+		"audience_class":"public",
+		"owner_confirmed":true
+	}`
+	rec := performRoutePublicationRequest(t, r, http.MethodPost, "/api/v1/routes/"+routeID+"/publication-privacy-review", reviewBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("review status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var ownerApproved bool
+	if err := pool.QueryRow(context.Background(), `
+		SELECT owner_approved_at IS NOT NULL
+		FROM route_publication_privacy_reviews
+		WHERE route_snapshot_id = $1
+		  AND audience_class = 'public'
+	`, snapshotID).Scan(&ownerApproved); err != nil {
+		t.Fatalf("load persisted privacy review: %v", err)
+	}
+	if !ownerApproved {
+		t.Fatal("privacy review owner_approved_at is NULL")
+	}
+
+	publishBody := `{
+		"route_snapshot_id":"` + snapshotID + `",
+		"source_route_version":1,
+		"publish_policy":"new_course",
+		"equivalence_decision":"version_specific",
+		"visibility":"public",
+		"compatibility_preset":"standard",
+		"operation_id":"publish-public-after-review"
+	}`
+	rec = performRoutePublicationRequest(t, r, http.MethodPost, "/api/v1/routes/"+routeID+"/publish-course", publishBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("publish status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRoutePublishCourseHandlerValidatesSharedAccessScope(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
@@ -364,11 +412,44 @@ func TestRouteRelationshipHandlerCreatesRouteAndCourseVariants(t *testing.T) {
 func routePublicationRouter(h *Handler) *chi.Mux {
 	r := chi.NewRouter()
 	r.Post("/api/v1/routes/{id}/snapshots", h.CreateRouteSnapshot)
+	r.Post("/api/v1/routes/{id}/publication-privacy-review", h.CreateRoutePublicationPrivacyReview)
 	r.Post("/api/v1/routes/{id}/publish-course", h.PublishRouteCourse)
 	r.Post("/api/v1/routes/{id}/fork", h.ForkRoute)
 	r.Post("/api/v1/routes/{id}/relationships", h.CreateRouteRelationship)
 	r.Post("/api/v1/route-publications/{id}/relationships", h.CreateRouteCourseRelationship)
 	return r
+}
+
+func insertRoutePublicationPrivacyTestRoute(t *testing.T, h *Handler, userID string) string {
+	t.Helper()
+	desc := "orig-desc"
+	route := &model.PlannedRoute{
+		UserID:          userID,
+		Name:            "orig-name",
+		Description:     &desc,
+		SportType:       "hiking",
+		Profile:         "hiking-sac2",
+		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.0,47.0],[11.1,47.1]]}`,
+		Waypoints: []model.RouteWaypoint{
+			{ID: "a", Type: "start", LatLng: [2]float64{47.0, 11.0}},
+			{ID: "b", Type: "end", LatLng: [2]float64{47.1, 11.1}},
+		},
+		Segments: []model.RouteSegment{{
+			FromWaypoint: "a",
+			ToWaypoint:   "b",
+			Mode:         "routed",
+			DistanceM:    1000,
+			Geometry:     &model.GeoJSONLineString{Type: "LineString", Coordinates: [][]float64{{11.0, 47.0}, {11.1, 47.1}}},
+		}},
+	}
+	id, err := h.DB.CreateRoute(context.Background(), route)
+	if err != nil {
+		t.Fatalf("CreateRoute: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = h.DB.Pool.Exec(context.Background(), "DELETE FROM planned_routes WHERE id = $1", id)
+	})
+	return id
 }
 
 func createRouteSnapshotViaHandler(t *testing.T, r http.Handler, routeID, userID, operationID string) string {

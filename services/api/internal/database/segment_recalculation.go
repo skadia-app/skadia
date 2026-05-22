@@ -63,7 +63,7 @@ func (db *DB) SeedSegmentRecalculationRun(ctx context.Context, actorUserID strin
 	}
 	idempotencyKey := strings.TrimSpace(scope.IdempotencyKey)
 	if idempotencyKey == "" {
-		idempotencyKey = segmentRecalculationIdempotencyKey(scope)
+		idempotencyKey = segmentRecalculationIdempotencyKey(scope, reason)
 	}
 
 	var existingID string
@@ -207,7 +207,7 @@ func seedSegmentRecalculationRunTx(ctx context.Context, tx pgx.Tx, actorUserID s
 	return runID, existingTotal, nil
 }
 
-func segmentRecalculationIdempotencyKey(scope SegmentRecalculationScope) string {
+func segmentRecalculationIdempotencyKey(scope SegmentRecalculationScope, reasons ...string) string {
 	from := "unbounded"
 	if scope.FromAt != nil {
 		from = scope.FromAt.UTC().Format(time.RFC3339Nano)
@@ -216,11 +216,46 @@ func segmentRecalculationIdempotencyKey(scope SegmentRecalculationScope) string 
 	if scope.UntilAt != nil {
 		until = scope.UntilAt.UTC().Format(time.RFC3339Nano)
 	}
+	audience := "segment_owner"
+	if scope.IncludeAllUsers {
+		audience = "all_users"
+	}
+	reason := ""
+	if len(reasons) > 0 {
+		reason = reasons[0]
+	}
 	return "segment:" + scope.SegmentID +
-		":operation:" + stableOperationHash(scope.OperationID, "recalc") +
+		":reason:" + segmentRecalculationReasonClass(reason) +
+		":audience:" + audience +
 		":from:" + from +
 		":until:" + until +
 		":policy:segment_recalculation_v1"
+}
+
+func segmentRecalculationReasonClass(reason string) string {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	if reason == "" {
+		return "segment_recalculation"
+	}
+	var b strings.Builder
+	b.Grow(len(reason))
+	lastUnderscore := false
+	for _, r := range reason {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	normalized := strings.Trim(b.String(), "_")
+	if normalized == "" {
+		return "segment_recalculation"
+	}
+	return normalized
 }
 
 const seedSegmentRecalculationActivitiesSQL = `
@@ -482,76 +517,103 @@ func CompleteSegmentRecalculationActivityTx(ctx context.Context, tx pgx.Tx, clai
 }
 
 func (db *DB) SkipObsoleteSegmentRecalculationActivity(ctx context.Context, claim SegmentRecalculationActivityClaim) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin skip obsolete segment recalculation activity: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	var updated int
-	err := db.Pool.QueryRow(ctx, `
-		WITH activity_update AS (
-			UPDATE segment_recalculation_run_activities
-			SET status = 'skipped',
-			    error_code = 'obsolete_generation',
-			    error_message = NULL,
-			    processed_at = NOW(),
-			    claimed_until = NULL
-			WHERE run_id = $1
-			  AND activity_id = $2
-			  AND claim_token = $3::uuid
-			  AND status = 'running'
-			RETURNING run_id
-		)
-		SELECT count(*) FROM activity_update
+	err = tx.QueryRow(ctx, `
+		UPDATE segment_recalculation_run_activities
+		SET status = 'skipped',
+		    error_code = 'obsolete_generation',
+		    error_message = NULL,
+		    processed_at = NOW(),
+		    claimed_until = NULL
+		WHERE run_id = $1
+		  AND activity_id = $2
+		  AND claim_token = $3::uuid
+		  AND status = 'running'
+		RETURNING 1
 	`, claim.RunID, claim.ActivityID, claim.ClaimToken).Scan(&updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	}
 	if err != nil {
 		return fmt.Errorf("skip obsolete segment recalculation activity: %w", err)
 	}
-	if updated != 1 {
-		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	if _, err := tx.Exec(ctx, `
+		UPDATE segment_recalculation_runs r
+		SET status = CASE
+				WHEN failed_activities > 0 THEN 'failed'
+				ELSE 'completed'
+			END,
+		    completed_at = NOW()
+		WHERE r.id = $1
+		  AND r.status IN ('queued', 'running')
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM segment_recalculation_run_activities ra
+			WHERE ra.run_id = r.id
+			  AND ra.status IN ('queued', 'running')
+		  )
+	`, claim.RunID); err != nil {
+		return fmt.Errorf("complete segment recalculation run after obsolete skip: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit obsolete segment recalculation skip: %w", err)
 	}
 	return nil
 }
 
 func (db *DB) FailSegmentRecalculationActivity(ctx context.Context, claim SegmentRecalculationActivityClaim, errText string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin fail segment recalculation activity: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	var updated int
-	err := db.Pool.QueryRow(ctx, `
-		WITH activity_update AS (
-			UPDATE segment_recalculation_run_activities
-			SET status = 'failed',
-			    error_code = 'activity_failed',
-			    error_message = NULLIF($4, ''),
-			    processed_at = NOW(),
-			    claimed_until = NULL
-			WHERE run_id = $1
-			  AND activity_id = $2
-			  AND claim_token = $3::uuid
-			  AND status = 'running'
-			RETURNING run_id
-		),
-		counter_update AS (
-			UPDATE segment_recalculation_runs r
-			SET failed_activities = failed_activities + 1
-			FROM activity_update au
-			WHERE r.id = au.run_id
-			RETURNING r.id
-		),
-		finalize AS (
-			UPDATE segment_recalculation_runs r
-			SET status = 'failed',
-			    completed_at = NOW()
-			FROM counter_update cu
-			WHERE r.id = cu.id
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM segment_recalculation_run_activities ra
-				WHERE ra.run_id = r.id
-				  AND ra.status IN ('queued', 'running')
-			  )
-			RETURNING r.id
-		)
-		SELECT count(*) FROM activity_update
+	err = tx.QueryRow(ctx, `
+		UPDATE segment_recalculation_run_activities
+		SET status = 'failed',
+		    error_code = 'activity_failed',
+		    error_message = NULLIF($4, ''),
+		    processed_at = NOW(),
+		    claimed_until = NULL
+		WHERE run_id = $1
+		  AND activity_id = $2
+		  AND claim_token = $3::uuid
+		  AND status = 'running'
+		RETURNING 1
 	`, claim.RunID, claim.ActivityID, claim.ClaimToken, sanitizedSegmentRecalculationErrorMessage(errText)).Scan(&updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	}
 	if err != nil {
 		return fmt.Errorf("fail segment recalculation activity: %w", err)
 	}
-	if updated != 1 {
-		return fmt.Errorf("%w: stale segment recalculation activity claim", ErrSegmentValidation)
+	if _, err := tx.Exec(ctx, `
+		WITH pending AS (
+			SELECT EXISTS (
+				SELECT 1
+				FROM segment_recalculation_run_activities
+				WHERE run_id = $1
+				  AND status IN ('queued', 'running')
+			) AS has_pending
+		)
+		UPDATE segment_recalculation_runs r
+		SET failed_activities = failed_activities + 1,
+		    status = CASE WHEN pending.has_pending THEN r.status ELSE 'failed' END,
+		    completed_at = CASE WHEN pending.has_pending THEN r.completed_at ELSE NOW() END
+		FROM pending
+		WHERE r.id = $1
+	`, claim.RunID); err != nil {
+		return fmt.Errorf("update failed segment recalculation run: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit failed segment recalculation activity: %w", err)
 	}
 	return nil
 }

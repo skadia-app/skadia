@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -40,6 +41,42 @@ func TestCreateTargetReportAppendsInitialStatusEvent(t *testing.T) {
 	}
 	if status != "open" {
 		t.Fatalf("initial status = %q, want open", status)
+	}
+}
+
+func TestCreateSharedTargetReportValidatesAccessScopeOwner(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	reporterID := insertObjectAccessTestUser(t, db)
+	nonGranteeID := insertObjectAccessTestUser(t, db)
+	otherOwnerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "shared report place", "public", nil, `[8,49]`)
+	ownerScope := createTargetObjectAccessScope(t, db, ownerID, reporterID)
+	otherScope := createTargetObjectAccessScope(t, db, otherOwnerID, reporterID)
+
+	base := model.CreateTargetReportInput{
+		SubjectKind:     "place",
+		SubjectID:       place.ID,
+		ReportType:      "condition",
+		Visibility:      "shared",
+		AttributionMode: "named",
+		Description:     "wet trail",
+		ObservedAt:      time.Now().UTC(),
+	}
+	badScopeInput := base
+	badScopeInput.AccessScopeID = &otherScope.ID
+	if _, err := db.CreateTargetReport(ctx, reporterID, badScopeInput); !errors.Is(err, ErrTargetOverlayValidation) {
+		t.Fatalf("CreateTargetReport foreign shared scope err = %v, want ErrTargetOverlayValidation", err)
+	}
+	nonGranteeInput := base
+	nonGranteeInput.AccessScopeID = &ownerScope.ID
+	if _, err := db.CreateTargetReport(ctx, nonGranteeID, nonGranteeInput); !errors.Is(err, ErrTargetOverlayValidation) {
+		t.Fatalf("CreateTargetReport ungranted target-owned shared scope err = %v, want ErrTargetOverlayValidation", err)
+	}
+	goodScopeInput := base
+	goodScopeInput.AccessScopeID = &ownerScope.ID
+	if _, err := db.CreateTargetReport(ctx, reporterID, goodScopeInput); err != nil {
+		t.Fatalf("CreateTargetReport target-owned shared scope: %v", err)
 	}
 }
 
@@ -147,6 +184,101 @@ func TestCreateTargetObservationIsIdempotentBySourceOccurrence(t *testing.T) {
 	}
 	if first.ID != second.ID {
 		t.Fatalf("idempotent observation ids differ: %s vs %s", first.ID, second.ID)
+	}
+}
+
+func TestRebuildTargetObservationsFromSegmentEffortsUsesActiveSupersededAt(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID := uuid.NewString()
+	segmentID := uuid.NewString()
+	versionID := uuid.NewString()
+	activeEffortID := uuid.NewString()
+	staleEffortID := uuid.NewString()
+	startedAt := time.Now().UTC().Add(-time.Hour)
+
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, sub_type, title, started_at, file_hash, visibility, enrichment_status)
+		VALUES ($1, $2, 'cycling', 'mountain', 'Observation Rebuild Test', $3, $4, 'private', 'complete')
+	`, activityID, userID, startedAt, "observation-rebuild-"+activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type, visibility)
+		VALUES ($1, $2, 'Observation Rebuild Segment', 'bike', 'standard', 'public')
+	`, segmentID, userID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_versions (id, segment_id, version_number, track, valid_from, created_by)
+		VALUES ($1, $2, 1, ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), CURRENT_DATE, $3)
+	`, versionID, segmentID, userID); err != nil {
+		t.Fatalf("insert segment version: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_efforts (
+			id, segment_id, segment_version_id, activity_id, user_id,
+			started_at, elapsed_time_s, sport_type, sub_type, in_leaderboard
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, 60, 'cycling', 'mountain', true)
+	`, activeEffortID, segmentID, versionID, activityID, userID, startedAt); err != nil {
+		t.Fatalf("insert active effort: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO segment_efforts (
+			id, segment_id, segment_version_id, activity_id, user_id,
+			started_at, elapsed_time_s, sport_type, sub_type, in_leaderboard,
+			superseded_at, superseded_reason
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, 55, 'cycling', 'mountain', true, NOW(), 'recalculated_removed')
+	`, staleEffortID, segmentID, versionID, activityID, userID, startedAt.Add(-time.Minute)); err != nil {
+		t.Fatalf("insert stale effort: %v", err)
+	}
+	if _, err := db.CreateTargetActivityObservation(ctx, model.TargetOverlayActor{System: true}, model.CreateTargetActivityObservationInput{
+		SubjectKind:         "course",
+		SubjectID:           segmentID,
+		TargetVersionID:     &versionID,
+		ActivityID:          &activityID,
+		UserID:              &userID,
+		ObservationType:     "matched_traversal",
+		SourceType:          "segment_effort",
+		SourceID:            staleEffortID,
+		SourceOccurrenceKey: startedAt.Add(-time.Minute).Format(time.RFC3339Nano),
+		Visibility:          "public",
+		VisibilitySnapshot:  "private",
+		OccurredAt:          startedAt.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("seed stale observation: %v", err)
+	}
+
+	count, err := db.RebuildTargetObservationsFromSegmentEfforts(ctx, segmentID, 100)
+	if err != nil {
+		t.Fatalf("RebuildTargetObservationsFromSegmentEfforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("rebuilt observations = %d, want 1 active effort", count)
+	}
+	var activeObservations, staleActiveObservations int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM target_activity_observations
+		WHERE subject_id = $1
+		  AND source_id = $2
+		  AND superseded_at IS NULL
+	`, segmentID, activeEffortID).Scan(&activeObservations); err != nil {
+		t.Fatalf("count active observation: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM target_activity_observations
+		WHERE subject_id = $1
+		  AND source_id = $2
+		  AND superseded_at IS NULL
+	`, segmentID, staleEffortID).Scan(&staleActiveObservations); err != nil {
+		t.Fatalf("count stale observation: %v", err)
+	}
+	if activeObservations != 1 || staleActiveObservations != 0 {
+		t.Fatalf("active observations=%d stale active observations=%d, want 1/0", activeObservations, staleActiveObservations)
 	}
 }
 

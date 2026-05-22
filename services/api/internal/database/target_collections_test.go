@@ -2,10 +2,16 @@ package database
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestCreateListTargetCollectionsWithAccessScopes(t *testing.T) {
@@ -87,6 +93,100 @@ func TestCollectionMembersAuthorizeCollectionAndMemberSeparately(t *testing.T) {
 	}
 	if ownerDetail.HiddenMemberCount == 0 {
 		t.Fatal("owner detail did not expose management hidden count")
+	}
+}
+
+func TestCollectionCanAddSharedVisibleMember(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	collectionOwnerID := insertObjectAccessTestUser(t, db)
+	scope := createTargetObjectAccessScope(t, db, ownerID, collectionOwnerID)
+	sharedPlace := createTargetPlaceFixture(t, db, ownerID, "shared member", "shared", &scope.ID, `[8,49]`)
+	collection := createTargetCollectionFixture(t, db, collectionOwnerID, "collection with shared member", "private", nil)
+
+	member, err := db.AddTargetCollectionMember(ctx, collectionOwnerID, collection.ID, model.TargetCollectionMemberCreate{
+		MemberKind: "place",
+		MemberID:   &sharedPlace.ID,
+		OriginKey:  "manual",
+		Role:       "poi",
+	})
+	if err != nil {
+		t.Fatalf("AddTargetCollectionMember shared visible member: %v", err)
+	}
+	if member.MemberID == nil || *member.MemberID != sharedPlace.ID {
+		t.Fatalf("member = %#v, want shared place %s", member, sharedPlace.ID)
+	}
+}
+
+func TestGovernanceGrantMakesPrivateCollectionReadable(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	collection := createTargetCollectionFixture(t, db, ownerID, "private governed collection", "private", nil)
+	createTargetObjectGovernanceGrant(t, db, ownerID, managerID, "collection", collection.ID, []string{"manage_members"}, "membership")
+
+	detail, err := db.GetTargetCollection(ctx, managerID, collection.ID, nil, false)
+	if err != nil {
+		t.Fatalf("GetTargetCollection governed private: %v", err)
+	}
+	if detail.ID != collection.ID || len(detail.EffectivePermissions) != 1 || detail.EffectivePermissions[0] != "manage_members" {
+		t.Fatalf("governed collection detail = %#v", detail.TargetCollection)
+	}
+
+	listed, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetCollections governed private: %v", err)
+	}
+	summary := findTargetCollectionSummary(t, listed, collection.ID)
+	if len(summary.EffectivePermissions) != 1 || summary.EffectivePermissions[0] != "manage_members" {
+		t.Fatalf("governed collection summary = %#v", summary)
+	}
+}
+
+func TestCollectionDetailMemberVisibilityUsesBatchedQueryShape(t *testing.T) {
+	tracer := &targetCollectionQueryCounter{}
+	db := targetCollectionTraceDB(t, tracer)
+	ctx := context.Background()
+	ownerID := insertObjectAccessTestUser(t, db)
+	viewerID := insertObjectAccessTestUser(t, db)
+	scope := createTargetObjectAccessScope(t, db, ownerID, viewerID)
+	collection := createTargetCollectionFixture(t, db, ownerID, "batched detail members", "public", nil)
+
+	publicPlace := createTargetPlaceFixture(t, db, ownerID, "batched public place", "public", nil, `[8,49]`)
+	sharedPlace := createTargetPlaceFixture(t, db, ownerID, "batched shared place", "shared", &scope.ID, `[8.001,49.001]`)
+	privatePlace := createTargetPlaceFixture(t, db, ownerID, "batched private place", "private", nil, `[8.002,49.002]`)
+	governedPlace := createTargetPlaceFixture(t, db, ownerID, "batched governed place", "private", nil, `[8.003,49.003]`)
+	createTargetObjectGovernanceGrant(t, db, ownerID, viewerID, "place", governedPlace.ID, []string{"edit_metadata"}, "metadata")
+
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", publicPlace.ID, "poi")
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", sharedPlace.ID, "poi")
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", privatePlace.ID, "poi")
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", governedPlace.ID, "poi")
+
+	tracer.Reset()
+	detail, err := db.GetTargetCollection(ctx, viewerID, collection.ID, []string{scope.ID}, true)
+	if err != nil {
+		t.Fatalf("GetTargetCollection viewer: %v", err)
+	}
+	if got := targetCollectionMemberIDs(detail.Members); !targetCollectionStringSetEqual(got, []string{publicPlace.ID, sharedPlace.ID, governedPlace.ID}) {
+		t.Fatalf("viewer members = %v, want public/shared/governed only", got)
+	}
+	if detail.HiddenMemberCount != 0 {
+		t.Fatalf("viewer hidden member count = %d, want 0", detail.HiddenMemberCount)
+	}
+	if count := tracer.Count(); count > 3 {
+		t.Fatalf("GetTargetCollection issued %d queries for 4 members, want constant query shape <= 3", count)
+	}
+
+	ownerDetail, err := db.GetTargetCollection(ctx, ownerID, collection.ID, nil, true)
+	if err != nil {
+		t.Fatalf("GetTargetCollection owner: %v", err)
+	}
+	if got := targetCollectionMemberIDs(ownerDetail.Members); !targetCollectionStringSetEqual(got, []string{publicPlace.ID, sharedPlace.ID, privatePlace.ID, governedPlace.ID}) {
+		t.Fatalf("owner members = %v, want all members", got)
+	}
+	if ownerDetail.HiddenMemberCount != 3 {
+		t.Fatalf("owner hidden member count = %d, want 3", ownerDetail.HiddenMemberCount)
 	}
 }
 
@@ -177,6 +277,7 @@ func TestGovernanceManageMembersCanEditCollectionMembers(t *testing.T) {
 	managerID := insertObjectAccessTestUser(t, db)
 	collection := createTargetCollectionFixture(t, db, ownerID, "delegated collection", "public", nil)
 	place := createTargetPlaceFixture(t, db, ownerID, "delegated member", "public", nil, `[8,49]`)
+	privatePlace := createTargetPlaceFixture(t, db, ownerID, "delegated private member", "private", nil, `[8.01,49.01]`)
 	scope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
 		Kind:               "collection_scope",
 		AnchorCollectionID: &collection.ID,
@@ -197,6 +298,25 @@ func TestGovernanceManageMembersCanEditCollectionMembers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("delegated AddTargetCollectionMember: %v", err)
 	}
+	if _, err := db.AddTargetCollectionMember(ctx, ownerID, collection.ID, model.TargetCollectionMemberCreate{
+		MemberKind:           "place",
+		MemberID:             &privatePlace.ID,
+		MembershipVisibility: "owner_only",
+		OriginKey:            "manual",
+		Role:                 "poi",
+	}); err != nil {
+		t.Fatalf("owner AddTargetCollectionMember private: %v", err)
+	}
+	detail, err := db.GetTargetCollection(ctx, managerID, collection.ID, nil, true)
+	if err != nil {
+		t.Fatalf("manager GetTargetCollection: %v", err)
+	}
+	if got := targetCollectionMemberIDs(detail.Members); !targetCollectionStringSetEqual(got, []string{place.ID, privatePlace.ID}) {
+		t.Fatalf("manager members = %v, want public and owner_only members", got)
+	}
+	if detail.HiddenMemberCount == 0 {
+		t.Fatal("manager detail did not expose hidden member count")
+	}
 }
 
 func TestCollectionSummaryProjectionTracksBoundsAndCounts(t *testing.T) {
@@ -205,18 +325,41 @@ func TestCollectionSummaryProjectionTracksBoundsAndCounts(t *testing.T) {
 	collection := createTargetCollectionFixture(t, db, ownerID, "bounds", "public", nil)
 	place := createTargetPlaceFixture(t, db, ownerID, "bounds place", "public", nil, `[8,49]`)
 	region := createTargetRegionFixture(t, db, ownerID, "bounds region", "public", nil, `[[[8.01,49.01],[8.02,49.01],[8.02,49.02],[8.01,49.02],[8.01,49.01]]]`)
+	route, snapshot := createRoutePublicationTestSnapshot(t, db, ownerID, "bounds route publication")
+	if _, err := db.CreateRoutePublicationPrivacyReview(ctx, route.ID, snapshot.ID, ownerID, snapshot.SourceRouteVersion, "public", true); err != nil {
+		t.Fatalf("CreateRoutePublicationPrivacyReview: %v", err)
+	}
+	publication, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         ownerID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "public",
+		CompatibilityPreset: "standard",
+		OperationID:         "collection-summary-publication-" + collection.ID,
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse: %v", err)
+	}
 
 	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "place", place.ID, "poi")
 	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "region", region.ID, "area")
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "course", publication.CourseSegmentID, "trail")
+	addTargetCollectionMemberFixture(t, db, ownerID, collection.ID, "route_publication", publication.ID, "variant")
 
 	summaries, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: ownerID, Limit: 20})
 	if err != nil {
 		t.Fatalf("ListTargetCollections: %v", err)
 	}
 	summary := findTargetCollectionSummary(t, summaries, collection.ID)
-	if summary.OwnerMemberCount != 2 || summary.PublicMemberCount != 2 {
-		t.Fatalf("summary counts owner=%d public=%d, want 2/2", summary.OwnerMemberCount, summary.PublicMemberCount)
+	if summary.OwnerMemberCount != 4 || summary.PublicMemberCount != 4 {
+		t.Fatalf("summary counts owner=%d public=%d, want 4/4", summary.OwnerMemberCount, summary.PublicMemberCount)
 	}
+	assertCollectionCountMap(t, summary.OwnerCountsByKind, map[string]int{"place": 1, "region": 1, "course": 1, "route_publication": 1})
+	assertCollectionCountMap(t, summary.PublicCountsByKind, map[string]int{"place": 1, "region": 1, "course": 1, "route_publication": 1})
+	assertCollectionCountMap(t, summary.OwnerCountsByRole, map[string]int{"poi": 1, "area": 1, "trail": 1, "variant": 1})
+	assertCollectionCountMap(t, summary.PublicCountsByRole, map[string]int{"poi": 1, "area": 1, "trail": 1, "variant": 1})
 	if summary.BoundsGeoJSON == nil || *summary.BoundsGeoJSON == "" {
 		t.Fatal("summary bounds missing")
 	}
@@ -349,4 +492,87 @@ func findTargetCollectionSummary(t *testing.T, summaries []model.TargetCollectio
 	}
 	t.Fatalf("collections missing %s in %#v", id, summaries)
 	return model.TargetCollectionSummary{}
+}
+
+type targetCollectionQueryCounter struct {
+	enabled atomic.Bool
+	count   atomic.Int64
+}
+
+func (c *targetCollectionQueryCounter) Reset() {
+	c.count.Store(0)
+	c.enabled.Store(true)
+}
+
+func (c *targetCollectionQueryCounter) Count() int64 {
+	c.enabled.Store(false)
+	return c.count.Load()
+}
+
+func (c *targetCollectionQueryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if c.enabled.Load() && strings.TrimSpace(data.SQL) != "" {
+		c.count.Add(1)
+	}
+	return ctx
+}
+
+func (c *targetCollectionQueryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {
+}
+
+func targetCollectionTraceDB(t *testing.T, tracer pgx.QueryTracer) *DB {
+	t.Helper()
+	config, err := pgxpool.ParseConfig(testdb.RequireSafeDSN(t))
+	if err != nil {
+		t.Fatalf("pgxpool.ParseConfig: %v", err)
+	}
+	config.ConnConfig.Tracer = tracer
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatalf("pgxpool.NewWithConfig: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return &DB{Pool: pool}
+}
+
+func targetCollectionMemberIDs(members []model.TargetCollectionMember) []string {
+	ids := make([]string, 0, len(members))
+	for _, member := range members {
+		if member.MemberID != nil {
+			ids = append(ids, *member.MemberID)
+		}
+	}
+	return ids
+}
+
+func targetCollectionStringSetEqual(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	counts := make(map[string]int, len(got))
+	for _, value := range got {
+		counts[value]++
+	}
+	for _, value := range want {
+		if counts[value] == 0 {
+			return false
+		}
+		counts[value]--
+	}
+	return true
+}
+
+func assertCollectionCountMap(t *testing.T, raw json.RawMessage, want map[string]int) {
+	t.Helper()
+	var got map[string]int
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal collection counts %s: %v", string(raw), err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("collection counts = %#v, want %#v", got, want)
+	}
+	for key, wantCount := range want {
+		if got[key] != wantCount {
+			t.Fatalf("collection count[%s] = %d, want %d in %#v", key, got[key], wantCount, got)
+		}
+	}
 }

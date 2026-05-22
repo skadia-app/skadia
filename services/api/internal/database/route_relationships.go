@@ -20,19 +20,22 @@ func (db *DB) ForkRoute(ctx context.Context, sourceRouteID, userID, name, operat
 	}
 	defer tx.Rollback(ctx)
 
-	existingID, existingHash, existingSourceID, err := loadRouteRelationshipOperationTx(ctx, tx, userID, operationID)
+	existing, err := loadRouteRelationshipOperationTx(ctx, tx, userID, operationID)
 	if err != nil {
 		return nil, "", err
 	}
-	if existingID != "" {
-		if existingHash != operationInputHash {
+	if existing != nil {
+		if existing.OperationInputHash != operationInputHash {
 			return nil, "", ErrRoutePublicationConflict
 		}
-		route, err := db.GetRoute(ctx, existingSourceID, userID)
+		if existing.RelationType != "fork_of" || existing.TargetRouteID != sourceRouteID {
+			return nil, "", ErrRoutePublicationConflict
+		}
+		route, err := db.GetRoute(ctx, existing.SourceRouteID, userID)
 		if err != nil {
 			return nil, "", err
 		}
-		return route, existingID, nil
+		return route, existing.ID, nil
 	}
 
 	source, err := db.GetRoute(ctx, sourceRouteID, userID)
@@ -88,15 +91,18 @@ func (db *DB) CreateRouteRelationship(ctx context.Context, sourceRouteID, target
 	}
 	defer tx.Rollback(ctx)
 
-	existingID, existingHash, _, err := loadRouteRelationshipOperationTx(ctx, tx, userID, operationID)
+	existing, err := loadRouteRelationshipOperationTx(ctx, tx, userID, operationID)
 	if err != nil {
 		return "", err
 	}
-	if existingID != "" {
-		if existingHash != operationInputHash {
+	if existing != nil {
+		if existing.OperationInputHash != operationInputHash {
 			return "", ErrRoutePublicationConflict
 		}
-		return existingID, nil
+		if existing.SourceRouteID != sourceRouteID || existing.TargetRouteID != targetRouteID || existing.RelationType != relationType {
+			return "", ErrRoutePublicationConflict
+		}
+		return existing.ID, nil
 	}
 	if err := requireOwnedRoutesTx(ctx, tx, userID, sourceRouteID, targetRouteID); err != nil {
 		return "", err
@@ -134,15 +140,18 @@ func (db *DB) CreateRouteCourseRelationship(ctx context.Context, sourcePublicati
 	}
 	defer tx.Rollback(ctx)
 
-	existingID, existingHash, err := loadRouteCourseRelationshipOperationTx(ctx, tx, userID, operationID)
+	existing, err := loadRouteCourseRelationshipOperationTx(ctx, tx, userID, operationID)
 	if err != nil {
 		return "", err
 	}
-	if existingID != "" {
-		if existingHash != operationInputHash {
+	if existing != nil {
+		if existing.OperationInputHash != operationInputHash {
 			return "", ErrRoutePublicationConflict
 		}
-		return existingID, nil
+		if existing.SourcePublicationID != sourcePublicationID || existing.TargetPublicationID != targetPublicationID || existing.RelationType != relationType {
+			return "", ErrRoutePublicationConflict
+		}
+		return existing.ID, nil
 	}
 	source, err := loadOwnedPublicationForRelationshipTx(ctx, tx, sourcePublicationID, userID)
 	if err != nil {
@@ -212,42 +221,63 @@ func insertRouteRelationshipTx(ctx context.Context, tx pgx.Tx, sourceRouteID, ta
 	return relationshipID, nil
 }
 
-func loadRouteRelationshipOperationTx(ctx context.Context, tx pgx.Tx, userID, operationID string) (relationshipID, operationInputHash, sourceRouteID string, err error) {
+type routeRelationshipOperationRow struct {
+	ID                 string
+	OperationInputHash string
+	SourceRouteID      string
+	TargetRouteID      string
+	RelationType       string
+}
+
+func loadRouteRelationshipOperationTx(ctx context.Context, tx pgx.Tx, userID, operationID string) (*routeRelationshipOperationRow, error) {
 	if operationID == "" {
-		return "", "", "", fmt.Errorf("%w: operation_id is required", ErrRoutePublicationValidation)
+		return nil, fmt.Errorf("%w: operation_id is required", ErrRoutePublicationValidation)
 	}
-	err = tx.QueryRow(ctx, `
-		SELECT id, operation_input_hash, source_route_id
+	var row routeRelationshipOperationRow
+	err := tx.QueryRow(ctx, `
+		SELECT id, operation_input_hash, source_route_id, target_route_id, relation_type
 		FROM route_relationships
 		WHERE actor_user_id = $1
 		  AND operation_id = $2
-	`, userID, operationID).Scan(&relationshipID, &operationInputHash, &sourceRouteID)
+	`, userID, operationID).Scan(&row.ID, &row.OperationInputHash, &row.SourceRouteID, &row.TargetRouteID, &row.RelationType)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", "", "", fmt.Errorf("load route relationship operation: %w", err)
+		return nil, fmt.Errorf("load route relationship operation: %w", err)
 	}
-	return relationshipID, operationInputHash, sourceRouteID, nil
+	return &row, nil
 }
 
-func loadRouteCourseRelationshipOperationTx(ctx context.Context, tx pgx.Tx, userID, operationID string) (relationshipID, operationInputHash string, err error) {
+type routeCourseRelationshipOperationRow struct {
+	ID                  string
+	OperationInputHash  string
+	SourcePublicationID string
+	TargetPublicationID string
+	RelationType        string
+}
+
+func loadRouteCourseRelationshipOperationTx(ctx context.Context, tx pgx.Tx, userID, operationID string) (*routeCourseRelationshipOperationRow, error) {
 	if operationID == "" {
-		return "", "", fmt.Errorf("%w: operation_id is required", ErrRoutePublicationValidation)
+		return nil, fmt.Errorf("%w: operation_id is required", ErrRoutePublicationValidation)
 	}
-	err = tx.QueryRow(ctx, `
-		SELECT id, operation_input_hash
+	var row routeCourseRelationshipOperationRow
+	err := tx.QueryRow(ctx, `
+		SELECT id, operation_input_hash,
+		       COALESCE(source_publication_id::text, ''),
+		       COALESCE(target_publication_id::text, ''),
+		       relation_type
 		FROM route_course_relationships
 		WHERE actor_user_id = $1
 		  AND operation_id = $2
-	`, userID, operationID).Scan(&relationshipID, &operationInputHash)
+	`, userID, operationID).Scan(&row.ID, &row.OperationInputHash, &row.SourcePublicationID, &row.TargetPublicationID, &row.RelationType)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("load route course relationship operation: %w", err)
+		return nil, fmt.Errorf("load route course relationship operation: %w", err)
 	}
-	return relationshipID, operationInputHash, nil
+	return &row, nil
 }
 
 func requireOwnedRoutesTx(ctx context.Context, tx pgx.Tx, userID string, routeIDs ...string) error {
