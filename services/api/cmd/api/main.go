@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -447,10 +448,7 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
-	if err := db.BackfillAndVerifyCourseEligibilityProjections(ctx); err != nil {
-		slog.Error("failed to prepare course eligibility projections", "error", err)
-		os.Exit(1)
-	}
+	courseEligibilityProjectionReady := &atomic.Bool{}
 	if cfg.ReadonlyDatabaseURL != "" {
 		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
 			if !database.IsReadonlyAuthError(err) {
@@ -820,16 +818,17 @@ func main() {
 	})
 
 	h := &handler.Handler{
-		DB:             db,
-		Confirm:        confirmMgr,
-		Agent:          chatAgent,
-		LLMResolver:    llmResolver,
-		PMC:            pmcService,
-		BestEfforts:    bestEffortsService,
-		ShadowFS:       store,
-		ShadowFSConfig: shadowFSCfg,
-		ImportService:  importSvc,
-		DEMSvc:         demSvc,
+		DB:                      db,
+		Confirm:                 confirmMgr,
+		Agent:                   chatAgent,
+		LLMResolver:             llmResolver,
+		PMC:                     pmcService,
+		BestEfforts:             bestEffortsService,
+		ShadowFS:                store,
+		ShadowFSConfig:          shadowFSCfg,
+		ImportService:           importSvc,
+		DEMSvc:                  demSvc,
+		StartupMaintenanceReady: courseEligibilityProjectionReady,
 		Config: &handler.HandlerConfig{
 			DeploymentProfile:           cfg.DeploymentProfile,
 			DeploymentProfileSource:     cfg.DeploymentProfileSource,
@@ -2165,6 +2164,16 @@ func main() {
 				"base_path", shadowFSCfg.HotfolderPath)
 		}
 	}
+
+	go func() {
+		slog.Info("course eligibility projection backfill starting")
+		if err := db.EnsureCourseEligibilityProjections(ctx); err != nil {
+			slog.Error("course eligibility projection backfill failed", "error", err)
+			return
+		}
+		courseEligibilityProjectionReady.Store(true)
+		slog.Info("course eligibility projection backfill complete")
+	}()
 
 	// Start server in goroutine
 	go func() {

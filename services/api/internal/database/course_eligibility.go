@@ -16,6 +16,8 @@ const (
 	courseEligibilityPolicyVersion  = 1
 	courseEligibilityAdapterKey     = "legacy_segment_adapter_v1"
 	courseEligibilityAdapterVersion = 1
+	courseEligibilityBatchSize      = 1000
+	courseEligibilityCopyChunkSize  = 100000
 )
 
 func (db *DB) RebuildActivityTraitProjection(ctx context.Context) error {
@@ -193,41 +195,70 @@ func (db *DB) rebuildSegmentCourseEligibilityProjectionTx(ctx context.Context, t
 			AdapterKey:           courseEligibilityAdapterKey,
 			AdapterVersion:       courseEligibilityAdapterVersion,
 		})
+		if len(projectedRows) == 0 {
+			continue
+		}
+
+		batch := &pgx.Batch{}
 		for _, row := range projectedRows {
 			template, err := json.Marshal(row.LeaderboardTemplate)
 			if err != nil {
 				return fmt.Errorf("marshal leaderboard partition template: %w", err)
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO target_course_eligibility_projection (
-					target_kind, target_id, target_version_id, matching_contract_key, matching_contract_version,
-					activity_trait_bucket_key, policy_key, policy_version, source_hash, compatibility_preset,
-					activity_group, match_allowed, completion_allowed, rank_allowed, leaderboard_partition_template
-				)
-				VALUES ('segment', $1, $2, $3, $4,
-				        $5, $6, $7, $8, $9,
-				        $10, $11, $12, $13, $14::jsonb)
-				ON CONFLICT (target_kind, target_id, target_version_id, activity_trait_bucket_key, policy_key, policy_version)
-				DO UPDATE SET
-					matching_contract_key = EXCLUDED.matching_contract_key,
-					matching_contract_version = EXCLUDED.matching_contract_version,
-					source_hash = EXCLUDED.source_hash,
-					generated_at = NOW(),
-					compatibility_preset = EXCLUDED.compatibility_preset,
-					activity_group = EXCLUDED.activity_group,
-					match_allowed = EXCLUDED.match_allowed,
-					completion_allowed = EXCLUDED.completion_allowed,
-					rank_allowed = EXCLUDED.rank_allowed,
-					leaderboard_partition_template = EXCLUDED.leaderboard_partition_template
-			`, segmentID, snapshot.VersionID, snapshot.MatchingContractKey, snapshot.MatchingContractVersion,
-				row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
-				row.SourceHash, row.CompatibilityPreset, row.ActivityGroup, row.MatchAllowed, row.CompletionAllowed,
-				row.RankAllowed, template); err != nil {
-				return fmt.Errorf("insert course eligibility projection row: %w", err)
-			}
+			queueCourseEligibilityProjectionInsert(batch, segmentID, snapshot, row, template)
+		}
+		if err := execCourseEligibilityProjectionBatch(ctx, tx, batch, len(projectedRows)); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func queueCourseEligibilityProjectionInsert(batch *pgx.Batch, segmentID string, snapshot segmentCourseEligibilitySnapshot, row sport.CourseEligibilityProjectionRow, template []byte) {
+	batch.Queue(`
+		INSERT INTO target_course_eligibility_projection (
+			target_kind, target_id, target_version_id, matching_contract_key, matching_contract_version,
+			activity_trait_bucket_key, policy_key, policy_version, source_hash, compatibility_preset,
+			activity_group, match_allowed, completion_allowed, rank_allowed, leaderboard_partition_template
+		)
+		VALUES ('segment', $1, $2, $3, $4,
+		        $5, $6, $7, $8, $9,
+		        $10, $11, $12, $13, $14::jsonb)
+		ON CONFLICT (target_kind, target_id, target_version_id, activity_trait_bucket_key, policy_key, policy_version)
+		DO UPDATE SET
+			matching_contract_key = EXCLUDED.matching_contract_key,
+			matching_contract_version = EXCLUDED.matching_contract_version,
+			source_hash = EXCLUDED.source_hash,
+			generated_at = NOW(),
+			compatibility_preset = EXCLUDED.compatibility_preset,
+			activity_group = EXCLUDED.activity_group,
+			match_allowed = EXCLUDED.match_allowed,
+			completion_allowed = EXCLUDED.completion_allowed,
+			rank_allowed = EXCLUDED.rank_allowed,
+			leaderboard_partition_template = EXCLUDED.leaderboard_partition_template
+	`, segmentID, snapshot.VersionID, snapshot.MatchingContractKey, snapshot.MatchingContractVersion,
+		row.ActivityTraitBucketKey, courseEligibilityPolicyKey, courseEligibilityPolicyVersion,
+		row.SourceHash, row.CompatibilityPreset, row.ActivityGroup, row.MatchAllowed, row.CompletionAllowed,
+		row.RankAllowed, template)
+}
+
+func execCourseEligibilityProjectionBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch, queued int) error {
+	results := tx.SendBatch(ctx, batch)
+	for range queued {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
+			return fmt.Errorf("insert course eligibility projection row: %w", err)
+		}
+	}
+	if err := results.Close(); err != nil {
+		return fmt.Errorf("close course eligibility projection batch: %w", err)
+	}
+	return nil
+}
+
+type segmentCourseEligibilityBackfillSnapshot struct {
+	SegmentID string
+	Snapshot  segmentCourseEligibilitySnapshot
 }
 
 func (db *DB) RebuildAllCourseEligibilityProjections(ctx context.Context) error {
@@ -242,27 +273,138 @@ func (db *DB) RebuildAllCourseEligibilityProjections(ctx context.Context) error 
 	if err := rebuildActivityTraitProjectionTx(ctx, tx); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM segments ORDER BY id`)
+	rows, err := tx.Query(ctx, `
+		SELECT segment_id,
+		       id,
+		       matching_contract_key,
+		       matching_contract_version,
+		       eligibility_segment_type,
+		       eligibility_sport_group,
+		       eligibility_allowed_predicates,
+		       eligibility_allowed_predicates_set,
+		       eligibility_bidirectional,
+		       eligibility_visibility,
+		       eligibility_elevation_kind
+		FROM segment_versions
+		WHERE (
+		      (matching_contract_key = 'course_gps_v1' AND matching_contract_version = 1)
+		      OR (matching_contract_key = 'checkpoint_sequence_v1' AND matching_contract_version = 1)
+		)
+		  AND validity_basis <> 'rollback_retired'
+		ORDER BY segment_id, version_number, id
+	`)
 	if err != nil {
-		return fmt.Errorf("list segments for course eligibility projection rebuild: %w", err)
+		return fmt.Errorf("list segment versions for course eligibility projection rebuild: %w", err)
 	}
-	segmentIDs := []string{}
+	snapshots := []segmentCourseEligibilityBackfillSnapshot{}
 	for rows.Next() {
-		var segmentID string
-		if err := rows.Scan(&segmentID); err != nil {
+		var backfillSnapshot segmentCourseEligibilityBackfillSnapshot
+		if err := rows.Scan(&backfillSnapshot.SegmentID, &backfillSnapshot.Snapshot.VersionID,
+			&backfillSnapshot.Snapshot.MatchingContractKey, &backfillSnapshot.Snapshot.MatchingContractVersion,
+			&backfillSnapshot.Snapshot.SegmentType, &backfillSnapshot.Snapshot.SportGroup,
+			&backfillSnapshot.Snapshot.RawPredicates, &backfillSnapshot.Snapshot.AllowedPredicatesSet,
+			&backfillSnapshot.Snapshot.Bidirectional, &backfillSnapshot.Snapshot.Visibility,
+			&backfillSnapshot.Snapshot.ElevationKind); err != nil {
 			rows.Close()
-			return fmt.Errorf("scan segment id for course eligibility projection rebuild: %w", err)
+			return fmt.Errorf("scan segment version for course eligibility projection rebuild: %w", err)
 		}
-		segmentIDs = append(segmentIDs, segmentID)
+		snapshots = append(snapshots, backfillSnapshot)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("list segments for course eligibility projection rebuild: %w", err)
+		return fmt.Errorf("list segment versions for course eligibility projection rebuild: %w", err)
 	}
-	for _, segmentID := range segmentIDs {
-		if err := db.rebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID, false); err != nil {
-			return err
+
+	if _, err := tx.Exec(ctx, `DELETE FROM target_course_eligibility_projection WHERE target_kind = 'segment'`); err != nil {
+		return fmt.Errorf("delete course eligibility projection rows: %w", err)
+	}
+
+	copyRows := make([][]any, 0, courseEligibilityCopyChunkSize)
+	flush := func() error {
+		if len(copyRows) == 0 {
+			return nil
 		}
+		copied, err := tx.CopyFrom(ctx, pgx.Identifier{"target_course_eligibility_projection"}, []string{
+			"target_kind",
+			"target_id",
+			"target_version_id",
+			"matching_contract_key",
+			"matching_contract_version",
+			"activity_trait_bucket_key",
+			"policy_key",
+			"policy_version",
+			"source_hash",
+			"compatibility_preset",
+			"activity_group",
+			"match_allowed",
+			"completion_allowed",
+			"rank_allowed",
+			"leaderboard_partition_template",
+		}, pgx.CopyFromRows(copyRows))
+		if err != nil {
+			return fmt.Errorf("copy course eligibility projection rows: %w", err)
+		}
+		if copied != int64(len(copyRows)) {
+			return fmt.Errorf("copy course eligibility projection rows: copied %d of %d", copied, len(copyRows))
+		}
+		copyRows = copyRows[:0]
+		return nil
+	}
+	for _, backfillSnapshot := range snapshots {
+		snapshot := backfillSnapshot.Snapshot
+		rawPredicates := snapshot.RawPredicates
+		if !snapshot.AllowedPredicatesSet {
+			rawPredicates = nil
+		}
+		allowedPredicates, err := decodeSegmentPredicates(rawPredicates)
+		if err != nil {
+			return fmt.Errorf("decode segment version predicates for course eligibility projection: %w", err)
+		}
+		projectedRows := sport.CourseEligibilityRowsForSegment(sport.CourseEligibilityInput{
+			TargetKind:           "segment",
+			TargetID:             backfillSnapshot.SegmentID,
+			TargetVersionID:      snapshot.VersionID,
+			SegmentType:          snapshot.SegmentType,
+			SportGroup:           snapshot.SportGroup,
+			AllowedPredicates:    allowedPredicates,
+			AllowedPredicatesSet: snapshot.AllowedPredicatesSet,
+			Bidirectional:        snapshot.Bidirectional,
+			Visibility:           snapshot.Visibility,
+			ElevationKind:        snapshot.ElevationKind,
+			AdapterKey:           courseEligibilityAdapterKey,
+			AdapterVersion:       courseEligibilityAdapterVersion,
+		})
+		for _, row := range projectedRows {
+			template, err := json.Marshal(row.LeaderboardTemplate)
+			if err != nil {
+				return fmt.Errorf("marshal leaderboard partition template: %w", err)
+			}
+			copyRows = append(copyRows, []any{
+				"segment",
+				backfillSnapshot.SegmentID,
+				snapshot.VersionID,
+				snapshot.MatchingContractKey,
+				snapshot.MatchingContractVersion,
+				row.ActivityTraitBucketKey,
+				courseEligibilityPolicyKey,
+				courseEligibilityPolicyVersion,
+				row.SourceHash,
+				row.CompatibilityPreset,
+				row.ActivityGroup,
+				row.MatchAllowed,
+				row.CompletionAllowed,
+				row.RankAllowed,
+				template,
+			})
+			if len(copyRows) >= courseEligibilityCopyChunkSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit full course eligibility projection rebuild: %w", err)
@@ -278,6 +420,40 @@ func (db *DB) BackfillAndVerifyCourseEligibilityProjections(ctx context.Context)
 		return err
 	}
 	return nil
+}
+
+func (db *DB) EnsureCourseEligibilityProjections(ctx context.Context) error {
+	seeded, err := db.courseEligibilityProjectionSeeded(ctx)
+	if err != nil {
+		return err
+	}
+	if seeded {
+		return nil
+	}
+	return db.RebuildAllCourseEligibilityProjections(ctx)
+}
+
+func (db *DB) courseEligibilityProjectionSeeded(ctx context.Context) (bool, error) {
+	var traitRows int
+	if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM activity_trait_projection`).Scan(&traitRows); err != nil {
+		return false, fmt.Errorf("check activity trait projection seed: %w", err)
+	}
+	if traitRows < len(sport.ActivityTraitBuckets()) {
+		return false, nil
+	}
+
+	var hasCourseRows bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM target_course_eligibility_projection
+			WHERE target_kind = 'segment'
+			LIMIT 1
+		)
+	`).Scan(&hasCourseRows); err != nil {
+		return false, fmt.Errorf("check course eligibility projection seed: %w", err)
+	}
+	return hasCourseRows, nil
 }
 
 func (db *DB) VerifyCourseEligibilityProjectionCoverage(ctx context.Context) error {
