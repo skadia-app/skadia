@@ -580,8 +580,10 @@ func (db *DB) ListGovernanceEffectiveTargets(ctx context.Context, actor model.Go
 		query += fmt.Sprintf(" AND target_id = $%d", len(args))
 	}
 	if strings.TrimSpace(filter.Permission) != "" {
+		permissionArg := len(args) + 1
 		args = append(args, strings.TrimSpace(filter.Permission))
 		query += fmt.Sprintf(" AND $%d = ANY(permissions)", len(args))
+		query += " AND " + governancePermissionScopePredicateSQL(fmt.Sprintf("$%d", permissionArg), "permissions_scope")
 	}
 	if strings.TrimSpace(filter.PermissionsScope) != "" {
 		args = append(args, strings.TrimSpace(filter.PermissionsScope))
@@ -608,6 +610,91 @@ func (db *DB) ListGovernanceEffectiveTargets(ctx context.Context, actor model.Go
 		out = append(out, target)
 	}
 	return out, rows.Err()
+}
+
+func governanceEffectivePermissionsSQL(targetKind, targetIDExpr, actorUserExpr string) string {
+	return fmt.Sprintf(`COALESCE(ARRAY(
+		SELECT DISTINCT permission.permission
+		FROM governance_actor_target_projection gatp
+		CROSS JOIN LATERAL unnest(gatp.permissions) AS permission(permission)
+		WHERE gatp.actor_type = 'user'
+		  AND gatp.actor_user_id = %s
+		  AND gatp.target_kind = %s
+		  AND gatp.target_id = %s
+		  AND (gatp.valid_from IS NULL OR gatp.valid_from <= NOW())
+		  AND (gatp.valid_until IS NULL OR gatp.valid_until > NOW())
+		  AND `+governancePermissionScopePredicateSQL("permission.permission", "gatp.permissions_scope")+`
+		ORDER BY permission.permission
+		), '{}'::text[])`, actorUserExpr, targetKindLiteral(targetKind), targetIDExpr)
+}
+
+func governanceEffectiveReportPermissionsSQL(targetKind, targetIDExpr, actorUserExpr string) string {
+	return fmt.Sprintf(`COALESCE(ARRAY(
+		SELECT DISTINCT permission.permission
+		FROM governance_actor_target_projection gatp
+		CROSS JOIN LATERAL unnest(gatp.permissions) AS permission(permission)
+		WHERE gatp.actor_type = 'user'
+		  AND gatp.actor_user_id = %s
+		  AND gatp.target_kind = %s
+		  AND gatp.target_id = %s
+		  AND permission.permission = 'manage_reports'
+		  AND (gatp.valid_from IS NULL OR gatp.valid_from <= NOW())
+		  AND (gatp.valid_until IS NULL OR gatp.valid_until > NOW())
+		  AND `+governancePermissionScopePredicateSQL("permission.permission", "gatp.permissions_scope")+`
+		ORDER BY permission.permission
+	), '{}'::text[])`, actorUserExpr, targetKindLiteral(targetKind), targetIDExpr)
+}
+
+func governanceTargetVisibleSQL(targetKindExpr, targetIDExpr, actorUserExpr string) string {
+	return fmt.Sprintf(`EXISTS (
+		SELECT 1
+		FROM governance_actor_target_projection gatp
+		CROSS JOIN LATERAL unnest(gatp.permissions) AS permission(permission)
+		WHERE gatp.actor_type = 'user'
+		  AND gatp.actor_user_id = %s
+		  AND gatp.target_kind = %s
+		  AND gatp.target_id = %s
+		  AND (gatp.valid_from IS NULL OR gatp.valid_from <= NOW())
+		  AND (gatp.valid_until IS NULL OR gatp.valid_until > NOW())
+		  AND `+governancePermissionScopePredicateSQL("permission.permission", "gatp.permissions_scope")+`
+	)`, actorUserExpr, targetKindExpr, targetIDExpr)
+}
+
+func governancePermissionScopePredicateSQL(permissionExpr, scopeExpr string) string {
+	return fmt.Sprintf(`(
+		%s = 'full'
+		OR (%s = 'edit_metadata' AND %s = 'metadata')
+		OR (%s = 'link_external_refs' AND %s = 'metadata')
+		OR (%s = 'edit_geometry' AND %s = 'geometry')
+		OR (%s = 'manage_reports' AND %s = 'reports')
+		OR (%s = 'manage_events' AND %s = 'events')
+		OR (%s = 'manage_members' AND %s = 'membership')
+		OR (%s IN ('hide_or_archive', 'disable_leaderboard', 'disable_gps_download', 'resolve_claims') AND %s = 'moderation')
+	)`,
+		scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+		permissionExpr, scopeExpr,
+	)
+}
+
+func targetKindLiteral(targetKind string) string {
+	switch strings.TrimSpace(targetKind) {
+	case "place":
+		return "'place'"
+	case "region":
+		return "'region'"
+	case "collection":
+		return "'collection'"
+	case "course":
+		return "'course'"
+	default:
+		return "''"
+	}
 }
 
 func (db *DB) userOwnsTarget(ctx context.Context, userID, targetKind, targetID string) (bool, error) {

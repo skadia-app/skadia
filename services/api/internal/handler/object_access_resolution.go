@@ -8,10 +8,7 @@ import (
 )
 
 func (h *Handler) resolveVisibleAccessScopesForRequest(w http.ResponseWriter, r *http.Request, userID string) []string {
-	linkToken := strings.TrimSpace(r.URL.Query().Get("link_token"))
-	if linkToken == "" {
-		linkToken = strings.TrimSpace(r.Header.Get("X-Skadia-Link-Token"))
-	}
+	linkToken := objectAccessLinkTokenFromRequest(r)
 	var linkTokenHash *string
 	if linkToken != "" {
 		hash := hashObjectAccessLinkToken(linkToken)
@@ -29,4 +26,12 @@ func (h *Handler) resolveVisibleAccessScopesForRequest(w http.ResponseWriter, r 
 		return []string{}
 	}
 	return scopes
+}
+
+func objectAccessLinkTokenFromRequest(r *http.Request) string {
+	linkToken := strings.TrimSpace(r.URL.Query().Get("link_token"))
+	if linkToken == "" {
+		linkToken = strings.TrimSpace(r.Header.Get("X-Skadia-Link-Token"))
+	}
+	return linkToken
 }

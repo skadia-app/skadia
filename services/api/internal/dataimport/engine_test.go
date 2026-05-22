@@ -1276,6 +1276,383 @@ func TestGeometryRoundtrip(t *testing.T) {
 	}
 }
 
+func TestCourseVersionControlsImportRoundtripRemapsVersionRefs(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	segmentOldID := uuid.New().String()
+	versionOldID := uuid.New().String()
+	controlOldIDs := []string{uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()}
+
+	point := func(lon, lat float64) map[string]any {
+		return map[string]any{
+			"type":        "Point",
+			"coordinates": []any{lon, lat},
+		}
+	}
+	polygon := func(lon, lat float64) map[string]any {
+		return map[string]any{
+			"type": "Polygon",
+			"coordinates": []any{[]any{
+				[]any{lon, lat},
+				[]any{lon + 0.01, lat},
+				[]any{lon + 0.01, lat + 0.01},
+				[]any{lon, lat + 0.01},
+				[]any{lon, lat},
+			}},
+		}
+	}
+	multiPolygon := func(lon, lat float64) map[string]any {
+		return map[string]any{
+			"type": "MultiPolygon",
+			"coordinates": []any{[]any{[]any{
+				[]any{lon, lat},
+				[]any{lon + 0.01, lat},
+				[]any{lon + 0.01, lat + 0.01},
+				[]any{lon, lat + 0.01},
+				[]any{lon, lat},
+			}}},
+		}
+	}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID: srcUser,
+		columns: map[string][]string{
+			"segments": {
+				"id", "created_by", "name", "sport_group", "segment_type", "course_kind", "visibility",
+			},
+			"segment_versions": {
+				"id", "segment_id", "version_number", "track", "valid_from", "created_by",
+				"matching_contract_key", "matching_contract_version", "validity_basis",
+			},
+			"course_version_controls": {
+				"id", "segment_id", "segment_version_id", "sequence_index", "role", "primitive",
+				"geometry_shape", "label", "geom", "hit_radius_m", "area_radius_m", "required",
+			},
+		},
+		segments: []map[string]any{
+			{
+				"id":           segmentOldID,
+				"created_by":   srcUser,
+				"name":         "Checkpoint Import Course",
+				"sport_group":  "generic",
+				"segment_type": "standard",
+				"course_kind":  "checkpoint_sequence",
+				"visibility":   "private",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/segment_versions.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":             versionOldID,
+					"segment_id":     segmentOldID,
+					"version_number": 1,
+					"track": map[string]any{
+						"type":        "LineString",
+						"coordinates": []any{[]any{11.0, 47.0}, []any{11.1, 47.1}, []any{11.2, 47.2}},
+					},
+					"valid_from":                "2026-05-22",
+					"created_by":                srcUser,
+					"matching_contract_key":     "checkpoint_sequence_v1",
+					"matching_contract_version": 1,
+					"validity_basis":            "import_asserted",
+				},
+			}),
+			"data/course_version_controls.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                 controlOldIDs[0],
+					"segment_id":         segmentOldID,
+					"segment_version_id": versionOldID,
+					"sequence_index":     0,
+					"role":               "start",
+					"primitive":          "point",
+					"geometry_shape":     "point",
+					"label":              "Start",
+					"geom":               point(11.0, 47.0),
+					"hit_radius_m":       25,
+					"area_radius_m":      nil,
+					"required":           true,
+				},
+				{
+					"id":                 controlOldIDs[1],
+					"segment_id":         segmentOldID,
+					"segment_version_id": versionOldID,
+					"sequence_index":     1,
+					"role":               "checkpoint",
+					"primitive":          "area",
+					"geometry_shape":     "polygon",
+					"label":              "Polygon Middle",
+					"geom":               polygon(11.1, 47.1),
+					"hit_radius_m":       nil,
+					"area_radius_m":      nil,
+					"required":           true,
+				},
+				{
+					"id":                 controlOldIDs[2],
+					"segment_id":         segmentOldID,
+					"segment_version_id": versionOldID,
+					"sequence_index":     2,
+					"role":               "checkpoint",
+					"primitive":          "area",
+					"geometry_shape":     "multipolygon",
+					"label":              "MultiPolygon Middle",
+					"geom":               multiPolygon(11.15, 47.15),
+					"hit_radius_m":       nil,
+					"area_radius_m":      nil,
+					"required":           true,
+				},
+				{
+					"id":                 controlOldIDs[3],
+					"segment_id":         segmentOldID,
+					"segment_version_id": versionOldID,
+					"sequence_index":     3,
+					"role":               "finish",
+					"primitive":          "point",
+					"geometry_shape":     "point",
+					"label":              "Finish",
+					"geom":               point(11.2, 47.2),
+					"hit_radius_m":       25,
+					"area_radius_m":      nil,
+					"required":           true,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	result, err := newEngine(pool).RunImport(context.Background(), ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
+	}
+
+	var count int
+	var importedVersionID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*), c.segment_version_id::text
+		FROM course_version_controls c
+		JOIN segment_versions sv ON sv.id = c.segment_version_id AND sv.segment_id = c.segment_id
+		JOIN segments s ON s.id = sv.segment_id
+		WHERE s.created_by = $1
+		  AND s.name = 'Checkpoint Import Course'
+		  AND c.segment_id <> $2
+		  AND c.segment_version_id <> $3
+		  AND c.id <> ALL($4::uuid[])
+		GROUP BY c.segment_version_id
+	`, userID, segmentOldID, versionOldID, controlOldIDs).Scan(&count, &importedVersionID); err != nil {
+		t.Fatalf("query imported controls: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("imported controls = %d, want 4", count)
+	}
+
+	var sequences []int
+	rows, err := pool.Query(context.Background(), `
+		SELECT sequence_index, geometry_shape
+		FROM course_version_controls
+		WHERE segment_version_id = $1
+		ORDER BY sequence_index
+	`, importedVersionID)
+	if err != nil {
+		t.Fatalf("query sequence indexes: %v", err)
+	}
+	defer rows.Close()
+	var shapes []string
+	for rows.Next() {
+		var sequence int
+		var shape string
+		if err := rows.Scan(&sequence, &shape); err != nil {
+			t.Fatalf("scan sequence index: %v", err)
+		}
+		sequences = append(sequences, sequence)
+		shapes = append(shapes, shape)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("sequence rows: %v", err)
+	}
+	if fmt.Sprint(sequences) != "[0 1 2 3]" {
+		t.Fatalf("sequence indexes = %v, want [0 1 2 3]", sequences)
+	}
+	if fmt.Sprint(shapes) != "[point polygon multipolygon point]" {
+		t.Fatalf("geometry shapes = %v, want [point polygon multipolygon point]", shapes)
+	}
+}
+
+func TestTargetOverlayRowsImportWithSubjectAndActivityRemap(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	placeOldID := uuid.New().String()
+	activityOldID := uuid.New().String()
+	reportOldID := uuid.New().String()
+	observationOldID := uuid.New().String()
+	contentOldID := uuid.New().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+	point := map[string]any{
+		"type":        "Point",
+		"coordinates": []any{11.1, 47.1},
+	}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID: srcUser,
+		columns: map[string][]string{
+			"target_places": {
+				"id", "owner_user_id", "name", "place_kind", "geom", "visibility", "origin_key", "created_by",
+			},
+			"activities": {
+				"id", "user_id", "title", "sport_type", "started_at",
+			},
+			"target_reports": {
+				"id", "overlay_subject_kind", "subject_id", "author_user_id", "report_type",
+				"visibility", "attribution_mode", "description", "source_activity_id",
+				"source_policy_key", "observed_at", "moderation_state", "resolver_effect",
+			},
+			"target_user_content": {
+				"id", "overlay_subject_kind", "subject_id", "user_id", "content_kind",
+				"payload", "visibility", "moderation_state",
+			},
+			"target_activity_observations": {
+				"id", "overlay_subject_kind", "subject_id", "activity_id", "user_id",
+				"observation_type", "source_type", "source_id", "source_occurrence_key",
+				"visibility", "visibility_snapshot", "authorization_mode", "occurred_at",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":         activityOldID,
+				"user_id":    srcUser,
+				"title":      "Overlay Source Activity",
+				"sport_type": "running",
+				"started_at": now,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/target_places.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":            placeOldID,
+					"owner_user_id": srcUser,
+					"name":          "Imported Overlay Place",
+					"place_kind":    "poi",
+					"geom":          point,
+					"visibility":    "public",
+					"origin_key":    "manual",
+					"created_by":    srcUser,
+				},
+			}),
+			"data/target_reports.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                   reportOldID,
+					"overlay_subject_kind": "place",
+					"subject_id":           placeOldID,
+					"author_user_id":       srcUser,
+					"report_type":          "condition",
+					"visibility":           "public",
+					"attribution_mode":     "named",
+					"description":          "Imported report",
+					"source_activity_id":   activityOldID,
+					"source_policy_key":    "activity_reference",
+					"observed_at":          now,
+					"moderation_state":     "visible",
+					"resolver_effect":      "none",
+				},
+			}),
+			"data/target_user_content.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                   contentOldID,
+					"overlay_subject_kind": "place",
+					"subject_id":           placeOldID,
+					"user_id":              srcUser,
+					"content_kind":         "comment",
+					"payload":              map[string]any{"text": "Imported comment"},
+					"visibility":           "public",
+					"moderation_state":     "visible",
+				},
+			}),
+			"data/target_activity_observations.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                    observationOldID,
+					"overlay_subject_kind":  "place",
+					"subject_id":            placeOldID,
+					"activity_id":           activityOldID,
+					"user_id":               srcUser,
+					"observation_type":      "visit",
+					"source_type":           "activity",
+					"source_id":             activityOldID,
+					"source_occurrence_key": "once",
+					"visibility":            "public",
+					"visibility_snapshot":   "public",
+					"authorization_mode":    "live_source_activity",
+					"occurred_at":           now,
+				},
+			}),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
+	}
+
+	var placeID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT id FROM target_places WHERE owner_user_id = $1 AND name = 'Imported Overlay Place'
+	`, userID).Scan(&placeID); err != nil {
+		t.Fatalf("imported place: %v", err)
+	}
+	var activityID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT id FROM activities WHERE user_id = $1 AND title = 'Overlay Source Activity'
+	`, userID).Scan(&activityID); err != nil {
+		t.Fatalf("imported activity: %v", err)
+	}
+
+	for _, tc := range []struct {
+		table   string
+		userCol string
+	}{
+		{table: "target_reports", userCol: "author_user_id"},
+		{table: "target_user_content", userCol: "user_id"},
+		{table: "target_activity_observations", userCol: "user_id"},
+	} {
+		var count int
+		if err := pool.QueryRow(context.Background(), fmt.Sprintf(`
+			SELECT COUNT(*) FROM %s
+			WHERE overlay_subject_kind = 'place'
+			  AND subject_id = $1
+			  AND %s = $2
+			  AND visibility = 'private'
+			  AND access_scope_id IS NULL
+		`, tc.table, tc.userCol), placeID, userID).Scan(&count); err != nil {
+			t.Fatalf("count imported %s: %v", tc.table, err)
+		}
+		if count != 1 {
+			t.Fatalf("%s imported private remapped rows = %d, want 1", tc.table, count)
+		}
+	}
+
+	var reportActivityID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT source_activity_id FROM target_reports WHERE subject_id = $1
+	`, placeID).Scan(&reportActivityID); err != nil {
+		t.Fatalf("report activity remap: %v", err)
+	}
+	if reportActivityID != activityID {
+		t.Fatalf("report source_activity_id = %s, want %s", reportActivityID, activityID)
+	}
+}
+
 func TestNullableActivityGeometryImport(t *testing.T) {
 	pool := testDB(t)
 	userID := createTestUser(t, pool)
@@ -4078,6 +4455,331 @@ func TestRunImportRebuildsTargetObjectProjections(t *testing.T) {
 	}
 	if !foundCollection {
 		t.Fatalf("imported collections = %#v, want rebuilt member summary", collections)
+	}
+}
+
+func TestRunImportRestoresTargetOverlayRowsWithRemappedSubjects(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	srcUser := uuid.New().String()
+	placeID := uuid.New().String()
+	collectionID := uuid.New().String()
+	segmentID := uuid.New().String()
+	versionID := uuid.New().String()
+	activityID := uuid.New().String()
+	observationID := uuid.New().String()
+	reportID := uuid.New().String()
+	contentID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"target_places": {
+				"id", "owner_user_id", "name", "place_kind", "geom", "visibility", "origin_key",
+			},
+			"target_collections": {
+				"id", "owner_user_id", "name", "collection_kind", "visibility", "origin_key",
+			},
+			"segments": {
+				"id", "created_by", "name", "sport_group", "segment_type", "course_kind", "visibility",
+			},
+			"segment_versions": {
+				"id", "segment_id", "version_number", "track", "valid_from", "created_by",
+				"matching_contract_key", "matching_contract_version", "validity_basis",
+			},
+			"activities": {
+				"id", "user_id", "sport_type", "started_at", "title",
+			},
+			"target_activity_observations": {
+				"id", "overlay_subject_kind", "subject_id", "activity_id", "user_id",
+				"observation_type", "source_type", "source_id", "source_occurrence_key",
+				"activity_tuple", "stats", "visibility", "visibility_snapshot", "occurred_at",
+			},
+			"target_reports": {
+				"id", "overlay_subject_kind", "subject_id", "target_version_id", "author_user_id",
+				"report_type", "description", "source_activity_id", "observed_at", "visibility",
+			},
+			"target_user_content": {
+				"id", "overlay_subject_kind", "subject_id", "user_id", "content_kind",
+				"activity_id", "payload", "visibility",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":         activityID,
+				"user_id":    srcUser,
+				"sport_type": "cycling",
+				"started_at": "2026-05-22T08:00:00Z",
+				"title":      "Overlay import source activity",
+			},
+		},
+		segments: []map[string]any{
+			{
+				"id":           segmentID,
+				"created_by":   srcUser,
+				"name":         "Overlay Import Course",
+				"sport_group":  "generic",
+				"segment_type": "standard",
+				"course_kind":  "line",
+				"visibility":   "public",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/target_places.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":            placeID,
+					"owner_user_id": srcUser,
+					"name":          "Overlay Import Place",
+					"place_kind":    "custom",
+					"geom": map[string]any{
+						"type":        "Point",
+						"coordinates": []any{8.1, 49.1},
+					},
+					"visibility": "public",
+					"origin_key": "manual",
+				},
+			}),
+			"data/target_collections.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":              collectionID,
+					"owner_user_id":   srcUser,
+					"name":            "Overlay Import Collection",
+					"collection_kind": "private_map",
+					"visibility":      "public",
+					"origin_key":      "manual",
+				},
+			}),
+			"data/segment_versions.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":             versionID,
+					"segment_id":     segmentID,
+					"version_number": 1,
+					"track": map[string]any{
+						"type":        "LineString",
+						"coordinates": []any{[]any{11.0, 47.0}, []any{11.1, 47.1}},
+					},
+					"valid_from":                "2026-05-22",
+					"created_by":                srcUser,
+					"matching_contract_key":     "course_gps_v1",
+					"matching_contract_version": 1,
+					"validity_basis":            "import_asserted",
+				},
+			}),
+			"data/target_activity_observations.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                    observationID,
+					"overlay_subject_kind":  "place",
+					"subject_id":            placeID,
+					"activity_id":           activityID,
+					"user_id":               srcUser,
+					"observation_type":      "visit",
+					"source_type":           "manual",
+					"source_id":             "manual-visit",
+					"source_occurrence_key": "visit-1",
+					"activity_tuple":        map[string]any{},
+					"stats":                 map[string]any{"duration_s": 30},
+					"visibility":            "public",
+					"visibility_snapshot":   "public",
+					"occurred_at":           "2026-05-22T09:00:00Z",
+				},
+			}),
+			"data/target_reports.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                   reportID,
+					"overlay_subject_kind": "course",
+					"subject_id":           segmentID,
+					"target_version_id":    versionID,
+					"author_user_id":       srcUser,
+					"report_type":          "condition",
+					"description":          "Synthetic import condition",
+					"source_activity_id":   activityID,
+					"observed_at":          "2026-05-22T09:05:00Z",
+					"visibility":           "public",
+				},
+			}),
+			"data/target_user_content.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                   contentID,
+					"overlay_subject_kind": "collection",
+					"subject_id":           collectionID,
+					"user_id":              srcUser,
+					"content_kind":         "comment",
+					"activity_id":          activityID,
+					"payload":              map[string]any{"text": "Synthetic import comment"},
+					"visibility":           "public",
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	result, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
+	}
+
+	assertImportedOverlayJoinCount(t, pool, `
+		SELECT COUNT(*)
+		FROM target_activity_observations o
+		JOIN target_places p ON p.id = o.subject_id
+		JOIN activities a ON a.id = o.activity_id
+		WHERE o.user_id = $1
+		  AND p.owner_user_id = $1
+		  AND a.user_id = $1
+		  AND o.id <> $2
+		  AND o.subject_id <> $3
+		  AND o.activity_id <> $4
+		  AND o.visibility = 'private'
+		  AND o.visibility_snapshot = 'private'
+		  AND o.access_scope_id IS NULL
+	`, userID, observationID, placeID, activityID)
+	assertImportedOverlayJoinCount(t, pool, `
+		SELECT COUNT(*)
+		FROM target_reports r
+		JOIN segments s ON s.id = r.subject_id
+		JOIN segment_versions sv ON sv.id = r.target_version_id AND sv.segment_id = s.id
+		JOIN activities a ON a.id = r.source_activity_id
+		WHERE r.author_user_id = $1
+		  AND s.created_by = $1
+		  AND sv.created_by = $1
+		  AND a.user_id = $1
+		  AND r.id <> $2
+		  AND r.subject_id <> $3
+		  AND r.target_version_id <> $4
+		  AND r.source_activity_id <> $5
+		  AND r.visibility = 'private'
+		  AND r.access_scope_id IS NULL
+	`, userID, reportID, segmentID, versionID, activityID)
+	assertImportedOverlayJoinCount(t, pool, `
+		SELECT COUNT(*)
+		FROM target_user_content c
+		JOIN target_collections tc ON tc.id = c.subject_id
+		JOIN activities a ON a.id = c.activity_id
+		WHERE c.user_id = $1
+		  AND tc.owner_user_id = $1
+		  AND a.user_id = $1
+		  AND c.id <> $2
+		  AND c.subject_id <> $3
+		  AND c.activity_id <> $4
+		  AND c.visibility = 'private'
+		  AND c.access_scope_id IS NULL
+	`, userID, contentID, collectionID, activityID)
+}
+
+func TestRunImportSkipsCourseOverlayWhenTargetVersionBelongsToDifferentSubject(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	srcUser := uuid.New().String()
+	subjectSegmentID := uuid.New().String()
+	otherSegmentID := uuid.New().String()
+	otherVersionID := uuid.New().String()
+	reportID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"segments": {
+				"id", "created_by", "name", "sport_group", "segment_type", "course_kind", "visibility",
+			},
+			"segment_versions": {
+				"id", "segment_id", "version_number", "track", "valid_from", "created_by",
+				"matching_contract_key", "matching_contract_version", "validity_basis",
+			},
+			"target_reports": {
+				"id", "overlay_subject_kind", "subject_id", "target_version_id", "author_user_id",
+				"report_type", "description", "observed_at", "visibility",
+			},
+		},
+		segments: []map[string]any{
+			{
+				"id":           subjectSegmentID,
+				"created_by":   srcUser,
+				"name":         "Overlay Subject Course",
+				"sport_group":  "generic",
+				"segment_type": "standard",
+				"course_kind":  "line",
+				"visibility":   "private",
+			},
+			{
+				"id":           otherSegmentID,
+				"created_by":   srcUser,
+				"name":         "Overlay Other Course",
+				"sport_group":  "generic",
+				"segment_type": "standard",
+				"course_kind":  "line",
+				"visibility":   "private",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/segment_versions.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":             otherVersionID,
+					"segment_id":     otherSegmentID,
+					"version_number": 1,
+					"track": map[string]any{
+						"type":        "LineString",
+						"coordinates": []any{[]any{11.0, 47.0}, []any{11.1, 47.1}},
+					},
+					"valid_from":                "2026-05-22",
+					"created_by":                srcUser,
+					"matching_contract_key":     "course_gps_v1",
+					"matching_contract_version": 1,
+					"validity_basis":            "import_asserted",
+				},
+			}),
+			"data/target_reports.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":                   reportID,
+					"overlay_subject_kind": "course",
+					"subject_id":           subjectSegmentID,
+					"target_version_id":    otherVersionID,
+					"author_user_id":       srcUser,
+					"report_type":          "condition",
+					"description":          "Mismatched synthetic condition",
+					"observed_at":          "2026-05-22T09:10:00Z",
+					"visibility":           "public",
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	result, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
+	}
+	if result.EntitiesSkipped == 0 {
+		t.Fatalf("EntitiesSkipped = 0, want mismatched overlay report skipped")
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM target_reports WHERE author_user_id = $1`, userID).Scan(&count); err != nil {
+		t.Fatalf("count imported reports: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("imported reports = %d, want 0 for mismatched subject/version", count)
+	}
+}
+
+func assertImportedOverlayJoinCount(t *testing.T, pool *pgxpool.Pool, query string, args ...any) {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(context.Background(), query, args...).Scan(&count); err != nil {
+		t.Fatalf("query imported overlay rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("imported overlay join count = %d, want 1", count)
 	}
 }
 

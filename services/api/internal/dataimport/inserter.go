@@ -376,6 +376,23 @@ func (e *Engine) prepareRow(
 		out["access_scope_id"] = nil
 	case "target_collection_members":
 		out["added_by"] = userID
+	case "target_activity_observations":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+		out["visibility_snapshot"] = "private"
+		out["authorization_mode"] = "owner"
+		out["source_match_id"] = nil
+		out["source_effort_id"] = nil
+		if oldVersionID, ok := stringVal(out["source_effort_segment_version_id"]); ok && oldVersionID != "" {
+			if newVersionID, exists := idMap.GetIfExists(oldVersionID); exists {
+				out["source_effort_segment_version_id"] = newVersionID
+			} else {
+				out["source_effort_segment_version_id"] = nil
+			}
+		}
+	case "target_reports", "target_user_content":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
 	}
 
 	return out
@@ -451,6 +468,16 @@ func (e *Engine) insertRow(
 	if spec.Name == "automation_rules" {
 		return e.insertAutomationRule(ctx, tx, spec, row, idMap, oldID, userID, insertCols, geometryCols)
 	}
+	if isTargetOverlayImportTable(spec.Name) {
+		importable, err := targetOverlayRowImportable(ctx, tx, row)
+		if err != nil {
+			return failed, err
+		}
+		if !importable {
+			return skippedWithWarning, nil
+		}
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
+	}
 
 	switch spec.Conflict {
 	case cmMergeID:
@@ -481,6 +508,106 @@ func (e *Engine) insertRow(
 	default: // cmInsert, cmReplace (delete already done), cmUpsert
 		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
 	}
+}
+
+func isTargetOverlayImportTable(name string) bool {
+	switch name {
+	case "target_activity_observations", "target_reports", "target_user_content":
+		return true
+	default:
+		return false
+	}
+}
+
+func targetOverlayRowImportable(ctx context.Context, tx pgx.Tx, row map[string]any) (bool, error) {
+	subjectKind, _ := stringVal(row["overlay_subject_kind"])
+	subjectID, ok := stringVal(row["subject_id"])
+	subjectKind = strings.TrimSpace(subjectKind)
+	if !ok || strings.TrimSpace(subjectID) == "" {
+		return false, nil
+	}
+
+	var subjectTable string
+	switch subjectKind {
+	case "course":
+		subjectTable = "segments"
+	case "route_publication":
+		subjectTable = "route_course_publications"
+	case "place":
+		subjectTable = "target_places"
+	case "region":
+		subjectTable = "target_regions"
+	case "collection":
+		subjectTable = "target_collections"
+	default:
+		return false, nil
+	}
+	subjectExists, err := uuidExists(ctx, tx, subjectTable, "id", subjectID)
+	if err != nil || !subjectExists {
+		return subjectExists, err
+	}
+
+	targetVersionID, hasTargetVersion := stringVal(row["target_version_id"])
+	if hasTargetVersion && strings.TrimSpace(targetVersionID) != "" {
+		switch subjectKind {
+		case "course":
+			var exists bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM segment_versions
+					WHERE id = $1 AND segment_id = $2
+				)
+			`, targetVersionID, subjectID).Scan(&exists); err != nil {
+				return false, fmt.Errorf("target overlay import course version: %w", err)
+			}
+			if !exists {
+				return false, nil
+			}
+		case "route_publication":
+			var exists bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM route_course_publications
+					WHERE id = $1 AND course_segment_version_id = $2 AND retired_at IS NULL
+				)
+			`, subjectID, targetVersionID).Scan(&exists); err != nil {
+				return false, fmt.Errorf("target overlay import publication version: %w", err)
+			}
+			if !exists {
+				return false, nil
+			}
+		default:
+			return false, nil
+		}
+	}
+
+	for _, activityCol := range []string{"activity_id", "source_activity_id"} {
+		activityID, ok := stringVal(row[activityCol])
+		if !ok || strings.TrimSpace(activityID) == "" {
+			continue
+		}
+		exists, err := uuidExists(ctx, tx, "activities", "id", activityID)
+		if err != nil || !exists {
+			return exists, err
+		}
+	}
+
+	return true, nil
+}
+
+func uuidExists(ctx context.Context, tx pgx.Tx, table, column, id string) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		fmt.Sprintf(
+			"SELECT EXISTS(SELECT 1 FROM %s WHERE %s = $1)",
+			pgx.Identifier{table}.Sanitize(),
+			pgx.Identifier{column}.Sanitize(),
+		),
+		id,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("target overlay import lookup %s.%s: %w", table, column, err)
+	}
+	return exists, nil
 }
 
 func (e *Engine) insertAutomationRule(

@@ -246,7 +246,10 @@ func TestListSegmentsUsesSegmentScopedEffortDedupe(t *testing.T) {
 	if strings.Contains(body, "WITH user_efforts_ranked AS") {
 		t.Fatalf("ListSegments still uses a global user_efforts_ranked CTE")
 	}
-	if !strings.Contains(body, "LEFT JOIN LATERAL (\n    SELECT COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count") {
-		t.Fatalf("ListSegments does not use segment-scoped lateral effort dedupe")
+	if !strings.Contains(body, "useInlineRiddenCounts := p.CompletedOnly || p.LiftsOnlyRidden") {
+		t.Fatalf("ListSegments does not restrict inline viewer aggregation to filters that need it")
+	}
+	if !strings.Contains(body, "attachListSegmentRiddenCounts") {
+		t.Fatalf("ListSegments does not batch viewer ridden counts after page selection")
 	}
 }

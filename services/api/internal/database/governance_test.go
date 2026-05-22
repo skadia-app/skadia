@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ func TestGovernanceScopeRoleBindingGrantsExplicitPermission(t *testing.T) {
 	place := createTargetPlaceFixture(t, db, ownerID, "governed place", "public", nil, `[8,49]`)
 
 	scope := createGovernanceScopeFixture(t, db, ownerID, "place", place.ID)
-	addGovernanceRoleFixture(t, db, ownerID, scope.ID, adminID, []string{"edit_metadata"})
+	addGovernanceRoleFixture(t, db, ownerID, scope.ID, adminID, []string{"edit_metadata", "manage_members"})
 	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "place", place.ID, "metadata")
 
 	canEdit, err := db.CanEditTarget(ctx, adminID, "place", place.ID, "edit_metadata")
@@ -25,6 +26,135 @@ func TestGovernanceScopeRoleBindingGrantsExplicitPermission(t *testing.T) {
 	if !canEdit {
 		t.Fatal("explicit governance role and binding did not grant edit_metadata")
 	}
+	canManageMembers, err := db.CanEditTarget(ctx, adminID, "place", place.ID, "manage_members")
+	if err != nil {
+		t.Fatalf("CanEditTarget manage_members: %v", err)
+	}
+	if canManageMembers {
+		t.Fatal("metadata-scoped governance binding granted manage_members")
+	}
+}
+
+func TestGovernanceEffectivePermissionsProjectToTargetObjectResponses(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "managed place", "public", nil, `[8,49]`)
+	region := createTargetRegionFixture(t, db, ownerID, "managed region", "public", nil, `[[[8,49],[8.01,49],[8.01,49.01],[8,49.01],[8,49]]]`)
+	collection := createTargetCollectionFixture(t, db, ownerID, "managed collection", "public", nil)
+	scope := createGovernanceScopeFixture(t, db, ownerID, "collection", collection.ID)
+	addGovernanceRoleFixture(t, db, ownerID, scope.ID, managerID, []string{"manage_members", "manage_reports"})
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "place", place.ID, "reports")
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "region", region.ID, "reports")
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "collection", collection.ID, "membership")
+
+	gotPlace, err := db.GetTargetPlace(ctx, managerID, place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetPlace: %v", err)
+	}
+	assertExactPermissions(t, gotPlace.EffectivePermissions, "manage_reports")
+
+	gotRegion, err := db.GetTargetRegion(ctx, managerID, region.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetRegion: %v", err)
+	}
+	assertExactPermissions(t, gotRegion.EffectivePermissions, "manage_reports")
+
+	listedPlaces, err := db.ListTargetPlaces(ctx, model.ListTargetObjectsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetPlaces: %v", err)
+	}
+	assertListedTargetPlacePermissions(t, listedPlaces, place.ID, "manage_reports")
+
+	listedRegions, err := db.ListTargetRegions(ctx, model.ListTargetObjectsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetRegions: %v", err)
+	}
+	assertListedTargetRegionPermissions(t, listedRegions, region.ID, "manage_reports")
+
+	gotCollection, err := db.GetTargetCollection(ctx, managerID, collection.ID, nil, false)
+	if err != nil {
+		t.Fatalf("GetTargetCollection: %v", err)
+	}
+	assertExactPermissions(t, gotCollection.EffectivePermissions, "manage_members")
+
+	listed, err := db.ListTargetCollections(ctx, model.ListTargetCollectionsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetCollections: %v", err)
+	}
+	summary := findTargetCollectionSummary(t, listed, collection.ID)
+	assertExactPermissions(t, summary.EffectivePermissions, "manage_members")
+}
+
+func TestGovernanceEffectivePermissionsProjectToSegmentResponses(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	segment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("managed segment", "public", nil))
+	if err != nil {
+		t.Fatalf("CreateSegment: %v", err)
+	}
+	scope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope: %v", err)
+	}
+	addGovernanceRoleFixture(t, db, ownerID, scope.ID, managerID, []string{"manage_reports"})
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "course", segment.ID, "reports")
+
+	listed, err := db.ListSegments(ctx, model.ListSegmentsParams{UserID: managerID, Limit: -1})
+	if err != nil {
+		t.Fatalf("ListSegments: %v", err)
+	}
+	found := false
+	for _, listedSegment := range listed.Segments {
+		if listedSegment.ID == segment.ID {
+			found = true
+			assertPermissions(t, listedSegment.EffectivePermissions, "manage_reports")
+		}
+	}
+	if !found {
+		t.Fatalf("ListSegments did not return segment %s", segment.ID)
+	}
+
+	got, err := db.GetSegment(ctx, segment.ID, managerID, false, false)
+	if err != nil {
+		t.Fatalf("GetSegment: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetSegment returned nil")
+	}
+	assertPermissions(t, got.EffectivePermissions, "manage_reports")
+}
+
+func TestSegmentResponsesOnlyExposeGovernancePermissionsUsedBySegmentUI(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	segment, err := db.CreateSegment(ctx, ownerID, objectAccessSegmentCreate("managed metadata segment", "public", nil))
+	if err != nil {
+		t.Fatalf("CreateSegment: %v", err)
+	}
+	scope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope: %v", err)
+	}
+	addGovernanceRoleFixture(t, db, ownerID, scope.ID, managerID, []string{"edit_metadata", "manage_reports"})
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "course", segment.ID, "metadata")
+	addGovernanceBindingFixture(t, db, ownerID, scope.ID, "course", segment.ID, "reports")
+
+	got, err := db.GetSegment(ctx, segment.ID, managerID, false, false)
+	if err != nil {
+		t.Fatalf("GetSegment: %v", err)
+	}
+	assertExactPermissions(t, got.EffectivePermissions, "manage_reports")
 }
 
 func TestGovernanceDoesNotInferPermissionFromRegionOverlap(t *testing.T) {
@@ -536,4 +666,43 @@ func addGovernanceBindingFixture(t *testing.T, db *DB, actorID, scopeID, targetK
 		t.Fatalf("AddGovernanceScopeTargetBinding: %v", err)
 	}
 	return binding
+}
+
+func assertPermissions(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	for _, permission := range want {
+		if !slices.Contains(got, permission) {
+			t.Fatalf("permissions = %#v, want %s", got, permission)
+		}
+	}
+}
+
+func assertExactPermissions(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("permissions = %#v, want exactly %#v", got, want)
+	}
+	assertPermissions(t, got, want...)
+}
+
+func assertListedTargetPlacePermissions(t *testing.T, places []model.TargetPlace, id string, want ...string) {
+	t.Helper()
+	for _, place := range places {
+		if place.ID == id {
+			assertPermissions(t, place.EffectivePermissions, want...)
+			return
+		}
+	}
+	t.Fatalf("places did not include %s", id)
+}
+
+func assertListedTargetRegionPermissions(t *testing.T, regions []model.TargetRegion, id string, want ...string) {
+	t.Helper()
+	for _, region := range regions {
+		if region.ID == id {
+			assertPermissions(t, region.EffectivePermissions, want...)
+			return
+		}
+	}
+	t.Fatalf("regions did not include %s", id)
 }

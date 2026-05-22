@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -87,6 +89,111 @@ func TestSharedTargetObjectsRequireResolvedScope(t *testing.T) {
 		t.Fatalf("ListTargetPlaces with scope: %v", err)
 	}
 	assertTargetPlaceIDs(t, withScope, sharedPlace.ID)
+}
+
+func TestGovernanceGrantMakesPrivateTargetObjectsReadable(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "private governed place", "private", nil, `[8,49]`)
+	region := createTargetRegionFixture(t, db, ownerID, "private governed region", "private", nil, `[[[8,49],[8.01,49],[8.01,49.01],[8,49.01],[8,49]]]`)
+
+	createTargetObjectGovernanceGrant(t, db, ownerID, managerID, "place", place.ID, []string{"edit_metadata"}, "metadata")
+	createTargetObjectGovernanceGrant(t, db, ownerID, managerID, "region", region.ID, []string{"edit_geometry"}, "geometry")
+
+	gotPlace, err := db.GetTargetPlace(ctx, managerID, place.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetPlace governed private: %v", err)
+	}
+	if gotPlace.ID != place.ID || !strings.Contains(strings.Join(gotPlace.EffectivePermissions, ","), "edit_metadata") {
+		t.Fatalf("governed place = %#v", gotPlace)
+	}
+	gotRegion, err := db.GetTargetRegion(ctx, managerID, region.ID, nil)
+	if err != nil {
+		t.Fatalf("GetTargetRegion governed private: %v", err)
+	}
+	if gotRegion.ID != region.ID || !strings.Contains(strings.Join(gotRegion.EffectivePermissions, ","), "edit_geometry") {
+		t.Fatalf("governed region = %#v", gotRegion)
+	}
+
+	places, err := db.ListTargetPlaces(ctx, model.ListTargetObjectsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetPlaces governed private: %v", err)
+	}
+	assertTargetPlaceIDs(t, places, place.ID)
+	regions, err := db.ListTargetRegions(ctx, model.ListTargetObjectsParams{UserID: managerID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListTargetRegions governed private: %v", err)
+	}
+	assertTargetRegionIDs(t, regions, region.ID)
+}
+
+func TestTargetObjectUpdateRequiresChangedFieldPermission(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	metadataManagerID := insertObjectAccessTestUser(t, db)
+	externalRefManagerID := insertObjectAccessTestUser(t, db)
+	place := createTargetPlaceFixture(t, db, ownerID, "permissioned place", "private", nil, `[8,49]`)
+
+	createTargetObjectGovernanceGrant(t, db, ownerID, metadataManagerID, "place", place.ID, []string{"edit_metadata"}, "metadata")
+	createTargetObjectGovernanceGrant(t, db, ownerID, externalRefManagerID, "place", place.ID, []string{"link_external_refs"}, "metadata")
+
+	renamed := "delegated rename"
+	if _, err := db.UpdateTargetPlace(ctx, metadataManagerID, place.ID, model.TargetPlaceUpdate{Name: &renamed}); err != nil {
+		t.Fatalf("metadata-scoped rename: %v", err)
+	}
+	externalRef := "external:source"
+	if _, err := db.UpdateTargetPlace(ctx, metadataManagerID, place.ID, model.TargetPlaceUpdate{ExternalRef: &externalRef}); !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("metadata permission changed external ref err = %v, want ErrTargetNotFound", err)
+	}
+	if _, err := db.UpdateTargetPlace(ctx, externalRefManagerID, place.ID, model.TargetPlaceUpdate{ExternalRef: &externalRef}); err != nil {
+		t.Fatalf("external-ref-scoped update: %v", err)
+	}
+	if _, err := db.UpdateTargetPlace(ctx, externalRefManagerID, place.ID, model.TargetPlaceUpdate{Name: &renamed}); !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("external-ref permission changed metadata err = %v, want ErrTargetNotFound", err)
+	}
+}
+
+func TestTargetObjectCreateRejectsInvalidGeoJSONBeforePostGIS(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateTargetPlace(ctx, ownerID, model.TargetPlaceCreate{
+		Name:            "bad place",
+		PlaceKind:       "custom",
+		GeometryGeoJSON: `{"type":"LineString","coordinates":[[8,49],[8.1,49.1]]}`,
+		Visibility:      "public",
+		OriginKey:       "manual",
+	}); !errors.Is(err, ErrTargetValidation) {
+		t.Fatalf("CreateTargetPlace invalid geometry err = %v, want ErrTargetValidation", err)
+	}
+	if _, err := db.CreateTargetRegion(ctx, ownerID, model.TargetRegionCreate{
+		Name:            "bad region",
+		RegionKind:      "custom",
+		GeometryGeoJSON: `{"type":"Point","coordinates":[8,49]}`,
+		Visibility:      "public",
+		OriginKey:       "manual",
+	}); !errors.Is(err, ErrTargetValidation) {
+		t.Fatalf("CreateTargetRegion invalid geometry err = %v, want ErrTargetValidation", err)
+	}
+	if _, err := db.CreateTargetPlace(ctx, ownerID, model.TargetPlaceCreate{
+		Name:            "bad kind",
+		PlaceKind:       "spaceport",
+		GeometryGeoJSON: `{"type":"Point","coordinates":[8,49]}`,
+		Visibility:      "public",
+		OriginKey:       "manual",
+	}); !errors.Is(err, ErrTargetValidation) {
+		t.Fatalf("CreateTargetPlace invalid enum err = %v, want ErrTargetValidation", err)
+	}
+	if _, err := db.CreateTargetPlace(ctx, ownerID, model.TargetPlaceCreate{
+		Name:            "bad coordinates",
+		PlaceKind:       "custom",
+		GeometryGeoJSON: `{"type":"Point","coordinates":["east","north"]}`,
+		Visibility:      "public",
+		OriginKey:       "manual",
+	}); !errors.Is(err, ErrTargetValidation) {
+		t.Fatalf("CreateTargetPlace invalid coordinates err = %v, want ErrTargetValidation", err)
+	}
 }
 
 func TestTargetObjectExternalRefsAreViewerRedacted(t *testing.T) {
@@ -180,6 +287,35 @@ func TestRevokingAccessScopeDemotesTargetObjects(t *testing.T) {
 	assertTargetAccessState(t, db, "target_regions", region.ID, "private", false)
 	assertTargetAccessState(t, db, "target_collections", collectionID, "private", false)
 	assertTargetCollectionProjectionAccessState(t, db, collectionID, "private", false)
+}
+
+func createTargetObjectGovernanceGrant(t *testing.T, db *DB, ownerID, actorID, targetKind, targetID string, permissions []string, permissionsScope string) {
+	t.Helper()
+	scope, err := db.CreateGovernanceScope(context.Background(), ownerID, model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope: %v", err)
+	}
+	if _, err := db.AddGovernanceActorRole(context.Background(), ownerID, scope.ID, model.GovernanceActorRoleCreate{
+		ActorType:   "user",
+		ActorUserID: &actorID,
+		Role:        "maintainer",
+		Permissions: permissions,
+	}); err != nil {
+		t.Fatalf("AddGovernanceActorRole: %v", err)
+	}
+	if _, err := db.AddGovernanceScopeTargetBinding(context.Background(), ownerID, scope.ID, model.GovernanceScopeTargetBindingCreate{
+		TargetKind:       targetKind,
+		TargetID:         targetID,
+		BindingReason:    "manual_delegation",
+		PermissionsScope: permissionsScope,
+		Source:           "owner_assignment",
+	}); err != nil {
+		t.Fatalf("AddGovernanceScopeTargetBinding: %v", err)
+	}
 }
 
 func createTargetObjectAccessScope(t *testing.T, db *DB, ownerID, viewerID string) *model.ObjectAccessScope {

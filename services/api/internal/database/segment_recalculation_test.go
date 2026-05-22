@@ -104,6 +104,55 @@ func TestSeedSegmentRecalculationRunObsoletesAllOlderQueuedRuns(t *testing.T) {
 	}
 }
 
+func TestSeedSegmentRecalculationRunCoalescesEquivalentReasonAcrossOperations(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Seed Coalesce Operation")
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	until := from.Add(24 * time.Hour)
+
+	firstID, firstTotal, err := db.SeedSegmentRecalculationRun(ctx, userID, SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     userID,
+		OperationID:     "coalesce-first-" + uuid.NewString(),
+		IncludeAllUsers: false,
+		FromAt:          &from,
+		UntilAt:         &until,
+	}, "geometry_update", nil)
+	if err != nil {
+		t.Fatalf("SeedSegmentRecalculationRun first: %v", err)
+	}
+	secondID, secondTotal, err := db.SeedSegmentRecalculationRun(ctx, userID, SegmentRecalculationScope{
+		SegmentID:       segmentID,
+		OwnerUserID:     userID,
+		OperationID:     "coalesce-second-" + uuid.NewString(),
+		IncludeAllUsers: false,
+		FromAt:          &from,
+		UntilAt:         &until,
+	}, "geometry_update", nil)
+	if err != nil {
+		t.Fatalf("SeedSegmentRecalculationRun second: %v", err)
+	}
+	if secondID != firstID || secondTotal != firstTotal {
+		t.Fatalf("second run = %s/%d, want coalesced %s/%d", secondID, secondTotal, firstID, firstTotal)
+	}
+	var runCount int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM segment_recalculation_runs
+		WHERE segment_id = $1
+		  AND reason = 'geometry_update'
+		  AND requested_from_at = $2
+		  AND requested_until_at = $3
+	`, segmentID, from, until).Scan(&runCount); err != nil {
+		t.Fatalf("count coalesced runs: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("coalesced run count = %d, want 1", runCount)
+	}
+}
+
 func TestRecomputeSegmentActivitySupersedesInsteadOfDeletes(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -320,8 +369,8 @@ func TestValidateSegmentRecalculationClaimRejectsObsoleteGeneration(t *testing.T
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	err = ValidateSegmentRecalculationActivityClaimTx(ctx, tx, *claim)
-	if !errors.Is(err, ErrSegmentValidation) {
-		t.Fatalf("ValidateSegmentRecalculationActivityClaimTx error = %v, want ErrSegmentValidation", err)
+	if !errors.Is(err, ErrSegmentRecalculationObsolete) {
+		t.Fatalf("ValidateSegmentRecalculationActivityClaimTx error = %v, want ErrSegmentRecalculationObsolete", err)
 	}
 }
 
@@ -373,6 +422,36 @@ func TestSkipObsoleteSegmentRecalculationActivityDoesNotFailRun(t *testing.T) {
 	}
 	if runStatus == "failed" || failedActivities != 0 || activityStatus != "skipped" {
 		t.Fatalf("run/activity state = %q/%d/%q, want non-failed/0/skipped", runStatus, failedActivities, activityStatus)
+	}
+}
+
+func TestSkipObsoleteSegmentRecalculationActivityPreservesObsoleteRunStatus(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	clearPendingSegmentRecalculationRuns(t, db)
+	segmentID, _ := insertVersioningTestSegment(t, db, userID, "Claim Obsolete Run Preserve")
+	runID := insertSegmentRecalculationRun(t, db, segmentID, userID)
+	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 5, 9, 9, 0, 0, 0, time.UTC))
+	insertSegmentRecalculationRunActivity(t, db, runID, activityID, userID, "queued", nil)
+	claim, err := db.ClaimNextSegmentRecalculationActivity(ctx, "test-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimNextSegmentRecalculationActivity: %v", err)
+	}
+	if claim == nil {
+		t.Fatal("claim = nil, want queued activity")
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE segment_recalculation_runs SET status = 'obsolete', completed_at = NOW() WHERE id = $1`, runID); err != nil {
+		t.Fatalf("mark run obsolete: %v", err)
+	}
+	if err := db.SkipObsoleteSegmentRecalculationActivity(ctx, *claim); err != nil {
+		t.Fatalf("SkipObsoleteSegmentRecalculationActivity: %v", err)
+	}
+	var runStatus string
+	if err := db.Pool.QueryRow(ctx, `SELECT status FROM segment_recalculation_runs WHERE id = $1`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+	if runStatus != "obsolete" {
+		t.Fatalf("run status = %q, want obsolete", runStatus)
 	}
 }
 

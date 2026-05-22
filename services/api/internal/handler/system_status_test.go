@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	natsgo "github.com/nats-io/nats.go"
 )
 
@@ -290,10 +292,20 @@ func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
 func TestCollectOSMComponentDegradesOnFailedRegion(t *testing.T) {
 	h := newTestHandler(t, fusionTestPool(t))
 	h.Config = &HandlerConfig{DeploymentProfile: "full"}
+	var beforeImported, beforeFailed int
+	if err := h.DB.Pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE status = 'imported'),
+		       count(*) FILTER (WHERE status = 'failed')
+		FROM osm_import_regions
+	`).Scan(&beforeImported, &beforeFailed); err != nil {
+		t.Fatalf("query existing osm_import_regions: %v", err)
+	}
+	okRegionID := "ok-region-" + uuid.NewString()
+	failedRegionID := "failed-region-" + uuid.NewString()
 	_, err := h.DB.Pool.Exec(context.Background(), `
 		INSERT INTO osm_import_regions (region_id, label, continent, status)
-		VALUES ('ok-region', 'OK Region', 'Test', 'imported'),
-		       ('failed-region', 'Failed Region', 'Test', 'failed')`)
+		VALUES ($1, 'OK Region', 'Test', 'imported'),
+		       ($2, 'Failed Region', 'Test', 'failed')`, okRegionID, failedRegionID)
 	if err != nil {
 		t.Fatalf("insert osm_import_regions: %v", err)
 	}
@@ -306,8 +318,10 @@ func TestCollectOSMComponentDegradesOnFailedRegion(t *testing.T) {
 	if got.State != systemstatus.StatusDegraded || got.ReasonCode != "osm_regions_failed" {
 		t.Fatalf("OSM status = %+v, want degraded osm_regions_failed", got)
 	}
-	if got.Details["failed_region_count"] != "1" || got.Details["imported_region_count"] != "1" {
-		t.Fatalf("OSM status details = %+v, want imported=1 failed=1", got.Details)
+	wantFailed := strconv.Itoa(beforeFailed + 1)
+	wantImported := strconv.Itoa(beforeImported + 1)
+	if got.Details["failed_region_count"] != wantFailed || got.Details["imported_region_count"] != wantImported {
+		t.Fatalf("OSM status details = %+v, want imported=%s failed=%s", got.Details, wantImported, wantFailed)
 	}
 }
 

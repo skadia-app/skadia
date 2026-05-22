@@ -84,10 +84,7 @@ func decodeSegmentPublishRequest(r *http.Request) (segmentPublishRequest, error)
 }
 
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	limit := 50
@@ -475,10 +472,7 @@ func (h *Handler) backfillSegmentEfforts(ctx context.Context, userID, segmentID 
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 
 	includeGeoJSON := r.URL.Query().Get("include_geojson") == "true"
@@ -809,10 +803,7 @@ func (h *Handler) DeleteSegment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
+	userID := middleware.GetUserID(r.Context())
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
 	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
 	if scopes == nil {
@@ -1088,6 +1079,9 @@ func (h *Handler) recomputeSegmentEffortsForActivityInRun(ctx context.Context, c
 	if err := h.DB.UpdateSegmentEffortRanks(ctx, claim.SegmentID); err != nil {
 		slog.Warn("segment recalculation run: update ranks failed", "segment_id", claim.SegmentID, "error", err)
 	}
+	if _, err := h.DB.RebuildTargetObservationsFromSegmentEfforts(ctx, claim.SegmentID, 1000); err != nil {
+		slog.Warn("segment recalculation run: rebuild target observations failed", "segment_id", claim.SegmentID, "error", err)
+	}
 	return nil
 }
 
@@ -1202,6 +1196,12 @@ func (h *Handler) RecomputeEffortsForActivity(ctx context.Context, activityID, u
 
 		if err := h.DB.UpdateSegmentEffortRanks(ctx, segID); err != nil {
 			slog.Warn("post-fusion segment recompute: update ranks failed",
+				"activity_id", activityID,
+				"segment_id", segID,
+				"err", err)
+		}
+		if _, err := h.DB.RebuildTargetObservationsFromSegmentEfforts(ctx, segID, 1000); err != nil {
+			slog.Warn("post-fusion segment recompute: rebuild target observations failed",
 				"activity_id", activityID,
 				"segment_id", segID,
 				"err", err)

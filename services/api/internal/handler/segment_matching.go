@@ -68,6 +68,10 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 			slog.Warn("segment matching: update ranks failed",
 				"segment_id", segID, "error", err)
 		}
+		if _, err := db.RebuildTargetObservationsFromSegmentEfforts(matchCtx, segID, 1000); err != nil {
+			slog.Warn("segment matching: rebuild target observations failed",
+				"segment_id", segID, "error", err)
+		}
 	}
 
 	slog.Info("segment matching complete",

@@ -3,6 +3,8 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/auth"
@@ -247,7 +249,6 @@ func TestMigration_TargetOverlaysGDPRRegistry(t *testing.T) {
 	for _, table := range []string{
 		"target_activity_observations",
 		"target_reports",
-		"target_report_status_events",
 		"target_user_content",
 	} {
 		if got := auth.GDPRRegistry[table]; got != auth.Export {
@@ -257,8 +258,55 @@ func TestMigration_TargetOverlaysGDPRRegistry(t *testing.T) {
 			t.Fatalf("ExportedTables missing %q", table)
 		}
 	}
-	if got := auth.GDPRRegistry["target_overlay_summary_projection"]; got != auth.Derived {
-		t.Fatalf("GDPRRegistry[target_overlay_summary_projection] = %v, want Derived", got)
+	if got := auth.GDPRRegistry["target_report_status_events"]; got != auth.System {
+		t.Fatalf("GDPRRegistry[target_report_status_events] = %v, want System", got)
+	}
+	if targetOverlayStringSliceContains(auth.ExportedTables, "target_report_status_events") {
+		t.Fatal("ExportedTables must not include target_report_status_events")
+	}
+	if got := auth.GDPRRegistry["target_overlay_summary_projection"]; got != auth.System {
+		t.Fatalf("GDPRRegistry[target_overlay_summary_projection] = %v, want System", got)
+	}
+}
+
+func TestMigration_TargetOverlaysDownRefusesLiveOverlayData(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, _ := insertTargetOverlayMigrationFixture(t, ctx, pool)
+	subjectID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO target_activity_observations (
+			overlay_subject_kind, subject_id, user_id, observation_type,
+			source_type, source_id, source_occurrence_key,
+			visibility, visibility_snapshot, occurred_at
+		)
+		VALUES ('course', $1, $2, 'matched_traversal', 'manual', 'guard-effort', 'once', 'private', 'private', NOW())
+	`, subjectID, userID); err != nil {
+		t.Fatalf("insert live observation: %v", err)
+	}
+	downSQL, err := os.ReadFile("000385_target_overlays.down.sql")
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin down tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, string(downSQL)); err == nil {
+		t.Fatal("down migration succeeded with live overlay data; want refusal")
+	} else if !strings.Contains(err.Error(), "refusing destructive target overlay rollback") {
+		t.Fatalf("down migration error = %v, want overlay rollback guard", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback refused down tx: %v", err)
+	}
+	var stillExists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM target_activity_observations WHERE subject_id = $1)`, subjectID).Scan(&stillExists); err != nil {
+		t.Fatalf("query observation after refused down: %v", err)
+	}
+	if !stillExists {
+		t.Fatal("guarded down migration removed live observation before refusing")
 	}
 }
 

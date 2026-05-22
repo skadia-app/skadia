@@ -20,13 +20,23 @@ func (h *Handler) ListTargetPlaces(w http.ResponseWriter, r *http.Request) {
 	if scopes == nil && userID != "" {
 		return
 	}
+	visibilityMode, ok := parseTargetVisibilityMode(w, r)
+	if !ok {
+		return
+	}
+	includeGeometry, ok := parseTargetIncludeGeometry(w, r)
+	if !ok {
+		return
+	}
 	places, err := h.DB.ListTargetPlaces(r.Context(), model.ListTargetObjectsParams{
 		UserID:                userID,
 		IsAdmin:               middleware.GetIsAdmin(r.Context()),
+		VisibilityMode:        visibilityMode,
 		VisibleAccessScopeIDs: scopes,
 		Kinds:                 splitCSV(r.URL.Query().Get("kinds")),
 		BBox:                  parseTargetBBox(r.URL.Query().Get("bbox")),
 		Search:                r.URL.Query().Get("search"),
+		IncludeGeometry:       includeGeometry,
 		Limit:                 parseIntDefault(r.URL.Query().Get("limit"), 100),
 		Offset:                parseIntDefault(r.URL.Query().Get("offset"), 0),
 	})
@@ -54,11 +64,12 @@ func (h *Handler) CreateTargetPlace(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetTargetPlace(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	isAdmin := middleware.GetIsAdmin(r.Context())
 	scopes := h.resolveTargetVisibleScopes(w, r, userID)
 	if scopes == nil && userID != "" {
 		return
 	}
-	place, err := h.DB.GetTargetPlace(r.Context(), userID, chi.URLParam(r, "id"), scopes)
+	place, err := h.DB.GetTargetPlaceWithAccess(r.Context(), userID, chi.URLParam(r, "id"), scopes, isAdmin)
 	if handleTargetHandlerErr(w, r, err) {
 		return
 	}
@@ -105,13 +116,23 @@ func (h *Handler) ListTargetRegions(w http.ResponseWriter, r *http.Request) {
 	if scopes == nil && userID != "" {
 		return
 	}
+	visibilityMode, ok := parseTargetVisibilityMode(w, r)
+	if !ok {
+		return
+	}
+	includeGeometry, ok := parseTargetIncludeGeometry(w, r)
+	if !ok {
+		return
+	}
 	regions, err := h.DB.ListTargetRegions(r.Context(), model.ListTargetObjectsParams{
 		UserID:                userID,
 		IsAdmin:               middleware.GetIsAdmin(r.Context()),
+		VisibilityMode:        visibilityMode,
 		VisibleAccessScopeIDs: scopes,
 		Kinds:                 splitCSV(r.URL.Query().Get("kinds")),
 		BBox:                  parseTargetBBox(r.URL.Query().Get("bbox")),
 		Search:                r.URL.Query().Get("search"),
+		IncludeGeometry:       includeGeometry,
 		Limit:                 parseIntDefault(r.URL.Query().Get("limit"), 100),
 		Offset:                parseIntDefault(r.URL.Query().Get("offset"), 0),
 	})
@@ -139,11 +160,12 @@ func (h *Handler) CreateTargetRegion(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetTargetRegion(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
+	isAdmin := middleware.GetIsAdmin(r.Context())
 	scopes := h.resolveTargetVisibleScopes(w, r, userID)
 	if scopes == nil && userID != "" {
 		return
 	}
-	region, err := h.DB.GetTargetRegion(r.Context(), userID, chi.URLParam(r, "id"), scopes)
+	region, err := h.DB.GetTargetRegionWithAccess(r.Context(), userID, chi.URLParam(r, "id"), scopes, isAdmin)
 	if handleTargetHandlerErr(w, r, err) {
 		return
 	}
@@ -218,6 +240,30 @@ func parseTargetBBox(raw string) *model.GeoBBox {
 		values[i] = v
 	}
 	return &model.GeoBBox{MinLon: values[0], MinLat: values[1], MaxLon: values[2], MaxLat: values[3]}
+}
+
+func parseTargetVisibilityMode(w http.ResponseWriter, r *http.Request) (string, bool) {
+	mode := strings.TrimSpace(r.URL.Query().Get("visibility_mode"))
+	switch mode {
+	case "", "visible", "all", "public", "shared", "private":
+		return mode, true
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid visibility_mode parameter", r.URL.Path)
+		return "", false
+	}
+}
+
+func parseTargetIncludeGeometry(w http.ResponseWriter, r *http.Request) (bool, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("include_geometry"))
+	if raw == "" {
+		return true, true
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid include_geometry parameter", r.URL.Path)
+		return false, false
+	}
+	return value, true
 }
 
 func splitCSV(raw string) []string {

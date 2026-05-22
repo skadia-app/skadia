@@ -244,6 +244,10 @@ CREATE INDEX idx_route_course_publications_access_scope
     ON route_course_publications (access_scope_id_snapshot, publication_state)
     WHERE visibility_snapshot = 'shared' AND publication_state = 'published';
 
+CREATE INDEX idx_route_course_publications_published_order
+    ON route_course_publications (created_at DESC, id DESC, course_segment_id, course_segment_version_id)
+    WHERE publication_state = 'published';
+
 CREATE TABLE route_relationships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_route_id UUID NOT NULL REFERENCES planned_routes(id) ON DELETE CASCADE,
@@ -403,6 +407,16 @@ CREATE INDEX idx_rcpp_course_subject
 CREATE INDEX idx_rcpp_shared_access_scope
     ON route_course_profile_projection (access_scope_id, sport_type, sub_type)
     WHERE visibility = 'shared';
+
+CREATE INDEX idx_rcpp_published_course_visibility_access
+    ON route_course_profile_projection (
+        visibility,
+        access_scope_id,
+        sport_type,
+        sub_type,
+        publication_id
+    )
+    WHERE subject_kind = 'published_course';
 
 CREATE TABLE route_publication_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

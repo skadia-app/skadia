@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,8 @@ var resumableJobTypes = map[string]bool{
 	"recalc_best_efforts":     true,
 	"recalc_best_efforts_all": true,
 }
+
+var segmentRecalculationWorkerRunning atomic.Bool
 
 // maxResumableJobAge is the maximum age of a job that can be resumed.
 // Jobs older than this are considered truly stuck and will be marked as failed.
@@ -147,8 +150,13 @@ func (h *Handler) resumeSegmentRecalculationRuns(ctx context.Context) {
 }
 
 func (h *Handler) startSegmentRecalculationRuns(reason string) {
+	if !segmentRecalculationWorkerRunning.CompareAndSwap(false, true) {
+		slog.Debug("segment recalculation worker already running", "reason", reason)
+		return
+	}
 	jobID := "segment-recalculation-runs-" + uuid.NewString()
 	shutdown.Go(jobID, func(ctx context.Context) {
+		defer segmentRecalculationWorkerRunning.Store(false)
 		workerID := "api-segment-recalculation"
 		for {
 			claim, err := h.DB.ClaimNextSegmentRecalculationActivity(ctx, workerID, 5*time.Minute)

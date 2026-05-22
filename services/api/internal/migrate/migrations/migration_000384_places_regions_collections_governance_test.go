@@ -3,6 +3,8 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -212,7 +214,9 @@ func TestMigration000384PlacesRegionsCollectionsGovernance(t *testing.T) {
 		"idx_target_collection_members_collection",
 		"idx_target_collection_member_reverse_index_collection",
 		"idx_target_object_search_projection_geom",
+		"idx_target_object_search_projection_name_trgm",
 		"idx_target_collection_summary_projection_bounds",
+		"idx_target_collection_summary_projection_name_trgm",
 		"idx_governance_actor_roles_scope",
 		"idx_governance_scope_target_bindings_target",
 		"idx_target_change_events_target",
@@ -269,6 +273,47 @@ func TestMigration000384PlacesRegionsCollectionsGovernance(t *testing.T) {
 	`, collectionID, uuid.NewString(), userID)
 	if accessScopeID == "" {
 		t.Fatal("fixture access scope missing")
+	}
+}
+
+func TestMigration000384DownRefusesLiveTargetObjectData(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, _, _, collectionID := insertPlacesGovernanceMigrationFixture(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO target_places (
+			owner_user_id, name, place_kind, geom, visibility, origin_key, created_by
+		)
+		VALUES ($1, 'Rollback guard place', 'custom', ST_SetSRID(ST_MakePoint(8, 49), 4326), 'private', 'manual', $1)
+	`, userID); err != nil {
+		t.Fatalf("insert live place: %v", err)
+	}
+	if collectionID == "" {
+		t.Fatal("fixture collection missing")
+	}
+	downSQL, err := os.ReadFile("000384_places_regions_collections_governance.down.sql")
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin down tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, string(downSQL)); err == nil {
+		t.Fatal("down migration succeeded with live target object data; want refusal")
+	} else if !strings.Contains(err.Error(), "refusing destructive target object/governance rollback") {
+		t.Fatalf("down migration error = %v, want target object rollback guard", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback refused down tx: %v", err)
+	}
+	var stillExists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM target_collections WHERE id = $1)`, collectionID).Scan(&stillExists); err != nil {
+		t.Fatalf("query collection after refused down: %v", err)
+	}
+	if !stillExists {
+		t.Fatal("guarded down migration removed live collection before refusing")
 	}
 }
 

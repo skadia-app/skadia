@@ -7,6 +7,30 @@ ALTER TABLE segments
     ADD CONSTRAINT segments_course_kind_chk
     CHECK (course_kind IN ('line', 'checkpoint_sequence'));
 
+CREATE INDEX IF NOT EXISTS idx_segments_public_line_order
+    ON segments (created_at DESC, id DESC)
+    WHERE visibility = 'public' AND course_kind = 'line';
+
+CREATE INDEX IF NOT EXISTS idx_segments_owner_course_kind_order
+    ON segments (created_by, course_kind, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_segments_shared_scope_course_kind_order
+    ON segments (access_scope_id, course_kind, created_at DESC, id DESC)
+    WHERE visibility = 'shared';
+
+CREATE INDEX IF NOT EXISTS idx_segment_efforts_active_user_segment_counts
+    ON segment_efforts (
+        user_id,
+        segment_id,
+        started_at,
+        elapsed_time_s,
+        is_reverse,
+        activity_id,
+        created_at,
+        id
+    )
+    WHERE superseded_at IS NULL;
+
 ALTER TABLE segment_versions
     DROP CONSTRAINT IF EXISTS segment_versions_id_segment_id_unique;
 ALTER TABLE segment_versions

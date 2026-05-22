@@ -142,7 +142,71 @@ func fkTargetExists(ctx context.Context, tx pgx.Tx, spec tableSpec, row map[stri
 		}
 		return exists, nil
 
+	case "target_activity_observations", "target_reports", "target_user_content":
+		exists, err := overlaySubjectTargetExists(ctx, tx, row)
+		if err != nil || !exists {
+			return exists, err
+		}
+		if exists, err := optionalUUIDTargetExists(ctx, tx, "segment_versions", "target_version_id", row); err != nil || !exists {
+			return exists, err
+		}
+		switch spec.Name {
+		case "target_activity_observations", "target_user_content":
+			if exists, err := optionalUUIDTargetExists(ctx, tx, "activities", "activity_id", row); err != nil || !exists {
+				return exists, err
+			}
+		case "target_reports":
+			if exists, err := optionalUUIDTargetExists(ctx, tx, "activities", "source_activity_id", row); err != nil || !exists {
+				return exists, err
+			}
+		}
+		return true, nil
+
 	default:
 		return false, fmt.Errorf("fkTargetExists: unhandled cmSkipWarn table %q — add an explicit case", spec.Name)
 	}
+}
+
+func overlaySubjectTargetExists(ctx context.Context, tx pgx.Tx, row map[string]any) (bool, error) {
+	subjectKind, _ := stringVal(row["overlay_subject_kind"])
+	subjectID, ok := stringVal(row["subject_id"])
+	if !ok || strings.TrimSpace(subjectID) == "" {
+		return false, nil
+	}
+	var table string
+	switch strings.TrimSpace(subjectKind) {
+	case "course":
+		table = "segments"
+	case "place":
+		table = "target_places"
+	case "region":
+		table = "target_regions"
+	case "collection":
+		table = "target_collections"
+	default:
+		return false, nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", pgx.Identifier{table}.Sanitize()),
+		subjectID,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("fkTargetExists overlay subject: %w", err)
+	}
+	return exists, nil
+}
+
+func optionalUUIDTargetExists(ctx context.Context, tx pgx.Tx, table, column string, row map[string]any) (bool, error) {
+	id, ok := stringVal(row[column])
+	if !ok || strings.TrimSpace(id) == "" {
+		return true, nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", pgx.Identifier{table}.Sanitize()),
+		id,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("fkTargetExists %s.%s: %w", table, column, err)
+	}
+	return exists, nil
 }

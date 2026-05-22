@@ -166,7 +166,7 @@ func TestIsDenied(t *testing.T) {
 	}
 }
 
-func TestRoutePublicationPrivacyTablesAreExported(t *testing.T) {
+func TestRoutePublicationPortableSourceTablesAreExported(t *testing.T) {
 	specs := gdprExportTables()
 	specByTable := make(map[string]gdprExportTableSpec, len(specs))
 	for _, spec := range specs {
@@ -174,15 +174,10 @@ func TestRoutePublicationPrivacyTablesAreExported(t *testing.T) {
 	}
 
 	required := []string{
-		"planned_route_snapshots",
-		"route_publication_privacy_reviews",
-		"route_course_publications",
-		"route_relationships",
-		"route_course_relationships",
-		"route_profile_snapshots",
-		"route_publication_events",
-		"object_access_scopes",
-		"object_access_grants",
+		"planned_routes",
+		"segments",
+		"segment_versions",
+		"course_version_controls",
 	}
 	for _, table := range required {
 		if !slices.Contains(ExportedTables, table) {
@@ -198,5 +193,41 @@ func TestRoutePublicationPrivacyTablesAreExported(t *testing.T) {
 	}
 	if !isDenied("object_access_grants", "link_token_hash") {
 		t.Fatal("object_access_grants.link_token_hash must not be exported")
+	}
+}
+
+func TestReferenceTargetNonPortableStateIsNotPrimaryExportData(t *testing.T) {
+	nonPortable := []string{
+		"planned_route_snapshots",
+		"route_publication_privacy_reviews",
+		"route_course_publications",
+		"route_relationships",
+		"route_course_relationships",
+		"route_profile_snapshots",
+		"route_publication_events",
+		"object_access_scopes",
+		"object_access_grants",
+		"governance_scopes",
+		"governance_actor_roles",
+		"governance_scope_target_bindings",
+		"target_change_events",
+		"target_revision_snapshots",
+		"target_report_status_events",
+	}
+
+	for _, table := range nonPortable {
+		if slices.Contains(ExportedTables, table) {
+			t.Fatalf("%s is non-portable route/access/audit state and must not be listed as exported primary data", table)
+		}
+		for _, spec := range gdprExportTables() {
+			if spec.table == table {
+				t.Fatalf("%s is non-portable route/access/audit state and must not be emitted by gdprExportTables", table)
+			}
+		}
+		switch GDPRRegistry[table] {
+		case System, Derived:
+		default:
+			t.Fatalf("%s category = %v, want System or Derived", table, GDPRRegistry[table])
+		}
 	}
 }

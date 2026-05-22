@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -24,6 +26,14 @@ func (db *DB) CreateTargetPlace(ctx context.Context, userID string, input model.
 	}
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.PlaceKind) == "" || strings.TrimSpace(input.GeometryGeoJSON) == "" {
 		return nil, fmt.Errorf("%w: name, place kind, and geometry are required", ErrTargetValidation)
+	}
+	if err := validateTargetPlaceInput(input.PlaceKind, input.GeometryGeoJSON); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ExternalRefVisibility) != "" {
+		if err := validateTargetEnum(input.ExternalRefVisibility, "external_ref_visibility", allowedTargetExternalRefVisibility); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := db.Pool.Begin(ctx)
@@ -57,18 +67,6 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 	}
 	defer tx.Rollback(ctx)
 
-	requiredPermission := "edit_metadata"
-	if input.GeometryGeoJSON != nil {
-		requiredPermission = "edit_geometry"
-	}
-	canEdit, err := db.CanEditTarget(ctx, userID, "place", id, requiredPermission)
-	if err != nil {
-		return nil, err
-	}
-	if !canEdit {
-		return nil, ErrTargetNotFound
-	}
-
 	var currentVisibility string
 	var currentScope *string
 	var ownerUserID *string
@@ -83,6 +81,24 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 		}
 		return nil, fmt.Errorf("load target place for update: %w", err)
 	}
+	if input.GeometryGeoJSON != nil {
+		if err := validateTargetPlaceInput(targetPlaceKindForValidation(input.PlaceKind), *input.GeometryGeoJSON); err != nil {
+			return nil, err
+		}
+	}
+	if input.PlaceKind != nil {
+		if err := validateTargetEnum(*input.PlaceKind, "place_kind", allowedTargetPlaceKinds); err != nil {
+			return nil, err
+		}
+	}
+	if input.ExternalRefVisibility != nil {
+		if err := validateTargetEnum(*input.ExternalRefVisibility, "external_ref_visibility", allowedTargetExternalRefVisibility); err != nil {
+			return nil, err
+		}
+	}
+	if err := db.requireTargetObjectUpdatePermissions(ctx, userID, "place", id, ownerUserID, targetPlaceUpdatePermissions(input)); err != nil {
+		return nil, err
+	}
 	nextVisibility := currentVisibility
 	if input.Visibility != nil {
 		nextVisibility = targetVisibilityOrDefault(*input.Visibility)
@@ -94,14 +110,8 @@ func (db *DB) UpdateTargetPlace(ctx context.Context, userID, id string, input mo
 	if nextVisibility != "shared" {
 		nextScope = nil
 	}
-	ownerEdit := ownerUserID != nil && *ownerUserID == userID
-	if !ownerEdit && (input.Visibility != nil || input.AccessScopeID != nil) {
-		return nil, ErrTargetNotFound
-	}
-	if ownerEdit {
-		if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
-			return nil, err
-		}
+	if err := db.validateTargetAccessForExistingOwner(ctx, nextVisibility, nextScope, ownerUserID); err != nil {
+		return nil, err
 	}
 
 	place, err := updateTargetPlaceTx(ctx, tx, userID, id, input, nextVisibility, nextScope)
@@ -125,17 +135,21 @@ func (db *DB) ArchiveTargetPlace(ctx context.Context, userID, id string) error {
 }
 
 func (db *DB) GetTargetPlace(ctx context.Context, userID, id string, visibleScopes []string) (*model.TargetPlace, error) {
-	params := model.ListTargetObjectsParams{UserID: userID, VisibleAccessScopeIDs: visibleScopes, Limit: 1}
+	return db.GetTargetPlaceWithAccess(ctx, userID, id, visibleScopes, false)
+}
+
+func (db *DB) GetTargetPlaceWithAccess(ctx context.Context, userID, id string, visibleScopes []string, isAdmin bool) (*model.TargetPlace, error) {
+	params := model.ListTargetObjectsParams{UserID: userID, IsAdmin: isAdmin, VisibleAccessScopeIDs: visibleScopes, IncludeGeometry: true, Limit: 1}
 	args, where := targetObjectVisibilityWhere("p", "owner_user_id", params)
 	args = append(args, id)
-	query := targetPlaceSelectSQL() + `
+	query := targetPlaceSelectSQLWithEffectivePermissions("$1::uuid") + `
 		JOIN target_object_search_projection p ON p.object_kind = 'place' AND p.object_id = t.id
 		WHERE p.object_kind = 'place'
 		  AND p.archived_at IS NULL
 		  AND t.id = $` + fmt.Sprint(len(args)) + `
 		  AND ` + where + `
 		LIMIT 1`
-	place, err := scanTargetPlace(db.Pool.QueryRow(ctx, query, args...))
+	place, err := scanTargetPlaceWithEffectivePermissions(db.Pool.QueryRow(ctx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
@@ -147,7 +161,7 @@ func (db *DB) GetTargetPlace(ctx context.Context, userID, id string, visibleScop
 
 func (db *DB) ListTargetPlaces(ctx context.Context, params model.ListTargetObjectsParams) ([]model.TargetPlace, error) {
 	args, where := targetObjectVisibilityWhere("p", "owner_user_id", params)
-	query := targetPlaceSelectSQL() + `
+	query := targetPlaceSelectSQLWithEffectivePermissions("$1::uuid") + `
 		JOIN target_object_search_projection p ON p.object_kind = 'place' AND p.object_id = t.id
 		WHERE p.object_kind = 'place'
 		  AND p.archived_at IS NULL
@@ -164,11 +178,14 @@ func (db *DB) ListTargetPlaces(ctx context.Context, params model.ListTargetObjec
 
 	places := []model.TargetPlace{}
 	for rows.Next() {
-		place, err := scanTargetPlace(rows)
+		place, err := scanTargetPlaceWithEffectivePermissions(rows)
 		if err != nil {
 			return nil, err
 		}
 		redactTargetPlaceForViewer(place, params)
+		if !params.IncludeGeometry {
+			place.GeometryGeoJSON = ""
+		}
 		places = append(places, *place)
 	}
 	return places, rows.Err()
@@ -185,6 +202,14 @@ func (db *DB) CreateTargetRegion(ctx context.Context, userID string, input model
 	}
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.RegionKind) == "" || strings.TrimSpace(input.GeometryGeoJSON) == "" {
 		return nil, fmt.Errorf("%w: name, region kind, and geometry are required", ErrTargetValidation)
+	}
+	if err := validateTargetRegionInput(input.RegionKind, input.GeometryGeoJSON); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ExternalRefVisibility) != "" {
+		if err := validateTargetEnum(input.ExternalRefVisibility, "external_ref_visibility", allowedTargetExternalRefVisibility); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := db.Pool.Begin(ctx)
@@ -218,18 +243,6 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 	}
 	defer tx.Rollback(ctx)
 
-	requiredPermission := "edit_metadata"
-	if input.GeometryGeoJSON != nil {
-		requiredPermission = "edit_geometry"
-	}
-	canEdit, err := db.CanEditTarget(ctx, userID, "region", id, requiredPermission)
-	if err != nil {
-		return nil, err
-	}
-	if !canEdit {
-		return nil, ErrTargetNotFound
-	}
-
 	var currentVisibility string
 	var currentScope *string
 	var ownerUserID *string
@@ -244,6 +257,24 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 		}
 		return nil, fmt.Errorf("load target region for update: %w", err)
 	}
+	if input.GeometryGeoJSON != nil {
+		if err := validateTargetRegionInput(targetRegionKindForValidation(input.RegionKind), *input.GeometryGeoJSON); err != nil {
+			return nil, err
+		}
+	}
+	if input.RegionKind != nil {
+		if err := validateTargetEnum(*input.RegionKind, "region_kind", allowedTargetRegionKinds); err != nil {
+			return nil, err
+		}
+	}
+	if input.ExternalRefVisibility != nil {
+		if err := validateTargetEnum(*input.ExternalRefVisibility, "external_ref_visibility", allowedTargetExternalRefVisibility); err != nil {
+			return nil, err
+		}
+	}
+	if err := db.requireTargetObjectUpdatePermissions(ctx, userID, "region", id, ownerUserID, targetRegionUpdatePermissions(input)); err != nil {
+		return nil, err
+	}
 	nextVisibility := currentVisibility
 	if input.Visibility != nil {
 		nextVisibility = targetVisibilityOrDefault(*input.Visibility)
@@ -255,14 +286,8 @@ func (db *DB) UpdateTargetRegion(ctx context.Context, userID, id string, input m
 	if nextVisibility != "shared" {
 		nextScope = nil
 	}
-	ownerEdit := ownerUserID != nil && *ownerUserID == userID
-	if !ownerEdit && (input.Visibility != nil || input.AccessScopeID != nil) {
-		return nil, ErrTargetNotFound
-	}
-	if ownerEdit {
-		if err := db.validateTargetAccessForUserOwner(ctx, nextVisibility, nextScope, userID); err != nil {
-			return nil, err
-		}
+	if err := db.validateTargetAccessForExistingOwner(ctx, nextVisibility, nextScope, ownerUserID); err != nil {
+		return nil, err
 	}
 
 	region, err := updateTargetRegionTx(ctx, tx, userID, id, input, nextVisibility, nextScope)
@@ -286,17 +311,21 @@ func (db *DB) ArchiveTargetRegion(ctx context.Context, userID, id string) error 
 }
 
 func (db *DB) GetTargetRegion(ctx context.Context, userID, id string, visibleScopes []string) (*model.TargetRegion, error) {
-	params := model.ListTargetObjectsParams{UserID: userID, VisibleAccessScopeIDs: visibleScopes, Limit: 1}
+	return db.GetTargetRegionWithAccess(ctx, userID, id, visibleScopes, false)
+}
+
+func (db *DB) GetTargetRegionWithAccess(ctx context.Context, userID, id string, visibleScopes []string, isAdmin bool) (*model.TargetRegion, error) {
+	params := model.ListTargetObjectsParams{UserID: userID, IsAdmin: isAdmin, VisibleAccessScopeIDs: visibleScopes, IncludeGeometry: true, Limit: 1}
 	args, where := targetObjectVisibilityWhere("p", "owner_user_id", params)
 	args = append(args, id)
-	query := targetRegionSelectSQL() + `
+	query := targetRegionSelectSQLWithEffectivePermissions("$1::uuid") + `
 		JOIN target_object_search_projection p ON p.object_kind = 'region' AND p.object_id = t.id
 		WHERE p.object_kind = 'region'
 		  AND p.archived_at IS NULL
 		  AND t.id = $` + fmt.Sprint(len(args)) + `
 		  AND ` + where + `
 		LIMIT 1`
-	region, err := scanTargetRegion(db.Pool.QueryRow(ctx, query, args...))
+	region, err := scanTargetRegionWithEffectivePermissions(db.Pool.QueryRow(ctx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
@@ -308,7 +337,7 @@ func (db *DB) GetTargetRegion(ctx context.Context, userID, id string, visibleSco
 
 func (db *DB) ListTargetRegions(ctx context.Context, params model.ListTargetObjectsParams) ([]model.TargetRegion, error) {
 	args, where := targetObjectVisibilityWhere("p", "owner_user_id", params)
-	query := targetRegionSelectSQL() + `
+	query := targetRegionSelectSQLWithEffectivePermissions("$1::uuid") + `
 		JOIN target_object_search_projection p ON p.object_kind = 'region' AND p.object_id = t.id
 		WHERE p.object_kind = 'region'
 		  AND p.archived_at IS NULL
@@ -325,11 +354,14 @@ func (db *DB) ListTargetRegions(ctx context.Context, params model.ListTargetObje
 
 	regions := []model.TargetRegion{}
 	for rows.Next() {
-		region, err := scanTargetRegion(rows)
+		region, err := scanTargetRegionWithEffectivePermissions(rows)
 		if err != nil {
 			return nil, err
 		}
 		redactTargetRegionForViewer(region, params)
+		if !params.IncludeGeometry {
+			region.GeometryGeoJSON = ""
+		}
 		regions = append(regions, *region)
 	}
 	return regions, rows.Err()
@@ -572,12 +604,21 @@ func targetObjectVisibilityWhere(alias, ownerColumn string, params model.ListTar
 	}
 	scopes := params.VisibleAccessScopeIDs
 	args := []any{userArg, params.IsAdmin, scopes}
-	return args, fmt.Sprintf(`(
+	base := fmt.Sprintf(`(
 		%[1]s.visibility = 'public'
 		OR $2::boolean = true
 		OR (%[1]s.%[2]s = $1::uuid)
 		OR (%[1]s.visibility = 'shared' AND %[1]s.access_scope_id = ANY($3::uuid[]))
+		OR `+governanceTargetVisibleSQL(alias+".object_kind", alias+".object_id", "$1::uuid")+`
 	)`, alias, ownerColumn)
+	switch strings.TrimSpace(params.VisibilityMode) {
+	case "", "visible", "all":
+		return args, base
+	case "public", "shared", "private":
+		return args, fmt.Sprintf("(%s.visibility = '%s' AND %s)", alias, strings.TrimSpace(params.VisibilityMode), base)
+	default:
+		return args, "FALSE"
+	}
 }
 
 func appendTargetObjectFilters(query string, args *[]any, params model.ListTargetObjectsParams, alias string) string {
@@ -600,8 +641,16 @@ func targetPlaceSelectSQL() string {
 	return `SELECT ` + targetPlaceColumnsSQL("t") + ` FROM target_places t `
 }
 
+func targetPlaceSelectSQLWithEffectivePermissions(actorUserExpr string) string {
+	return `SELECT ` + targetPlaceColumnsSQL("t") + `, ` + governanceEffectivePermissionsSQL("place", "t.id", actorUserExpr) + ` FROM target_places t `
+}
+
 func targetRegionSelectSQL() string {
 	return `SELECT ` + targetRegionColumnsSQL("t") + ` FROM target_regions t `
+}
+
+func targetRegionSelectSQLWithEffectivePermissions(actorUserExpr string) string {
+	return `SELECT ` + targetRegionColumnsSQL("t") + `, ` + governanceEffectivePermissionsSQL("region", "t.id", actorUserExpr) + ` FROM target_regions t `
 }
 
 func targetPlaceColumnsSQL(alias string) string {
@@ -623,7 +672,7 @@ func targetRegionColumnsSQL(alias string) string {
 }
 
 func redactTargetPlaceForViewer(place *model.TargetPlace, params model.ListTargetObjectsParams) {
-	if targetObjectCanSeeExternalRef(place.OwnerUserID, place.Visibility, place.ExternalRefVisibility, params.UserID, params.IsAdmin) {
+	if targetObjectCanSeeExternalRef(place.OwnerUserID, place.Visibility, place.ExternalRefVisibility, params.UserID, params.IsAdmin, place.EffectivePermissions) {
 		return
 	}
 	place.ExternalRefKind = nil
@@ -632,7 +681,7 @@ func redactTargetPlaceForViewer(place *model.TargetPlace, params model.ListTarge
 }
 
 func redactTargetRegionForViewer(region *model.TargetRegion, params model.ListTargetObjectsParams) {
-	if targetObjectCanSeeExternalRef(region.OwnerUserID, region.Visibility, region.ExternalRefVisibility, params.UserID, params.IsAdmin) {
+	if targetObjectCanSeeExternalRef(region.OwnerUserID, region.Visibility, region.ExternalRefVisibility, params.UserID, params.IsAdmin, region.EffectivePermissions) {
 		return
 	}
 	region.ExternalRefKind = nil
@@ -640,11 +689,14 @@ func redactTargetRegionForViewer(region *model.TargetRegion, params model.ListTa
 	region.ExternalRef = nil
 }
 
-func targetObjectCanSeeExternalRef(ownerUserID *string, visibility, refVisibility, userID string, isAdmin bool) bool {
+func targetObjectCanSeeExternalRef(ownerUserID *string, visibility, refVisibility, userID string, isAdmin bool, effectivePermissions []string) bool {
 	if isAdmin {
 		return true
 	}
 	if ownerUserID != nil && strings.TrimSpace(userID) != "" && *ownerUserID == strings.TrimSpace(userID) {
+		return true
+	}
+	if slices.Contains(effectivePermissions, "link_external_refs") {
 		return true
 	}
 	switch strings.TrimSpace(refVisibility) {
@@ -678,6 +730,21 @@ func scanTargetPlace(row pgx.Row) (*model.TargetPlace, error) {
 	return &place, nil
 }
 
+func scanTargetPlaceWithEffectivePermissions(row pgx.Row) (*model.TargetPlace, error) {
+	var place model.TargetPlace
+	if err := row.Scan(
+		&place.ID, &place.OwnerUserID, &place.LifecycleOwnerKind, &place.LifecycleOwnerRef,
+		&place.Name, &place.Description, &place.PlaceKind, &place.GeometryGeoJSON,
+		&place.Visibility, &place.AccessScopeID, &place.OriginKey, &place.ExternalRefKind,
+		&place.ExternalRefID, &place.ExternalRef, &place.ExternalRefVisibility, &place.Metadata,
+		&place.CreatedBy, &place.CreatedAt, &place.UpdatedAt, &place.ArchivedAt,
+		&place.EffectivePermissions,
+	); err != nil {
+		return nil, err
+	}
+	return &place, nil
+}
+
 func scanTargetRegion(row pgx.Row) (*model.TargetRegion, error) {
 	var region model.TargetRegion
 	if err := row.Scan(
@@ -690,6 +757,206 @@ func scanTargetRegion(row pgx.Row) (*model.TargetRegion, error) {
 		return nil, err
 	}
 	return &region, nil
+}
+
+func scanTargetRegionWithEffectivePermissions(row pgx.Row) (*model.TargetRegion, error) {
+	var region model.TargetRegion
+	if err := row.Scan(
+		&region.ID, &region.OwnerUserID, &region.LifecycleOwnerKind, &region.LifecycleOwnerRef,
+		&region.Name, &region.Description, &region.RegionKind, &region.GeometryGeoJSON,
+		&region.Visibility, &region.AccessScopeID, &region.OriginKey, &region.ExternalRefKind,
+		&region.ExternalRefID, &region.ExternalRef, &region.ExternalRefVisibility, &region.Metadata,
+		&region.CreatedBy, &region.CreatedAt, &region.UpdatedAt, &region.ArchivedAt,
+		&region.EffectivePermissions,
+	); err != nil {
+		return nil, err
+	}
+	return &region, nil
+}
+
+func (db *DB) validateTargetAccessForExistingOwner(ctx context.Context, visibility string, accessScopeID *string, ownerUserID *string) error {
+	if ownerUserID == nil || strings.TrimSpace(*ownerUserID) == "" {
+		if err := validateTargetVisibilityAccessPair(visibility, accessScopeID); err != nil {
+			return err
+		}
+		if strings.TrimSpace(visibility) == "shared" {
+			return fmt.Errorf("%w: shared targets require a user owner", ErrTargetValidation)
+		}
+		return nil
+	}
+	return db.validateTargetAccessForUserOwner(ctx, visibility, accessScopeID, *ownerUserID)
+}
+
+func (db *DB) requireTargetObjectUpdatePermissions(ctx context.Context, userID, targetKind, targetID string, ownerUserID *string, permissions []string) error {
+	if ownerUserID != nil && strings.TrimSpace(userID) != "" && *ownerUserID == strings.TrimSpace(userID) {
+		return nil
+	}
+	if len(permissions) == 0 {
+		permissions = []string{"edit_metadata"}
+	}
+	for _, permission := range permissions {
+		ok, err := db.CanEditTarget(ctx, userID, targetKind, targetID, permission)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrTargetNotFound
+		}
+	}
+	return nil
+}
+
+func targetPlaceUpdatePermissions(input model.TargetPlaceUpdate) []string {
+	var permissions []string
+	if input.Name != nil || input.Description != nil || input.PlaceKind != nil || input.Metadata != nil {
+		permissions = append(permissions, "edit_metadata")
+	}
+	if input.GeometryGeoJSON != nil {
+		permissions = append(permissions, "edit_geometry")
+	}
+	if input.ExternalRefKind != nil || input.ExternalRefID != nil || input.ExternalRef != nil || input.ExternalRefVisibility != nil {
+		permissions = append(permissions, "link_external_refs")
+	}
+	if input.Visibility != nil || input.AccessScopeID != nil {
+		permissions = append(permissions, "publish")
+	}
+	return uniqueTargetPermissions(permissions)
+}
+
+func targetRegionUpdatePermissions(input model.TargetRegionUpdate) []string {
+	var permissions []string
+	if input.Name != nil || input.Description != nil || input.RegionKind != nil || input.Metadata != nil {
+		permissions = append(permissions, "edit_metadata")
+	}
+	if input.GeometryGeoJSON != nil {
+		permissions = append(permissions, "edit_geometry")
+	}
+	if input.ExternalRefKind != nil || input.ExternalRefID != nil || input.ExternalRef != nil || input.ExternalRefVisibility != nil {
+		permissions = append(permissions, "link_external_refs")
+	}
+	if input.Visibility != nil || input.AccessScopeID != nil {
+		permissions = append(permissions, "publish")
+	}
+	return uniqueTargetPermissions(permissions)
+}
+
+func uniqueTargetPermissions(permissions []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
+		if _, ok := seen[permission]; ok {
+			continue
+		}
+		seen[permission] = struct{}{}
+		out = append(out, permission)
+	}
+	return out
+}
+
+func validateTargetPlaceInput(placeKind, geometryGeoJSON string) error {
+	if strings.TrimSpace(placeKind) == "" {
+		return fmt.Errorf("%w: place kind is required", ErrTargetValidation)
+	}
+	if strings.TrimSpace(placeKind) != "existing" {
+		if err := validateTargetEnum(placeKind, "place_kind", allowedTargetPlaceKinds); err != nil {
+			return err
+		}
+	}
+	return validateTargetGeoJSONKind(geometryGeoJSON, map[string]struct{}{"Point": {}})
+}
+
+func validateTargetRegionInput(regionKind, geometryGeoJSON string) error {
+	if strings.TrimSpace(regionKind) == "" {
+		return fmt.Errorf("%w: region kind is required", ErrTargetValidation)
+	}
+	if strings.TrimSpace(regionKind) != "existing" {
+		if err := validateTargetEnum(regionKind, "region_kind", allowedTargetRegionKinds); err != nil {
+			return err
+		}
+	}
+	return validateTargetGeoJSONKind(geometryGeoJSON, map[string]struct{}{"Polygon": {}, "MultiPolygon": {}})
+}
+
+func validateTargetGeoJSONKind(raw string, allowed map[string]struct{}) error {
+	var body struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(raw), &body); err != nil {
+		return fmt.Errorf("%w: invalid GeoJSON geometry", ErrTargetValidation)
+	}
+	if _, ok := allowed[body.Type]; !ok {
+		return fmt.Errorf("%w: unsupported GeoJSON geometry type %q", ErrTargetValidation, body.Type)
+	}
+	if len(body.Coordinates) == 0 {
+		return fmt.Errorf("%w: GeoJSON geometry requires coordinates", ErrTargetValidation)
+	}
+	switch body.Type {
+	case "Point":
+		var point []float64
+		if err := json.Unmarshal(body.Coordinates, &point); err != nil || !validTargetPointCoordinates(point) {
+			return fmt.Errorf("%w: invalid point coordinates", ErrTargetValidation)
+		}
+	case "Polygon":
+		var polygon [][][]float64
+		if err := json.Unmarshal(body.Coordinates, &polygon); err != nil || !validTargetPolygonCoordinates(polygon) {
+			return fmt.Errorf("%w: invalid polygon coordinates", ErrTargetValidation)
+		}
+	case "MultiPolygon":
+		var multipolygon [][][][]float64
+		if err := json.Unmarshal(body.Coordinates, &multipolygon); err != nil || len(multipolygon) == 0 {
+			return fmt.Errorf("%w: invalid multipolygon coordinates", ErrTargetValidation)
+		}
+		for _, polygon := range multipolygon {
+			if !validTargetPolygonCoordinates(polygon) {
+				return fmt.Errorf("%w: invalid multipolygon coordinates", ErrTargetValidation)
+			}
+		}
+	}
+	return nil
+}
+
+func validTargetPolygonCoordinates(polygon [][][]float64) bool {
+	if len(polygon) == 0 {
+		return false
+	}
+	for _, ring := range polygon {
+		if len(ring) < 4 {
+			return false
+		}
+		for _, point := range ring {
+			if !validTargetPointCoordinates(point) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validTargetPointCoordinates(point []float64) bool {
+	if len(point) < 2 {
+		return false
+	}
+	for i := range 2 {
+		if math.IsNaN(point[i]) || math.IsInf(point[i], 0) {
+			return false
+		}
+	}
+	return true
+}
+
+func targetPlaceKindForValidation(kind *string) string {
+	if kind == nil {
+		return "existing"
+	}
+	return *kind
+}
+
+func targetRegionKindForValidation(kind *string) string {
+	if kind == nil {
+		return "existing"
+	}
+	return *kind
 }
 
 func targetLimit(limit int) int {

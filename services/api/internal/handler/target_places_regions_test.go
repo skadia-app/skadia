@@ -90,6 +90,39 @@ func TestTargetPlaceHandlerConsumesLinkTokenAccess(t *testing.T) {
 	assertHandlerPlaceIDs(t, resp.Places, sharedPlace.ID)
 }
 
+func TestTargetPlaceListQueryParamsAreEnforced(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	userID := insertTestUser(t, pool)
+	createHandlerPlace(t, h, userID, "public", nil)
+
+	rr := httptest.NewRecorder()
+	h.ListTargetPlaces(rr, targetRequest(http.MethodGet, "/target-places?include_geometry=false", nil, userID))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("include_geometry=false status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Places []model.TargetPlace `json:"places"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Places) == 0 {
+		t.Fatal("expected at least one place")
+	}
+	for _, place := range resp.Places {
+		if place.GeometryGeoJSON != "" {
+			t.Fatalf("include_geometry=false returned geometry: %#v", place)
+		}
+	}
+
+	rr = httptest.NewRecorder()
+	h.ListTargetPlaces(rr, targetRequest(http.MethodGet, "/target-places?visibility_mode=bogus", nil, userID))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid visibility_mode status = %d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+}
+
 func TestTargetRegionHandlersValidateGeometry(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)

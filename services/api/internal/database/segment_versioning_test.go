@@ -119,13 +119,17 @@ func TestUpdateSegmentVersionValidityPublicSegmentQueuesAllUsers(t *testing.T) {
 	ctx := context.Background()
 	otherUserID := insertTestUser(t, db)
 	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Validity Public Recalc")
-	activityAt := time.Date(2025, 4, 2, 8, 0, 0, 0, time.UTC)
+	activityAt := time.Now().UTC().Add(90 * 24 * time.Hour).Truncate(time.Microsecond)
 	insertVersioningTestActivity(t, db, userID, activityAt)
 	insertVersioningTestActivity(t, db, otherUserID, activityAt)
+	from := activityAt.Add(-time.Millisecond)
+	until := activityAt.Add(time.Millisecond)
 
 	revision, err := db.UpdateSegmentVersionValidity(ctx, segmentID, versionID, userID, false, model.SegmentVersionValidityUpdate{
-		OperationID: "validity-public-recalc-" + uuid.NewString(),
-		Recalculate: true,
+		OperationID:  "validity-public-recalc-" + uuid.NewString(),
+		ValidFromAt:  &from,
+		ValidUntilAt: &until,
+		Recalculate:  true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateSegmentVersionValidity: %v", err)

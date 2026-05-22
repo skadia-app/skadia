@@ -367,6 +367,141 @@ func TestRoutePublicationPrivacyAllowsOwnerConfirmedReviewState(t *testing.T) {
 	}
 }
 
+func TestRoutePublicationPrivacyReviewPersistsClassifiedComponentStates(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	route, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "privacy classified route")
+
+	if _, err := db.CreateRoutePublicationPrivacyReview(ctx, route.ID, snapshot.ID, userID, snapshot.SourceRouteVersion, "public", true); err != nil {
+		t.Fatalf("CreateRoutePublicationPrivacyReview: %v", err)
+	}
+
+	var routeNameState, descriptionState, waypointsState, sourceMetadataState, geometryState, enrichmentState, mediaPointerState, overallState string
+	var ownerApproved bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT route_name_state, description_state, waypoints_state, source_metadata_state,
+		       geometry_state, enrichment_state, media_pointer_state, overall_state,
+		       owner_approved_at IS NOT NULL
+		FROM route_publication_privacy_reviews
+		WHERE route_snapshot_id = $1
+		  AND audience_class = 'public'
+	`, snapshot.ID).Scan(
+		&routeNameState, &descriptionState, &waypointsState, &sourceMetadataState,
+		&geometryState, &enrichmentState, &mediaPointerState, &overallState,
+		&ownerApproved,
+	); err != nil {
+		t.Fatalf("load component review states: %v", err)
+	}
+	wantConfirmed := map[string]string{
+		"route_name": routeNameState,
+		"waypoints":  waypointsState,
+		"geometry":   geometryState,
+		"enrichment": enrichmentState,
+		"overall":    overallState,
+	}
+	for component, got := range wantConfirmed {
+		if got != "confirmed" {
+			t.Fatalf("%s state = %q, want confirmed", component, got)
+		}
+	}
+	wantSafe := map[string]string{
+		"description":     descriptionState,
+		"source_metadata": sourceMetadataState,
+		"media_pointer":   mediaPointerState,
+	}
+	for component, got := range wantSafe {
+		if got != "safe" {
+			t.Fatalf("%s state = %q, want safe", component, got)
+		}
+	}
+	if !ownerApproved {
+		t.Fatal("owner_approved_at is NULL for confirmed warning review")
+	}
+}
+
+func TestRoutePublicationPrivacyReviewTreatsEmptyOptionalWaypointsAsSafe(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	route, _ := createRoutePublicationTestSnapshot(t, db, userID, "privacy empty waypoints route")
+	route.Waypoints = []model.RouteWaypoint{}
+	if err := db.UpdateRoute(ctx, route, route.Version); err != nil {
+		t.Fatalf("UpdateRoute empty waypoints: %v", err)
+	}
+	updated, err := db.GetRoute(ctx, route.ID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute empty waypoints: %v", err)
+	}
+	snapshot, err := db.CreatePlannedRouteSnapshot(ctx, model.CreatePlannedRouteSnapshotInput{
+		RouteID:            route.ID,
+		UserID:             userID,
+		SourceRouteVersion: updated.Version,
+		OperationID:        "publication-empty-waypoints-snapshot-" + route.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlannedRouteSnapshot empty waypoints: %v", err)
+	}
+	if _, err := db.CreateRoutePublicationPrivacyReview(ctx, route.ID, snapshot.ID, userID, snapshot.SourceRouteVersion, "public", true); err != nil {
+		t.Fatalf("CreateRoutePublicationPrivacyReview: %v", err)
+	}
+
+	var waypointsState, overallState string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT waypoints_state, overall_state
+		FROM route_publication_privacy_reviews
+		WHERE route_snapshot_id = $1
+		  AND audience_class = 'public'
+	`, snapshot.ID).Scan(&waypointsState, &overallState); err != nil {
+		t.Fatalf("load empty waypoint review states: %v", err)
+	}
+	if waypointsState != "safe" {
+		t.Fatalf("waypoints state = %q, want safe", waypointsState)
+	}
+	if overallState != "confirmed" {
+		t.Fatalf("overall state = %q, want confirmed", overallState)
+	}
+}
+
+func TestRoutePublicationPrivacyReviewWarningsRequireOwnerConfirmation(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	route, snapshot := createRoutePublicationTestSnapshot(t, db, userID, "privacy warning route")
+
+	if _, err := db.CreateRoutePublicationPrivacyReview(ctx, route.ID, snapshot.ID, userID, snapshot.SourceRouteVersion, "public", false); err != nil {
+		t.Fatalf("CreateRoutePublicationPrivacyReview unconfirmed: %v", err)
+	}
+
+	var routeNameState, geometryState, overallState string
+	var ownerApproved bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT route_name_state, geometry_state, overall_state, owner_approved_at IS NOT NULL
+		FROM route_publication_privacy_reviews
+		WHERE route_snapshot_id = $1
+		  AND audience_class = 'public'
+	`, snapshot.ID).Scan(&routeNameState, &geometryState, &overallState, &ownerApproved); err != nil {
+		t.Fatalf("load unconfirmed review states: %v", err)
+	}
+	if routeNameState != "requires_confirmation" || geometryState != "requires_confirmation" || overallState != "requires_confirmation" {
+		t.Fatalf("unconfirmed warning states = %q/%q/%q, want requires_confirmation", routeNameState, geometryState, overallState)
+	}
+	if ownerApproved {
+		t.Fatal("owner_approved_at set for unconfirmed warning review")
+	}
+
+	_, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     snapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  snapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "public",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-unconfirmed-warning-review",
+	})
+	if !errors.Is(err, ErrRoutePublicationValidation) {
+		t.Fatalf("unconfirmed warning publish error = %v, want ErrRoutePublicationValidation", err)
+	}
+}
+
 func TestRoutePublicationFreezesGeometry(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()

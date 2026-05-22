@@ -276,6 +276,7 @@ func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*mo
 WITH user_favs AS (
     SELECT segment_id FROM segment_favorites WHERE user_id = $1
 )`
+	useInlineRiddenCounts := p.CompletedOnly || p.LiftsOnlyRidden
 
 	// --- SELECT ---
 	selectCols := `
@@ -284,10 +285,19 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
        s.segment_type, s.segment_type_meta,
        s.source_activity_id, s.osm_lift_id,
        s.distance_m, s.elevation_gain_m,
-       s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
-       COALESCE(ue.ridden_count, 0) AS ridden_count,
+       `
+	if useInlineRiddenCounts {
+		selectCols += `s.effort_count + COALESCE(ue.private_ridden_count, 0) AS effort_count, s.athlete_count,
+       COALESCE(ue.ridden_count, 0) AS ridden_count,`
+	} else {
+		selectCols += `s.effort_count AS effort_count, s.athlete_count,
+       0 AS ridden_count,`
+	}
+	selectCols += `
        (uf.segment_id IS NOT NULL) AS is_favorite,
-       s.visibility, s.access_scope_id, s.route_hash, s.created_at,`
+       s.visibility, s.access_scope_id,
+       ` + governanceEffectiveReportPermissionsSQL("course", "s.id", "$1::uuid") + ` AS effective_permissions,
+       s.route_hash, s.created_at,`
 
 	if p.IncludeGeoJSON {
 		selectCols += `
@@ -315,7 +325,9 @@ SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
 
 	// --- FROM + JOINs ---
 	from := `
-FROM segments s
+FROM segments s`
+	if useInlineRiddenCounts {
+		from += `
 LEFT JOIN LATERAL (
     SELECT COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count,
            COUNT(*) FILTER (WHERE rn = 1 AND visibility != 'public')::int AS private_ridden_count
@@ -340,7 +352,9 @@ LEFT JOIN LATERAL (
           AND a.user_id = $1
           AND se.superseded_at IS NULL
     ) ranked_efforts
-) ue ON true
+) ue ON true`
+	}
+	from += `
 LEFT JOIN user_favs uf ON uf.segment_id = s.id`
 
 	if p.IncludeGeoJSON {
@@ -399,9 +413,9 @@ LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 			case "public":
 				parts = append(parts, "s.visibility = 'public'")
 			case "private":
-				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true))", isAdminPlaceholder()))
+				parts = append(parts, fmt.Sprintf("(s.visibility = 'private' AND (s.created_by = $1 OR %s = true OR %s))", isAdminPlaceholder(), governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid")))
 			case "shared":
-				parts = append(parts, sharedSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr))
+				parts = append(parts, "("+sharedSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr)+" OR "+governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid")+")")
 			}
 		}
 		switch len(parts) {
@@ -413,7 +427,7 @@ LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 			visibilityClause = "(" + strings.Join(parts, " OR ") + ")"
 		}
 	} else {
-		visibilityClause = visibleSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr)
+		visibilityClause = "(" + visibleSegmentAccessWithScopesSQL("s", "$1", isAdminPlaceholder(), resolvedScopesExpr) + " OR " + governanceTargetVisibleSQL("'course'", "s.id", "$1::uuid") + ")"
 	}
 	where := fmt.Sprintf(" WHERE %s", visibilityClause)
 
@@ -627,7 +641,7 @@ LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 			&s.DistanceM, &s.ElevationGainM,
 			&s.EffortCount, &s.AthleteCount,
 			&s.RiddenCount, &s.IsFavorite,
-			&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
+			&s.Visibility, &s.AccessScopeID, &s.EffectivePermissions, &s.RouteHash, &s.CreatedAt,
 			&s.TrackGeoJSON,
 			&s.TerrainType, &s.ClimbType, &s.ElevationKind,
 			&s.CourseKind, &controlSummaryJSON, &controlMapFeaturesJSON,
@@ -668,12 +682,83 @@ LEFT JOIN checkpoint_course_projection cp ON cp.segment_id = s.id`
 		last := segments[len(segments)-1]
 		nextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
+	if !useInlineRiddenCounts {
+		if err := db.attachListSegmentRiddenCounts(ctx, p.UserID, segments); err != nil {
+			return nil, err
+		}
+	}
 
 	return &model.ListSegmentsResult{
 		Segments:   segments,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+func (db *DB) attachListSegmentRiddenCounts(ctx context.Context, userID string, segments []model.Segment) error {
+	if strings.TrimSpace(userID) == "" || len(segments) == 0 {
+		return nil
+	}
+	segmentIDs := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		segmentIDs = append(segmentIDs, segment.ID)
+	}
+	rows, err := db.Pool.Query(ctx, `
+		WITH ranked_efforts AS (
+			SELECT se.segment_id,
+			       a.visibility,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY se.segment_id, COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.is_reverse
+			           ORDER BY
+			               CASE
+			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
+			                   WHEN COALESCE(a.is_group_secondary, false) = false THEN 1
+			                   ELSE 2
+			               END,
+			               se.created_at ASC,
+			               se.id ASC
+			       ) AS rn
+			FROM segment_efforts se
+			JOIN activities a ON se.activity_id = a.id
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
+			WHERE se.segment_id = ANY($1::uuid[])
+			  AND a.user_id = $2
+			  AND se.superseded_at IS NULL
+		)
+		SELECT segment_id::text,
+		       COUNT(*) FILTER (WHERE rn = 1)::int AS ridden_count,
+		       COUNT(*) FILTER (WHERE rn = 1 AND visibility != 'public')::int AS private_ridden_count
+		FROM ranked_efforts
+		GROUP BY segment_id
+	`, segmentIDs, userID)
+	if err != nil {
+		return fmt.Errorf("list segment ridden counts: %w", err)
+	}
+	defer rows.Close()
+
+	type counts struct {
+		ridden  int
+		private int
+	}
+	bySegment := make(map[string]counts, len(segments))
+	for rows.Next() {
+		var segmentID string
+		var c counts
+		if err := rows.Scan(&segmentID, &c.ridden, &c.private); err != nil {
+			return fmt.Errorf("scan segment ridden count: %w", err)
+		}
+		bySegment[segmentID] = c
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list segment ridden counts: %w", err)
+	}
+	for i := range segments {
+		c := bySegment[segments[i].ID]
+		segments[i].RiddenCount = c.ridden
+		segments[i].EffortCount += c.private
+	}
+	return nil
 }
 
 func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.SegmentCreate) (*model.Segment, error) {
@@ -909,7 +994,9 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
                            SELECT 1 FROM segment_favorites sf
                            WHERE sf.segment_id = s.id AND sf.user_id = NULLIF($2::text, '')::uuid
                        ) AS is_favorite,
-                       s.visibility, s.access_scope_id, s.route_hash, s.created_at,
+                       s.visibility, s.access_scope_id,
+                       `+governanceEffectiveReportPermissionsSQL("course", "s.id", "NULLIF($2::text, '')::uuid")+` AS effective_permissions,
+                       s.route_hash, s.created_at,
                        %s AS track_geojson,
                        s.terrain_type, s.climb_type, s.elevation_kind, s.bidirectional,
                        s.course_kind, sv.id::text AS active_segment_version_id,
@@ -920,7 +1007,8 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 	                       ON cp.segment_id = s.id
 	                      AND s.course_kind = 'checkpoint_sequence'
                 WHERE s.id = $1
-                  AND `+visibleSegmentAccessWithScopesSQL("s", "NULLIF($2::text, '')::uuid", "$3", resolvedScopesExpr),
+                  AND (`+visibleSegmentAccessWithScopesSQL("s", "NULLIF($2::text, '')::uuid", "$3", resolvedScopesExpr)+`
+                       OR `+governanceTargetVisibleSQL("'course'", "s.id", "NULLIF($2::text, '')::uuid")+`)`,
 		trackSelect,
 		activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id, track"),
 	)
@@ -936,7 +1024,7 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 		&s.DistanceM, &s.ElevationGainM,
 		&s.EffortCount, &s.AthleteCount,
 		&s.RiddenCount, &s.IsFavorite,
-		&s.Visibility, &s.AccessScopeID, &s.RouteHash, &s.CreatedAt,
+		&s.Visibility, &s.AccessScopeID, &s.EffectivePermissions, &s.RouteHash, &s.CreatedAt,
 		&s.TrackGeoJSON,
 		&s.TerrainType, &s.ClimbType, &s.ElevationKind, &s.Bidirectional,
 		&s.CourseKind, &activeSegmentVersionID, &controlSummaryJSON,
@@ -1517,8 +1605,9 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 		IncludeAllUsers: true,
 		OperationID:     operationID,
 	}
-	idempotencyKey := segmentRecalculationIdempotencyKey(scope)
-	runID, total, err := seedSegmentRecalculationRunTx(ctx, tx, actorID, scope, "segment publish recompute", idempotencyKey, metadataJSON)
+	reason := "segment publish recompute"
+	idempotencyKey := segmentRecalculationIdempotencyKey(scope, reason)
+	runID, total, err := seedSegmentRecalculationRunTx(ctx, tx, actorID, scope, reason, idempotencyKey, metadataJSON)
 	if err != nil {
 		return false, "", 0, err
 	}
@@ -1709,6 +1798,12 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		case "sport_overall":
 			if strings.TrimSpace(q.SportType) == "" {
 				return nil, fmt.Errorf("%w: sport_overall leaderboard requires sport type", ErrSegmentValidation)
+			}
+		case "equivalence_group":
+			var err error
+			groupID, err = db.resolveSegmentLeaderboardGroup(ctx, q.SegmentID, scope, q.VersionID, groupID)
+			if err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("%w: unsupported checkpoint leaderboard scope", ErrSegmentValidation)
@@ -3480,9 +3575,13 @@ func encodeCursor(t time.Time, id string) string {
 // GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
 // Only returns segments the user can access.
 func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string, visibleAccessScopeIDs []string) ([]model.Segment, error) {
+	return db.GetSegmentsForExportWithAccess(ctx, ids, userID, false, visibleAccessScopeIDs)
+}
+
+func (db *DB) GetSegmentsForExportWithAccess(ctx context.Context, ids []string, userID string, isAdmin bool, visibleAccessScopeIDs []string) ([]model.Segment, error) {
 	result := make([]model.Segment, 0, len(ids))
 	for _, id := range ids {
-		seg, err := db.GetSegmentWithOptions(ctx, id, userID, false, GetSegmentOptions{
+		seg, err := db.GetSegmentWithOptions(ctx, id, userID, isAdmin, GetSegmentOptions{
 			IncludeGeoJSON:        true,
 			IncludeControls:       true,
 			VisibleAccessScopeIDs: visibleAccessScopeIDs,
