@@ -48,6 +48,11 @@ type segmentOperationRequest struct {
 	OperationID string `json:"operation_id"`
 }
 
+type segmentPublishRequest struct {
+	OperationID                    string `json:"operation_id"`
+	SourceActivityPublishConfirmed bool   `json:"source_activity_publish_confirmed,omitempty"`
+}
+
 func decodeSegmentOperationID(r *http.Request, fallbackPrefix string) (string, error) {
 	var req segmentOperationRequest
 	if r.Body != nil {
@@ -60,6 +65,22 @@ func decodeSegmentOperationID(r *http.Request, fallbackPrefix string) (string, e
 		return strings.TrimSpace(req.OperationID), nil
 	}
 	return fallbackPrefix + ":" + uuid.NewString(), nil
+}
+
+func decodeSegmentPublishRequest(r *http.Request) (segmentPublishRequest, error) {
+	var req segmentPublishRequest
+	if r.Body != nil {
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return req, err
+		}
+	}
+	if strings.TrimSpace(req.OperationID) == "" {
+		req.OperationID = "publish:" + uuid.NewString()
+	} else {
+		req.OperationID = strings.TrimSpace(req.OperationID)
+	}
+	return req, nil
 }
 
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +212,11 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid difficulty_match parameter (expect any or all)", r.URL.Path)
 		return
 	}
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
+	params.VisibleAccessScopeIDs = scopes
 
 	result, err := h.DB.ListSegments(r.Context(), params)
 
@@ -458,11 +484,16 @@ func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
 	includeGeoJSON := r.URL.Query().Get("include_geojson") == "true"
 	includeControls := r.URL.Query().Get("include_controls") == "true"
 	includeOverlaySummary := r.URL.Query().Get("include_overlay_summary") == "true"
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
 	segment, err := h.DB.GetSegmentWithOptions(r.Context(), id, userID, isAdmin, database.GetSegmentOptions{
 		IncludeGeoJSON:        includeGeoJSON,
 		IncludeControls:       includeControls,
 		IncludeOverlaySummary: includeOverlaySummary,
+		VisibleAccessScopeIDs: scopes,
 	})
 
 	if err != nil {
@@ -783,9 +814,13 @@ func (h *Handler) GetSegmentLeaderboard(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
 	// Verify segment is visible to the requesting user (prevents private segment data leak via UUID).
-	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), id, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("get segment leaderboard: get segment failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1241,7 +1276,7 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentPublish) {
 		return
 	}
-	operationID, err := decodeSegmentOperationID(r, "publish")
+	publishReq, err := decodeSegmentPublishRequest(r)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid request body", r.URL.Path)
 		return
@@ -1265,12 +1300,16 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	published, runID, total, err := h.DB.PublishSegmentAndSeedRecalculationRun(r.Context(), id, userID, isAdmin, operationID, map[string]any{
+	published, runID, total, err := h.DB.PublishSegmentAndSeedRecalculationRun(r.Context(), id, userID, isAdmin, publishReq.OperationID, publishReq.SourceActivityPublishConfirmed, map[string]any{
 		"source":      "segment_publish",
 		"visibility":  "user_visible",
 		"entity_name": seg.Name,
 	})
 	if err != nil {
+		if errors.Is(err, database.ErrSegmentPublishPrivacyConfirmationRequired) {
+			httputil.WriteError(w, http.StatusConflict, "Privacy Confirmation Required", "source activity intersects an active privacy zone; confirm publishing the current segment/course geometry", r.URL.Path)
+			return
+		}
 		if errors.Is(err, database.ErrRoutePublicationValidation) {
 			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
 			return
@@ -1329,8 +1368,12 @@ func (h *Handler) GetSegmentFavoriteStatus(w http.ResponseWriter, r *http.Reques
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentFavoriteStatus", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1359,8 +1402,12 @@ func (h *Handler) AddSegmentFavorite(w http.ResponseWriter, r *http.Request) {
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "AddSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1388,8 +1435,12 @@ func (h *Handler) RemoveSegmentFavorite(w http.ResponseWriter, r *http.Request) 
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "RemoveSegmentFavorite", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)
@@ -1417,8 +1468,12 @@ func (h *Handler) GetSegmentPerformances(w http.ResponseWriter, r *http.Request)
 	}
 	segmentID := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
-	seg, err := h.DB.GetSegment(r.Context(), segmentID, userID, isAdmin, false)
+	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segmentID, userID, isAdmin, database.GetSegmentOptions{VisibleAccessScopeIDs: scopes})
 	if err != nil {
 		slog.Error("segment access check failed", "handler", "GetSegmentPerformances", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get segment", r.URL.Path)

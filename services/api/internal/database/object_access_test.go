@@ -22,8 +22,6 @@ func TestObjectAccessScopeCreateValidateAndResolve(t *testing.T) {
 		CreatedBy:   ownerID,
 		Grants: []model.ObjectAccessGrantInput{
 			{PrincipalKind: "user", PrincipalUserID: &viewerID},
-			{PrincipalKind: "relationship_rule", PrincipalRef: new("friend-depth"), PrincipalSelector: map[string]any{"relationship": "friend", "max_depth": float64(2)}},
-			{PrincipalKind: "server", PrincipalRef: new("server-1"), PrincipalSelector: map[string]any{"server_id": "server-1"}},
 			{PrincipalKind: "link_token", LinkTokenHash: new("sha256:token-hash")},
 		},
 	}
@@ -34,8 +32,8 @@ func TestObjectAccessScopeCreateValidateAndResolve(t *testing.T) {
 	if scope.ID == "" {
 		t.Fatal("CreateObjectAccessScope returned empty id")
 	}
-	if len(scope.Grants) != 4 {
-		t.Fatalf("grant count = %d, want 4", len(scope.Grants))
+	if len(scope.Grants) != 2 {
+		t.Fatalf("grant count = %d, want 2", len(scope.Grants))
 	}
 
 	if err := db.ValidateObjectAccessScopeForShare(ctx, scope.ID, ownerID); err != nil {
@@ -60,6 +58,25 @@ func TestObjectAccessScopeCreateValidateAndResolve(t *testing.T) {
 	}
 	if !objectAccessContainsString(resolvedByLink, scope.ID) {
 		t.Fatalf("link resolved scopes = %#v, want %s", resolvedByLink, scope.ID)
+	}
+}
+
+func TestObjectAccessScopeRejectsUnsupportedDynamicPrincipalKinds(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+
+	for _, kind := range []string{"group", "team", "organization", "role", "server", "delegated_audience", "relationship_rule"} {
+		_, err := db.CreateObjectAccessScope(ctx, model.ObjectAccessScopeInput{
+			OwnerUserID: ownerID,
+			ScopeKind:   "manual",
+			CreatedBy:   ownerID,
+			Grants: []model.ObjectAccessGrantInput{
+				{PrincipalKind: kind, PrincipalRef: new("unsupported")},
+			},
+		})
+		if !errors.Is(err, ErrObjectAccessValidation) {
+			t.Fatalf("%s error = %v, want ErrObjectAccessValidation", kind, err)
+		}
 	}
 }
 
@@ -168,7 +185,7 @@ func TestSegmentSharedVisibilityListDetailAndExport(t *testing.T) {
 				t.Fatalf("GetSegment visible = %v, want %v", got != nil, tc.want)
 			}
 
-			exported, err := db.GetSegmentsForExport(ctx, []string{segment.ID}, tc.userID)
+			exported, err := db.GetSegmentsForExport(ctx, []string{segment.ID}, tc.userID, nil)
 			if err != nil {
 				t.Fatalf("GetSegmentsForExport: %v", err)
 			}

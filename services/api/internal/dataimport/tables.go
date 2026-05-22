@@ -225,7 +225,7 @@ func allTables() []tableSpec {
 			PKField:  "id",
 			UserCol:  "created_by",
 			FKFields: []string{"access_scope_id", "source_activity_publish_confirmed_by"},
-			Deferred: []string{"source_activity_id"},
+			Deferred: []string{"source_activity_id", "source_activity_publish_confirmed_segment_version_id"},
 		},
 
 		// ── Phase 4: FK to Phase 3 ─────────────────────────────────────────────
@@ -563,7 +563,7 @@ func ImportCoverageTableNamesForGDPRGuard() map[string]bool {
 func ImportSkippedTableRationalesForGDPRGuard() map[string]string {
 	return map[string]string{
 		"best_efforts":                           "Derived activity achievement rows are recomputed from imported activities.",
-		"course_version_controls":                "Checkpoint course controls are version-derived geometry details and are rebuilt from imported course definitions.",
+		"course_version_controls":                "Checkpoint course controls are version geometry details; exported rows are not restored until segment_version_id/control FK remapping is implemented.",
 		"governance_actor_roles":                 "Governance roles require live actors and explicit local trust; import intentionally does not recreate edit/admin permissions.",
 		"governance_actor_target_projection":     "Governance actor-target rows are derived authorization projections and are rebuilt from local governance state.",
 		"governance_scope_target_bindings":       "Governance bindings require live scopes and targets; import intentionally does not recreate edit/admin permissions.",
@@ -578,11 +578,15 @@ func ImportSkippedTableRationalesForGDPRGuard() map[string]string {
 		"route_publication_events":               "Publication events are audit metadata; import intentionally does not replay historical publication operations.",
 		"route_publication_privacy_reviews":      "Privacy reviews are publication-governance metadata; import requires a fresh review before publishing again.",
 		"route_relationships":                    "Route forks and variants can be recreated explicitly; import avoids restoring cross-route graph metadata before ownership is revalidated.",
+		"target_activity_observations":           "Target observations reference live activities and target subjects; import intentionally does not restore overlay rows before subject/activity remapping is implemented.",
 		"target_change_events":                   "Target object change events are audit metadata; import intentionally starts imported objects with fresh local audit history.",
+		"target_reports":                         "Target reports are moderated overlay content tied to live subjects; import intentionally does not recreate report state from historical exports.",
+		"target_report_status_events":            "Target report status events are moderation history; import intentionally does not replay historical status changes.",
 		"target_collection_member_reverse_index": "Collection reverse-index rows are derived from target_collection_members and rebuilt locally.",
 		"target_collection_summary_projection":   "Collection summary rows are derived from target_collections and target_collection_members and rebuilt locally.",
 		"target_object_search_projection":        "Target object search rows are derived from target_places and target_regions and rebuilt locally.",
 		"target_revision_snapshots":              "Target object revision snapshots can contain private historical state; import intentionally does not replay historical snapshots.",
+		"target_user_content":                    "Target user content is overlay content tied to live subjects; import intentionally does not recreate it before subject/activity remapping is implemented.",
 	}
 }
 

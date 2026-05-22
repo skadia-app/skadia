@@ -22,6 +22,10 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
 	segID := chi.URLParam(r, "id")
 	format := r.URL.Query().Get("format")
@@ -30,8 +34,9 @@ func (h *Handler) ExportSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seg, err := h.DB.GetSegmentWithOptions(r.Context(), segID, userID, false, database.GetSegmentOptions{
-		IncludeGeoJSON:  true,
-		IncludeControls: true,
+		IncludeGeoJSON:        true,
+		IncludeControls:       true,
+		VisibleAccessScopeIDs: scopes,
 	})
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segment", r.URL.Path)
@@ -83,6 +88,10 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 
 	var body struct {
 		IDs    []string `json:"ids"`
@@ -109,7 +118,7 @@ func (h *Handler) ExportSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	segments, err := h.DB.GetSegmentsForExport(r.Context(), body.IDs, userID)
+	segments, err := h.DB.GetSegmentsForExport(r.Context(), body.IDs, userID, scopes)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to fetch segments", r.URL.Path)
 		return

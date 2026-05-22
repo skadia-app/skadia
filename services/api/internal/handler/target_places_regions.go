@@ -185,18 +185,7 @@ func (h *Handler) DeleteTargetRegion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveTargetVisibleScopes(w http.ResponseWriter, r *http.Request, userID string) []string {
-	if strings.TrimSpace(userID) == "" {
-		return []string{}
-	}
-	scopes, err := h.DB.ResolveVisibleAccessScopes(r.Context(), userID, nil, nil)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve access scopes", r.URL.Path)
-		return nil
-	}
-	if scopes == nil {
-		return []string{}
-	}
-	return scopes
+	return h.resolveVisibleAccessScopesForRequest(w, r, userID)
 }
 
 func handleTargetHandlerErr(w http.ResponseWriter, r *http.Request, err error) bool {

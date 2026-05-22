@@ -304,6 +304,28 @@ func TestCheckpointCourseTablesHaveGDPRContract(t *testing.T) {
 	}
 }
 
+func TestTargetOverlayExportsDoNotIncludeRowsOnlyBecauseUserOwnsSubject(t *testing.T) {
+	specs := map[string]string{}
+	for _, spec := range gdprExportTables() {
+		specs[spec.table] = spec.where
+	}
+
+	for _, table := range []string{"target_activity_observations", "target_reports", "target_user_content"} {
+		where := specs[table]
+		if where == "" {
+			t.Fatalf("%s missing from gdprExportTables", table)
+		}
+		for _, forbidden := range []string{"target_places", "target_regions", "target_collections", "route_course_publications"} {
+			if strings.Contains(where, forbidden) {
+				t.Fatalf("%s export where leaks subject-owner rows via %s: %s", table, forbidden, where)
+			}
+		}
+	}
+	if where := specs["target_report_status_events"]; strings.Contains(where, "target_places") || strings.Contains(where, "target_regions") || strings.Contains(where, "target_collections") {
+		t.Fatalf("target_report_status_events export where leaks subject-owner rows: %s", where)
+	}
+}
+
 func TestCourseEligibilityProjectionGDPRClassification(t *testing.T) {
 	if got := GDPRRegistry["target_course_eligibility_projection"]; got != Derived {
 		t.Fatalf("target_course_eligibility_projection category = %v, want Derived", got)

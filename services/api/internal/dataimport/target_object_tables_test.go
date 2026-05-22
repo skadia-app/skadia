@@ -44,11 +44,16 @@ func TestDataImportRegistersTargetObjectTables(t *testing.T) {
 
 	skipped := dataimport.ImportSkippedTableRationalesForGDPRGuard()
 	for _, table := range []string{
+		"course_version_controls",
 		"governance_scopes",
 		"governance_actor_roles",
 		"governance_scope_target_bindings",
+		"target_activity_observations",
 		"target_change_events",
+		"target_reports",
+		"target_report_status_events",
 		"target_revision_snapshots",
+		"target_user_content",
 		"governance_actor_target_projection",
 		"target_object_search_projection",
 		"target_collection_summary_projection",

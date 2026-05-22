@@ -391,16 +391,6 @@ func validateObjectAccessGrantShape(kind string, input model.ObjectAccessGrantIn
 			input.PrincipalUserID != nil || input.PrincipalRef != nil {
 			return fmt.Errorf("%w: link_token grants require only link_token_hash", ErrObjectAccessValidation)
 		}
-	case "group", "team", "organization", "role", "server", "delegated_audience":
-		if input.PrincipalRef == nil || strings.TrimSpace(*input.PrincipalRef) == "" ||
-			input.PrincipalUserID != nil || input.LinkTokenHash != nil {
-			return fmt.Errorf("%w: %s grants require only principal_ref", ErrObjectAccessValidation, kind)
-		}
-	case "relationship_rule":
-		if input.PrincipalRef == nil || strings.TrimSpace(*input.PrincipalRef) == "" ||
-			input.PrincipalUserID != nil || input.LinkTokenHash != nil || len(input.PrincipalSelector) == 0 {
-			return fmt.Errorf("%w: relationship_rule grants require principal_ref and principal_selector", ErrObjectAccessValidation)
-		}
 	default:
 		return fmt.Errorf("%w: unsupported principal kind %q", ErrObjectAccessValidation, kind)
 	}

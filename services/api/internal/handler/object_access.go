@@ -64,6 +64,10 @@ func (h *Handler) CreateObjectAccessScope(w http.ResponseWriter, r *http.Request
 	}
 	rawTokens := make([]string, 0, len(req.Grants))
 	for _, grant := range req.Grants {
+		if !supportedObjectAccessGrantKindForCreate(grant.PrincipalKind) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported object access principal kind", r.URL.Path)
+			return
+		}
 		permission := strings.TrimSpace(grant.Permission)
 		if permission != "" && permission != "view" {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "object access grants are view-only", r.URL.Path)
@@ -119,6 +123,15 @@ func (h *Handler) CreateObjectAccessScope(w http.ResponseWriter, r *http.Request
 		}
 	}
 	httputil.WriteJSON(w, http.StatusCreated, response)
+}
+
+func supportedObjectAccessGrantKindForCreate(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "user", "link_token":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) ListObjectAccessScopes(w http.ResponseWriter, r *http.Request) {
