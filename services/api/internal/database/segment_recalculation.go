@@ -391,8 +391,8 @@ func (db *DB) ClaimNextSegmentRecalculationActivity(ctx context.Context, workerI
 			JOIN segment_recalculation_runs r ON r.id = ra.run_id
 			WHERE r.status IN ('queued', 'running')
 			  AND (
-			  	ra.status = 'queued'
-			  	OR (ra.status = 'running' AND ra.claimed_until < NOW())
+			    ra.status = 'queued'
+			    OR (ra.status = 'running' AND ra.claimed_until < NOW())
 			  )
 			ORDER BY r.created_at, ra.activity_id
 			FOR UPDATE SKIP LOCKED
@@ -499,16 +499,16 @@ func CompleteSegmentRecalculationActivityTx(ctx context.Context, tx pgx.Tx, clai
 	if _, err := tx.Exec(ctx, `
 		UPDATE segment_recalculation_runs r
 		SET status = CASE
-		    	WHEN failed_activities > 0 THEN 'failed'
-		    	ELSE 'completed'
+		        WHEN failed_activities > 0 THEN 'failed'
+		        ELSE 'completed'
 		    END,
 		    completed_at = NOW()
 		WHERE r.id = $1
 		  AND NOT EXISTS (
-		  	SELECT 1
-		  	FROM segment_recalculation_run_activities ra
-		  	WHERE ra.run_id = r.id
-		  	  AND ra.status IN ('queued', 'running')
+		    SELECT 1
+		    FROM segment_recalculation_run_activities ra
+		    WHERE ra.run_id = r.id
+		      AND ra.status IN ('queued', 'running')
 		  )
 	`, claim.RunID); err != nil {
 		return fmt.Errorf("complete segment recalculation run if done: %w", err)
