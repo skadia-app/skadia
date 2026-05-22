@@ -374,10 +374,20 @@ export async function recomputeSegment(segmentId: string): Promise<SegmentRecalc
   })
 }
 
-export async function publishSegment(id: string): Promise<SegmentRecalculationRunResponse> {
+export type PublishSegmentOptions = {
+  sourceActivityPublishConfirmed?: boolean
+}
+
+export async function publishSegment(id: string, options: PublishSegmentOptions = {}): Promise<SegmentRecalculationRunResponse> {
+  const body: { operation_id: string; source_activity_publish_confirmed?: boolean } = {
+    operation_id: crypto.randomUUID(),
+  }
+  if (options.sourceActivityPublishConfirmed) {
+    body.source_activity_publish_confirmed = true
+  }
   return apiClient<SegmentRecalculationRunResponse>(`/segments/${id}/publish`, {
     method: 'POST',
-    body: { operation_id: crypto.randomUUID() },
+    body,
   })
 }
 

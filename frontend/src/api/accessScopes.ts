@@ -11,6 +11,7 @@ export type ObjectAccessPrincipalKind =
   | 'role'
   | 'server'
   | 'delegated_audience'
+export type CreateObjectAccessPrincipalKind = 'user' | 'link_token'
 
 export interface ObjectAccessGrant {
   id: string
@@ -39,14 +40,17 @@ export interface ObjectAccessScope {
   grants?: ObjectAccessGrant[]
 }
 
-export interface CreateObjectAccessGrantRequest {
-  principal_kind: ObjectAccessPrincipalKind
-  principal_user_id?: string | null
-  principal_ref?: string | null
-  principal_selector?: Record<string, unknown>
-  link_token?: string | null
-  permission?: 'view'
-}
+export type CreateObjectAccessGrantRequest =
+  | {
+    principal_kind: 'user'
+    principal_user_id: string
+    permission?: 'view'
+  }
+  | {
+    principal_kind: 'link_token'
+    link_token?: string | null
+    permission?: 'view'
+  }
 
 export interface CreateObjectAccessScopeRequest {
   scope_kind?: ObjectAccessScopeKind

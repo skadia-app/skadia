@@ -13,16 +13,14 @@ export type MultiPolygonGeometry = { type: 'MultiPolygon'; coordinates: number[]
 export type TargetGeometry = PointGeometry | PolygonGeometry | MultiPolygonGeometry
 
 export interface TargetObjectListParams {
-  visibility_mode?: 'mine' | 'public_only' | 'shared_visible_to_me' | 'all_visible'
   kinds?: string[]
   bbox?: [number, number, number, number]
   search?: string
-  include_geometry?: boolean
   limit?: number
   offset?: number
 }
 
-export interface TargetCollectionListParams extends Omit<TargetObjectListParams, 'include_geometry'> {}
+export interface TargetCollectionListParams extends TargetObjectListParams {}
 
 export interface TargetPlace {
   id: string
@@ -106,14 +104,14 @@ export interface TargetCollectionDetail extends TargetCollection {
 export type TargetPlaceCreateRequest = Omit<Partial<TargetPlace>, 'id' | 'geometry' | 'place_kind' | 'visibility'> & {
   name: string
   place_kind: TargetPlaceKind
-  geometry: TargetGeometry
+  geometry: PointGeometry | string
   visibility: TargetVisibility
 }
 export type TargetPlaceUpdateRequest = Partial<TargetPlaceCreateRequest>
 export type TargetRegionCreateRequest = Omit<Partial<TargetRegion>, 'id' | 'geometry' | 'region_kind' | 'visibility'> & {
   name: string
   region_kind: TargetRegionKind
-  geometry: PolygonGeometry | MultiPolygonGeometry
+  geometry: PolygonGeometry | MultiPolygonGeometry | string
   visibility: TargetVisibility
 }
 export type TargetRegionUpdateRequest = Partial<TargetRegionCreateRequest>
@@ -128,6 +126,7 @@ export type TargetCollectionMemberCreateRequest = Partial<TargetCollectionMember
   member_id?: string
   member_ref?: string
 }
+export type TargetCollectionMemberUpdateRequest = Partial<Omit<TargetCollectionMember, 'id' | 'collection_id' | 'member_kind' | 'member_id' | 'member_ref' | 'added_at' | 'removed_at'>>
 
 export interface GovernanceScopeCreateRequest {
   kind: 'user_space' | 'organization' | 'region_scope' | 'collection_scope' | 'system_scope'
@@ -190,11 +189,11 @@ export function listTargetPlaces(params: TargetObjectListParams = {}): Promise<T
 }
 
 export function createTargetPlace(request: TargetPlaceCreateRequest): Promise<TargetPlaceResponse> {
-  return apiClient<TargetPlaceResponse>('/target-places', { method: 'POST', body: request })
+  return apiClient<TargetPlaceResponse>('/target-places', { method: 'POST', body: serializePlaceRequest(request) })
 }
 
 export function updateTargetPlace(id: string, request: TargetPlaceUpdateRequest): Promise<TargetPlaceResponse> {
-  return apiClient<TargetPlaceResponse>(`/target-places/${id}`, { method: 'PATCH', body: request })
+  return apiClient<TargetPlaceResponse>(`/target-places/${id}`, { method: 'PATCH', body: serializePlaceRequest(request) })
 }
 
 export function deleteTargetPlace(id: string): Promise<{ ok: boolean }> {
@@ -210,11 +209,11 @@ export function listTargetRegions(params: TargetObjectListParams = {}): Promise<
 }
 
 export function createTargetRegion(request: TargetRegionCreateRequest): Promise<TargetRegionResponse> {
-  return apiClient<TargetRegionResponse>('/target-regions', { method: 'POST', body: request })
+  return apiClient<TargetRegionResponse>('/target-regions', { method: 'POST', body: serializeRegionRequest(request) })
 }
 
 export function updateTargetRegion(id: string, request: TargetRegionUpdateRequest): Promise<TargetRegionResponse> {
-  return apiClient<TargetRegionResponse>(`/target-regions/${id}`, { method: 'PATCH', body: request })
+  return apiClient<TargetRegionResponse>(`/target-regions/${id}`, { method: 'PATCH', body: serializeRegionRequest(request) })
 }
 
 export function deleteTargetRegion(id: string): Promise<{ ok: boolean }> {
@@ -233,6 +232,14 @@ export function createTargetCollection(request: TargetCollectionCreateRequest): 
   return apiClient<TargetCollectionResponse>('/target-collections', { method: 'POST', body: request })
 }
 
+export function updateTargetCollection(id: string, request: TargetCollectionUpdateRequest): Promise<TargetCollectionResponse> {
+  return apiClient<TargetCollectionResponse>(`/target-collections/${id}`, { method: 'PATCH', body: request })
+}
+
+export function deleteTargetCollection(id: string): Promise<{ ok: boolean }> {
+  return apiClient<{ ok: boolean }>(`/target-collections/${id}`, { method: 'DELETE' })
+}
+
 export function getTargetCollection(id: string, options: { include_members?: boolean; include_overlay_summary?: boolean } = {}): Promise<TargetCollectionDetailResponse> {
   return apiClient<TargetCollectionDetailResponse>(withQuery(`/target-collections/${id}`, cleanQuery({
     include_members: options.include_members,
@@ -246,6 +253,10 @@ export function addTargetCollectionMember(collectionId: string, request: TargetC
 
 export function removeTargetCollectionMember(collectionId: string, memberId: string): Promise<{ ok: boolean }> {
   return apiClient<{ ok: boolean }>(`/target-collections/${collectionId}/members/${memberId}`, { method: 'DELETE' })
+}
+
+export function updateTargetCollectionMember(collectionId: string, memberId: string, request: TargetCollectionMemberUpdateRequest): Promise<TargetCollectionMemberResponse> {
+  return apiClient<TargetCollectionMemberResponse>(`/target-collections/${collectionId}/members/${memberId}`, { method: 'PATCH', body: request })
 }
 
 export function createGovernanceScope(request: GovernanceScopeCreateRequest): Promise<GovernanceScopeResponse> {
@@ -266,14 +277,25 @@ export function listGovernanceEffectiveTargets(params: GovernanceEffectiveTarget
 
 function targetObjectListQuery(params: TargetObjectListParams): Record<string, string> {
   return cleanQuery({
-    visibility_mode: params.visibility_mode,
     kinds: params.kinds?.join(','),
     bbox: params.bbox?.join(','),
     search: params.search,
-    include_geometry: params.include_geometry,
     limit: params.limit,
     offset: params.offset,
   })
+}
+
+function serializePlaceRequest<T extends TargetPlaceCreateRequest | TargetPlaceUpdateRequest>(request: T): T {
+  return serializeGeometryRequest(request)
+}
+
+function serializeRegionRequest<T extends TargetRegionCreateRequest | TargetRegionUpdateRequest>(request: T): T {
+  return serializeGeometryRequest(request)
+}
+
+function serializeGeometryRequest<T extends { geometry?: TargetGeometry | string }>(request: T): T {
+  if (request.geometry === undefined || typeof request.geometry === 'string') return request
+  return { ...request, geometry: JSON.stringify(request.geometry) }
 }
 
 function cleanQuery(params: object): Record<string, string> {

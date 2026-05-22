@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
 import { createTargetCollection, listTargetCollections, type TargetCollectionKind, type TargetVisibility } from '@/api/targetObjects'
+import { useToast } from '@/lib/toast'
 
 const COLLECTION_KIND_LABELS: Record<string, string> = {
   private_map: 'Private Karte',
@@ -17,6 +18,7 @@ const COLLECTION_KIND_LABELS: Record<string, string> = {
 
 export default function TargetCollectionsPage() {
   const queryClient = useQueryClient()
+  const { addToast } = useToast()
   const [name, setName] = useState('')
   const [kind, setKind] = useState<TargetCollectionKind>('private_map')
   const [visibility, setVisibility] = useState<TargetVisibility>('private')
@@ -27,7 +29,9 @@ export default function TargetCollectionsPage() {
     onSuccess: () => {
       setName('')
       queryClient.invalidateQueries({ queryKey: ['target-collections'] })
+      addToast({ type: 'success', title: 'Sammlung erstellt' })
     },
+    onError: error => addToast({ type: 'error', title: 'Sammlung konnte nicht erstellt werden', message: errorMessage(error), duration: 0 }),
   })
 
   return (
@@ -78,7 +82,7 @@ export default function TargetCollectionsPage() {
           disabled={createMutation.isPending || !name.trim() || (visibility === 'shared' && !accessScopeID)}
           className="rounded-md bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Sammlung erstellen
+          {createMutation.isPending ? 'Erstellt...' : 'Sammlung erstellen'}
         </button>
       </form>
 
@@ -97,4 +101,8 @@ export default function TargetCollectionsPage() {
       </div>
     </div>
   )
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Bitte versuche es erneut.'
 }
