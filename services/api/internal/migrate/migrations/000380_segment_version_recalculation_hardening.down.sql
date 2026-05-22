@@ -1,3 +1,16 @@
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM segment_versions
+        WHERE validity_basis = 'rollback_retired'
+    ) THEN
+        RAISE EXCEPTION 'cannot downgrade segment version recalculation hardening with rollback_retired rows'
+            USING ERRCODE = 'check_violation';
+    END IF;
+END
+$$;
+
 DROP INDEX IF EXISTS idx_segment_recalc_runs_actor_visible;
 
 ALTER TABLE segment_version_revisions

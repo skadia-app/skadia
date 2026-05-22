@@ -241,18 +241,19 @@ func TestUpdateSegmentGeometryContinueGroupPromotesVersionSpecificSource(t *test
 	}
 }
 
-func TestUpdateSegmentGeometryContinueGroupMovesExistingEfforts(t *testing.T) {
+func TestUpdateSegmentGeometryContinueGroupPreservesFrozenEffortPartition(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
 	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Geometry Continue Efforts")
 	activityID := insertVersioningTestActivity(t, db, userID, time.Date(2025, 8, 1, 9, 0, 0, 0, time.UTC))
 	effortID := insertSegmentRecalculationEffort(t, db, segmentID, versionID, activityID, userID, time.Date(2025, 8, 1, 9, 5, 0, 0, time.UTC), "continue-effort-"+uuid.NewString(), 60)
+	oldGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, versionID)
 
 	revision, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
 		OperationID:         "geometry-continue-efforts-" + uuid.NewString(),
 		TrackGeoJSON:        json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.012,49.012],[8.024,49.024]]}`),
 		EquivalenceDecision: "continue_group",
-		EquivalenceEvidence: map[string]any{"reason": "minor correction"},
+		EquivalenceEvidence: map[string]any{"trusted": true, "length_delta_ratio": 999},
 	})
 	if err != nil {
 		t.Fatalf("UpdateSegmentVersionGeometry: %v", err)
@@ -277,8 +278,81 @@ func TestUpdateSegmentGeometryContinueGroupMovesExistingEfforts(t *testing.T) {
 	`, effortID).Scan(&effortGroupID); err != nil {
 		t.Fatalf("query effort group: %v", err)
 	}
-	if effortGroupID != newGroupID {
-		t.Fatalf("effort group = %s, want continued group %s", effortGroupID, newGroupID)
+	if effortGroupID != oldGroupID {
+		t.Fatalf("frozen effort group = %s, want original group %s", effortGroupID, oldGroupID)
+	}
+	if oldGroupID == newGroupID {
+		t.Fatalf("old and new group both %s, want regroup projection without rewriting effort", oldGroupID)
+	}
+
+	efforts, err := db.GetSegmentLeaderboardWithQuery(ctx, model.SegmentLeaderboardQuery{
+		SegmentID:  segmentID,
+		Scope:      "current_version",
+		SportType:  "cycling",
+		OnlyUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("GetSegmentLeaderboardWithQuery: %v", err)
+	}
+	if len(efforts) != 1 || efforts[0].ID != effortID {
+		t.Fatalf("current leaderboard efforts = %#v, want frozen effort %s projected into current group", efforts, effortID)
+	}
+}
+
+func TestUpdateSegmentGeometryContinueGroupBuildsTrustedEvidence(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	segmentID, versionID := insertVersioningTestSegment(t, db, userID, "Geometry Trusted Evidence")
+
+	revision, err := db.UpdateSegmentVersionGeometry(ctx, segmentID, versionID, userID, false, model.SegmentGeometryUpdate{
+		OperationID:         "geometry-trusted-" + uuid.NewString(),
+		TrackGeoJSON:        json.RawMessage(`{"type":"LineString","coordinates":[[8,49],[8.01,49.01],[8.02,49.02]]}`),
+		EquivalenceDecision: "continue_group",
+		EquivalenceEvidence: map[string]any{"trusted": true, "length_delta_ratio": 999},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSegmentVersionGeometry: %v", err)
+	}
+	var after SegmentVersionSnapshot
+	if err := json.Unmarshal(revision.AfterSnapshot, &after); err != nil {
+		t.Fatalf("decode after snapshot: %v", err)
+	}
+	var newVersionID string
+	for _, version := range after.Versions {
+		if version.ID != versionID {
+			newVersionID = version.ID
+		}
+	}
+	if newVersionID == "" {
+		t.Fatal("new version not found in snapshot")
+	}
+	newGroupID := activeTestLeaderboardEquivalenceGroup(t, db, segmentID, newVersionID)
+	var metadata json.RawMessage
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT metadata
+		FROM segment_leaderboard_equivalence_groups
+		WHERE id = $1
+	`, newGroupID).Scan(&metadata); err != nil {
+		t.Fatalf("load group metadata: %v", err)
+	}
+	var payload struct {
+		Evidence map[string]any `json:"evidence"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatalf("decode group metadata: %v", err)
+	}
+	if payload.Evidence["trusted"] == true || payload.Evidence["length_delta_ratio"] == float64(999) {
+		t.Fatalf("stored caller-supplied evidence in group metadata: %s", metadata)
+	}
+	for _, key := range []string{
+		"source", "actor_user_id", "target_version_id", "new_version_id",
+		"matching_contract_key", "matching_contract_version", "length_m",
+		"target_length_m", "length_delta_ratio", "start_distance_m",
+		"end_distance_m", "direction",
+	} {
+		if _, ok := payload.Evidence[key]; !ok {
+			t.Fatalf("trusted evidence missing %q: %#v", key, payload.Evidence)
+		}
 	}
 }
 

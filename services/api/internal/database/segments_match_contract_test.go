@@ -170,6 +170,112 @@ func TestInsertSegmentEffortIsIdempotentByMatchIdentity(t *testing.T) {
 	}
 }
 
+func TestInsertSegmentEffortWithoutEligibilityProvenanceIsNonLeaderboard(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:        segmentID,
+		SegmentVersionID: versionID,
+		ActivityID:       activityID,
+		UserID:           userID,
+		StartedAt:        startedAt,
+		ElapsedTimeS:     60,
+		SportType:        "cycling",
+		SubType:          "mountain",
+		InLeaderboard:    true,
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("InsertSegmentEffort: %v", err)
+	}
+
+	var inLeaderboard bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT in_leaderboard
+		FROM segment_efforts
+		WHERE match_identity_key = $1
+	`, effort.MatchIdentityKey).Scan(&inLeaderboard); err != nil {
+		t.Fatalf("load effort leaderboard state: %v", err)
+	}
+	if inLeaderboard {
+		t.Fatal("effort without eligibility provenance was rankable")
+	}
+}
+
+func TestInsertSegmentEffortRejectsUntrustedEligibilityBypass(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:             segmentID,
+		SegmentVersionID:      versionID,
+		ActivityID:            activityID,
+		UserID:                userID,
+		StartedAt:             startedAt,
+		ElapsedTimeS:          60,
+		SportType:             "cycling",
+		SubType:               "mountain",
+		EligibilityPolicyKey:  "untrusted_bypass",
+		EligibilitySourceHash: "caller-supplied",
+		InLeaderboard:         true,
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("InsertSegmentEffort: %v", err)
+	}
+
+	var inLeaderboard bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT in_leaderboard
+		FROM segment_efforts
+		WHERE match_identity_key = $1
+	`, effort.MatchIdentityKey).Scan(&inLeaderboard); err != nil {
+		t.Fatalf("load effort leaderboard state: %v", err)
+	}
+	if inLeaderboard {
+		t.Fatal("effort with untrusted eligibility bypass was rankable")
+	}
+}
+
+func TestInsertSegmentEffortAllowsExplicitLegacyLeaderboardBypass(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	activityID, segmentID, versionID, startedAt := insertMatchContractFixture(t, db, userID)
+
+	effort := &model.SegmentEffort{
+		SegmentID:             segmentID,
+		SegmentVersionID:      versionID,
+		ActivityID:            activityID,
+		UserID:                userID,
+		StartedAt:             startedAt,
+		ElapsedTimeS:          60,
+		SportType:             "cycling",
+		SubType:               "mountain",
+		EligibilityPolicyKey:  "legacy_leaderboard_bypass",
+		EligibilitySourceHash: "legacy-test-bypass",
+		InLeaderboard:         true,
+	}
+	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
+		t.Fatalf("InsertSegmentEffort: %v", err)
+	}
+
+	var inLeaderboard bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT in_leaderboard
+		FROM segment_efforts
+		WHERE match_identity_key = $1
+	`, effort.MatchIdentityKey).Scan(&inLeaderboard); err != nil {
+		t.Fatalf("load effort leaderboard state: %v", err)
+	}
+	if !inLeaderboard {
+		t.Fatal("explicit legacy leaderboard bypass was not rankable")
+	}
+}
+
 func TestSegmentEffortCurrentReadsIgnoreSupersededRows(t *testing.T) {
 	db, userID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -184,8 +290,13 @@ func TestSegmentEffortCurrentReadsIgnoreSupersededRows(t *testing.T) {
 		ElapsedTimeS:     60,
 		SportType:        "cycling",
 		SubType:          "mountain",
+		InLeaderboard:    true,
 	}
 	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: true})
+	effort.ActivityTraitBucketKey = "test-current-read"
+	effort.EligibilityPolicyKey = courseEligibilityPolicyKey
+	effort.EligibilityPolicyVersion = courseEligibilityPolicyVersion
+	effort.EligibilitySourceHash = "test-current-read"
 	if err := db.InsertSegmentEffort(ctx, effort); err != nil {
 		t.Fatalf("insert active effort: %v", err)
 	}
@@ -506,8 +617,13 @@ func insertPreparedLeaderboardEffort(t *testing.T, db *DB, userID, segmentID, ve
 		ElapsedTimeS:     elapsed,
 		SportType:        "cycling",
 		SubType:          "mountain",
+		InLeaderboard:    true,
 	}
 	PrepareCourseGPSV1EffortMetadata(effort, SegmentMatchActivityContext{IsElectric: isElectric})
+	effort.ActivityTraitBucketKey = "test-leaderboard"
+	effort.EligibilityPolicyKey = courseEligibilityPolicyKey
+	effort.EligibilityPolicyVersion = courseEligibilityPolicyVersion
+	effort.EligibilitySourceHash = "test-leaderboard"
 	if err := db.InsertSegmentEffort(context.Background(), effort); err != nil {
 		t.Fatalf("insert segment effort: %v", err)
 	}

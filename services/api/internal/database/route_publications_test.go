@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -201,6 +202,88 @@ func TestRoutePublicationExistingCoursePoliciesCreateVersions(t *testing.T) {
 	}
 	if versionCount != 3 {
 		t.Fatalf("version count = %d, want 3", versionCount)
+	}
+}
+
+func TestRoutePublicationContinueGroupBuildsTrustedCompatibilityEvidence(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	_, firstSnapshot := createRoutePublicationTestSnapshot(t, db, userID, "trusted course v1")
+	first, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:     firstSnapshot.ID,
+		ActorUserID:         userID,
+		SourceRouteVersion:  firstSnapshot.SourceRouteVersion,
+		PublishPolicy:       "new_course",
+		EquivalenceDecision: "version_specific",
+		Visibility:          "private",
+		CompatibilityPreset: "standard",
+		OperationID:         "publish-trusted-v1",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse v1: %v", err)
+	}
+
+	_, secondSnapshot := createRoutePublicationTestSnapshot(t, db, userID, "trusted course v2")
+	second, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              secondSnapshot.ID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           secondSnapshot.SourceRouteVersion,
+		PublishPolicy:                "continue_equivalence_group",
+		Visibility:                   "private",
+		TargetPublicationID:          &first.ID,
+		TargetCourseSegmentID:        &first.CourseSegmentID,
+		TargetCourseSegmentVersionID: &first.CourseSegmentVersionID,
+		CompatibilityEvidence: map[string]any{
+			"trusted":            true,
+			"length_delta_ratio": 999,
+		},
+		OperationID: "publish-trusted-v2",
+	})
+	if err != nil {
+		t.Fatalf("PublishRouteSnapshotAsCourse v2: %v", err)
+	}
+
+	var evidence map[string]any
+	if err := json.Unmarshal(second.CompatibilityEvidence, &evidence); err != nil {
+		t.Fatalf("decode compatibility evidence: %v", err)
+	}
+	if evidence["trusted"] == true || evidence["length_delta_ratio"] == float64(999) {
+		t.Fatalf("stored caller-supplied compatibility evidence: %s", second.CompatibilityEvidence)
+	}
+	for _, key := range []string{
+		"source", "actor_user_id", "target_version_id", "new_version_id",
+		"matching_contract_key", "matching_contract_version", "length_m",
+		"target_length_m", "length_delta_ratio", "start_distance_m",
+		"end_distance_m", "direction",
+	} {
+		if _, ok := evidence[key]; !ok {
+			t.Fatalf("trusted evidence missing %q: %#v", key, evidence)
+		}
+	}
+	if evidence["source"] != "server" {
+		t.Fatalf("source = %#v, want server", evidence["source"])
+	}
+
+	replayed, err := db.PublishRouteSnapshotAsCourse(ctx, model.PublishRouteSnapshotInput{
+		RouteSnapshotID:              secondSnapshot.ID,
+		ActorUserID:                  userID,
+		SourceRouteVersion:           secondSnapshot.SourceRouteVersion,
+		PublishPolicy:                "continue_equivalence_group",
+		Visibility:                   "private",
+		TargetPublicationID:          &first.ID,
+		TargetCourseSegmentID:        &first.CourseSegmentID,
+		TargetCourseSegmentVersionID: &first.CourseSegmentVersionID,
+		CompatibilityEvidence: map[string]any{
+			"trusted":            true,
+			"length_delta_ratio": -999,
+		},
+		OperationID: "publish-trusted-v2",
+	})
+	if err != nil {
+		t.Fatalf("replay with different caller evidence: %v", err)
+	}
+	if replayed.ID != second.ID {
+		t.Fatalf("replay returned publication %s, want %s", replayed.ID, second.ID)
 	}
 }
 

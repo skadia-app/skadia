@@ -532,6 +532,9 @@ func testSegmentRecalculationEffort(segmentID, versionID, activityID, userID str
 		LeaderboardContractKey:         "course_gps_v1",
 		LeaderboardContractVersion:     1,
 		ActivityTraitBucketKey:         "cycling:mountain",
+		EligibilityPolicyKey:           courseEligibilityPolicyKey,
+		EligibilityPolicyVersion:       courseEligibilityPolicyVersion,
+		EligibilitySourceHash:          "test-segment-recalculation",
 		InLeaderboard:                  true,
 	}
 }

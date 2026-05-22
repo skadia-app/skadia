@@ -705,6 +705,16 @@ func (h *Handler) PublishRouteCourse(w http.ResponseWriter, r *http.Request) {
 	if snapshotID == "" {
 		snapshotID = req.SnapshotID
 	}
+	if v, state := parseIfMatchVersion(r.Header.Get("If-Match")); state == ifMatchValid {
+		if req.SourceRouteVersion != 0 && req.SourceRouteVersion != v {
+			httputil.WriteError(w, http.StatusPreconditionFailed, "Precondition Failed", "route version changed", r.URL.Path)
+			return
+		}
+		req.SourceRouteVersion = v
+	} else if state == ifMatchMalformed {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid If-Match header", r.URL.Path)
+		return
+	}
 	if snapshotID == "" || req.SourceRouteVersion == 0 || req.OperationID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "route_snapshot_id, source_route_version, and operation_id are required", r.URL.Path)
 		return
