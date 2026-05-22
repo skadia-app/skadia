@@ -55,6 +55,7 @@ const ChatPage = lazy(() => import('@/pages/ChatPage'))
 const FusionQueuePage = lazy(() => import('@/pages/FusionQueuePage'))
 const RoutesPage = lazy(() => import('@/pages/RoutesPage'))
 const TargetObjectsPage = lazy(() => import('@/pages/TargetObjectsPage'))
+const TargetObjectDetailPage = lazy(() => import('@/pages/TargetObjectDetailPage'))
 const TargetCollectionsPage = lazy(() => import('@/pages/TargetCollectionsPage'))
 const TargetCollectionDetailPage = lazy(() => import('@/pages/TargetCollectionDetailPage'))
 const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
@@ -179,6 +180,7 @@ export default function App() {
                             <Route path="chat" element={<ChatPage />} />
                             <Route path="routes" element={<RoutesPage />} />
                             <Route path="objects" element={<TargetObjectsPage />} />
+                            <Route path="objects/:kind/:id" element={<TargetObjectDetailPage />} />
                             <Route path="collections" element={<TargetCollectionsPage />} />
                             <Route path="collections/:id" element={<TargetCollectionDetailPage />} />
                             <Route path="segments" element={<SegmentsPage />} />

@@ -16,6 +16,30 @@ vi.mock('@/api/tags', () => ({
     { id: 'tag-other', name: 'Urlaub', color: '#22c55e' },
   ]),
 }))
+vi.mock('@/api/segments', () => ({
+  fetchSegments: vi.fn(async () => ({
+    segments: [
+      {
+        id: 'segment-visible',
+        name: 'Sichtbares Segment',
+        sport_group: 'bike',
+        segment_type: 'trail',
+        segment_type_meta: {},
+        distance_m: 1200,
+        elevation_gain_m: 85,
+        effort_count: 4,
+        athlete_count: 2,
+        ridden_count: 1,
+        is_favorite: false,
+        visibility: 'shared',
+        created_by: 'user-1',
+        created_at: '2026-05-22T00:00:00Z',
+        bidirectional: true,
+      },
+    ],
+    has_more: false,
+  })),
+}))
 vi.mock('maplibre-gl', () => ({ default: {} }))
 
 function renderEditor(seed: Partial<AutomationRule>, onSave = vi.fn()) {
@@ -238,6 +262,17 @@ describe('RuleEditor sport tuple controls', () => {
     expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
       { field: 'max_speed_ms', op: 'between', value: '6,12' },
     ])
+  })
+
+  it('uses an access-aware segment picker with preview text for segment conditions', async () => {
+    renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'has_segment_effort', op: 'eq', value: '' }] }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Sichtbares Segment' })).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Segment wählen'), { target: { value: 'segment-visible' } })
+
+    expect(screen.getByText('Trail · Radfahren · 1,2 km · 85 hm · Geteilt')).toBeInTheDocument()
   })
 
   it('serializes sport condition and action as canonical tuple plus electric modifier', async () => {

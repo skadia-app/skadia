@@ -11,6 +11,9 @@ import * as routesApi from '@/api/routes'
 
 vi.mock('@/api/routes', () => ({
   getProfileDefaults: vi.fn().mockResolvedValue({ profile: 'hiking' }),
+  forkRoute: vi.fn().mockResolvedValue({ route_id: 'route-fork', relationship_id: 'rel-fork' }),
+  createRouteRelationship: vi.fn().mockResolvedValue({ relationship_id: 'rel-route' }),
+  createRouteCourseRelationship: vi.fn().mockResolvedValue({ relationship_id: 'rel-course' }),
   createRouteSnapshot: vi.fn().mockResolvedValue({
     snapshot_id: 'snap-1',
     snapshot_hash: 'hash-1',
@@ -128,6 +131,94 @@ describe('RoutePlannerPanel capability gates', () => {
       visibility: 'private',
       compatibility_preset: 'standard',
       operation_id: '00000000-0000-4000-8000-000000000001:publish',
+    })
+
+    randomUUID.mockRestore()
+  })
+
+  it('publishes shared existing-course route publications with target context', async () => {
+    const randomUUID = vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000002')
+    renderPanel({
+      waypoints: [{ id: 'a', latlng: [0, 0], type: 'start' }, { id: 'b', latlng: [1, 1], type: 'end' }],
+      segments: [{
+        from_waypoint: 'a',
+        to_waypoint: 'b',
+        mode: 'routed',
+        control_points: [],
+        smooth: false,
+        distance_m: 1000,
+        elevation_gain: 10,
+        elevation_loss: 0,
+        geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+      }],
+      totalDistanceM: 1000,
+      editingRouteId: 'route-1',
+      editingRouteVersion: 7,
+    })
+
+    fireEvent.change(screen.getByLabelText('Sichtbarkeit der Kursveröffentlichung'), { target: { value: 'shared' } })
+    fireEvent.change(screen.getByLabelText('Freigabe-Scope'), { target: { value: 'scope-1' } })
+    fireEvent.change(screen.getByLabelText('Veröffentlichungsart'), { target: { value: 'new_version_same_course' } })
+    fireEvent.change(screen.getByLabelText('Ziel-Kurs'), { target: { value: 'course-1' } })
+    fireEvent.change(screen.getByLabelText('Ziel-Version'), { target: { value: 'version-1' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Privacy-Review bestätigt/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Als Kurs veröffentlichen' }))
+
+    await waitFor(() => {
+      expect(routesApi.publishRouteCourse).toHaveBeenCalledWith('route-1', expect.objectContaining({
+        publish_policy: 'new_version_same_course',
+        equivalence_decision: 'version_specific',
+        visibility: 'shared',
+        access_scope_id: 'scope-1',
+        target_course_segment_id: 'course-1',
+        target_course_segment_version_id: 'version-1',
+      }))
+    })
+
+    randomUUID.mockRestore()
+  })
+
+  it('creates fork and relationship operations from the route panel', async () => {
+    const randomUUID = vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000003')
+    renderPanel({
+      editingRouteId: 'route-1',
+      editingRouteVersion: 7,
+      editingRoute: {
+        id: 'route-1',
+        name: 'Ausgangsroute',
+        sport_type: 'cycling',
+        profile: 'trekking',
+        waypoints: [],
+        segments: [],
+        time_override: false,
+        auto_tag: false,
+        photos: [],
+        tags: [],
+        created_at: '2026-05-22T00:00:00Z',
+        updated_at: '2026-05-22T00:00:00Z',
+      },
+    })
+
+    fireEvent.change(screen.getByLabelText('Fork-Name'), { target: { value: 'Variante Nord' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fork erstellen' }))
+
+    await waitFor(() => {
+      expect(routesApi.forkRoute).toHaveBeenCalledWith('route-1', {
+        name: 'Variante Nord',
+        source_route_version: 7,
+        operation_id: '00000000-0000-4000-8000-000000000003:fork',
+      })
+    })
+
+    fireEvent.change(screen.getByLabelText('Zielroute'), { target: { value: 'route-2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Beziehung speichern' }))
+
+    await waitFor(() => {
+      expect(routesApi.createRouteRelationship).toHaveBeenCalledWith('route-1', {
+        target_route_id: 'route-2',
+        relation_type: 'variant_of',
+        operation_id: '00000000-0000-4000-8000-000000000003:route-relationship',
+      })
     })
 
     randomUUID.mockRestore()

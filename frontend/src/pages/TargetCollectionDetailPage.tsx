@@ -52,6 +52,18 @@ export default function TargetCollectionDetailPage() {
 
   if (detail.isLoading) return <p className="text-sm text-neutral-500">Lädt...</p>
   if (!collection) return <p className="text-sm text-neutral-500">Sammlung nicht gefunden.</p>
+  const effectivePermissions = new Set(collection.effective_permissions ?? [])
+  const canManageCollection = Boolean(
+    me?.is_admin ||
+    me?.user_id === collection.owner_user_id ||
+    effectivePermissions.has('manage_members') ||
+    effectivePermissions.has('manage_roles'),
+  )
+  const canManageReports = Boolean(
+    me?.is_admin ||
+    me?.user_id === collection.owner_user_id ||
+    effectivePermissions.has('manage_reports'),
+  )
 
   return (
     <div className="space-y-6">
@@ -65,16 +77,20 @@ export default function TargetCollectionDetailPage() {
             </p>
           )}
         </div>
-        <button
-          onClick={() => bootstrapGovernanceMutation.mutate()}
-          disabled={bootstrapGovernanceMutation.isPending}
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
-        >
-          Governance vorbereiten
-        </button>
+        {canManageCollection && (
+          <button
+            onClick={() => bootstrapGovernanceMutation.mutate()}
+            disabled={bootstrapGovernanceMutation.isPending}
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
+          >
+            Governance vorbereiten
+          </button>
+        )}
       </div>
 
-      <CollectionMemberPicker onAdd={member => addMemberMutation.mutate(member)} busy={addMemberMutation.isPending} />
+      {canManageCollection && (
+        <CollectionMemberPicker onAdd={member => addMemberMutation.mutate(member)} busy={addMemberMutation.isPending} />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Einträge</h2>
@@ -87,12 +103,14 @@ export default function TargetCollectionDetailPage() {
                   {MEMBER_KIND_LABELS[member.member_kind] ?? member.member_kind} · {member.role}
                 </p>
               </div>
-              <button
-                onClick={() => removeMemberMutation.mutate(member.id)}
-                className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
-              >
-                Entfernen
-              </button>
+              {canManageCollection && (
+                <button
+                  onClick={() => removeMemberMutation.mutate(member.id)}
+                  className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
+                >
+                  Entfernen
+                </button>
+              )}
             </div>
           ))}
           {(collection.members ?? []).length === 0 && <p className="p-3 text-sm text-neutral-500">Keine Einträge.</p>}
@@ -103,7 +121,7 @@ export default function TargetCollectionDetailPage() {
         subjectKind="collection"
         subjectId={collection.id}
         canWrite={Boolean(me)}
-        canManageReports={Boolean(me?.is_admin || me?.user_id === collection.owner_user_id)}
+        canManageReports={canManageReports}
       />
     </div>
   )

@@ -89,6 +89,28 @@ function checkpointPointRadiusGeometry(coord: [number, number], radiusM: number)
   return { type: 'Polygon', coordinates: [ring] }
 }
 
+function checkpointControlCenter(control: CheckpointControl): [number, number] | null {
+  const geometry = control.geometry as { type?: string; coordinates?: unknown } | undefined
+  if (geometry?.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+    const [lng, lat] = geometry.coordinates
+    if (typeof lng === 'number' && typeof lat === 'number') return [lng, lat]
+  }
+  if (!geometry?.coordinates) return null
+  const coords: [number, number][] = []
+  const collect = (value: unknown): void => {
+    if (!Array.isArray(value)) return
+    if (value.length >= 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
+      coords.push([value[0], value[1]])
+      return
+    }
+    value.forEach(collect)
+  }
+  collect(geometry.coordinates)
+  if (coords.length === 0) return null
+  const [lng, lat] = coords.reduce(([lngSum, latSum], coord) => [lngSum + coord[0], latSum + coord[1]], [0, 0])
+  return [lng / coords.length, lat / coords.length]
+}
+
 function normalizeCheckpointControlOrder(controls: CheckpointControl[]): CheckpointControl[] {
   return controls.map((control, idx, all) => ({
     ...control,
@@ -846,10 +868,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     const circleID = 'checkpoint-control-circles'
     const labelID = 'checkpoint-control-labels'
     const coords = checkpointControls
-      .map(control => {
-        const geometry = control.geometry as { type?: string; coordinates?: unknown }
-        return geometry.type === 'Point' && Array.isArray(geometry.coordinates) ? geometry.coordinates as [number, number] : null
-      })
+      .map(control => checkpointControlCenter(control))
       .filter((coord): coord is [number, number] => Array.isArray(coord) && coord.length >= 2)
     const data = {
       type: 'FeatureCollection' as const,
@@ -865,6 +884,15 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           const radius = control.geometry_shape === 'circle'
             ? control.area_radius_m
             : control.hit_radius_m
+          if (control.geometry_shape === 'polygon') {
+            const geometry = control.geometry as GeoJSON.Geometry | undefined
+            if (geometry?.type !== 'Polygon') return []
+            return [{
+              type: 'Feature' as const,
+              properties: { kind: 'radius' },
+              geometry,
+            }]
+          }
           if (!radius) return []
           return [{
             type: 'Feature' as const,

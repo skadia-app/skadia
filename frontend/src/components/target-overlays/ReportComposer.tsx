@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Send } from 'lucide-react'
 import { createTargetReport, type CreateTargetReportRequest, type OverlaySubjectKind, type OverlayVisibility, type TargetReport, type TargetReportType } from '@/api/targetOverlays'
+import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
 
 const REPORT_TYPES: Array<{ value: TargetReportType; label: string }> = [
   { value: 'condition', label: 'Zustand' },
@@ -22,6 +23,7 @@ type Props = {
 export default function ReportComposer({ subjectKind, subjectId, targetVersionId, disabled, onCreated }: Props) {
   const [reportType, setReportType] = useState<TargetReportType>('condition')
   const [visibility, setVisibility] = useState<OverlayVisibility>('private')
+  const [accessScopeId, setAccessScopeId] = useState<string | null>(null)
   const [attributionMode, setAttributionMode] = useState<TargetReport['attribution_mode']>('hidden')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
@@ -39,6 +41,7 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
         target_version_id: targetVersionId,
         report_type: reportType,
         visibility,
+        access_scope_id: visibility === 'shared' ? accessScopeId ?? undefined : undefined,
         attribution_mode: attributionMode,
         description: text,
         observed_at: new Date().toISOString(),
@@ -55,7 +58,8 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
 
   return (
     <div className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
         <select
           value={reportType}
           onChange={event => setReportType(event.target.value as TargetReportType)}
@@ -63,15 +67,6 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
           className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950"
         >
           {REPORT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
-        </select>
-        <select
-          value={visibility}
-          onChange={(event) => setVisibility(event.target.value as OverlayVisibility)}
-          disabled={disabled || busy}
-          className="rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-        >
-          <option value="private">Privat</option>
-          <option value="public">Öffentlich</option>
         </select>
         <select
           value={attributionMode}
@@ -94,12 +89,21 @@ export default function ReportComposer({ subjectKind, subjectId, targetVersionId
         <button
           type="button"
           onClick={submit}
-          disabled={disabled || busy || !description.trim()}
+          disabled={disabled || busy || !description.trim() || (visibility === 'shared' && !accessScopeId)}
           className="inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
         >
           <Send size={14} />
           Senden
         </button>
+        </div>
+        <VisibilityAccessField
+          visibility={visibility}
+          accessScopeId={accessScopeId}
+          onChange={(next) => {
+            setVisibility(next.visibility as OverlayVisibility)
+            setAccessScopeId(next.access_scope_id ?? null)
+          }}
+        />
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>

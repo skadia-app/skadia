@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getMe } from '@/api/auth'
 import {
   createTargetPlace,
   createTargetRegion,
@@ -9,6 +11,8 @@ import {
   listTargetRegions,
   type TargetPlaceKind,
   type TargetRegionKind,
+  type TargetPlace,
+  type TargetRegion,
 } from '@/api/targetObjects'
 import PlaceRegionEditor, { type PlaceRegionEditorValue } from '@/components/target-objects/PlaceRegionEditor'
 
@@ -45,6 +49,7 @@ export default function TargetObjectsPage() {
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<'place' | 'region'>('place')
   const [search, setSearch] = useState('')
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 60_000 })
   const places = useQuery({ queryKey: ['target-places', search], queryFn: () => listTargetPlaces({ search, limit: 100 }) })
   const regions = useQuery({ queryKey: ['target-regions', search], queryFn: () => listTargetRegions({ search, limit: 100 }) })
 
@@ -114,9 +119,11 @@ export default function TargetObjectsPage() {
           {(places.data?.places ?? []).map(place => (
             <ObjectRow
               key={place.id}
+              href={`/objects/place/${place.id}`}
               name={place.name}
               kind={PLACE_KIND_LABELS[place.place_kind] ?? place.place_kind}
               visibility={VISIBILITY_LABELS[place.visibility] ?? place.visibility}
+              canArchive={canArchiveObject(place, me)}
               onArchive={() => archivePlaceMutation.mutate(place.id)}
             />
           ))}
@@ -125,9 +132,11 @@ export default function TargetObjectsPage() {
           {(regions.data?.regions ?? []).map(region => (
             <ObjectRow
               key={region.id}
+              href={`/objects/region/${region.id}`}
               name={region.name}
               kind={REGION_KIND_LABELS[region.region_kind] ?? region.region_kind}
               visibility={VISIBILITY_LABELS[region.visibility] ?? region.visibility}
+              canArchive={canArchiveObject(region, me)}
               onArchive={() => archiveRegionMutation.mutate(region.id)}
             />
           ))}
@@ -146,16 +155,21 @@ function ObjectList({ title, loading, children }: { title: string; loading: bool
   )
 }
 
-function ObjectRow({ name, kind, visibility, onArchive }: { name: string; kind: string; visibility: string; onArchive: () => void }) {
+function ObjectRow({ href, name, kind, visibility, canArchive, onArchive }: { href: string; name: string; kind: string; visibility: string; canArchive: boolean; onArchive: () => void }) {
   return (
     <div className="flex items-center justify-between gap-3 p-3">
-      <div className="min-w-0">
+      <Link to={href} className="min-w-0 hover:text-neutral-900 dark:hover:text-neutral-100">
         <p className="truncate text-sm font-medium">{name}</p>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">{kind} · {visibility}</p>
-      </div>
-      <button onClick={onArchive} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700">Archivieren</button>
+      </Link>
+      {canArchive && <button onClick={onArchive} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700">Archivieren</button>}
     </div>
   )
+}
+
+function canArchiveObject(object: TargetPlace | TargetRegion, me?: { user_id?: string; is_admin?: boolean } | null): boolean {
+  const permissions = new Set(object.effective_permissions ?? [])
+  return Boolean(me?.is_admin || me?.user_id === object.owner_user_id || permissions.has('hide_or_archive'))
 }
 
 function tabClass(active: boolean) {

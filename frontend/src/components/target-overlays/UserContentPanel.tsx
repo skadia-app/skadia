@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MessageSquare, Send, Star } from 'lucide-react'
 import { createTargetUserContent, type OverlaySubjectKind, type OverlayVisibility, type TargetUserContent } from '@/api/targetOverlays'
+import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
 
 type Props = {
   subjectKind: OverlaySubjectKind
@@ -15,6 +16,7 @@ type Props = {
 export default function UserContentPanel({ subjectKind, subjectId, targetVersionId, content, loading, canWrite, onChanged }: Props) {
   const [text, setText] = useState('')
   const [visibility, setVisibility] = useState<OverlayVisibility>('private')
+  const [accessScopeId, setAccessScopeId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -33,6 +35,7 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
         target_version_id: targetVersionId,
         content_kind: 'comment',
         visibility,
+        access_scope_id: visibility === 'shared' ? accessScopeId ?? undefined : undefined,
         payload: { text: value },
       })
       setText('')
@@ -56,25 +59,24 @@ export default function UserContentPanel({ subjectKind, subjectId, targetVersion
               className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
               placeholder="Kommentar"
             />
-            <select
-              value={visibility}
-              onChange={(event) => setVisibility(event.target.value as OverlayVisibility)}
-              disabled={busy}
-              className="rounded-md border border-neutral-300 bg-white px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-            >
-              <option value="private">Privat</option>
-              <option value="public">Öffentlich</option>
-            </select>
             <button
               type="button"
               onClick={submitComment}
-              disabled={busy || !text.trim()}
+              disabled={busy || !text.trim() || (visibility === 'shared' && !accessScopeId)}
               className="inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
             >
               <Send size={14} />
               Senden
             </button>
           </div>
+          <VisibilityAccessField
+            visibility={visibility}
+            accessScopeId={accessScopeId}
+            onChange={(next) => {
+              setVisibility(next.visibility as OverlayVisibility)
+              setAccessScopeId(next.access_scope_id ?? null)
+            }}
+          />
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       )}
