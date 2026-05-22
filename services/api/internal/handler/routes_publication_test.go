@@ -99,6 +99,66 @@ func TestRoutePublishCourseHandlerCreatesPrivateCourse(t *testing.T) {
 	}
 }
 
+func TestRoutePublishCourseHandlerRejectsMismatchedIfMatch(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := routePublicationRouter(h)
+
+	userID := insertTestUser(t, pool)
+	routeID := insertTestRoute(t, h, userID)
+	snapshotID := createRouteSnapshotViaHandler(t, r, routeID, userID, "publish-if-match-snapshot")
+
+	body := `{
+		"route_snapshot_id":"` + snapshotID + `",
+		"source_route_version":1,
+		"publish_policy":"new_course",
+		"equivalence_decision":"version_specific",
+		"visibility":"private",
+		"compatibility_preset":"standard",
+		"operation_id":"publish-if-match-mismatch"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/"+routeID+"/publish-course", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", `"2"`)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("status = %d, want 412; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRoutePublishCourseHandlerRejectsMalformedIfMatch(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := routePublicationRouter(h)
+
+	userID := insertTestUser(t, pool)
+	routeID := insertTestRoute(t, h, userID)
+	snapshotID := createRouteSnapshotViaHandler(t, r, routeID, userID, "publish-if-match-malformed-snapshot")
+
+	body := `{
+		"route_snapshot_id":"` + snapshotID + `",
+		"source_route_version":1,
+		"publish_policy":"new_course",
+		"equivalence_decision":"version_specific",
+		"visibility":"private",
+		"compatibility_preset":"standard",
+		"operation_id":"publish-if-match-malformed"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/"+routeID+"/publish-course", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", `not-an-etag`)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRoutePublicationHandlerDoesNotCreateGuideContent(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)

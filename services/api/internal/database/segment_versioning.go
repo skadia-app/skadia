@@ -393,7 +393,15 @@ func (db *DB) UpdateSegmentVersionGeometry(ctx context.Context, segmentID, versi
 	if err := db.RebuildSegmentCourseEligibilityProjectionTx(ctx, tx, segmentID); err != nil {
 		return nil, err
 	}
-	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, newVersionID, versionID, actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, update.EquivalenceEvidence); err != nil {
+	trustedEvidence := map[string]any(nil)
+	equivalenceDecision := strings.TrimSpace(update.EquivalenceDecision)
+	if equivalenceDecision == "" || equivalenceDecision == "continue_group" {
+		trustedEvidence, err = trustedSegmentVersionCompatibilityEvidenceTx(ctx, tx, segmentID, versionID, newVersionID, actorUserID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := applyEquivalenceDecisionTx(ctx, tx, segmentID, newVersionID, versionID, actorUserID, update.OperationID, update.EquivalenceDecision, update.Reason, trustedEvidence); err != nil {
 		return nil, err
 	}
 	recalcRunID, err := createSegmentRecalculationRunTx(ctx, tx, segmentID, actorUserID, update.OperationID, update.Reason, affectedFrom, affectedUntil, true)
@@ -731,8 +739,10 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 	var groupID string
 	var joinSourceVersionID string
 	if decision == "continue_group" {
-		if len(evidence) == 0 && strings.TrimSpace(continueFromVersionID) != "" {
-			return fmt.Errorf("%w: equivalence evidence is required when a new geometry continues an existing leaderboard group", ErrSegmentValidation)
+		if strings.TrimSpace(continueFromVersionID) != "" {
+			if err := validateTrustedSegmentVersionCompatibilityEvidence(segmentID, continueFromVersionID, versionID, actorUserID, evidence); err != nil {
+				return err
+			}
 		}
 		var currentGroupID string
 		err := tx.QueryRow(ctx, `
@@ -838,17 +848,117 @@ func applyEquivalenceDecisionTx(ctx context.Context, tx pgx.Tx, segmentID, versi
 	`, groupID, versionID, decision); err != nil {
 		return fmt.Errorf("insert equivalence membership: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE segment_efforts
-		SET leaderboard_equivalence_group_id = $2
-		WHERE segment_version_id = ANY($1::uuid[])
-		  AND superseded_at IS NULL
-	`, equivalenceRetireVersionIDs(versionID, joinSourceVersionID), groupID); err != nil {
-		return fmt.Errorf("move active segment efforts to equivalence group: %w", err)
-	}
 	if err := UpdateSegmentEffortRanksTx(ctx, tx, segmentID); err != nil {
 		return fmt.Errorf("refresh segment effort ranks after equivalence change: %w", err)
 	}
+	return nil
+}
+
+func trustedSegmentVersionCompatibilityEvidenceTx(ctx context.Context, tx pgx.Tx, segmentID, targetVersionID, newVersionID, actorUserID string) (map[string]any, error) {
+	var targetVersionNumber, newVersionNumber int
+	var targetContractKey, newContractKey string
+	var targetContractVersion, newContractVersion int
+	var targetLengthM, lengthM, startDistanceM, endDistanceM, reverseStartDistanceM, reverseEndDistanceM float64
+	if err := tx.QueryRow(ctx, `
+		WITH target AS (
+			SELECT id, segment_id, version_number, track, start_point, end_point,
+			       matching_contract_key, matching_contract_version
+			FROM segment_versions
+			WHERE id = $2 AND segment_id = $1
+		),
+		candidate AS (
+			SELECT id, segment_id, version_number, track, start_point, end_point,
+			       matching_contract_key, matching_contract_version
+			FROM segment_versions
+			WHERE id = $3 AND segment_id = $1
+		)
+		SELECT target.version_number,
+		       candidate.version_number,
+		       target.matching_contract_key,
+		       target.matching_contract_version,
+		       candidate.matching_contract_key,
+		       candidate.matching_contract_version,
+		       ST_Length(target.track::geography),
+		       ST_Length(candidate.track::geography),
+		       ST_Distance(ST_StartPoint(target.track)::geography, ST_StartPoint(candidate.track)::geography),
+		       ST_Distance(ST_EndPoint(target.track)::geography, ST_EndPoint(candidate.track)::geography),
+		       ST_Distance(ST_StartPoint(target.track)::geography, ST_EndPoint(candidate.track)::geography),
+		       ST_Distance(ST_EndPoint(target.track)::geography, ST_StartPoint(candidate.track)::geography)
+		FROM target, candidate
+	`, segmentID, targetVersionID, newVersionID).Scan(
+		&targetVersionNumber, &newVersionNumber,
+		&targetContractKey, &targetContractVersion,
+		&newContractKey, &newContractVersion,
+		&targetLengthM, &lengthM,
+		&startDistanceM, &endDistanceM,
+		&reverseStartDistanceM, &reverseEndDistanceM,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: compatibility versions must belong to the segment", ErrSegmentValidation)
+		}
+		return nil, fmt.Errorf("build segment version compatibility evidence: %w", err)
+	}
+	if targetContractKey != newContractKey || targetContractVersion != newContractVersion {
+		return nil, fmt.Errorf("%w: cannot continue equivalence group across matching contracts", ErrSegmentValidation)
+	}
+	direction := "forward"
+	if reverseStartDistanceM+reverseEndDistanceM < startDistanceM+endDistanceM {
+		direction = "reverse"
+	}
+	lengthDeltaM := lengthM - targetLengthM
+	lengthDeltaRatio := 0.0
+	if targetLengthM > 0 {
+		lengthDeltaRatio = lengthDeltaM / targetLengthM
+	}
+	return map[string]any{
+		"source":                    "server",
+		"policy_key":                "segment_version_compatibility",
+		"policy_version":            1,
+		"actor_user_id":             actorUserID,
+		"target_version_id":         targetVersionID,
+		"new_version_id":            newVersionID,
+		"target_version_number":     targetVersionNumber,
+		"new_version_number":        newVersionNumber,
+		"matching_contract_key":     newContractKey,
+		"matching_contract_version": newContractVersion,
+		"target_length_m":           targetLengthM,
+		"length_m":                  lengthM,
+		"length_delta_m":            lengthDeltaM,
+		"length_delta_ratio":        lengthDeltaRatio,
+		"start_distance_m":          startDistanceM,
+		"end_distance_m":            endDistanceM,
+		"reverse_start_distance_m":  reverseStartDistanceM,
+		"reverse_end_distance_m":    reverseEndDistanceM,
+		"direction":                 direction,
+		"compatible":                true,
+	}, nil
+}
+
+func validateTrustedSegmentVersionCompatibilityEvidence(segmentID, targetVersionID, newVersionID, actorUserID string, evidence map[string]any) error {
+	if len(evidence) == 0 {
+		return fmt.Errorf("%w: trusted server compatibility evidence is required when a new geometry continues an existing leaderboard group", ErrSegmentValidation)
+	}
+	required := []string{
+		"source", "actor_user_id", "target_version_id", "new_version_id",
+		"matching_contract_key", "matching_contract_version", "target_length_m",
+		"length_m", "length_delta_ratio", "start_distance_m", "end_distance_m",
+		"direction", "compatible",
+	}
+	for _, key := range required {
+		if _, ok := evidence[key]; !ok {
+			return fmt.Errorf("%w: trusted compatibility evidence missing %s", ErrSegmentValidation, key)
+		}
+	}
+	if fmt.Sprint(evidence["source"]) != "server" ||
+		fmt.Sprint(evidence["actor_user_id"]) != actorUserID ||
+		fmt.Sprint(evidence["target_version_id"]) != targetVersionID ||
+		fmt.Sprint(evidence["new_version_id"]) != newVersionID {
+		return fmt.Errorf("%w: compatibility evidence is not trusted for this equivalence operation", ErrSegmentValidation)
+	}
+	if fmt.Sprint(evidence["matching_contract_key"]) == "" || fmt.Sprint(evidence["direction"]) == "" {
+		return fmt.Errorf("%w: trusted compatibility evidence is incomplete", ErrSegmentValidation)
+	}
+	_ = segmentID
 	return nil
 }
 

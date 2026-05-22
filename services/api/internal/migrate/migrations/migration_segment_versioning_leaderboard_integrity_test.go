@@ -440,6 +440,47 @@ func TestMigration_SegmentVersioningLeaderboardIntegrity_RejectsEffortInactiveMe
 	}
 }
 
+func TestMigration_SegmentVersionRecalculationHardening_DownGuardsRollbackRetiredVersions(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	userID, _, segmentID, _ := insertSegmentValidityFixture(t, ctx, pool)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions (
+			id, segment_id, version_number, track, start_point, end_point,
+			valid_from, valid_from_at, valid_until_at, validity_basis, created_by
+		)
+		VALUES (
+			$1, $2, 2,
+			ST_GeomFromText('LINESTRING(8.1 49.1, 8.11 49.11)', 4326),
+			ST_GeomFromText('POINT(8.1 49.1)', 4326),
+			ST_GeomFromText('POINT(8.11 49.11)', 4326),
+			'2027-01-01',
+			'2027-01-01T00:00:00Z',
+			'2027-02-01T00:00:00Z',
+			'rollback_retired',
+			$3
+		)
+	`, uuid.NewString(), segmentID, userID); err != nil {
+		t.Fatalf("insert rollback-retired version: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	downSQL := readMigrationSQL(t, "*_segment_version_recalculation_hardening.down.sql")
+	_, err = tx.Exec(ctx, downSQL)
+	if err == nil {
+		t.Fatal("expected rollback-retired guarded down migration to fail")
+	}
+	if !strings.Contains(err.Error(), "cannot downgrade segment version recalculation hardening with rollback_retired rows") {
+		t.Fatalf("down migration error = %v, want rollback_retired guard", err)
+	}
+}
+
 func readMigrationSQL(t *testing.T, pattern string) string {
 	t.Helper()
 	matches, err := filepath.Glob(pattern)

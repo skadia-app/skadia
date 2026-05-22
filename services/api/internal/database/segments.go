@@ -1728,16 +1728,17 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 
 	query := `
 		WITH matching AS (
-		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
-		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type,
+			SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
+			       se.user_id, se.started_at, se.elapsed_time_s,
+			       se.is_reverse, se.sport_type, se.sub_type,
 		       COALESCE(act.is_indoor, false) AS is_indoor,
 		       COALESCE(act.is_virtual, false) AS is_virtual,
 		       COALESCE(act.is_electric, false) AS is_electric,
 		       se.gear_id,
-		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
-		       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
-		       se.leaderboard_sport_type,
+			       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
+			       COALESCE(se.leaderboard_equivalence_group_id::text, '') AS leaderboard_equivalence_group_id,
+			       COALESCE(current_gv.group_id::text, se.leaderboard_equivalence_group_id::text, '') AS current_leaderboard_equivalence_group_id,
+			       se.leaderboard_sport_type,
 		       se.leaderboard_direction,
 		       sv.version_number,
 		       se.in_leaderboard, se.created_at,
@@ -1761,8 +1762,12 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		JOIN segment_versions sv ON sv.id = se.segment_version_id
 		JOIN users u ON u.id = se.user_id
 		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
-		JOIN activities act ON act.id = se.activity_id
-		LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
+			JOIN activities act ON act.id = se.activity_id
+			LEFT JOIN segment_leaderboard_equivalence_group_versions current_gv
+			       ON current_gv.segment_version_id = se.segment_version_id
+			      AND current_gv.leaderboard_surface = 'default'
+			      AND current_gv.retired_at IS NULL
+			LEFT JOIN recording_group_members rgm ON rgm.activity_id = act.id
 		LEFT JOIN recording_groups rg ON rg.id = rgm.group_id`
 
 	args := []any{q.SegmentID}
@@ -1777,7 +1782,7 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		args = append(args, versionFilterID)
 		argIdx++
 	} else if scope != "sport_overall" {
-		query += fmt.Sprintf(" AND se.leaderboard_equivalence_group_id = $%d", argIdx)
+		query += fmt.Sprintf(" AND COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id) = $%d::uuid", argIdx)
 		args = append(args, groupID)
 		argIdx++
 	}
@@ -1818,11 +1823,11 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		global_ranked AS (
 			SELECT id, started_at,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction
 			           ORDER BY elapsed_time_s ASC
 			       ) AS rank_overall,
 			       (ROW_NUMBER() OVER (
-			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction
 			           ORDER BY elapsed_time_s ASC
 			       ) = 1) AS is_segment_record
 			FROM matching
@@ -1831,7 +1836,7 @@ func (db *DB) GetSegmentLeaderboardWithQuery(ctx context.Context, q model.Segmen
 		personal_ranked AS (
 			SELECT id, started_at,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY segment_id, leaderboard_sport_type, leaderboard_direction, user_id
+				           PARTITION BY current_leaderboard_equivalence_group_id, segment_id, leaderboard_sport_type, leaderboard_direction, user_id
 			           ORDER BY elapsed_time_s ASC
 			       ) AS personal_rank
 			FROM matching
@@ -2221,13 +2226,14 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 	// composite PK (id, started_at) — required for efficient chunk pruning on the hypertable.
 	_, err := conn.Exec(ctx, `
 		WITH
-		canonical AS (
-			SELECT se.id, se.started_at, se.user_id,
-			       se.leaderboard_equivalence_group_id,
-			       se.leaderboard_sport_type, se.leaderboard_direction, se.elapsed_time_s,
-			       a.visibility,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY se.leaderboard_equivalence_group_id, COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
+			canonical AS (
+				SELECT se.id, se.started_at, se.user_id,
+				       se.leaderboard_equivalence_group_id,
+				       COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id) AS current_leaderboard_equivalence_group_id,
+				       se.leaderboard_sport_type, se.leaderboard_direction, se.elapsed_time_s,
+				       a.visibility,
+				       ROW_NUMBER() OVER (
+				           PARTITION BY COALESCE(current_gv.group_id, se.leaderboard_equivalence_group_id), COALESCE(rg.id::text, a.id::text), se.started_at, se.elapsed_time_s, se.leaderboard_direction
 			           ORDER BY
 			               CASE
 			                   WHEN rg.primary_activity_id IS NOT NULL AND a.id = rg.primary_activity_id THEN 0
@@ -2237,9 +2243,13 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 			               se.created_at ASC,
 			               se.id ASC
 			       ) AS canonical_rank
-			FROM segment_efforts se
-			JOIN activities a ON a.id = se.activity_id
-			LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
+				FROM segment_efforts se
+				JOIN activities a ON a.id = se.activity_id
+				LEFT JOIN segment_leaderboard_equivalence_group_versions current_gv
+				       ON current_gv.segment_version_id = se.segment_version_id
+				      AND current_gv.leaderboard_surface = 'default'
+				      AND current_gv.retired_at IS NULL
+				LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 			LEFT JOIN recording_groups rg ON rg.id = rgm.group_id
 			WHERE se.segment_id = $1
 			  AND se.in_leaderboard = true
@@ -2247,12 +2257,12 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 		),
 		global_ranked AS (
 			SELECT c.id, c.started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY c.leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
+				       ROW_NUMBER() OVER (
+				           PARTITION BY c.current_leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) AS rk,
-			       (ROW_NUMBER() OVER (
-			           PARTITION BY c.leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
+				       (ROW_NUMBER() OVER (
+				           PARTITION BY c.current_leaderboard_equivalence_group_id, c.leaderboard_sport_type, c.leaderboard_direction
 			           ORDER BY c.elapsed_time_s ASC
 			       ) = 1) AS is_record
 			FROM canonical c
@@ -2260,8 +2270,8 @@ func updateSegmentEffortRanks(ctx context.Context, conn Querier, segmentID strin
 		),
 		personal_ranked AS (
 			SELECT id, started_at,
-			       ROW_NUMBER() OVER (
-			           PARTITION BY leaderboard_equivalence_group_id, leaderboard_sport_type, leaderboard_direction, user_id
+				       ROW_NUMBER() OVER (
+				           PARTITION BY current_leaderboard_equivalence_group_id, leaderboard_sport_type, leaderboard_direction, user_id
 			           ORDER BY elapsed_time_s ASC
 			       ) AS user_rk
 			FROM canonical
@@ -3199,10 +3209,19 @@ func insertSegmentEffortsBatch(ctx context.Context, conn Querier, efforts []*mod
 }
 
 func segmentEffortInLeaderboard(e *model.SegmentEffort) bool {
-	if e.ActivityTraitBucketKey == "" && e.EligibilityPolicyKey == "" && e.EligibilitySourceHash == "" {
+	if !e.InLeaderboard {
+		return false
+	}
+	if e.LeaderboardContractKey == CheckpointSequenceV1Key {
 		return true
 	}
-	return e.InLeaderboard
+	if e.ActivityTraitBucketKey != "" &&
+		e.EligibilityPolicyKey == courseEligibilityPolicyKey &&
+		e.EligibilityPolicyVersion == courseEligibilityPolicyVersion &&
+		e.EligibilitySourceHash != "" {
+		return true
+	}
+	return e.EligibilityPolicyKey == "legacy_leaderboard_bypass" && e.EligibilitySourceHash != ""
 }
 
 func segmentEffortEligibilityPolicyKey(e *model.SegmentEffort) string {
