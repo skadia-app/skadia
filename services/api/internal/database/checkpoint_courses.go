@@ -184,6 +184,15 @@ func createCheckpointCourseTx(ctx context.Context, tx pgx.Tx, userID string, inp
 		return nil, fmt.Errorf("insert checkpoint segment version: %w", err)
 	}
 	s.TrackGeoJSON = &returnedTrackGeoJSON
+	if input.SourceActivityID != nil && (visibility == "public" || visibility == "shared") && input.SourceActivityPublishConfirmed {
+		if _, err := tx.Exec(ctx, `
+			UPDATE segments
+			SET source_activity_publish_confirmed_segment_version_id = $2
+			WHERE id = $1
+		`, s.ID, versionID); err != nil {
+			return nil, fmt.Errorf("store checkpoint source activity publish confirmation version: %w", err)
+		}
+	}
 
 	for _, control := range input.Controls {
 		if _, err := tx.Exec(ctx, `

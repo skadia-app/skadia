@@ -104,6 +104,22 @@ func TestObjectAccessScopeHandlerRejectsNonViewPermission(t *testing.T) {
 	}
 }
 
+func TestObjectAccessScopeHandlerRejectsUnsupportedDynamicPrincipals(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/access-scopes", h.CreateObjectAccessScope)
+
+	ownerID := insertTestUser(t, pool)
+	for _, kind := range []string{"group", "team", "organization", "role", "server", "delegated_audience", "relationship_rule"} {
+		body := `{"grants":[{"principal_kind":"` + kind + `","principal_ref":"example","permission":"view"}]}`
+		rec := performObjectAccessRequest(t, r, http.MethodPost, "/api/v1/access-scopes", body, ownerID)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d, want 400; body: %s", kind, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func performObjectAccessRequest(t *testing.T, r http.Handler, method, target, body, userID string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, target, bytes.NewReader([]byte(body)))

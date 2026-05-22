@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -20,10 +19,11 @@ import (
 
 // Sentinel errors for segment operations — use errors.Is() in handlers.
 var (
-	ErrSegmentNotFound      = errors.New("segment not found")
-	ErrSegmentNotAuthorized = errors.New("segment not authorized")
-	ErrSegmentOSMLift       = errors.New("OSM-imported lift segments cannot be deleted")
-	ErrSegmentValidation    = errors.New("segment validation failed")
+	ErrSegmentNotFound                           = errors.New("segment not found")
+	ErrSegmentNotAuthorized                      = errors.New("segment not authorized")
+	ErrSegmentOSMLift                            = errors.New("OSM-imported lift segments cannot be deleted")
+	ErrSegmentValidation                         = errors.New("segment validation failed")
+	ErrSegmentPublishPrivacyConfirmationRequired = errors.New("segment publish privacy confirmation required")
 )
 
 const (
@@ -776,19 +776,29 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	}
 
 	// Insert first version with track geometry
+	var versionID string
 	var returnedTrackGeoJSON string
 	err = tx.QueryRow(ctx, `
 		WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
 		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
 		FROM g
-		RETURNING ST_AsGeoJSON(track)`,
+		RETURNING id, ST_AsGeoJSON(track)`,
 		s.ID, trackGeoJSON, userID,
-	).Scan(&returnedTrackGeoJSON)
+	).Scan(&versionID, &returnedTrackGeoJSON)
 	if err != nil {
 		return nil, fmt.Errorf("insert segment version: %w", err)
 	}
 	s.TrackGeoJSON = &returnedTrackGeoJSON
+	if create.SourceActivityID != nil && (visibility == "public" || visibility == "shared") && create.SourceActivityPublishConfirmed {
+		if _, err := tx.Exec(ctx, `
+			UPDATE segments
+			SET source_activity_publish_confirmed_segment_version_id = $2
+			WHERE id = $1
+		`, s.ID, versionID); err != nil {
+			return nil, fmt.Errorf("store source activity publish confirmation version: %w", err)
+		}
+	}
 
 	// Update distance_m via PostGIS
 	_, err = tx.Exec(ctx, `
@@ -818,6 +828,7 @@ type GetSegmentOptions struct {
 	IncludeGeoJSON        bool
 	IncludeControls       bool
 	IncludeOverlaySummary bool
+	VisibleAccessScopeIDs []string
 }
 
 func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin bool, includeGeoJSON bool) (*model.Segment, error) {
@@ -832,6 +843,13 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 	trackSelect := "NULL::text"
 	if opts.IncludeGeoJSON {
 		trackSelect = "ST_AsGeoJSON(sv.track)"
+	}
+
+	args := []any{segmentID, userID, isAdmin}
+	resolvedScopesExpr := "NULL::uuid[]"
+	if len(opts.VisibleAccessScopeIDs) > 0 {
+		args = append(args, opts.VisibleAccessScopeIDs)
+		resolvedScopesExpr = fmt.Sprintf("$%d::uuid[]", len(args))
 	}
 
 	query := fmt.Sprintf(`
@@ -902,7 +920,7 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 	                       ON cp.segment_id = s.id
 	                      AND s.course_kind = 'checkpoint_sequence'
                 WHERE s.id = $1
-                  AND `+visibleSegmentAccessSQL("s", "NULLIF($2::text, '')::uuid", "$3"),
+                  AND `+visibleSegmentAccessWithScopesSQL("s", "NULLIF($2::text, '')::uuid", "$3", resolvedScopesExpr),
 		trackSelect,
 		activeSegmentCourseVersionLateral("LEFT JOIN", "s.id", "s.course_kind", "NOW()", "id, track"),
 	)
@@ -910,7 +928,7 @@ func (db *DB) GetSegmentWithOptions(ctx context.Context, segmentID, userID strin
 	var allowedPredicatesJSON []byte
 	var activeSegmentVersionID *string
 	var controlSummaryJSON []byte
-	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
+	err := db.Pool.QueryRow(ctx, query, args...).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&allowedPredicatesJSON,
 		&s.SegmentType, &s.SegmentTypeMeta,
@@ -1433,24 +1451,9 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 		return false, fmt.Errorf("begin publish segment tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
-		return false, err
-	}
-	var tag pgconn.CommandTag
-	if isAdmin {
-		tag, err = tx.Exec(ctx,
-			`UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1 AND visibility IN ('private', 'shared')`,
-			segmentID)
-	} else {
-		tag, err = tx.Exec(ctx,
-			`UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1 AND created_by = $2 AND visibility IN ('private', 'shared')`,
-			segmentID, actorID)
-	}
+	published, _, _, err := db.publishSegmentTx(ctx, tx, segmentID, actorID, isAdmin, false)
 	if err != nil {
-		return false, fmt.Errorf("publish segment: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return false, nil
+		return false, err
 	}
 	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
 		return false, err
@@ -1464,10 +1467,10 @@ func (db *DB) PublishSegment(ctx context.Context, segmentID, actorID string, isA
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit publish segment tx: %w", err)
 	}
-	return true, nil
+	return published, nil
 }
 
-func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segmentID, actorID string, isAdmin bool, operationID string, metadata map[string]any) (bool, string, int, error) {
+func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segmentID, actorID string, isAdmin bool, operationID string, sourceActivityPublishConfirmed bool, metadata map[string]any) (bool, string, int, error) {
 	if strings.TrimSpace(operationID) == "" {
 		return false, "", 0, fmt.Errorf("%w: operation_id is required", ErrSegmentValidation)
 	}
@@ -1476,32 +1479,12 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 		return false, "", 0, fmt.Errorf("begin publish segment tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
+	published, ownerID, name, err := db.publishSegmentTx(ctx, tx, segmentID, actorID, isAdmin, sourceActivityPublishConfirmed)
+	if err != nil {
 		return false, "", 0, err
 	}
-
-	var ownerID, name string
-	var query string
-	args := []any{segmentID}
-	if isAdmin {
-		query = `
-			UPDATE segments
-			SET visibility = 'public', access_scope_id = NULL
-			WHERE id = $1 AND visibility IN ('private', 'shared')
-			RETURNING created_by, name`
-	} else {
-		query = `
-			UPDATE segments
-			SET visibility = 'public', access_scope_id = NULL
-			WHERE id = $1 AND created_by = $2 AND visibility IN ('private', 'shared')
-			RETURNING created_by, name`
-		args = append(args, actorID)
-	}
-	if err := tx.QueryRow(ctx, query, args...).Scan(&ownerID, &name); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, "", 0, nil
-		}
-		return false, "", 0, fmt.Errorf("publish segment: %w", err)
+	if !published {
+		return false, "", 0, nil
 	}
 	if err := syncActiveSegmentVersionEligibilitySnapshotTx(ctx, tx, segmentID); err != nil {
 		return false, "", 0, err
@@ -1543,6 +1526,112 @@ func (db *DB) PublishSegmentAndSeedRecalculationRun(ctx context.Context, segment
 		return false, "", 0, fmt.Errorf("commit publish segment tx: %w", err)
 	}
 	return true, runID, total, nil
+}
+
+func (db *DB) publishSegmentTx(ctx context.Context, tx pgx.Tx, segmentID, actorID string, isAdmin bool, sourceActivityPublishConfirmed bool) (bool, string, string, error) {
+	if err := ensureSegmentPublishAllowedTx(ctx, tx, segmentID); err != nil {
+		return false, "", "", err
+	}
+	query := `
+		SELECT s.created_by::text, s.name, s.source_activity_id::text,
+		       s.source_activity_publish_confirmed_segment_version_id::text,
+		       sv.id::text
+		FROM segments s
+		JOIN LATERAL (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = s.id
+			  AND matching_contract_key = CASE
+			      WHEN s.course_kind = 'checkpoint_sequence' THEN 'checkpoint_sequence_v1'
+			      ELSE 'course_gps_v1'
+			  END
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC,
+			         version_number DESC
+			LIMIT 1
+		) sv ON true
+		WHERE s.id = $1
+		  AND s.visibility IN ('private', 'shared')`
+	args := []any{segmentID}
+	if !isAdmin {
+		query += " AND s.created_by = $2"
+		args = append(args, actorID)
+	}
+	query += " FOR UPDATE OF s"
+
+	var ownerID, name string
+	var sourceActivityID, confirmedVersionID, activeVersionID *string
+	if err := tx.QueryRow(ctx, query, args...).Scan(&ownerID, &name, &sourceActivityID, &confirmedVersionID, &activeVersionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, "", "", nil
+		}
+		return false, "", "", fmt.Errorf("load segment publish state: %w", err)
+	}
+
+	needsConfirmationUpdate := false
+	if sourceActivityID != nil && activeVersionID != nil {
+		intersects, err := sourceActivityIntersectsActivePrivacyZonesTx(ctx, tx, ownerID, *sourceActivityID)
+		if err != nil {
+			return false, "", "", err
+		}
+		if intersects && (confirmedVersionID == nil || *confirmedVersionID != *activeVersionID) {
+			if !sourceActivityPublishConfirmed {
+				return false, "", "", ErrSegmentPublishPrivacyConfirmationRequired
+			}
+			needsConfirmationUpdate = true
+		}
+	}
+
+	if needsConfirmationUpdate {
+		_, err := tx.Exec(ctx, `
+			UPDATE segments
+			SET visibility = 'public',
+			    access_scope_id = NULL,
+			    source_activity_publish_confirmed_at = NOW(),
+			    source_activity_publish_confirmed_by = $2,
+			    source_activity_publish_confirmed_segment_version_id = $3
+			WHERE id = $1
+		`, segmentID, actorID, activeVersionID)
+		if err != nil {
+			return false, "", "", fmt.Errorf("publish segment: %w", err)
+		}
+		return true, ownerID, name, nil
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE segments SET visibility = 'public', access_scope_id = NULL WHERE id = $1`, segmentID); err != nil {
+		return false, "", "", fmt.Errorf("publish segment: %w", err)
+	}
+	return true, ownerID, name, nil
+}
+
+func sourceActivityIntersectsActivePrivacyZonesTx(ctx context.Context, q Querier, userID, activityID string) (bool, error) {
+	var intersects bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM activities a
+			JOIN activity_tracks t ON t.activity_id = a.id
+			JOIN user_privacy_zones z ON z.user_id = a.user_id
+			WHERE a.id = $2
+			  AND a.user_id = $1
+			  AND z.is_active = true
+			  AND t.track_full IS NOT NULL
+			  AND ST_Intersects(
+			      t.track_full,
+			      CASE
+			          WHEN z.zone_type = 'polygon' AND z.polygon IS NOT NULL THEN z.polygon
+			          ELSE ST_Buffer(z.center::geography, z.radius_m)::geometry
+			      END
+			  )
+		)
+	`, userID, activityID).Scan(&intersects)
+	if err != nil {
+		return false, fmt.Errorf("check source activity privacy-zone intersection: %w", err)
+	}
+	return intersects, nil
 }
 
 func ensureSegmentPublishAllowedTx(ctx context.Context, tx pgx.Tx, segmentID string) error {
@@ -3370,13 +3459,14 @@ func encodeCursor(t time.Time, id string) string {
 }
 
 // GetSegmentsForExport returns minimal segment data needed for GPX/GeoJSON export.
-// Only returns segments the user can access (own or public).
-func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string) ([]model.Segment, error) {
+// Only returns segments the user can access.
+func (db *DB) GetSegmentsForExport(ctx context.Context, ids []string, userID string, visibleAccessScopeIDs []string) ([]model.Segment, error) {
 	result := make([]model.Segment, 0, len(ids))
 	for _, id := range ids {
 		seg, err := db.GetSegmentWithOptions(ctx, id, userID, false, GetSegmentOptions{
-			IncludeGeoJSON:  true,
-			IncludeControls: true,
+			IncludeGeoJSON:        true,
+			IncludeControls:       true,
+			VisibleAccessScopeIDs: visibleAccessScopeIDs,
 		})
 		if err != nil {
 			return nil, err

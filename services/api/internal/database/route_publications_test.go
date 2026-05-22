@@ -222,7 +222,7 @@ func TestRouteDerivedCourseCannotBypassPublicationGateThroughSegmentPublish(t *t
 		t.Fatalf("PublishRouteSnapshotAsCourse private: %v", err)
 	}
 
-	published, _, _, err := db.PublishSegmentAndSeedRecalculationRun(ctx, publication.CourseSegmentID, userID, false, "legacy-segment-publish-bypass", nil)
+	published, _, _, err := db.PublishSegmentAndSeedRecalculationRun(ctx, publication.CourseSegmentID, userID, false, "legacy-segment-publish-bypass", false, nil)
 	if !errors.Is(err, ErrRoutePublicationValidation) {
 		t.Fatalf("route-derived segment publish error = %v, want ErrRoutePublicationValidation", err)
 	}

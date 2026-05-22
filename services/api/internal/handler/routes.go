@@ -206,12 +206,17 @@ func (h *Handler) ListRoutePublications(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	scopes := h.resolveVisibleAccessScopesForRequest(w, r, userID)
+	if scopes == nil {
+		return
+	}
 	limit, offset := httputil.ParsePagination(r, 50, 200)
 	q := r.URL.Query()
 	filter := database.PublishedCourseFilters{
-		SportType:      q.Get("sport_type"),
-		SubType:        q.Get("sub_type"),
-		VisibilityMode: q.Get("visibility_mode"),
+		SportType:             q.Get("sport_type"),
+		SubType:               q.Get("sub_type"),
+		VisibilityMode:        q.Get("visibility_mode"),
+		VisibleAccessScopeIDs: scopes,
 	}
 	var err error
 	if filter.SACMaxRank, err = parseOptionalIntPointer(q.Get("sac_max_rank")); err != nil {

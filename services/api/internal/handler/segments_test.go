@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -296,6 +298,80 @@ func TestCreateSegmentFromActivityRequiresPrivacyZoneConfirmation_DB(t *testing.
 		t.Fatalf("unmarshal checkpoint create response: %v", err)
 	}
 	assertSourceActivityPublishConfirmationStored(t, pool, checkpointSeg.ID, userID)
+}
+
+func TestPublishSegmentFromPrivacyZoneSourceRequiresCurrentVersionConfirmation_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := newTestHandler(t, pool).DB
+	h := &Handler{DB: db}
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+	shutdown.Shutdown(time.Millisecond)
+	t.Cleanup(shutdown.Reset)
+
+	userID := insertTestUser(t, pool)
+	pts := [][2]float64{
+		{49.0000, 8.0000},
+		{49.0005, 8.0005},
+		{49.0010, 8.0010},
+	}
+	actID := insertActivityWithTrack(t, db, userID, "cycling", "LINESTRING(8 49, 8.0005 49.0005, 8.001 49.001)", pts)
+	insertActivePrivacyZone(t, pool, userID, "POINT(8 49)", 100)
+
+	createBody := `{
+		"name":"publish-privacy-confirm",
+		"sport_group":"bike",
+		"segment_type":"standard",
+		"visibility":"private",
+		"geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[8,49],[8.001,49.001]]}",
+		"source_activity_id":"` + actID + `"
+	}`
+	rec := performSegmentRequest(t, r, http.MethodPost, "/api/v1/segments", createBody, userID)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create private source segment status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var seg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	published, _, _, err := db.PublishSegmentAndSeedRecalculationRun(context.Background(), seg.ID, userID, false, "publish-privacy-red", false, nil)
+	if !errors.Is(err, database.ErrSegmentPublishPrivacyConfirmationRequired) {
+		t.Fatalf("publish without confirmation error = %v, want ErrSegmentPublishPrivacyConfirmationRequired", err)
+	}
+	if published {
+		t.Fatal("publish without confirmation returned published=true")
+	}
+	published, _, _, err = db.PublishSegmentAndSeedRecalculationRun(context.Background(), seg.ID, userID, false, "publish-privacy-confirmed", true, nil)
+	if err != nil {
+		t.Fatalf("publish with confirmation: %v", err)
+	}
+	if !published {
+		t.Fatal("publish with confirmation returned published=false")
+	}
+	var confirmedVersionID, activeVersionID *string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT s.source_activity_publish_confirmed_segment_version_id::text, sv.id::text
+		FROM segments s
+		JOIN LATERAL (
+			SELECT id
+			FROM segment_versions
+			WHERE segment_id = s.id
+			  AND matching_contract_key = 'course_gps_v1'
+			  AND matching_contract_version = 1
+			  AND validity_basis <> 'rollback_retired'
+			  AND (valid_from_at IS NULL OR valid_from_at <= NOW())
+			  AND (valid_until_at IS NULL OR NOW() < valid_until_at)
+			ORDER BY COALESCE(valid_from_at, '-infinity'::timestamptz) DESC, version_number DESC
+			LIMIT 1
+		) sv ON true
+		WHERE s.id = $1
+	`, seg.ID).Scan(&confirmedVersionID, &activeVersionID); err != nil {
+		t.Fatalf("load publish confirmation version: %v", err)
+	}
+	if confirmedVersionID == nil || activeVersionID == nil || *confirmedVersionID != *activeVersionID {
+		t.Fatalf("confirmed version = %v, active version = %v", confirmedVersionID, activeVersionID)
+	}
 }
 
 func TestUpdateSegmentReturnsValidationErrorForIneligiblePredicate_DB(t *testing.T) {

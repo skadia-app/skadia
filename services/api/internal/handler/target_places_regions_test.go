@@ -53,6 +53,43 @@ func TestTargetPlaceHandlersEnforceVisibility(t *testing.T) {
 	assertHandlerPlaceIDsAbsent(t, otherResp.Places, privatePlace.ID, sharedPlace.ID)
 }
 
+func TestTargetPlaceHandlerConsumesLinkTokenAccess(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	ownerID := insertTestUser(t, pool)
+	rawToken := "target-place-link-token"
+	linkHash := hashObjectAccessLinkToken(rawToken)
+	scope, err := h.DB.CreateObjectAccessScope(context.Background(), model.ObjectAccessScopeInput{
+		OwnerUserID: ownerID,
+		ScopeKind:   "manual",
+		CreatedBy:   ownerID,
+		Grants: []model.ObjectAccessGrantInput{{
+			PrincipalKind: "link_token",
+			LinkTokenHash: &linkHash,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateObjectAccessScope: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = h.DB.Pool.Exec(context.Background(), `DELETE FROM object_access_scopes WHERE id = $1`, scope.ID)
+	})
+
+	sharedPlace := createHandlerPlace(t, h, ownerID, "shared", &scope.ID)
+	rr := httptest.NewRecorder()
+	h.ListTargetPlaces(rr, targetRequest(http.MethodGet, "/target-places?link_token="+rawToken, nil, ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("link-token list status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Places []model.TargetPlace `json:"places"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	assertHandlerPlaceIDs(t, resp.Places, sharedPlace.ID)
+}
+
 func TestTargetRegionHandlersValidateGeometry(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
