@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
@@ -79,6 +80,8 @@ type Handler struct {
 
 	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
 	Mailer   *auth.Mailer            // for admin test-email endpoint
+
+	StartupMaintenanceReady *atomic.Bool
 
 	// TxFactory is an optional override for transaction creation. When nil,
 	// beginTx falls through to DB.Pool.Begin().
@@ -180,6 +183,14 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.StartupMaintenanceReady != nil && !h.StartupMaintenanceReady.Load() {
+		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":      "not ready",
+			"maintenance": "initializing",
+		})
+		return
+	}
+
 	if err := probeS3Ping(ctx, h); err != nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
@@ -210,6 +221,10 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	} else if !h.EventConn.IsConnected() {
 		status["status"] = "degraded"
 		status["nats"] = "disconnected"
+	}
+	if h.StartupMaintenanceReady != nil && !h.StartupMaintenanceReady.Load() {
+		status["status"] = "degraded"
+		status["maintenance"] = "initializing"
 	}
 
 	if err := probeS3Ping(ctx, h); err != nil {
