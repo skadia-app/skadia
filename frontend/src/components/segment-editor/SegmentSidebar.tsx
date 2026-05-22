@@ -1,6 +1,9 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
 import { useMemo, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Check, Loader2, RefreshCw, X } from 'lucide-react'
+import { listObjectAccessScopes } from '@/api/accessScopes'
+import type { SegmentVisibility } from '@/api/segments'
 import {
   BIDIRECTIONAL_DEFAULT,
   type SegType,
@@ -28,6 +31,8 @@ export interface SegmentMetadata {
   bidirectional: boolean
   userEditedBidirectional: boolean
   isPublic: boolean
+  visibility: SegmentVisibility
+  accessScopeId?: string | null
   climbType?: ClimbType
 }
 
@@ -39,7 +44,7 @@ export interface LiveInfo {
 }
 
 export interface SegmentSidebarProps {
-  mode: 'track' | 'draw' | 'lap'
+  mode: 'track' | 'draw' | 'lap' | 'checkpoint'
   meta: SegmentMetadata
   onMetaChange: (patch: Partial<SegmentMetadata>) => void
   info: LiveInfo | null
@@ -151,6 +156,14 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     return allSportTypes
   }, [meta.segType, allSportTypes])
 
+  const { data: accessScopesData } = useQuery({
+    queryKey: ['object-access-scopes'],
+    queryFn: listObjectAccessScopes,
+    enabled: meta.visibility === 'shared',
+    staleTime: 60_000,
+  })
+  const checkpointMode = mode === 'checkpoint'
+
   return (
     <aside className="flex h-full w-full flex-col overflow-y-auto border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {info && (mode === 'track' || (mode === 'draw' && info.distanceKm > 0)) && (
@@ -186,21 +199,23 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
           />
         </Field>
 
-        <Field label="Typ">
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
-            {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
-              <Pill
-                key={t}
-                role="radio"
-                ariaChecked={meta.segType === t}
-                active={meta.segType === t}
-                onClick={() => handleSegTypeChange(t)}
-              >
-                {segmentTypeLabel(t)}
-              </Pill>
-            ))}
-          </div>
-        </Field>
+        {!checkpointMode && (
+          <Field label="Typ">
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
+              {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
+                <Pill
+                  key={t}
+                  role="radio"
+                  ariaChecked={meta.segType === t}
+                  active={meta.segType === t}
+                  onClick={() => handleSegTypeChange(t)}
+                >
+                  {segmentTypeLabel(t)}
+                </Pill>
+              ))}
+            </div>
+          </Field>
+        )}
 
         <Field label="Sportarten">
           <SportCategoryChips
@@ -214,6 +229,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
           />
         </Field>
 
+        {!checkpointMode && (
         <div>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
@@ -293,10 +309,11 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
             )}
           </div>
         </div>
+        )}
 
         {/* Höhenprofil: only visible for standard/trail — ClimbTypePills returns null for others,
             but wrapping <Field> would show an empty label row, so we guard here. */}
-        {(meta.segType === 'standard' || meta.segType === 'trail') && (
+        {!checkpointMode && (meta.segType === 'standard' || meta.segType === 'trail') && (
           <Field label="Höhenprofil">
             <ClimbTypePills
               segType={meta.segType}
@@ -306,20 +323,56 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
           </Field>
         )}
 
-        <Field label="Richtung">
-          <ToggleRow
-            checked={meta.bidirectional}
-            onChange={handleBidirectionalToggle}
-            label="In beide Richtungen matchen"
-          />
-        </Field>
+        {!checkpointMode && (
+          <Field label="Richtung">
+            <ToggleRow
+              checked={meta.bidirectional}
+              onChange={handleBidirectionalToggle}
+              label="In beide Richtungen matchen"
+            />
+          </Field>
+        )}
 
         <Field label="Sichtbarkeit">
-          <ToggleRow
-            checked={meta.isPublic}
-            onChange={e => onMetaChange({ isPublic: e.target.checked })}
-            label="Öffentlich sichtbar"
-          />
+          <select
+            value={meta.visibility}
+            onChange={e => {
+              const visibility = e.target.value as SegmentVisibility
+              onMetaChange({
+                visibility,
+                isPublic: visibility === 'public',
+                accessScopeId: visibility === 'shared' ? meta.accessScopeId ?? null : null,
+              })
+            }}
+            className={cn(
+              'w-full rounded-md border border-neutral-300 dark:border-neutral-700',
+              'bg-white dark:bg-neutral-800 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100',
+              'focus:outline-none focus:border-accent-DEFAULT focus:ring-1 focus:ring-accent-DEFAULT',
+            )}
+          >
+            <option value="private">Privat</option>
+            <option value="shared">Geteilt</option>
+            <option value="public">Öffentlich</option>
+          </select>
+          {meta.visibility === 'shared' && (
+            <select
+              aria-label="Segment-Freigabe"
+              value={meta.accessScopeId ?? ''}
+              onChange={e => onMetaChange({ accessScopeId: e.target.value || null })}
+              className={cn(
+                'mt-2 w-full rounded-md border border-neutral-300 dark:border-neutral-700',
+                'bg-white dark:bg-neutral-800 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100',
+                'focus:outline-none focus:border-accent-DEFAULT focus:ring-1 focus:ring-accent-DEFAULT',
+              )}
+            >
+              <option value="">Freigabe wählen</option>
+              {(accessScopesData?.scopes ?? []).map(scope => (
+                <option key={scope.id} value={scope.id}>
+                  {scope.label?.trim() || `Freigabe ${scope.id.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+          )}
         </Field>
       </div>
 

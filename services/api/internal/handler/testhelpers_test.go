@@ -131,36 +131,54 @@ func insertTestSegment(t *testing.T, pool *pgxpool.Pool, userID string, opts Tes
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit tx: %v", err)
 	}
+	db := &database.DB{Pool: pool}
+	if err := db.RebuildSegmentCourseEligibilityProjection(ctx, segID); err != nil {
+		t.Fatalf("rebuild course eligibility projection: %v", err)
+	}
 	return segID
 }
 
 func insertTestEffort(t *testing.T, pool *pgxpool.Pool, segmentID, userID string, isReverse bool) string {
 	t.Helper()
-	ctx := context.Background()
+	versionID := lookupLatestTestSegmentVersion(t, pool, segmentID)
+	activityID := insertTestActivityAt(t, pool, userID, time.Now().UTC())
 
+	return insertTestEffortForActivity(t, pool, segmentID, versionID, activityID, userID, isReverse)
+}
+
+func lookupLatestTestSegmentVersion(t *testing.T, pool *pgxpool.Pool, segmentID string) string {
+	t.Helper()
 	var versionID string
-	err := pool.QueryRow(ctx,
+	if err := pool.QueryRow(context.Background(),
 		`SELECT id FROM segment_versions WHERE segment_id = $1 ORDER BY version_number DESC LIMIT 1`,
-		segmentID).Scan(&versionID)
-	if err != nil {
+		segmentID).Scan(&versionID); err != nil {
 		t.Fatalf("lookup version: %v", err)
 	}
+	return versionID
+}
 
+func insertTestActivityAt(t *testing.T, pool *pgxpool.Pool, userID string, startedAt time.Time) string {
+	t.Helper()
 	var activityID string
-	err = pool.QueryRow(ctx,
+	if err := pool.QueryRow(context.Background(),
 		`INSERT INTO activities (id, user_id, sport_type, started_at)
-		 VALUES (gen_random_uuid(), $1, 'running', NOW()) RETURNING id`,
-		userID).Scan(&activityID)
-	if err != nil {
+			 VALUES (gen_random_uuid(), $1, 'running', $2) RETURNING id`,
+		userID, startedAt).Scan(&activityID); err != nil {
 		t.Fatalf("insert activity: %v", err)
 	}
+	return activityID
+}
 
+func insertTestEffortForActivity(t *testing.T, pool *pgxpool.Pool, segmentID, versionID, activityID, userID string, isReverse bool) string {
+	t.Helper()
 	var effortID string
-	err = pool.QueryRow(ctx, `
-		INSERT INTO segment_efforts
-		  (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), 100, $5, 'running', 'generic')
-		RETURNING id`,
+	err := pool.QueryRow(context.Background(), `
+			INSERT INTO segment_efforts
+			  (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, is_reverse, sport_type, sub_type)
+			SELECT gen_random_uuid(), $1, $2, $3, $4, a.started_at, 100, $5, 'running', 'generic'
+			FROM activities a
+			WHERE a.id = $3
+			RETURNING id`,
 		segmentID, versionID, activityID, userID, isReverse).Scan(&effortID)
 	if err != nil {
 		t.Fatalf("insert effort: %v", err)

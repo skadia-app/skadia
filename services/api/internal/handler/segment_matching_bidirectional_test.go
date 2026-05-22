@@ -104,6 +104,28 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 	if fwdCount != 1 {
 		t.Errorf("forward direction: segment_efforts count = %d, want 1", fwdCount)
 	}
+	var contractKey, matchIdentity, lbSport, lbDirection string
+	var contractVersion int
+	if err := pool.QueryRow(ctx, `
+		SELECT matching_contract_key,
+		       matching_contract_version,
+		       match_identity_key,
+		       leaderboard_sport_type,
+		       leaderboard_direction
+		FROM segment_efforts
+		WHERE activity_id = $1 AND segment_id = $2`,
+		fwdActID, segmentID).Scan(&contractKey, &contractVersion, &matchIdentity, &lbSport, &lbDirection); err != nil {
+		t.Fatalf("query forward metadata: %v", err)
+	}
+	if contractKey != database.CourseGPSV1Key || contractVersion != database.CourseGPSV1Version {
+		t.Fatalf("contract = %s/%d", contractKey, contractVersion)
+	}
+	if matchIdentity == "" {
+		t.Fatal("match_identity_key is empty")
+	}
+	if lbSport != "cycling" || lbDirection != "forward" {
+		t.Fatalf("leaderboard tuple = %s/%s, want cycling/forward", lbSport, lbDirection)
+	}
 
 	// Reverse activity: GPS stream East→West, should NOT match non-bidirectional segment.
 	revPts := [][2]float64{
@@ -124,5 +146,42 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 		revActID, segmentID).Scan(&revCount)
 	if revCount != 0 {
 		t.Errorf("reverse direction: segment_efforts count = %d, want 0 (non-bidirectional)", revCount)
+	}
+}
+
+func TestMatcherAllowsReverseTraversalWhenBidirectional(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track:         "LINESTRING(0 0, 1 0)",
+		Bidirectional: boolPtr(true),
+		SegmentType:   "standard",
+	})
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	reversePts := [][2]float64{
+		{0, 1.00},
+		{0, 0.75},
+		{0, 0.50},
+		{0, 0.25},
+		{0, 0.00},
+	}
+	reverseTrack := "LINESTRING(1 0, 0.75 0, 0.5 0, 0.25 0, 0 0)"
+	activityID := insertActivityWithTrack(t, db, userID, "cycling", reverseTrack, reversePts)
+
+	MatchActivitySegments(ctx, db, activityID, userID, "cycling", "", nil, now)
+
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM segment_efforts
+		WHERE activity_id = $1 AND segment_id = $2 AND is_reverse = true`,
+		activityID, segmentID).Scan(&count); err != nil {
+		t.Fatalf("count reverse efforts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("reverse effort count = %d, want 1", count)
 	}
 }

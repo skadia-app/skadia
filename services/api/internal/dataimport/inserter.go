@@ -173,7 +173,7 @@ func (e *Engine) importTable(
 		if _, err := tx.Exec(ctx, "SAVEPOINT import_row"); err != nil {
 			return fmt.Errorf("importTable %s row %d: savepoint: %w", spec.Name, rowIndex, err)
 		}
-		res, insertErr := e.insertRow(ctx, tx, spec, prepared, rowIDMap, oldID, userID, insertCols, geometryCols)
+		res, insertErr := e.insertRow(ctx, tx, spec, prepared, rowIDMap, oldID, userID, insertCols, geometryCols, targetCols)
 
 		if res == failed {
 			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT import_row"); err != nil {
@@ -362,6 +362,38 @@ func (e *Engine) prepareRow(
 		out["token_expiry"] = nil
 		out["status"] = "reconnection_required"
 	}
+	switch spec.Name {
+	case "segments":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+		out["source_activity_publish_confirmed_at"] = nil
+		out["source_activity_publish_confirmed_by"] = nil
+	case "target_places", "target_regions", "target_collections":
+		out["lifecycle_owner_kind"] = "user"
+		out["lifecycle_owner_ref"] = nil
+		out["created_by"] = userID
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+	case "target_collection_members":
+		out["added_by"] = userID
+	case "target_activity_observations":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+		out["visibility_snapshot"] = "private"
+		out["authorization_mode"] = "owner"
+		out["source_match_id"] = nil
+		out["source_effort_id"] = nil
+		if oldVersionID, ok := stringVal(out["source_effort_segment_version_id"]); ok && oldVersionID != "" {
+			if newVersionID, exists := idMap.GetIfExists(oldVersionID); exists {
+				out["source_effort_segment_version_id"] = newVersionID
+			} else {
+				out["source_effort_segment_version_id"] = nil
+			}
+		}
+	case "target_reports", "target_user_content":
+		out["visibility"] = "private"
+		out["access_scope_id"] = nil
+	}
 
 	return out
 }
@@ -428,12 +460,23 @@ func (e *Engine) insertRow(
 	userID string,
 	insertCols []string,
 	geometryCols map[string]bool,
+	targetCols []targetColumn,
 ) (insertResult, error) {
 	if spec.Name == "file_attachments" && (row["file_id"] == nil || row["entity_id"] == nil) {
 		return skippedWithWarning, nil
 	}
 	if spec.Name == "automation_rules" {
 		return e.insertAutomationRule(ctx, tx, spec, row, idMap, oldID, userID, insertCols, geometryCols)
+	}
+	if isTargetOverlayImportTable(spec.Name) {
+		importable, err := targetOverlayRowImportable(ctx, tx, row)
+		if err != nil {
+			return failed, err
+		}
+		if !importable {
+			return skippedWithWarning, nil
+		}
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
 	}
 
 	switch spec.Conflict {
@@ -450,7 +493,7 @@ func (e *Engine) insertRow(
 			}
 			return skipped, nil
 		}
-		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
 
 	case cmSkipWarn:
 		exists, err := fkTargetExists(ctx, tx, spec, row)
@@ -460,11 +503,111 @@ func (e *Engine) insertRow(
 		if !exists {
 			return skippedWithWarning, nil
 		}
-		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
 
 	default: // cmInsert, cmReplace (delete already done), cmUpsert
-		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, targetCols)
 	}
+}
+
+func isTargetOverlayImportTable(name string) bool {
+	switch name {
+	case "target_activity_observations", "target_reports", "target_user_content":
+		return true
+	default:
+		return false
+	}
+}
+
+func targetOverlayRowImportable(ctx context.Context, tx pgx.Tx, row map[string]any) (bool, error) {
+	subjectKind, _ := stringVal(row["overlay_subject_kind"])
+	subjectID, ok := stringVal(row["subject_id"])
+	subjectKind = strings.TrimSpace(subjectKind)
+	if !ok || strings.TrimSpace(subjectID) == "" {
+		return false, nil
+	}
+
+	var subjectTable string
+	switch subjectKind {
+	case "course":
+		subjectTable = "segments"
+	case "route_publication":
+		subjectTable = "route_course_publications"
+	case "place":
+		subjectTable = "target_places"
+	case "region":
+		subjectTable = "target_regions"
+	case "collection":
+		subjectTable = "target_collections"
+	default:
+		return false, nil
+	}
+	subjectExists, err := uuidExists(ctx, tx, subjectTable, "id", subjectID)
+	if err != nil || !subjectExists {
+		return subjectExists, err
+	}
+
+	targetVersionID, hasTargetVersion := stringVal(row["target_version_id"])
+	if hasTargetVersion && strings.TrimSpace(targetVersionID) != "" {
+		switch subjectKind {
+		case "course":
+			var exists bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM segment_versions
+					WHERE id = $1 AND segment_id = $2
+				)
+			`, targetVersionID, subjectID).Scan(&exists); err != nil {
+				return false, fmt.Errorf("target overlay import course version: %w", err)
+			}
+			if !exists {
+				return false, nil
+			}
+		case "route_publication":
+			var exists bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM route_course_publications
+					WHERE id = $1 AND course_segment_version_id = $2 AND retired_at IS NULL
+				)
+			`, subjectID, targetVersionID).Scan(&exists); err != nil {
+				return false, fmt.Errorf("target overlay import publication version: %w", err)
+			}
+			if !exists {
+				return false, nil
+			}
+		default:
+			return false, nil
+		}
+	}
+
+	for _, activityCol := range []string{"activity_id", "source_activity_id"} {
+		activityID, ok := stringVal(row[activityCol])
+		if !ok || strings.TrimSpace(activityID) == "" {
+			continue
+		}
+		exists, err := uuidExists(ctx, tx, "activities", "id", activityID)
+		if err != nil || !exists {
+			return exists, err
+		}
+	}
+
+	return true, nil
+}
+
+func uuidExists(ctx context.Context, tx pgx.Tx, table, column, id string) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		fmt.Sprintf(
+			"SELECT EXISTS(SELECT 1 FROM %s WHERE %s = $1)",
+			pgx.Identifier{table}.Sanitize(),
+			pgx.Identifier{column}.Sanitize(),
+		),
+		id,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("target overlay import lookup %s.%s: %w", table, column, err)
+	}
+	return exists, nil
 }
 
 func (e *Engine) insertAutomationRule(
@@ -487,7 +630,7 @@ func (e *Engine) insertAutomationRule(
 		return failed, err
 	}
 	if !found {
-		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols, nil)
 	}
 	if oldID != "" {
 		idMap.Set(oldID, existingID)
@@ -599,6 +742,7 @@ func (e *Engine) doInsert(
 	row map[string]any,
 	insertCols []string,
 	geometryCols map[string]bool,
+	targetCols []targetColumn,
 ) (insertResult, error) {
 	colParts := make([]string, 0, len(insertCols))
 	valParts := make([]string, 0, len(insertCols))
@@ -626,7 +770,8 @@ func (e *Engine) doInsert(
 			valParts = append(valParts, fmt.Sprintf("ST_GeomFromGeoJSON($%d)", n))
 			args = append(args, string(b))
 		} else {
-			converted, cvErr := convertValue(val, col)
+			target, _ := targetColumnByName(targetCols, col)
+			converted, cvErr := convertValueForTargetColumn(val, col, target)
 			if cvErr != nil {
 				return failed, fmt.Errorf("doInsert %s.%s: %w", spec.Name, col, cvErr)
 			}
@@ -667,7 +812,7 @@ func (e *Engine) doInsert(
 // ---------------------------------------------------------------------------
 
 // convertValue coerces val into a type that pgx can bind directly.
-// Maps and slices are JSON-marshalled to []byte so pgx sends them as JSONB/arrays.
+// Maps and slices are JSON-marshalled to []byte so pgx sends them as JSONB.
 // col is included in error messages for diagnostics.
 func convertValue(val any, col string) (any, error) {
 	if val == nil {
@@ -682,6 +827,196 @@ func convertValue(val any, col string) (any, error) {
 		return b, nil
 	default:
 		return val, nil
+	}
+}
+
+func convertValueForTargetColumn(val any, col string, target targetColumn) (any, error) {
+	if isPostgresArrayUDT(target.UDTName) {
+		return convertArrayValue(val, col, target.UDTName)
+	}
+	return convertValue(val, col)
+}
+
+func isPostgresArrayUDT(udtName string) bool {
+	return strings.HasPrefix(udtName, "_")
+}
+
+func convertArrayValue(val any, col, udtName string) (any, error) {
+	if val == nil {
+		return nil, nil
+	}
+	items, ok := valueSlice(val)
+	if !ok {
+		return val, nil
+	}
+	switch udtName {
+	case "_text":
+		out := make([]string, len(items))
+		for i, item := range items {
+			if item == nil {
+				return nil, fmt.Errorf("convertArrayValue: column %q contains null element", col)
+			}
+			out[i] = fmt.Sprint(item)
+		}
+		return out, nil
+	case "_bool":
+		out := make([]bool, len(items))
+		for i, item := range items {
+			v, ok := item.(bool)
+			if !ok {
+				return nil, fmt.Errorf("convertArrayValue: column %q has non-boolean value %v", col, item)
+			}
+			out[i] = v
+		}
+		return out, nil
+	case "_int2":
+		out := make([]int16, len(items))
+		for i, item := range items {
+			n, err := int64ArrayValue(item, col)
+			if err != nil {
+				return nil, err
+			}
+			if n < -32768 || n > 32767 {
+				return nil, fmt.Errorf("convertArrayValue: column %q value %d overflows int2", col, n)
+			}
+			out[i] = int16(n)
+		}
+		return out, nil
+	case "_int4":
+		out := make([]int32, len(items))
+		for i, item := range items {
+			n, err := int64ArrayValue(item, col)
+			if err != nil {
+				return nil, err
+			}
+			if n < -2147483648 || n > 2147483647 {
+				return nil, fmt.Errorf("convertArrayValue: column %q value %d overflows int4", col, n)
+			}
+			out[i] = int32(n)
+		}
+		return out, nil
+	case "_int8":
+		out := make([]int64, len(items))
+		for i, item := range items {
+			n, err := int64ArrayValue(item, col)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = n
+		}
+		return out, nil
+	case "_float4":
+		out := make([]float32, len(items))
+		for i, item := range items {
+			n, err := float64ArrayValue(item, col)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = float32(n)
+		}
+		return out, nil
+	case "_float8":
+		out := make([]float64, len(items))
+		for i, item := range items {
+			n, err := float64ArrayValue(item, col)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = n
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("convertArrayValue: unsupported SQL array type %q for column %q", udtName, col)
+	}
+}
+
+func valueSlice(val any) ([]any, bool) {
+	switch v := val.(type) {
+	case []any:
+		return v, true
+	case []string:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int16:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int32:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []int64:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []float32:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	case []float64:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = item
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func int64ArrayValue(val any, col string) (int64, error) {
+	switch v := val.(type) {
+	case int:
+		return int64(v), nil
+	case int16:
+		return int64(v), nil
+	case int32:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case float64:
+		if v != float64(int64(v)) {
+			return 0, fmt.Errorf("convertArrayValue: column %q has non-integer value %v", col, v)
+		}
+		return int64(v), nil
+	default:
+		return 0, fmt.Errorf("convertArrayValue: column %q has non-integer value %v", col, val)
+	}
+}
+
+func float64ArrayValue(val any, col string) (float64, error) {
+	switch v := val.(type) {
+	case int:
+		return float64(v), nil
+	case int16:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case float32:
+		return float64(v), nil
+	case float64:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("convertArrayValue: column %q has non-numeric value %v", col, val)
 	}
 }
 

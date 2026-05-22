@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -61,8 +63,8 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.EffortsUpdated != 2 {
-		t.Errorf("EffortsUpdated = %d, want 2", resp.EffortsUpdated)
+	if resp.EffortsUpdated != 0 {
+		t.Errorf("EffortsUpdated = %d, want 0", resp.EffortsUpdated)
 	}
 
 	// Verify track is reversed
@@ -78,15 +80,152 @@ func TestReverseSegmentFlipsGeometryAndEfforts_DB(t *testing.T) {
 		t.Errorf("track = %q, want LINESTRING(2 2,1 1,0 0)", track)
 	}
 
-	// Verify efforts are flipped
+	// Historical efforts stay attached to the version that matched them. Reversing
+	// a segment creates a new current version, but it must not rewrite frozen
+	// effort direction metadata from older versions.
 	var e1Rev, e2Rev bool
 	pool.QueryRow(context.Background(), "SELECT is_reverse FROM segment_efforts WHERE id = $1", effort1ID).Scan(&e1Rev)
 	pool.QueryRow(context.Background(), "SELECT is_reverse FROM segment_efforts WHERE id = $1", effort2ID).Scan(&e2Rev)
-	if !e1Rev {
-		t.Error("effort 1 should be reversed")
+	if e1Rev {
+		t.Error("effort 1 should remain forward")
 	}
-	if e2Rev {
-		t.Error("effort 2 should NOT be reversed")
+	if !e2Rev {
+		t.Error("effort 2 should remain reverse")
+	}
+	var e1Direction, e1Identity, e2Direction, e2Identity string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT leaderboard_direction, match_identity_key FROM segment_efforts WHERE id = $1`, effort1ID).Scan(&e1Direction, &e1Identity); err != nil {
+		t.Fatalf("query effort 1 metadata: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT leaderboard_direction, match_identity_key FROM segment_efforts WHERE id = $1`, effort2ID).Scan(&e2Direction, &e2Identity); err != nil {
+		t.Fatalf("query effort 2 metadata: %v", err)
+	}
+	if e1Direction != "forward" || !strings.Contains(e1Identity, ":direction:forward:") {
+		t.Fatalf("effort 1 metadata = %s/%s, want frozen forward direction", e1Direction, e1Identity)
+	}
+	if e2Direction != "reverse" || !strings.Contains(e2Identity, ":direction:reverse:") {
+		t.Fatalf("effort 2 metadata = %s/%s, want frozen reverse direction", e2Direction, e2Identity)
+	}
+
+	var projectedRows int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM target_course_eligibility_projection cep
+		JOIN segment_versions sv ON sv.id = cep.target_version_id
+		WHERE cep.target_kind = 'segment'
+		  AND cep.target_id = $1
+		  AND sv.segment_id = $1
+		  AND sv.version_number = (
+			SELECT MAX(version_number) FROM segment_versions WHERE segment_id = $1
+		  )
+	`, segmentID).Scan(&projectedRows); err != nil {
+		t.Fatalf("query reversed-version projection rows: %v", err)
+	}
+	if projectedRows == 0 {
+		t.Fatalf("reverse did not rebuild course eligibility projection for the new version")
+	}
+}
+
+func TestReverseSegmentPreservesSameActivityOppositeDirectionEfforts_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track: "LINESTRING(0 0, 1 1, 2 2)",
+	})
+	versionID := lookupLatestTestSegmentVersion(t, pool, segmentID)
+	activityID := insertTestActivityAt(t, pool, userID, time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC))
+
+	for _, isReverse := range []bool{false, true} {
+		insertTestEffortForActivity(t, pool, segmentID, versionID, activityID, userID, isReverse)
+	}
+
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/{id}/reverse", h.ReverseSegment)
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/"+segmentID+"/reverse", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Code = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var forward, reverse int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE leaderboard_direction = 'forward'),
+			COUNT(*) FILTER (WHERE leaderboard_direction = 'reverse')
+		FROM segment_efforts
+		WHERE segment_id = $1 AND activity_id = $2 AND segment_version_id = $3`,
+		segmentID, activityID, versionID).Scan(&forward, &reverse); err != nil {
+		t.Fatalf("count directions: %v", err)
+	}
+	if forward != 1 || reverse != 1 {
+		t.Fatalf("directions after reverse = forward:%d reverse:%d, want 1/1", forward, reverse)
+	}
+}
+
+func TestReverseSegmentUsesActiveVersionBeforeFutureVersion_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+
+	userID := insertTestUser(t, pool)
+	segmentID := insertTestSegment(t, pool, userID, TestSegmentOpts{
+		Track: "LINESTRING(0 0, 1 1, 2 2)",
+	})
+	futureAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions (
+			id, segment_id, version_number, track, start_point, end_point, valid_from, created_by,
+			valid_from_at, validity_basis, matching_contract_key, matching_contract_version, published_at
+		)
+		SELECT gen_random_uuid(), $1, 2,
+		       ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326),
+		       ST_StartPoint(ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326)),
+		       ST_EndPoint(ST_GeomFromText('LINESTRING(9 9, 10 10)', 4326)),
+		       CURRENT_DATE, $2, $3, 'editor_asserted', 'course_gps_v1', 1, NOW()`,
+		segmentID, userID, futureAt); err != nil {
+		t.Fatalf("insert future version: %v", err)
+	}
+
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/{id}/reverse", h.ReverseSegment)
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/"+segmentID+"/reverse", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Code = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var versionNumber int
+	var validUntil time.Time
+	var track string
+	err := pool.QueryRow(ctx, `
+		SELECT version_number, valid_until_at, ST_AsText(track)
+		FROM segment_versions
+		WHERE segment_id = $1
+		ORDER BY version_number DESC
+		LIMIT 1`, segmentID).Scan(&versionNumber, &validUntil, &track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versionNumber != 3 {
+		t.Fatalf("new version_number = %d, want 3", versionNumber)
+	}
+	if !validUntil.Equal(futureAt) {
+		t.Fatalf("new valid_until_at = %v, want future boundary %v", validUntil, futureAt)
+	}
+	if track != "LINESTRING(2 2,1 1,0 0)" {
+		t.Fatalf("new track = %q, want reversed currently active v1 track", track)
 	}
 }
 

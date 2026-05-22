@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Lock, Map, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { getMe } from '@/api/auth'
 import { fetchSegment, recomputeSegment, publishSegment, deleteSegment, exportSegment } from '@/api/segments'
+import { ApiError } from '@/api/client'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
@@ -15,6 +16,7 @@ import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
 import { SegmentActivityList } from '@/components/SegmentDetail/SegmentActivityList'
 import { SegmentPerformanceChart } from '@/components/SegmentDetail/SegmentPerformanceChart'
 import { FavoriteButton } from '@/components/SegmentDetail/FavoriteButton'
+import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
 import DateRangePicker from '@/components/DateRangePicker'
@@ -28,6 +30,18 @@ const TYPE_LABELS: Record<string, string> = {
   standard: 'Standard', trail: 'Trail', lift: 'Lift', lap: 'Rundkurs',
 }
 
+function isPublishPrivacyConfirmationError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  const title = typeof error.json?.title === 'string' ? error.json.title : ''
+  const code = typeof error.json?.code === 'string' ? error.json.code : ''
+  const detail = typeof error.json?.detail === 'string' ? error.json.detail : error.body
+  return (
+    code === 'segment_publish_privacy_confirmation_required' ||
+    title === 'Privacy Confirmation Required' ||
+    detail.includes('active privacy zone') ||
+    detail.includes('Privacy-Zone')
+  )
+}
 
 export default function SegmentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -52,13 +66,30 @@ export default function SegmentDetailPage() {
   })
 
   const publishMut = useMutation({
-    mutationFn: () => publishSegment(id!),
+    mutationFn: (options?: { sourceActivityPublishConfirmed?: boolean }) => (
+      options ? publishSegment(id!, options) : publishSegment(id!)
+    ),
     onSuccess: () => {
       addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Recompute gestartet.' })
       queryClient.invalidateQueries({ queryKey: ['segment', id] })
       queryClient.invalidateQueries({ queryKey: ['segments'] })
     },
-    onError: () => {
+    onError: (error) => {
+      if (isPublishPrivacyConfirmationError(error)) {
+        openModal({
+          title: 'Privacy-Zone bestätigen?',
+          message: 'Die Quellaktivität schneidet eine aktive Privacy-Zone. Veröffentliche das Segment nur, wenn die aktuelle Segment- oder Kursgeometrie trotzdem öffentlich sichtbar sein soll.',
+          buttons: [
+            { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+            {
+              label: 'Trotzdem veröffentlichen',
+              variant: 'destructive',
+              onClick: () => publishMut.mutate({ sourceActivityPublishConfirmed: true }),
+            },
+          ],
+        })
+        return
+      }
       addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
     },
   })
@@ -102,13 +133,15 @@ export default function SegmentDetailPage() {
 
   // #1a fix: include_geojson=true so SegmentMinimap receives track_geojson
   const { data: segment, isLoading } = useQuery({
-    queryKey: ['segment', id, 'geojson'],
-    queryFn: () => fetchSegment(id!, { includeGeoJSON: true }),
+    queryKey: ['segment', id, 'geojson-controls-overlay-summary'],
+    queryFn: () => fetchSegment(id!, { includeGeoJSON: true, includeControls: true, includeOverlaySummary: true }),
     enabled: !!id,
   })
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segment...</div>
   if (!segment) return <div className="p-6 text-neutral-400">Segment nicht gefunden</div>
+  const segmentPermissions = new Set(segment.effective_permissions ?? [])
+  const canManageSegment = me?.user_id === segment.created_by || me?.is_admin
 
   // Build a minimal activity filter from the date range for SegmentActivityList
   const dateFilter: ActivityFilterState | undefined =
@@ -130,7 +163,7 @@ export default function SegmentDetailPage() {
             dateTo={dateTo ?? ''}
             onChange={(from, to) => { setDateFrom(from || undefined); setDateTo(to || undefined) }}
           />
-          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.segment_type !== 'lift' && canManageSegment && (
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
@@ -182,7 +215,7 @@ export default function SegmentDetailPage() {
                     : 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
                   buttons: [
                     { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate() },
+                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate(undefined) },
                   ],
                 })
               }}
@@ -194,7 +227,7 @@ export default function SegmentDetailPage() {
           )}
 
           {/* Delete: visible for creator or admin, not for OSM lift segments */}
-          {segment.segment_type !== 'lift' && (me?.user_id === segment.created_by || me?.is_admin) && (
+          {segment.segment_type !== 'lift' && canManageSegment && (
             <button
               onClick={() => openModal({
                 title: 'Segment löschen?',
@@ -218,7 +251,7 @@ export default function SegmentDetailPage() {
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{segment.name}</h1>
-          {['trail', 'wintersport'].includes(segment.segment_type) && (
+          {segment.course_kind !== 'checkpoint_sequence' && ['trail', 'wintersport'].includes(segment.segment_type) && (
             <DifficultyBadge
               sac={segment.segment_type_meta?.sac_scale as string}
               mtb={segment.segment_type_meta?.mtb_scale as string}
@@ -230,7 +263,11 @@ export default function SegmentDetailPage() {
           <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
             {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
           </span>
-          {segment.segment_type !== 'standard' && (
+          {segment.course_kind === 'checkpoint_sequence' ? (
+            <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+              Checkpoint-Kurs
+            </span>
+          ) : segment.segment_type !== 'standard' && (
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
               {TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
             </span>
@@ -261,6 +298,43 @@ export default function SegmentDetailPage() {
             </span>
           )}
         </div>
+        {segment.overlay_summary && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            {segment.overlay_summary.public_open_report_count > 0 && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                {segment.overlay_summary.public_open_report_count} offene Meldungen
+              </span>
+            )}
+            {segment.overlay_summary.current_condition_state && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                Zustand: {segment.overlay_summary.current_condition_state}
+              </span>
+            )}
+            {segment.overlay_summary.public_comment_count > 0 && (
+              <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
+                {segment.overlay_summary.public_comment_count} Kommentare
+              </span>
+            )}
+          </div>
+        )}
+        {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+              {segment.control_summary.control_count} Checkpoints
+            </span>
+            {segment.controls && segment.controls.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
+                {segment.controls.map((control, index) => (
+                  control.role === 'start'
+                    ? 'Start'
+                    : control.role === 'finish'
+                      ? 'Ziel'
+                      : String(index + 1)
+                )).join(' -> ')}
+              </span>
+            )}
+          </div>
+        )}
         {segment.description && (
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{segment.description}</p>
         )}
@@ -274,6 +348,13 @@ export default function SegmentDetailPage() {
 
       {/* Performance Chart */}
       <SegmentPerformanceChart segmentId={id!} dateFrom={dateFrom} dateTo={dateTo} />
+
+      <TargetOverlayTabs
+        subjectKind="course"
+        subjectId={segment.id}
+        canWrite={Boolean(me)}
+        canManageReports={Boolean(me?.is_admin || me?.user_id === segment.created_by || segmentPermissions.has('manage_reports'))}
+      />
 
       {/* Edit Modal */}
       {showEdit && (

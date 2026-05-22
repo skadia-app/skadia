@@ -14,6 +14,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   gdpr_export:                   'Datenexport',
   gdpr_purge:                    'DSGVO-Datenlöschung',
   segment_recompute:             'Segmente neu berechnen',
+  segment_recalculation:         'Segment-Neuberechnung',
   segment_publish:               'Segment veröffentlichen',
   segment_matching:              'Segment-Matching',
   activity_recompute:            'Aktivität neu berechnen',

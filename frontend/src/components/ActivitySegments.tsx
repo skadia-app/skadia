@@ -147,6 +147,11 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                       >
                         {effort.segment_name ?? 'Unbenannt'}
                       </button>
+                      {effort.course_kind === 'checkpoint_sequence' && (
+                        <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                          Checkpoint-Kurs absolviert
+                        </span>
+                      )}
                       {effort.segment_type_meta && (
                         <DifficultyBadge 
                           sac={effort.segment_type_meta?.sac_scale as string} 
@@ -179,10 +184,10 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                   </td>
                   <td className="px-3 py-2 text-center">
                     <span
-                      title={effort.is_reverse ? 'Umgekehrte Richtung' : 'Referenzrichtung'}
+                      title={effort.course_kind === 'checkpoint_sequence' ? 'Checkpoint-Kurs absolviert' : effort.is_reverse ? 'Umgekehrte Richtung' : 'Referenzrichtung'}
                       className={`text-xs font-medium ${effort.is_reverse ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}
                     >
-                      {effort.is_reverse ? '← Umgekehrt' : '→ Normal'}
+                      {effort.course_kind === 'checkpoint_sequence' ? 'Absolviert' : effort.is_reverse ? '← Umgekehrt' : '→ Normal'}
                     </span>
                   </td>
                 </tr>

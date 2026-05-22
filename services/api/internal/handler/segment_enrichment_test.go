@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
@@ -204,5 +205,68 @@ func TestEnrichmentHandler_NoGraph_Returns200(t *testing.T) {
 	// reason string, this test will catch it.
 	if resp.Reason != "no_graph" {
 		t.Errorf("Reason = %q, want %q — graph is nil and OSM ways absent at mid-Atlantic coords", resp.Reason, "no_graph")
+	}
+}
+
+func TestEnrichmentHandler_PostGISReturnsSurfaceSacMtbSuggestions(t *testing.T) {
+	pool := fusionTestPool(t)
+
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments/enrichment-suggest", h.EnrichmentSuggest)
+
+	osmID := -time.Now().UnixNano()
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO osm_ways (osm_id, highway, surface, sac_scale, mtb_scale, length_m, geom)
+		VALUES (
+			$1,
+			'path',
+			'asphalt',
+			'mountain_hiking',
+			'2',
+			100,
+			ST_SetSRID(ST_MakeLine(ARRAY[
+				ST_MakePoint(0, 0),
+				ST_MakePoint(0, 1)
+			]), 4326)
+		)
+	`, osmID)
+	if err != nil {
+		t.Fatalf("insert osm_ways fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM osm_ways WHERE osm_id = $1`, osmID)
+	})
+
+	userID := insertTestUser(t, pool)
+	body, _ := json.Marshal(map[string]interface{}{
+		"coordinates": [][2]float64{{0, 0}, {0, 1}},
+		"seg_type":    "trail",
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/segments/enrichment-suggest", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp enrichment.SegmentEnrichmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Surface == nil || resp.Surface.Dominant != "Asphalt" {
+		t.Fatalf("Surface.Dominant = %#v, want Asphalt", resp.Surface)
+	}
+	if resp.SacScale == nil || resp.SacScale.Dominant != "T2" || resp.SacScale.Max != "T2" {
+		t.Fatalf("SacScale = %#v, want dominant/max T2", resp.SacScale)
+	}
+	if resp.MtbScale == nil || resp.MtbScale.Dominant != "S2" || resp.MtbScale.Max != "S2" {
+		t.Fatalf("MtbScale = %#v, want dominant/max S2", resp.MtbScale)
+	}
+	if resp.CoveragePct != 1 {
+		t.Fatalf("CoveragePct = %v, want 1", resp.CoveragePct)
 	}
 }

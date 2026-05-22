@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 const (
@@ -30,27 +31,45 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 	matchCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	allEfforts, matchedSegmentIDs, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
+	affectedSegmentIDs, affectedErr := db.GetAffectedSegmentIDs(matchCtx, activityID)
+	if affectedErr != nil {
+		slog.Warn("segment matching: existing affected segments unavailable", "activity_id", activityID, "error", affectedErr)
+	}
+
+	allEfforts, checkpointMatches, matchedSegmentIDs, candidateSegmentIDs, matchCount, err := collectSegmentEfforts(matchCtx, db, activityID, userID, sportType, subType, gearID, activityDate)
 	if err != nil {
 		slog.Error("segment matching: collect efforts failed", "error", err)
 		return
 	}
 
-	if len(matchedSegmentIDs) > 0 {
-		segmentIDs := make([]string, 0, len(matchedSegmentIDs))
-		for segID := range matchedSegmentIDs {
+	replacementSegmentIDs := make(map[string]struct{}, len(candidateSegmentIDs)+len(affectedSegmentIDs))
+	for segID := range candidateSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	for _, segID := range affectedSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	for segID := range matchedSegmentIDs {
+		replacementSegmentIDs[segID] = struct{}{}
+	}
+	if len(replacementSegmentIDs) > 0 {
+		segmentIDs := make([]string, 0, len(replacementSegmentIDs))
+		for segID := range replacementSegmentIDs {
 			segmentIDs = append(segmentIDs, segID)
 		}
-		if err := db.ReplaceSegmentEffortsForActivitySegments(matchCtx, activityID, userID, segmentIDs, allEfforts); err != nil {
+		if _, err := db.SupersedeSegmentEffortsForActivitySegmentsWithCheckpoint(matchCtx, activityID, userID, segmentIDs, allEfforts, checkpointMatches, nil, nil, nil); err != nil {
 			slog.Error("segment matching: replace efforts failed", "error", err)
 			return
 		}
 	}
 
-	// Update ranks once per matched segment (not per effort)
-	for segID := range matchedSegmentIDs {
+	for segID := range replacementSegmentIDs {
 		if err := db.UpdateSegmentEffortRanks(matchCtx, segID); err != nil {
 			slog.Warn("segment matching: update ranks failed",
+				"segment_id", segID, "error", err)
+		}
+		if _, err := db.RebuildTargetObservationsFromSegmentEfforts(matchCtx, segID, 1000); err != nil {
+			slog.Warn("segment matching: rebuild target observations failed",
 				"segment_id", segID, "error", err)
 		}
 	}
@@ -65,27 +84,87 @@ func MatchActivitySegments(ctx context.Context, db *database.DB, activityID, use
 // It returns the computed efforts and matched segment IDs without writing to the database.
 // This separation allows callers such as recomputeSegmentEffortsForActivity to wrap
 // the subsequent INSERT inside an existing transaction.
-func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) (allEfforts []*model.SegmentEffort, matchedSegmentIDs map[string]struct{}, matchCount int, err error) {
+func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, userID, sportType, subType string, gearID *string, activityDate time.Time) (allEfforts []*model.SegmentEffort, checkpointMatches []model.CheckpointMatchedEffort, matchedSegmentIDs map[string]struct{}, candidateSegmentIDs map[string]struct{}, matchCount int, err error) {
 	matchedSegmentIDs = make(map[string]struct{})
+	candidateSegmentIDs = make(map[string]struct{})
+
+	activityContext, err := db.GetSegmentMatchActivityContext(ctx, activityID)
+	if err != nil {
+		return nil, nil, nil, nil, 0, fmt.Errorf("get segment match activity context: %w", err)
+	}
+	bucketKey, ok := sport.ActivityTraitBucketKeyForActivityLegacyCandidate(sportType, subType, sport.ActivityModifierState{
+		IsIndoor:   activityContext.IsIndoor,
+		IsVirtual:  activityContext.IsVirtual,
+		IsElectric: activityContext.IsElectric,
+	})
+	if !ok {
+		slog.Debug("segment matching: no activity trait bucket", "activity_id", activityID, "sport_type", sportType, "sub_type", subType)
+		return nil, nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
+	}
 
 	// 1. Spatial pre-filter: only segments within 50m of activity track
-	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate, subType)
+	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, bucketKey, activityDate)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
+		return nil, nil, nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
 	}
-	if len(candidates) == 0 {
+	checkpointCandidates, err := db.GetCheckpointCandidateSegments(ctx, activityID, userID, bucketKey, activityDate)
+	if err != nil {
+		return nil, nil, nil, nil, 0, fmt.Errorf("checkpoint candidate pre-filter: %w", err)
+	}
+	if len(candidates) == 0 && len(checkpointCandidates) == 0 {
 		slog.Debug("segment matching: no spatial candidates", "activity_id", activityID)
-		return nil, matchedSegmentIDs, 0, nil
+		return nil, nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
+	}
+	for _, cand := range candidates {
+		candidateSegmentIDs[cand.SegmentID] = struct{}{}
+	}
+	for _, cand := range checkpointCandidates {
+		candidateSegmentIDs[cand.SegmentID] = struct{}{}
 	}
 
 	// 2. Load GPS stream once (shared with lap detection later)
 	gpsStream, err := db.GetActivityGPSStream(ctx, activityID)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("get GPS stream: %w", err)
+		return nil, nil, nil, nil, 0, fmt.Errorf("get GPS stream: %w", err)
 	}
-	if len(gpsStream) < 5 {
+	if len(gpsStream) < 2 {
 		slog.Debug("segment matching: GPS stream too short", "activity_id", activityID, "points", len(gpsStream))
-		return nil, matchedSegmentIDs, 0, nil
+		return nil, nil, matchedSegmentIDs, candidateSegmentIDs, 0, nil
+	}
+
+	checkpointSamples := checkpointSamplesFromGPSStream(gpsStream)
+	for _, cand := range checkpointCandidates {
+		attempts, err := database.MatchCheckpointSequenceV1(checkpointSamples, cand.Controls)
+		if err != nil {
+			return nil, nil, nil, nil, 0, fmt.Errorf("match checkpoint segment %s: %w", cand.SegmentID, err)
+		}
+		for _, attempt := range attempts {
+			effort := &model.SegmentEffort{
+				SegmentID:        cand.SegmentID,
+				SegmentVersionID: cand.VersionID,
+				ActivityID:       activityID,
+				UserID:           userID,
+				StartedAt:        attempt.StartedAt,
+				ElapsedTimeS:     attempt.ElapsedTimeS,
+				IsReverse:        false,
+				SportType:        sportType,
+				SubType:          subType,
+				GearID:           gearID,
+				DistanceM:        attempt.DistanceM,
+				ElevationGainM:   attempt.ElevationGainM,
+				OccurrenceIndex:  attempt.OccurrenceIndex,
+				OccurrenceHash:   &attempt.OccurrenceHash,
+			}
+			database.ApplyCandidateEligibilityToEffort(effort, cand.CandidateSegment)
+			database.PrepareCheckpointSequenceV1EffortMetadata(effort, activityContext)
+			checkpointMatches = append(checkpointMatches, model.CheckpointMatchedEffort{Effort: effort, ControlHits: attempt.ControlHits})
+			matchedSegmentIDs[cand.SegmentID] = struct{}{}
+			matchCount++
+		}
+	}
+
+	if len(gpsStream) < 5 || len(candidates) == 0 {
+		return allEfforts, checkpointMatches, matchedSegmentIDs, candidateSegmentIDs, matchCount, nil
 	}
 
 	// 3. Batch-load endpoints for all non-lap candidates
@@ -97,7 +176,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 	}
 	endpointMap, err := db.GetSegmentEndpointsBatch(ctx, nonLapVersionIDs)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("batch endpoint load: %w", err)
+		return nil, nil, nil, nil, 0, fmt.Errorf("batch endpoint load: %w", err)
 	}
 
 	for _, cand := range candidates {
@@ -204,6 +283,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 				DistanceM:        distPtr,
 				ElevationGainM:   elevGain,
 			}
+			database.ApplyCandidateEligibilityToEffort(effort, cand)
 
 			allEfforts = append(allEfforts, effort)
 			matchedSegmentIDs[cand.SegmentID] = struct{}{}
@@ -217,7 +297,21 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 		}
 	}
 
-	return allEfforts, matchedSegmentIDs, matchCount, nil
+	occurrenceCounters := make(map[string]int)
+	for _, effort := range allEfforts {
+		occurrenceBase := database.BuildCourseGPSV1OccurrenceBase(
+			effort.ActivityID,
+			effort.SegmentID,
+			effort.SegmentVersionID,
+			effort.StartedAt,
+			effort.IsReverse,
+		)
+		effort.OccurrenceIndex = occurrenceCounters[occurrenceBase]
+		occurrenceCounters[occurrenceBase]++
+		database.PrepareCourseGPSV1EffortMetadata(effort, activityContext)
+	}
+
+	return allEfforts, checkpointMatches, matchedSegmentIDs, candidateSegmentIDs, matchCount, nil
 }
 
 // traversal represents a detected pass through a segment.
@@ -359,6 +453,36 @@ func estimateSubTrackLength(stream []database.GPSStreamPoint) float64 {
 	return geo.Length(ls)
 }
 
+func checkpointSamplesFromGPSStream(stream []database.GPSStreamPoint) []database.CheckpointActivitySample {
+	samples := make([]database.CheckpointActivitySample, 0, len(stream))
+	var cumulativeDistance float64
+	var cumulativeAscent float64
+	for i, point := range stream {
+		if i > 0 {
+			prev := stream[i-1]
+			cumulativeDistance += databaseCheckpointDistanceM(prev.Lat, prev.Lng, point.Lat, point.Lng)
+			if prev.AltitudeM != nil && point.AltitudeM != nil && *point.AltitudeM > *prev.AltitudeM {
+				cumulativeAscent += *point.AltitudeM - *prev.AltitudeM
+			}
+		}
+		distance := cumulativeDistance
+		ascent := cumulativeAscent
+		samples = append(samples, database.CheckpointActivitySample{
+			Index:     i,
+			Time:      point.Time,
+			Lat:       point.Lat,
+			Lng:       point.Lng,
+			DistanceM: &distance,
+			AscentM:   &ascent,
+		})
+	}
+	return samples
+}
+
+func databaseCheckpointDistanceM(lat1, lng1, lat2, lng2 float64) float64 {
+	return geo.DistanceHaversine(lat1, lng1, lat2, lng2)
+}
+
 const lapFinishProximityM = 30.0
 const lapMinGapM = 100.0 // minimum GPS distance between two crossings
 
@@ -431,6 +555,7 @@ func matchLapSegment(
 			DistanceM:        distPtr,
 			ElevationGainM:   elevGain,
 		}
+		database.ApplyCandidateEligibilityToEffort(effort, *cand)
 		efforts = append(efforts, effort)
 	}
 

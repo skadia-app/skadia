@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment } from '@/api/segments'
+import { fetchSegments, fetchSegmentLeaderboard, deleteSegment, deleteSegments, recomputeSegment, exportSegments, type Segment, type SegmentLeaderboardQuery } from '@/api/segments'
 import { getMe } from '@/api/auth'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
@@ -14,7 +14,7 @@ import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
 import SegmentEditModal from '@/components/SegmentEditModal'
 import DifficultyBadge from '@/components/DifficultyBadge'
-import { Lock, Trash2, FilterX, ChevronDown, ChevronUp } from 'lucide-react'
+import { Lock, Trash2, FilterX, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { SAC_SCALE_OPTIONS, MTB_SCALE_OPTIONS, SURFACE_DROPDOWN_OPTIONS } from '@/components/segment-editor/constants'
 import { Pill } from '@/components/ui/Pill'
 
@@ -57,10 +57,19 @@ const DEFAULT_SEGMENT_TYPES = ['standard', 'trail', 'wintersport', 'wassersport'
 
 // Canonical list of visibility-filter values. Used both for iteration in the
 // checkbox render and the Set-based toggle handler — single source of truth.
-const VISIBILITY_ALL = ['public', 'private'] as const
+const VISIBILITY_ALL = ['public', 'private', 'shared'] as const
 const VISIBILITY_LABELS: Record<(typeof VISIBILITY_ALL)[number], string> = {
   public: 'Öffentlich',
   private: 'Privat',
+  shared: 'Geteilt',
+}
+const ELEVATION_KIND_ALL = ['flat', 'hilly', 'uphill', 'downhill'] as const
+type ElevationKind = (typeof ELEVATION_KIND_ALL)[number]
+const ELEVATION_KIND_LABELS: Record<ElevationKind, string> = {
+  flat: 'Flach',
+  hilly: 'Wellig',
+  uphill: 'Bergauf',
+  downhill: 'Bergab',
 }
 
 export function shouldFetchNextSegmentPage({
@@ -84,6 +93,7 @@ export default function SegmentsPage() {
     () => segmentTypesParam === null ? DEFAULT_SEGMENT_TYPES : segmentTypesParam.split(',').filter(Boolean),
     [segmentTypesParam],
   )
+  const includeCheckpointCourses = searchParams.get('checkpoint_courses') === 'true'
   const showAllSegments = searchParams.get('show_all_segments') === 'true'
   const search = searchParams.get('search') ?? ''
   // B3: Stable array references via useMemo — without this, every render creates a new
@@ -105,10 +115,13 @@ export default function SegmentsPage() {
     () => searchParams.get('visibility')?.split(',').filter(Boolean) ?? [],
     [searchParams.get('visibility')],
   )
+  const elevationKind = ELEVATION_KIND_ALL.includes(searchParams.get('elevation_kind') as ElevationKind)
+    ? searchParams.get('elevation_kind') as ElevationKind
+    : ''
   const difficultyMatch = (searchParams.get('difficulty_match') ?? 'all') as 'any' | 'all'
 
   const [showAdvanced, setShowAdvanced] = useState(() =>
-    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0
+    sacFilter.length > 0 || mtbFilter.length > 0 || surfaceFilter.length > 0 || visibilityFilter.length > 0 || !!elevationKind
   )
 
   // Functional-form update avoids stale-closure races: two setFilter calls in
@@ -142,7 +155,7 @@ export default function SegmentsPage() {
   const { data: capabilities } = useCapabilities()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [searchInput, setSearchInput] = useState(search)
-  const [editorMode, setEditorMode] = useState<'draw' | null>(null)
+  const [editorMode, setEditorMode] = useState<'draw' | 'checkpoint' | null>(null)
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
@@ -192,18 +205,22 @@ export default function SegmentsPage() {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
   }, [])
 
-  const hasExplicitEmptySegmentTypes = segmentTypesParam !== null && terrainFilter.length === 0
+  const hasExplicitEmptySegmentTypes = segmentTypesParam !== null && terrainFilter.length === 0 && !includeCheckpointCourses
+  const includeLineCourses = !(segmentTypesParam !== null && terrainFilter.length === 0)
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
     search: search || undefined,
-    segment_types: hasExplicitEmptySegmentTypes ? undefined : terrainFilter.join(','),
+    segment_types: includeLineCourses ? terrainFilter.join(',') : undefined,
     completed_only: !showAllSegments ? true : undefined,
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
+    elevation_kind: elevationKind || undefined,
     visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
     difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? ('any' as const) : undefined,
-  }), [sportGroup, search, hasExplicitEmptySegmentTypes, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
+    ...(includeCheckpointCourses && includeLineCourses ? { course_kinds: ['line' as const, 'checkpoint_sequence' as const] } : {}),
+    ...(includeCheckpointCourses && !includeLineCourses ? { course_kind: 'checkpoint_sequence' as const } : {}),
+  }), [sportGroup, search, includeLineCourses, includeCheckpointCourses, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, elevationKind, visibilityFilter, difficultyMatch])
 
   const {
     data,
@@ -393,7 +410,7 @@ export default function SegmentsPage() {
     )
   }
 
-  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0))
+  const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (elevationKind ? 1 : 0) + (visibilityFilter.length === 1 ? 1 : 0) + (includeCheckpointCourses ? 1 : 0))
   const completedOnlyEmpty = segments.length === 0 && !showAllSegments && !hasExplicitEmptySegmentTypes
 
   return (
@@ -407,6 +424,9 @@ export default function SegmentsPage() {
           </Link>
           <button onClick={() => setEditorMode('draw')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors">
             Segment zeichnen
+          </button>
+          <button onClick={() => setEditorMode('checkpoint')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors">
+            Checkpoints
           </button>
           <button
             onClick={() => { setSelectionMode(m => !m); setSelectedIds(new Set()) }}
@@ -456,6 +476,15 @@ export default function SegmentsPage() {
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
               </label>
             ))}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+              <input
+                type="checkbox"
+                checked={includeCheckpointCourses}
+                onChange={e => setFilter('checkpoint_courses', e.target.checked ? 'true' : null)}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-700 dark:text-neutral-300">Checkpoint-Kurse</span>
+            </label>
             <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
               <input
                 type="checkbox"
@@ -627,6 +656,23 @@ export default function SegmentsPage() {
             </div>
             )}
 
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Höhenprofil</label>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {ELEVATION_KIND_ALL.map(kind => (
+                  <label key={kind} className="flex items-center gap-1.5 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={elevationKind === kind}
+                      onChange={e => setFilter('elevation_kind', e.target.checked ? kind : null)}
+                      className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+                    />
+                    <span className="text-xs text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200">{ELEVATION_KIND_LABELS[kind]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             {/* Visibility — multi-checkbox: both checked = default (all), one checked = filter */}
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Sichtbarkeit</label>
@@ -650,7 +696,7 @@ export default function SegmentsPage() {
                           if (next.size === 0) return
                           // Both selected == default state → clear filter param (B1: canonical URL #8)
                           if (next.size === VISIBILITY_ALL.length) setFilter('visibility', null)
-                          // Deterministic order: public before private
+                          // Deterministic order: public before private/shared
                           else setFilter('visibility', VISIBILITY_ALL.filter(k => next.has(k)))
                         }}
                         className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
@@ -790,7 +836,8 @@ export default function SegmentsPage() {
                   <svg className={`w-5 h-5 flex-shrink-0 ${SPORT_GROUP_COLORS[segment.sport_group] ?? 'text-neutral-500'}`} viewBox="0 0 24 24" fill="currentColor"><path d={SPORT_GROUP_ICONS[segment.sport_group] ?? SPORT_GROUP_ICONS.generic} /></svg>
                   <h3 className="font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors truncate">{segment.name}</h3>
                   {segment.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
-                  {['trail', 'wintersport'].includes(segment.segment_type) && (
+                  {segment.visibility === 'shared' && <Users className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />}
+                  {segment.course_kind !== 'checkpoint_sequence' && ['trail', 'wintersport'].includes(segment.segment_type) && (
                     <DifficultyBadge
                       sac={segment.segment_type_meta?.sac_scale as string}
                       mtb={segment.segment_type_meta?.mtb_scale as string}
@@ -809,13 +856,13 @@ export default function SegmentsPage() {
                     </svg>
                   </button>
                   {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
-                    <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                    <button aria-label="Segment bearbeiten" onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                   )}
                   {segmentRecomputeAvailable && (
                     <button title="Matching neu berechnen" onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                   )}
                   {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
-                    <button onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                    <button aria-label="Segment löschen" onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
               </div>
@@ -835,13 +882,20 @@ export default function SegmentsPage() {
                 {!!segment.segment_type_meta?.surface && (
                   <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
                 )}
+                {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
+                  <span>{segment.control_summary.control_count} Checkpoints</span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 mt-2">
                 <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
                   {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
                 </span>
-                {segment.segment_type !== 'standard' && (
+                {segment.course_kind === 'checkpoint_sequence' ? (
+                  <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    Checkpoint-Kurs
+                  </span>
+                ) : segment.segment_type !== 'standard' && (
                   <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
                     {SEGMENT_TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
                   </span>
@@ -859,6 +913,7 @@ export default function SegmentsPage() {
         <LeaderboardModal
           segmentId={selectedSegmentId}
           segmentName={segments.find(s => s.id === selectedSegmentId)?.name ?? 'Segment'}
+          segment={segments.find(s => s.id === selectedSegmentId)}
           onClose={() => setSelectedSegmentId(null)}
         />
       )}
@@ -868,15 +923,33 @@ export default function SegmentsPage() {
   )
 }
 
-function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: string; segmentName: string; onClose: () => void }) {
+function LeaderboardModal({ segmentId, segmentName, segment, onClose }: { segmentId: string; segmentName: string; segment?: Segment; onClose: () => void }) {
   const [direction, setDirection] = useState<'all' | 'forward' | 'reverse'>('all')
-  const [scope, setScope] = useState<'all' | 'mine'>('all')
+  const [audience, setAudience] = useState<'all' | 'mine'>('all')
+  const [leaderboardScope, setLeaderboardScope] = useState<NonNullable<SegmentLeaderboardQuery['scope']>>('current_version')
 
-  const isReverse = direction === 'all' ? undefined : direction === 'forward' ? false : true
+  const isCheckpointCourse = segment?.course_kind === 'checkpoint_sequence'
+  useEffect(() => {
+    if (isCheckpointCourse && direction === 'reverse') setDirection('all')
+  }, [direction, isCheckpointCourse])
+
+  const effectiveDirection = isCheckpointCourse && direction === 'reverse' ? 'all' : direction
+  const isReverse = effectiveDirection === 'all' ? undefined : effectiveDirection === 'forward' ? false : true
+  const leaderboardQuery = useMemo<SegmentLeaderboardQuery>(() => ({
+    is_reverse: isReverse,
+    only_mine: audience === 'mine',
+    scope: leaderboardScope,
+    ...(leaderboardScope === 'current_version' || leaderboardScope === 'version'
+      ? { version_id: segment?.segment_version_id }
+      : {}),
+    ...(leaderboardScope === 'equivalence_group'
+      ? { leaderboard_equivalence_group_id: segment?.leaderboard_equivalence_group_id }
+      : {}),
+  }), [audience, isReverse, leaderboardScope, segment?.leaderboard_equivalence_group_id, segment?.segment_version_id])
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['segment-leaderboard', segmentId, direction, scope],
-    queryFn: () => fetchSegmentLeaderboard(segmentId, isReverse, scope === 'mine'),
+    queryKey: ['segment-leaderboard', segmentId, leaderboardQuery],
+    queryFn: () => fetchSegmentLeaderboard(segmentId, leaderboardQuery),
   })
 
   return (
@@ -895,19 +968,29 @@ function LeaderboardModal({ segmentId, segmentName, onClose }: { segmentId: stri
             <div className="flex gap-1">
               {(['all', 'mine'] as const).map(s => (
                 <button key={s}
-                  onClick={() => setScope(s)}
-                  className={`px-2 py-1 text-xs rounded cursor-pointer ${scope === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  onClick={() => setAudience(s)}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${audience === s ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                 >
                   {s === 'all' ? 'Alle' : 'Nur ich'}
                 </button>
               ))}
             </div>
+            <select
+              aria-label="Bestenlisten-Bereich"
+              value={leaderboardScope}
+              onChange={event => setLeaderboardScope(event.target.value as NonNullable<SegmentLeaderboardQuery['scope']>)}
+              className="rounded bg-neutral-100 px-2 py-1 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+            >
+              <option value="current_version">Aktuelle Version</option>
+              <option value="equivalence_group" disabled={!segment?.leaderboard_equivalence_group_id}>Äquivalenzgruppe</option>
+              <option value="sport_overall">Gesamt</option>
+            </select>
             {/* Direction */}
             <div className="flex gap-1">
-              {(['all', 'forward', 'reverse'] as const).map(dir => (
+              {(isCheckpointCourse ? (['all', 'forward'] as const) : (['all', 'forward', 'reverse'] as const)).map(dir => (
                 <button key={dir}
                   onClick={() => setDirection(dir)}
-                  className={`px-2 py-1 text-xs rounded cursor-pointer ${direction === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
+                  className={`px-2 py-1 text-xs rounded cursor-pointer ${effectiveDirection === dir ? 'bg-accent-DEFAULT text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}`}
                 >
                   {dir === 'all' ? 'Alle' : dir === 'forward' ? '→' : '←'}
                 </button>

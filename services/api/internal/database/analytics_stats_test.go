@@ -58,6 +58,10 @@ type analyticsStatsActivity struct {
 
 func insertAnalyticsStatsActivity(t *testing.T, pool *pgxpool.Pool, userID string, startedAt time.Time, act analyticsStatsActivity) {
 	t.Helper()
+	visitedCountryCodes := act.VisitedCountryCodes
+	if visitedCountryCodes == nil {
+		visitedCountryCodes = []string{}
+	}
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO activities
 			(id, user_id, sport_type, started_at, ended_at, file_hash,
@@ -69,7 +73,7 @@ func insertAnalyticsStatsActivity(t *testing.T, pool *pgxpool.Pool, userID strin
 		`, uuid.NewString(), userID, startedAt, startedAt.Add(time.Hour), uuid.NewString(),
 		act.DistanceM, act.ElevationGainM, act.ElevationLossM, act.MovingTimeS, act.ElapsedTimeS,
 		act.TotalCalories, act.LiftCount, act.LiftDistanceM, act.LiftAscentM,
-		act.LiftDescentM, act.ExcludeLiftSubtraction, act.IsGroupSecondary, act.VisitedCountryCodes,
+		act.LiftDescentM, act.ExcludeLiftSubtraction, act.IsGroupSecondary, visitedCountryCodes,
 	); err != nil {
 		t.Fatalf("insert activity: %v", err)
 	}

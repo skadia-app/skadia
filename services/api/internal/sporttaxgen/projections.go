@@ -1,6 +1,9 @@
 package sporttaxgen
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -87,10 +90,11 @@ type ExpandedActivityFilterLeaf struct {
 }
 
 type ExpandedSegmentProjection struct {
-	Domains      []ExpandedSegmentProjectionDomain
-	SegmentTypes []ExpandedSegmentProjectionSegmentType
-	RouteOptions []ExpandedRouteSportOption
-	Entries      []ExpandedSegmentProjectionEntry
+	Domains              []ExpandedSegmentProjectionDomain
+	SegmentTypes         []ExpandedSegmentProjectionSegmentType
+	RouteOptions         []ExpandedRouteSportOption
+	Entries              []ExpandedSegmentProjectionEntry
+	ActivityTraitBuckets []ExpandedActivityTraitBucket
 }
 
 type ExpandedSegmentProjectionDomain struct {
@@ -117,6 +121,31 @@ type ExpandedSegmentProjectionEntry struct {
 type ExpandedRouteSportOption struct {
 	SportType string
 	SubType   string
+}
+
+type ExpandedActivityTraitBucket struct {
+	Key                string
+	TraitPolicyKey     string
+	TraitPolicyVersion int
+	SourceHash         string
+	SportType          string
+	SubType            string
+	IsIndoor           bool
+	IsVirtual          bool
+	IsElectric         bool
+	MovementFamilies   []string
+	PropulsionModes    []string
+	EquipmentFamilies  []string
+	ActivityForm       string
+	EnvironmentState   string
+}
+
+type ActivityTraitBucketInput struct {
+	SportType  string
+	SubType    string
+	IsIndoor   bool
+	IsVirtual  bool
+	IsElectric bool
 }
 
 type projectionIndexes struct {
@@ -236,6 +265,7 @@ func ExpandSegmentProjection(taxonomy Taxonomy, projection SegmentProjection) (E
 	}
 	out.RouteOptions = expandRouteOptions(projection)
 	out.Entries = expandSegmentProjectionEntries(projection)
+	out.ActivityTraitBuckets = expandActivityTraitBuckets(taxonomy, out)
 	return out, nil
 }
 
@@ -538,6 +568,160 @@ func expandRouteOptions(projection SegmentProjection) []ExpandedRouteSportOption
 		}
 	}
 	return options
+}
+
+func expandActivityTraitBuckets(taxonomy Taxonomy, projection ExpandedSegmentProjection) []ExpandedActivityTraitBucket {
+	sports := map[string]Sport{}
+	for _, sport := range taxonomy.Sports {
+		sports[sport.SportType] = sport
+	}
+	activeDomainsBySegmentType := map[string]map[string]struct{}{}
+	for _, segmentType := range projection.SegmentTypes {
+		activeDomainsBySegmentType[segmentType.Key] = map[string]struct{}{}
+		for _, domain := range segmentType.ActiveDomains {
+			activeDomainsBySegmentType[segmentType.Key][domain] = struct{}{}
+		}
+	}
+	seenTuples := map[string]struct{}{}
+	buckets := []ExpandedActivityTraitBucket{}
+	for _, entry := range projection.Entries {
+		if _, ok := activeDomainsBySegmentType[entry.SegmentType][entry.Domain]; !ok {
+			continue
+		}
+		sport, ok := sports[entry.SportType]
+		if !ok {
+			continue
+		}
+		for _, subType := range activityTraitSubTypesForEntry(sport, entry.SubType) {
+			tupleKey := projectionTupleKey(entry.SportType, subType)
+			if _, ok := seenTuples[tupleKey]; ok {
+				continue
+			}
+			seenTuples[tupleKey] = struct{}{}
+			traits := sport.Traits
+			if subType != "" {
+				if subTypeDef, ok := findSubType(sport, subType); ok {
+					traits = EffectiveSubTypeTraits(sport, subTypeDef)
+				}
+			}
+			if traits.ActivityForm == "system" {
+				continue
+			}
+			buckets = append(buckets, activityTraitBucketsForTuple(entry.SportType, subType, traits)...)
+		}
+	}
+	buckets = append(buckets, activityTraitBucketsForTuple("generic", "", Traits{
+		Environments:      []string{"generic"},
+		MovementFamilies:  []string{"generic"},
+		EquipmentFamilies: []string{"generic"},
+		ActivityForm:      "system",
+		PropulsionModes:   []string{"generic"},
+	})...)
+	return buckets
+}
+
+func activityTraitSubTypesForEntry(sport Sport, entrySubType string) []string {
+	if entrySubType != "" {
+		return []string{entrySubType}
+	}
+	subTypes := []string{""}
+	for _, subType := range sport.SubTypes {
+		if subType.Selectable != nil && !*subType.Selectable {
+			continue
+		}
+		subTypes = append(subTypes, subType.SubType)
+	}
+	return subTypes
+}
+
+func activityTraitBucketsForTuple(sportType, subType string, traits Traits) []ExpandedActivityTraitBucket {
+	buckets := make([]ExpandedActivityTraitBucket, 0, 8)
+	for _, indoor := range []bool{false, true} {
+		for _, virtual := range []bool{false, true} {
+			for _, electric := range []bool{false, true} {
+				input := ActivityTraitBucketInput{
+					SportType:  sportType,
+					SubType:    subType,
+					IsIndoor:   indoor,
+					IsVirtual:  virtual,
+					IsElectric: electric,
+				}
+				bucket := ExpandedActivityTraitBucket{
+					Key:                BuildActivityTraitBucketKey(input),
+					TraitPolicyKey:     "activity_traits",
+					TraitPolicyVersion: 1,
+					SportType:          sportType,
+					SubType:            bucketSubType(subType),
+					IsIndoor:           indoor,
+					IsVirtual:          virtual,
+					IsElectric:         electric,
+					MovementFamilies:   append([]string(nil), traits.MovementFamilies...),
+					PropulsionModes:    append([]string(nil), traits.PropulsionModes...),
+					EquipmentFamilies:  append([]string(nil), traits.EquipmentFamilies...),
+					ActivityForm:       traits.ActivityForm,
+					EnvironmentState:   "real_world",
+				}
+				bucket.SourceHash = activityTraitBucketSourceHash(bucket)
+				buckets = append(buckets, bucket)
+			}
+		}
+	}
+	return buckets
+}
+
+func BuildActivityTraitBucketKey(input ActivityTraitBucketInput) string {
+	subType := bucketSubType(input.SubType)
+	return fmt.Sprintf("atb:v1:sport=%s:sub=%s:indoor=%d:virtual=%d:electric=%d",
+		strings.ToLower(strings.TrimSpace(input.SportType)),
+		strings.ToLower(strings.TrimSpace(subType)),
+		boolInt(input.IsIndoor),
+		boolInt(input.IsVirtual),
+		boolInt(input.IsElectric),
+	)
+}
+
+func bucketSubType(subType string) string {
+	subType = strings.ToLower(strings.TrimSpace(subType))
+	if subType == "" || subType == "generic" {
+		return "_"
+	}
+	return subType
+}
+
+func activityTraitBucketSourceHash(bucket ExpandedActivityTraitBucket) string {
+	payload := map[string]any{
+		"activity_form":        bucket.ActivityForm,
+		"environment_state":    bucket.EnvironmentState,
+		"equipment_families":   bucket.EquipmentFamilies,
+		"is_electric":          bucket.IsElectric,
+		"is_indoor":            bucket.IsIndoor,
+		"is_virtual":           bucket.IsVirtual,
+		"movement_families":    bucket.MovementFamilies,
+		"propulsion_modes":     bucket.PropulsionModes,
+		"sport_type":           bucket.SportType,
+		"sub_type":             bucket.SubType,
+		"trait_policy_key":     bucket.TraitPolicyKey,
+		"trait_policy_version": bucket.TraitPolicyVersion,
+	}
+	encoded, _ := json.Marshal(payload)
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func findSubType(sport Sport, subType string) (SubType, bool) {
+	for _, candidate := range sport.SubTypes {
+		if candidate.SubType == subType {
+			return candidate, true
+		}
+	}
+	return SubType{}, false
 }
 
 func segmentProjectionSubTypes(entry SegmentProjectionEligible) []string {

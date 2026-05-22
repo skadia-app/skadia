@@ -83,6 +83,7 @@ interface RoutePlannerState {
   isCalculating: boolean
   calculationError: string | null
   editingRouteId: string | null
+  editingRouteVersion: number | null
   routingEngine: RoutingEngine
   brouterProfile: string
   // V6-Retrofit: aggregierter Stats-Shape über alle Segmente. null = keine Stats
@@ -128,6 +129,7 @@ const INITIAL_STATE: RoutePlannerState = {
   isCalculating: false,
   calculationError: null,
   editingRouteId: null,
+  editingRouteVersion: null,
   routingEngine: 'badrouter',
   brouterProfile: 'hiking-mountain',
   routeStats: null,
@@ -1355,6 +1357,7 @@ export function useRoutePlanner() {
       isCalculating: false,
       calculationError: null,
       editingRouteId: route.id,
+      editingRouteVersion: route.version ?? null,
       // Spec §6.2 / §7.4: hydrate effectiveProfile + routeStats from DB.
       effectiveProfile: route.elevation_profile ?? null,
       routeSchemaVersion: route.route_schema_version ?? 0,
@@ -1484,6 +1487,7 @@ export function useRoutePlanner() {
       isCalculating: false,
       calculationError: null,
       editingRouteId: null,
+      editingRouteVersion: null,
       effectiveProfile: route.elevation_profile ?? null,
       routeSchemaVersion: null,
       routeStats,
@@ -1527,6 +1531,7 @@ export function useRoutePlanner() {
       isCalculating: false,
       calculationError: null,
       editingRouteId: null,
+      editingRouteVersion: null,
       routeStats: null,
       _statsCache: {},
       routeSchemaVersion: null,
@@ -1633,6 +1638,7 @@ export function useRoutePlanner() {
       _statsCache: { [synthKey]: statsFromSuggestion },
       routeStats: statsFromSuggestion, // kein Shift nötig — einzelnes Segment, coordOffset=0
       editingRouteId: null,
+      editingRouteVersion: null,
       routeSchemaVersion: null,
       calculationError: null,
       isCalculating: false,
@@ -1890,6 +1896,7 @@ export function useRoutePlanner() {
         return {
           ...s,
           editingRouteId: saved.id,
+          editingRouteVersion: saved.version ?? s.editingRouteVersion,
           routeSchemaVersion: saved.route_schema_version ?? 1,
           lazyFillPendingSave: false,  // Spec §7.2: reset after successful save
           // Bump token to invalidate any in-flight lazy-fill whose resolve would
@@ -2182,6 +2189,7 @@ export function useRoutePlanner() {
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
     editingRouteId: state.editingRouteId,
+    editingRouteVersion: state.editingRouteVersion,
     routeSchemaVersion: state.routeSchemaVersion,
     routingEngine: state.routingEngine,
     brouterProfile: state.brouterProfile,
