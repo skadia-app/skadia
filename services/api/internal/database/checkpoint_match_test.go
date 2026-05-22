@@ -2,10 +2,16 @@ package database
 
 import (
 	"context"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestMatchCheckpointSequenceV1(t *testing.T) {
@@ -61,6 +67,19 @@ func TestMatchCheckpointSequenceV1(t *testing.T) {
 		}
 	})
 
+	t.Run("backtracking matches later ordered finish", func(t *testing.T) {
+		attempts, err := MatchCheckpointSequenceV1(samplesForCoords([][2]float64{{8, 49}, {8.02, 49.02}, {8.01, 49.01}, {8.02, 49.02}}), []model.CheckpointControl{start, mid, finish})
+		if err != nil {
+			t.Fatalf("MatchCheckpointSequenceV1: %v", err)
+		}
+		if len(attempts) != 1 {
+			t.Fatalf("attempts = %d, want 1", len(attempts))
+		}
+		if got := attempts[0].ControlHits[2].ActivityStreamIndex; got != 3 {
+			t.Fatalf("finish stream index = %d, want 3", got)
+		}
+	})
+
 	t.Run("repeated attempts are deterministic", func(t *testing.T) {
 		samples := samplesForCoords([][2]float64{{8, 49}, {8.02, 49.02}, {8, 49}, {8.02, 49.02}, {8, 49}, {8.02, 49.02}})
 		attempts, err := MatchCheckpointSequenceV1(samples, []model.CheckpointControl{start, finishForIndex(1, finish)})
@@ -73,6 +92,37 @@ func TestMatchCheckpointSequenceV1(t *testing.T) {
 		for i, attempt := range attempts {
 			if attempt.OccurrenceIndex != i || attempt.OccurrenceHash == "" {
 				t.Fatalf("attempt[%d] = %#v", i, attempt)
+			}
+		}
+	})
+
+	t.Run("overlapping attempts keep separate start entries", func(t *testing.T) {
+		samples := samplesForCoords([][2]float64{
+			{8.000, 49.000},
+			{8.005, 49.005},
+			{8.000, 49.000},
+			{8.010, 49.010},
+			{8.020, 49.020},
+		})
+		attempts, err := MatchCheckpointSequenceV1(samples, []model.CheckpointControl{start, mid, finish})
+		if err != nil {
+			t.Fatalf("MatchCheckpointSequenceV1: %v", err)
+		}
+		if len(attempts) != 2 {
+			t.Fatalf("attempts = %d, want 2: %#v", len(attempts), attempts)
+		}
+		for i, attempt := range attempts {
+			if attempt.OccurrenceIndex != i {
+				t.Fatalf("attempt[%d].OccurrenceIndex = %d, want %d", i, attempt.OccurrenceIndex, i)
+			}
+			if got := attempt.ControlHits[0].ActivityStreamIndex; got != i*2 {
+				t.Fatalf("attempt[%d] start stream index = %d, want %d", i, got, i*2)
+			}
+			if got := attempt.ControlHits[1].ActivityStreamIndex; got != 3 {
+				t.Fatalf("attempt[%d] checkpoint stream index = %d, want 3", i, got)
+			}
+			if got := attempt.ControlHits[2].ActivityStreamIndex; got != 4 {
+				t.Fatalf("attempt[%d] finish stream index = %d, want 4", i, got)
 			}
 		}
 	})
@@ -263,4 +313,115 @@ func TestInsertCheckpointMatchedEffortsTxIsIdempotentWithEvidence(t *testing.T) 
 	if evidenceCount != 2 {
 		t.Fatalf("checkpoint evidence count = %d, want 2", evidenceCount)
 	}
+}
+
+func TestGetCheckpointCandidateSegmentsBatchLoadsControls(t *testing.T) {
+	counter := &checkpointControlQueryCounter{}
+	db, userID := checkpointCandidateTraceTestDB(t, counter)
+	ctx := context.Background()
+	radius := 30.0
+	activityDate := time.Now().UTC()
+	activityID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, sub_type, is_electric, is_indoor, is_virtual, title, started_at, file_hash, visibility, enrichment_status)
+		VALUES ($1, $2, 'cycling', '', false, false, false, 'Checkpoint Candidate Batch Test', $3, $4, 'private', 'complete')
+	`, activityID, userID, activityDate, "checkpoint-candidate-batch-"+activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
+		VALUES (
+			$1,
+			ST_GeomFromText('LINESTRING(8 49, 8.02 49.02)', 4326),
+			ST_GeomFromText('LINESTRING(8 49, 8.02 49.02)', 4326),
+			ST_Envelope(ST_GeomFromText('LINESTRING(8 49, 8.02 49.02)', 4326)),
+			2
+		)
+	`, activityID); err != nil {
+		t.Fatalf("insert activity track: %v", err)
+	}
+
+	courses := make([]*model.Segment, 0, 2)
+	for i := range 2 {
+		course, err := db.CreateCheckpointCourse(ctx, userID, &model.CheckpointCourseCreate{
+			Name:       "checkpoint-candidate-batch",
+			SportGroup: "bike",
+			Visibility: "private",
+			Controls: []model.CheckpointControl{
+				checkpointPoint(0, model.CheckpointControlStart, 8.000, 49.000+float64(i)*0.00001, radius),
+				checkpointPoint(1, model.CheckpointControlFinish, 8.020, 49.020+float64(i)*0.00001, radius),
+			},
+		})
+		if err != nil {
+			t.Fatalf("CreateCheckpointCourse %d: %v", i, err)
+		}
+		courses = append(courses, course)
+	}
+	t.Cleanup(func() {
+		for _, course := range courses {
+			_, _ = db.Pool.Exec(context.Background(), `DELETE FROM segments WHERE id = $1`, course.ID)
+		}
+	})
+
+	counter.controlSelects.Store(0)
+	candidates, err := db.GetCheckpointCandidateSegments(ctx, activityID, userID, candidateBucketKey(t, "cycling", ""), activityDate)
+	if err != nil {
+		t.Fatalf("GetCheckpointCandidateSegments: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidates = %d, want 2: %#v", len(candidates), candidates)
+	}
+	for _, candidate := range candidates {
+		if len(candidate.Controls) != 2 {
+			t.Fatalf("candidate %s controls = %d, want 2", candidate.SegmentID, len(candidate.Controls))
+		}
+	}
+	if got := counter.controlSelects.Load(); got != 1 {
+		t.Fatalf("checkpoint control SELECTs = %d, want 1", got)
+	}
+}
+
+type checkpointControlQueryCounter struct {
+	controlSelects atomic.Int64
+}
+
+func (c *checkpointControlQueryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "ST_AsGeoJSON(geom)") && strings.Contains(data.SQL, "FROM course_version_controls") {
+		c.controlSelects.Add(1)
+	}
+	return ctx
+}
+
+func (c *checkpointControlQueryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {
+}
+
+func checkpointCandidateTraceTestDB(t *testing.T, counter *checkpointControlQueryCounter) (*DB, string) {
+	t.Helper()
+	dsn := testdb.RequireSafeDSN(t)
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+	}
+	config.ConnConfig.Tracer = counter
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("pgxpool.NewWithConfig: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source)
+		VALUES ($1, $2, $3, true, 'test')`,
+		userID, "checkpoint-batch-"+userID[:8], "checkpoint-batch-"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM activities WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	return &DB{Pool: pool}, userID
 }

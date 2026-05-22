@@ -2358,6 +2358,7 @@ func (db *DB) GetCheckpointCandidateSegments(ctx context.Context, activityID, us
 	defer rows.Close()
 
 	var result []CheckpointCandidateSegment
+	var versionIDs []string
 	for rows.Next() {
 		var c CheckpointCandidateSegment
 		var rawMeta json.RawMessage
@@ -2370,17 +2371,59 @@ func (db *DB) GetCheckpointCandidateSegments(ctx context.Context, activityID, us
 		if len(rawMeta) > 0 && string(rawMeta) != "{}" {
 			_ = json.Unmarshal(rawMeta, &c.TypeMeta)
 		}
-		controls, err := db.GetCheckpointControls(ctx, c.VersionID)
-		if err != nil {
-			return nil, err
-		}
-		c.Controls = controls
 		result = append(result, c)
+		versionIDs = append(versionIDs, c.VersionID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get checkpoint candidate segments: %w", err)
 	}
+	controlsByVersionID, err := db.getCheckpointControlsByVersionIDs(ctx, versionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result {
+		controls := controlsByVersionID[result[i].VersionID]
+		if controls == nil {
+			controls = []model.CheckpointControl{}
+		}
+		result[i].Controls = controls
+	}
 	return result, nil
+}
+
+func (db *DB) getCheckpointControlsByVersionIDs(ctx context.Context, segmentVersionIDs []string) (map[string][]model.CheckpointControl, error) {
+	controlsByVersionID := make(map[string][]model.CheckpointControl, len(segmentVersionIDs))
+	if len(segmentVersionIDs) == 0 {
+		return controlsByVersionID, nil
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT segment_version_id::text, id::text, sequence_index, role, primitive, geometry_shape, label,
+		       ST_AsGeoJSON(geom), hit_radius_m, area_radius_m, required
+		FROM course_version_controls
+		WHERE segment_version_id = ANY($1)
+		ORDER BY segment_version_id, sequence_index
+	`, segmentVersionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch load checkpoint controls: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var versionID string
+		var control model.CheckpointControl
+		var geometry string
+		if err := rows.Scan(&versionID, &control.ID, &control.SequenceIndex, &control.Role, &control.Primitive,
+			&control.GeometryShape, &control.Label, &geometry, &control.HitRadiusM,
+			&control.AreaRadiusM, &control.Required); err != nil {
+			return nil, fmt.Errorf("scan checkpoint control: %w", err)
+		}
+		control.Geometry = json.RawMessage(geometry)
+		controlsByVersionID[versionID] = append(controlsByVersionID[versionID], control)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate checkpoint controls: %w", err)
+	}
+	return controlsByVersionID, nil
 }
 
 func (db *DB) GetSegmentMatchActivityContext(ctx context.Context, activityID string) (SegmentMatchActivityContext, error) {
