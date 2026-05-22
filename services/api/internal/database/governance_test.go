@@ -198,6 +198,221 @@ func TestGovernanceRejectsUnauthorizedCollectionScopeBootstrap(t *testing.T) {
 	}
 }
 
+func TestGovernanceCreateUserSpaceScopeCreatesInitialOwnerRole(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	scope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+		Visibility: "private",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope user_space: %v", err)
+	}
+	var count int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM governance_actor_roles
+		WHERE scope_id = $1
+		  AND actor_type = 'user'
+		  AND actor_user_id = $2
+		  AND role = 'owner'
+		  AND 'manage_roles' = ANY(permissions)
+		  AND revoked_at IS NULL
+	`, scope.ID, ownerID).Scan(&count); err != nil {
+		t.Fatalf("count initial owner role: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("initial owner role count = %d, want 1", count)
+	}
+}
+
+func TestGovernanceCreateScopeRejectsWrongKindAnchors(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	place := createTargetPlaceFixture(t, db, ownerID, "wrong anchor place", "public", nil, `[8,49]`)
+	region := createTargetRegionFixture(t, db, ownerID, "correct anchor region", "public", nil, `[[[8,49],[8.01,49],[8.01,49.01],[8,49.01],[8,49]]]`)
+	collection := createTargetCollectionFixture(t, db, ownerID, "wrong anchor collection", "public", nil)
+
+	for _, tc := range []struct {
+		name  string
+		input model.GovernanceScopeCreate
+	}{
+		{
+			name: "user_space_with_target_anchor",
+			input: model.GovernanceScopeCreate{
+				Kind:             "user_space",
+				AnchorTargetKind: objectAccessPtrString("place"),
+				AnchorTargetID:   &place.ID,
+				OwnerScope:       "user",
+				OriginKey:        "manual",
+			},
+		},
+		{
+			name: "region_scope_with_place_anchor",
+			input: model.GovernanceScopeCreate{
+				Kind:             "region_scope",
+				AnchorTargetKind: objectAccessPtrString("place"),
+				AnchorTargetID:   &place.ID,
+				OwnerScope:       "user",
+				OriginKey:        "manual",
+			},
+		},
+		{
+			name: "region_scope_with_collection_anchor",
+			input: model.GovernanceScopeCreate{
+				Kind:               "region_scope",
+				AnchorCollectionID: &collection.ID,
+				OwnerScope:         "user",
+				OriginKey:          "manual",
+			},
+		},
+		{
+			name: "collection_scope_with_target_anchor",
+			input: model.GovernanceScopeCreate{
+				Kind:             "collection_scope",
+				AnchorTargetKind: objectAccessPtrString("region"),
+				AnchorTargetID:   &region.ID,
+				OwnerScope:       "user",
+				OriginKey:        "manual",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := db.CreateGovernanceScope(ctx, ownerID, tc.input); err == nil {
+				t.Fatal("CreateGovernanceScope accepted wrong anchor")
+			}
+		})
+	}
+}
+
+func TestGovernanceCreateCollectionAndRegionScopesRequireCorrectAnchors(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	collection := createTargetCollectionFixture(t, db, ownerID, "anchored collection", "public", nil)
+	region := createTargetRegionFixture(t, db, ownerID, "anchored region", "public", nil, `[[[8,49],[8.01,49],[8.01,49.01],[8,49.01],[8,49]]]`)
+
+	collectionScope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:               "collection_scope",
+		AnchorCollectionID: &collection.ID,
+		OwnerScope:         "user",
+		OriginKey:          "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope collection_scope: %v", err)
+	}
+	if collectionScope.AnchorCollectionID == nil || *collectionScope.AnchorCollectionID != collection.ID {
+		t.Fatalf("collection anchor = %v, want %s", collectionScope.AnchorCollectionID, collection.ID)
+	}
+
+	regionScope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:             "region_scope",
+		AnchorTargetKind: objectAccessPtrString("region"),
+		AnchorTargetID:   &region.ID,
+		OwnerScope:       "user",
+		OriginKey:        "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope region_scope: %v", err)
+	}
+	if regionScope.AnchorTargetKind == nil || *regionScope.AnchorTargetKind != "region" || regionScope.AnchorTargetID == nil || *regionScope.AnchorTargetID != region.ID {
+		t.Fatalf("region anchor kind/id = %v/%v, want region/%s", regionScope.AnchorTargetKind, regionScope.AnchorTargetID, region.ID)
+	}
+}
+
+func TestGovernanceCreateOrganizationAndSystemScopesRequireAdmin(t *testing.T) {
+	db, userID := segmentPRTestDB(t)
+	ctx := context.Background()
+	adminID := insertObjectAccessTestUser(t, db)
+	orgRef := "org:synthetic"
+	systemRef := "system:synthetic"
+
+	if _, err := db.CreateGovernanceScope(ctx, userID, model.GovernanceScopeCreate{
+		Kind:       "organization",
+		OwnerScope: "global",
+		OwnerRef:   &orgRef,
+		OriginKey:  "manual",
+	}); err == nil {
+		t.Fatal("non-admin created organization governance scope")
+	}
+	if _, err := db.CreateGovernanceScope(ctx, userID, model.GovernanceScopeCreate{
+		Kind:       "system_scope",
+		OwnerScope: "system",
+		OwnerRef:   &systemRef,
+		OriginKey:  "manual",
+	}); err == nil {
+		t.Fatal("non-admin created system governance scope")
+	}
+
+	orgScope, err := db.CreateGovernanceScopeAsActor(ctx, adminID, true, model.GovernanceScopeCreate{
+		Kind:       "organization",
+		OwnerScope: "global",
+		OwnerRef:   &orgRef,
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("admin CreateGovernanceScope organization: %v", err)
+	}
+	if orgScope.OwnerRef == nil || *orgScope.OwnerRef != orgRef || orgScope.OwnerUserID != nil {
+		t.Fatalf("organization owner = user:%v ref:%v, want ref %s", orgScope.OwnerUserID, orgScope.OwnerRef, orgRef)
+	}
+
+	systemScope, err := db.CreateGovernanceScopeAsActor(ctx, adminID, true, model.GovernanceScopeCreate{
+		Kind:       "system_scope",
+		OwnerScope: "system",
+		OwnerRef:   &systemRef,
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("admin CreateGovernanceScope system_scope: %v", err)
+	}
+	if systemScope.OwnerRef == nil || *systemScope.OwnerRef != systemRef || systemScope.OwnerUserID != nil {
+		t.Fatalf("system owner = user:%v ref:%v, want ref %s", systemScope.OwnerUserID, systemScope.OwnerRef, systemRef)
+	}
+}
+
+func TestGovernanceScopeManagerAuthorizationIsScopeSpecific(t *testing.T) {
+	db, ownerID := segmentPRTestDB(t)
+	ctx := context.Background()
+	managerID := insertObjectAccessTestUser(t, db)
+	newMaintainerID := insertObjectAccessTestUser(t, db)
+	collection := createTargetCollectionFixture(t, db, ownerID, "manager collection", "public", nil)
+	place := createTargetPlaceFixture(t, db, ownerID, "manager place", "public", nil, `[8,49]`)
+
+	collectionScope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:               "collection_scope",
+		AnchorCollectionID: &collection.ID,
+		OwnerScope:         "user",
+		OriginKey:          "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope collection: %v", err)
+	}
+	addGovernanceRoleFixture(t, db, ownerID, collectionScope.ID, managerID, []string{"manage_roles"})
+	addGovernanceBindingFixture(t, db, ownerID, collectionScope.ID, "collection", collection.ID, "membership")
+
+	placeScope, err := db.CreateGovernanceScope(ctx, ownerID, model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernanceScope user_space: %v", err)
+	}
+	addGovernanceRoleFixture(t, db, ownerID, placeScope.ID, managerID, []string{"manage_roles"})
+	addGovernanceBindingFixture(t, db, ownerID, placeScope.ID, "place", place.ID, "metadata")
+
+	if _, err := db.AddGovernanceActorRole(ctx, managerID, placeScope.ID, model.GovernanceActorRoleCreate{
+		ActorType:   "user",
+		ActorUserID: &newMaintainerID,
+		Role:        "maintainer",
+		Permissions: []string{"edit_metadata"},
+	}); err != nil {
+		t.Fatalf("scope-specific manager was denied: %v", err)
+	}
+}
+
 func TestGovernanceRejectsRoleGrantWithoutManageRoles(t *testing.T) {
 	db, ownerID := segmentPRTestDB(t)
 	ctx := context.Background()
@@ -273,13 +488,21 @@ func TestGovernanceRejectsUnknownPermissionAtDatabase(t *testing.T) {
 
 func createGovernanceScopeFixture(t *testing.T, db *DB, ownerID, targetKind, targetID string) *model.GovernanceScope {
 	t.Helper()
-	scope, err := db.CreateGovernanceScope(context.Background(), ownerID, model.GovernanceScopeCreate{
-		Kind:             "region_scope",
-		AnchorTargetKind: &targetKind,
-		AnchorTargetID:   &targetID,
-		OwnerScope:       "user",
-		OriginKey:        "manual",
-	})
+	input := model.GovernanceScopeCreate{
+		Kind:       "user_space",
+		OwnerScope: "user",
+		OriginKey:  "manual",
+	}
+	switch targetKind {
+	case "region":
+		input.Kind = "region_scope"
+		input.AnchorTargetKind = &targetKind
+		input.AnchorTargetID = &targetID
+	case "collection":
+		input.Kind = "collection_scope"
+		input.AnchorCollectionID = &targetID
+	}
+	scope, err := db.CreateGovernanceScope(context.Background(), ownerID, input)
 	if err != nil {
 		t.Fatalf("CreateGovernanceScope: %v", err)
 	}

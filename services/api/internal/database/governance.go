@@ -13,32 +13,23 @@ import (
 )
 
 func (db *DB) CreateGovernanceScope(ctx context.Context, userID string, input model.GovernanceScopeCreate) (*model.GovernanceScope, error) {
+	return db.CreateGovernanceScopeAsActor(ctx, userID, false, input)
+}
+
+func (db *DB) CreateGovernanceScopeAsActor(ctx context.Context, userID string, isAdmin bool, input model.GovernanceScopeCreate) (*model.GovernanceScope, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return nil, fmt.Errorf("%w: user is required", ErrTargetValidation)
 	}
 	kind := targetDefault(input.Kind, "user_space")
-	ownerScope := targetDefault(input.OwnerScope, "user")
+	ownerScope := targetDefault(input.OwnerScope, defaultGovernanceOwnerScope(kind))
+	ownerRef := input.OwnerRef
+	ownerUserID := &userID
 	if ownerScope != "user" {
-		return nil, fmt.Errorf("%w: only user-owned governance bootstrap is supported here", ErrTargetValidation)
+		ownerUserID = nil
 	}
-	if input.AnchorTargetKind != nil && input.AnchorTargetID != nil {
-		ok, err := db.userOwnsTarget(ctx, userID, *input.AnchorTargetKind, *input.AnchorTargetID)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, ErrTargetNotFound
-		}
-	}
-	if input.AnchorCollectionID != nil {
-		ok, err := db.userOwnsTarget(ctx, userID, "collection", *input.AnchorCollectionID)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, ErrTargetNotFound
-		}
+	if err := db.validateGovernanceScopeCreate(ctx, userID, isAdmin, kind, ownerScope, ownerRef, input); err != nil {
+		return nil, err
 	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -51,20 +42,242 @@ func (db *DB) CreateGovernanceScope(ctx context.Context, userID string, input mo
 			owner_scope, owner_user_id, owner_ref, visibility, origin_key,
 			metadata, valid_from, valid_until, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, $11, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+governanceScopeColumnsSQL(""),
 		kind, input.AnchorTargetKind, input.AnchorTargetID, input.AnchorCollectionID,
-		ownerScope, userID, targetVisibilityOrDefault(input.Visibility),
-		targetOriginKey(input.OriginKey), targetMetadata(input.Metadata), input.ValidFrom, input.ValidUntil,
+		ownerScope, ownerUserID, ownerRef, targetVisibilityOrDefault(input.Visibility),
+		targetOriginKey(input.OriginKey), targetMetadata(input.Metadata), input.ValidFrom, input.ValidUntil, userID,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("insert governance scope: %w", err)
 	}
+	ownerRole, err := scanGovernanceActorRole(tx.QueryRow(ctx, `
+		INSERT INTO governance_actor_roles (
+			scope_id, actor_type, actor_user_id, actor_ref, role, permissions,
+			public_credit, valid_from, valid_until, created_by, metadata
+		)
+		VALUES ($1, 'user', $2, NULL, 'owner', $3, 'hidden', $4, $5, $2, '{}'::jsonb)
+		RETURNING `+governanceActorRoleColumnsSQL(""),
+		scope.ID, userID, governanceOwnerPermissions(), input.ValidFrom, input.ValidUntil,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("insert initial governance owner role: %w", err)
+	}
 	if err := writeTargetChangeEventTx(ctx, tx, "governance_scope", scope.ID, nil, nil, &scope.ID, userID, "create_governance_scope", nil, scope); err != nil {
+		return nil, err
+	}
+	if err := writeTargetChangeEventTx(ctx, tx, "governance_actor_role", ownerRole.ID, nil, nil, &scope.ID, userID, "add_governance_role", nil, ownerRole); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit create governance scope: %w", err)
+	}
+	return scope, nil
+}
+
+func (db *DB) validateGovernanceScopeCreate(ctx context.Context, userID string, isAdmin bool, kind, ownerScope string, ownerRef *string, input model.GovernanceScopeCreate) error {
+	if err := validateGovernanceOwner(kind, ownerScope, ownerRef); err != nil {
+		return err
+	}
+	switch kind {
+	case "user_space":
+		if input.AnchorTargetKind != nil || input.AnchorTargetID != nil || input.AnchorCollectionID != nil {
+			return fmt.Errorf("%w: user-space governance scopes cannot be anchored", ErrTargetValidation)
+		}
+		return nil
+	case "collection_scope":
+		if input.AnchorCollectionID == nil || strings.TrimSpace(*input.AnchorCollectionID) == "" {
+			return fmt.Errorf("%w: collection governance scopes require anchor_collection_id", ErrTargetValidation)
+		}
+		if input.AnchorTargetKind != nil || input.AnchorTargetID != nil {
+			return fmt.Errorf("%w: collection governance scopes cannot use target anchors", ErrTargetValidation)
+		}
+		if isAdmin {
+			return nil
+		}
+		ok, err := db.userCanManageGovernanceBindingTarget(ctx, userID, "collection", *input.AnchorCollectionID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrTargetNotFound
+		}
+		return nil
+	case "region_scope":
+		if input.AnchorTargetKind == nil || strings.TrimSpace(*input.AnchorTargetKind) != "region" || input.AnchorTargetID == nil || strings.TrimSpace(*input.AnchorTargetID) == "" {
+			return fmt.Errorf("%w: region governance scopes require a region target anchor", ErrTargetValidation)
+		}
+		if input.AnchorCollectionID != nil {
+			return fmt.Errorf("%w: region governance scopes cannot use collection anchors", ErrTargetValidation)
+		}
+		if isAdmin {
+			return nil
+		}
+		ok, err := db.userCanManageGovernanceBindingTarget(ctx, userID, "region", *input.AnchorTargetID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrTargetNotFound
+		}
+		return nil
+	case "organization", "system_scope":
+		if !isAdmin {
+			return ErrTargetNotFound
+		}
+		if input.AnchorTargetKind != nil || input.AnchorTargetID != nil || input.AnchorCollectionID != nil {
+			return fmt.Errorf("%w: organization and system governance scopes cannot use target anchors", ErrTargetValidation)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported governance scope kind %q", ErrTargetValidation, kind)
+	}
+}
+
+func validateGovernanceOwner(kind, ownerScope string, ownerRef *string) error {
+	hasOwnerRef := ownerRef != nil && strings.TrimSpace(*ownerRef) != ""
+	switch kind {
+	case "user_space", "collection_scope", "region_scope":
+		if ownerScope != "user" {
+			return fmt.Errorf("%w: %s governance scopes require user owner_scope", ErrTargetValidation, kind)
+		}
+		if hasOwnerRef {
+			return fmt.Errorf("%w: user-owned governance scopes cannot set owner_ref", ErrTargetValidation)
+		}
+	case "organization":
+		if ownerScope != "shared" && ownerScope != "global" {
+			return fmt.Errorf("%w: organization governance scopes require shared or global owner_scope", ErrTargetValidation)
+		}
+		if !hasOwnerRef {
+			return fmt.Errorf("%w: organization governance scopes require owner_ref", ErrTargetValidation)
+		}
+	case "system_scope":
+		if ownerScope != "system" {
+			return fmt.Errorf("%w: system governance scopes require system owner_scope", ErrTargetValidation)
+		}
+		if !hasOwnerRef {
+			return fmt.Errorf("%w: system governance scopes require owner_ref", ErrTargetValidation)
+		}
+	}
+	return nil
+}
+
+func defaultGovernanceOwnerScope(kind string) string {
+	if strings.TrimSpace(kind) == "system_scope" {
+		return "system"
+	}
+	return "user"
+}
+
+func governanceOwnerPermissions() []string {
+	return []string{
+		"edit_metadata",
+		"edit_geometry",
+		"publish",
+		"hide_or_archive",
+		"disable_leaderboard",
+		"disable_gps_download",
+		"manage_reports",
+		"manage_events",
+		"resolve_claims",
+		"manage_members",
+		"manage_roles",
+		"link_external_refs",
+	}
+}
+
+func (db *DB) ListGovernanceScopes(ctx context.Context, userID string, isAdmin bool, filter model.GovernanceScopeFilter) ([]model.GovernanceScope, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" && !isAdmin {
+		return nil, fmt.Errorf("%w: user is required", ErrTargetValidation)
+	}
+	args := []any{userID, isAdmin}
+	query := `
+		SELECT ` + governanceScopeColumnsSQL("s") + `
+		FROM governance_scopes s
+		WHERE s.archived_at IS NULL
+		  AND (
+			$2::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM governance_actor_roles r
+				WHERE r.scope_id = s.id
+				  AND r.actor_type = 'user'
+				  AND r.actor_user_id = $1::uuid
+				  AND r.revoked_at IS NULL
+				  AND (r.valid_from IS NULL OR r.valid_from <= NOW())
+				  AND (r.valid_until IS NULL OR r.valid_until > NOW())
+			)
+		  )`
+	if strings.TrimSpace(filter.Kind) != "" {
+		args = append(args, strings.TrimSpace(filter.Kind))
+		query += fmt.Sprintf(" AND s.kind = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.AnchorTargetKind) != "" {
+		args = append(args, strings.TrimSpace(filter.AnchorTargetKind))
+		query += fmt.Sprintf(" AND s.anchor_target_kind = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.AnchorTargetID) != "" {
+		args = append(args, strings.TrimSpace(filter.AnchorTargetID))
+		query += fmt.Sprintf(" AND s.anchor_target_id = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.AnchorCollectionID) != "" {
+		args = append(args, strings.TrimSpace(filter.AnchorCollectionID))
+		query += fmt.Sprintf(" AND s.anchor_collection_id = $%d", len(args))
+	}
+	if strings.TrimSpace(filter.OwnerScope) != "" {
+		args = append(args, strings.TrimSpace(filter.OwnerScope))
+		query += fmt.Sprintf(" AND s.owner_scope = $%d", len(args))
+	}
+	query += fmt.Sprintf(" ORDER BY s.created_at DESC, s.id DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, targetLimit(filter.Limit), targetOffset(filter.Offset))
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list governance scopes: %w", err)
+	}
+	defer rows.Close()
+	var out []model.GovernanceScope
+	for rows.Next() {
+		scope, err := scanGovernanceScope(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *scope)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) GetGovernanceScope(ctx context.Context, userID string, isAdmin bool, scopeID string) (*model.GovernanceScope, error) {
+	userID = strings.TrimSpace(userID)
+	scopeID = strings.TrimSpace(scopeID)
+	if scopeID == "" || (userID == "" && !isAdmin) {
+		return nil, fmt.Errorf("%w: user and scope are required", ErrTargetValidation)
+	}
+	scope, err := scanGovernanceScope(db.Pool.QueryRow(ctx, `
+		SELECT `+governanceScopeColumnsSQL("s")+`
+		FROM governance_scopes s
+		WHERE s.id = $1
+		  AND s.archived_at IS NULL
+		  AND (
+			$3::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM governance_actor_roles r
+				WHERE r.scope_id = s.id
+				  AND r.actor_type = 'user'
+				  AND r.actor_user_id = $2::uuid
+				  AND r.revoked_at IS NULL
+				  AND (r.valid_from IS NULL OR r.valid_from <= NOW())
+				  AND (r.valid_until IS NULL OR r.valid_until > NOW())
+			)
+		  )
+	`, scopeID, userID, isAdmin))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrTargetNotFound
+		}
+		return nil, fmt.Errorf("get governance scope: %w", err)
 	}
 	return scope, nil
 }
@@ -312,11 +525,21 @@ func rebuildGovernanceActorTargetProjectionTx(ctx context.Context, tx pgx.Tx, sc
 			permissions, permissions_scope, valid_from, valid_until
 		)
 		SELECT r.actor_type, r.actor_user_id, r.actor_ref, r.scope_id,
-		       b.target_kind, b.target_id, r.permissions, b.permissions_scope,
-		       GREATEST(r.valid_from, b.valid_from), LEAST(r.valid_until, b.valid_until)
+		       b.target_kind, b.target_id,
+		       array_agg(DISTINCT p.permission ORDER BY p.permission),
+		       b.permissions_scope,
+		       CASE
+		           WHEN bool_and(GREATEST(r.valid_from, b.valid_from) IS NULL) THEN NULL
+		           ELSE MAX(GREATEST(r.valid_from, b.valid_from))
+		       END,
+		       CASE
+		           WHEN bool_and(LEAST(r.valid_until, b.valid_until) IS NULL) THEN NULL
+		           ELSE MIN(LEAST(r.valid_until, b.valid_until))
+		       END
 		FROM governance_actor_roles r
 		JOIN governance_scope_target_bindings b ON b.scope_id = r.scope_id
 		JOIN governance_scopes s ON s.id = r.scope_id
+		CROSS JOIN LATERAL unnest(r.permissions) AS p(permission)
 		WHERE r.scope_id = $1
 		  AND r.actor_type IN ('user', 'group', 'system')
 		  AND cardinality(r.permissions) > 0
@@ -327,6 +550,8 @@ func rebuildGovernanceActorTargetProjectionTx(ctx context.Context, tx pgx.Tx, sc
 		  AND (r.valid_until IS NULL OR r.valid_until > NOW())
 		  AND (b.valid_from IS NULL OR b.valid_from <= NOW())
 		  AND (b.valid_until IS NULL OR b.valid_until > NOW())
+		GROUP BY r.actor_type, r.actor_user_id, r.actor_ref, r.scope_id,
+		         b.target_kind, b.target_id, b.permissions_scope
 	`, scopeID); err != nil {
 		return fmt.Errorf("rebuild governance projection: %w", err)
 	}
@@ -488,30 +713,26 @@ func (db *DB) requireGovernanceScopeManager(ctx context.Context, userID, scopeID
 	if userID == "" || strings.TrimSpace(scopeID) == "" {
 		return fmt.Errorf("%w: user and scope are required", ErrTargetValidation)
 	}
-	var owner bool
+	var canManage bool
 	if err := db.Pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM governance_scopes
-			WHERE id = $1
-			  AND owner_scope = 'user'
-			  AND owner_user_id = $2
-			  AND archived_at IS NULL
+			FROM governance_actor_roles r
+			JOIN governance_scopes s ON s.id = r.scope_id
+			WHERE r.scope_id = $1
+			  AND r.actor_type = 'user'
+			  AND r.actor_user_id = $2
+			  AND 'manage_roles' = ANY(r.permissions)
+			  AND r.revoked_at IS NULL
+			  AND s.archived_at IS NULL
+			  AND (r.valid_from IS NULL OR r.valid_from <= NOW())
+			  AND (r.valid_until IS NULL OR r.valid_until > NOW())
 		)
-	`, scopeID, userID).Scan(&owner); err != nil {
+	`, scopeID, userID).Scan(&canManage); err != nil {
 		return err
 	}
-	if owner {
+	if canManage {
 		return nil
-	}
-	targets, err := db.ListGovernanceEffectiveTargets(ctx, model.GovernanceActor{ActorType: "user", ActorUserID: &userID}, model.GovernanceEffectiveTargetFilter{Permission: "manage_roles", Limit: 1})
-	if err != nil {
-		return err
-	}
-	for _, target := range targets {
-		if target.ScopeID == scopeID {
-			return nil
-		}
 	}
 	return ErrTargetNotFound
 }

@@ -294,6 +294,16 @@ type GovernanceScopeUpdate struct {
 	ArchivedAt *time.Time       `json:"archived_at,omitempty"`
 }
 
+type GovernanceScopeFilter struct {
+	Kind               string
+	AnchorTargetKind   string
+	AnchorTargetID     string
+	AnchorCollectionID string
+	OwnerScope         string
+	Limit              int
+	Offset             int
+}
+
 type GovernanceActorRole struct {
 	ID           string          `json:"id"`
 	ScopeID      string          `json:"scope_id"`
