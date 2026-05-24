@@ -579,6 +579,113 @@ function routeStatsForLoadedRoute(route: PlannedRoute): RouteStats | null {
   return { ...baseStats, coordinates: coords }
 }
 
+function lineStringFromRouteGeometry(route: PlannedRoute): GeoJSON.LineString | null {
+  if (!route.geometry_geojson) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(route.geometry_geojson)
+  } catch {
+    return null
+  }
+
+  const geojson = parsed as { type?: string }
+  if (geojson.type === 'LineString' && Array.isArray((parsed as GeoJSON.LineString).coordinates)) {
+    return parsed as GeoJSON.LineString
+  }
+  if (geojson.type === 'Feature') {
+    const feature = parsed as GeoJSON.Feature
+    return feature.geometry?.type === 'LineString' ? feature.geometry : null
+  }
+  if (geojson.type === 'FeatureCollection') {
+    const collection = parsed as GeoJSON.FeatureCollection
+    const firstLine = collection.features.find(feature => feature.geometry?.type === 'LineString')
+    return firstLine?.geometry as GeoJSON.LineString | null
+  }
+  return null
+}
+
+function distanceForCoordinates(coords: GeoJSON.Position[]): number {
+  let dist = 0
+  for (let i = 1; i < coords.length; i++) {
+    dist += haversineDistanceM(
+      [coords[i - 1][0], coords[i - 1][1]],
+      [coords[i][0], coords[i][1]],
+    )
+  }
+  return dist
+}
+
+function routeWithGeometryFallback(route: PlannedRoute): PlannedRoute {
+  if (route.waypoints.length >= 2 && route.segments.length > 0) return route
+
+  const line = lineStringFromRouteGeometry(route)
+  const coords = line?.coordinates ?? []
+  if (coords.length < 2) return route
+
+  const start = coords[0]
+  const end = coords[coords.length - 1]
+  const startWaypoint = route.waypoints[0] ?? {
+    id: `${route.id}-legacy-start`,
+    latlng: [start[1], start[0]] as [number, number],
+    type: 'start' as const,
+  }
+  const endWaypoint = route.waypoints[route.waypoints.length - 1] ?? {
+    id: `${route.id}-legacy-end`,
+    latlng: [end[1], end[0]] as [number, number],
+    type: 'end' as const,
+  }
+  const waypoints = assignWaypointTypes([startWaypoint, endWaypoint])
+  const distanceM = route.total_distance_m ?? distanceForCoordinates(coords)
+
+  return {
+    ...route,
+    waypoints,
+    segments: [{
+      from_waypoint: waypoints[0].id,
+      to_waypoint: waypoints[1].id,
+      mode: 'routed',
+      geometry: { type: 'LineString', coordinates: coords },
+      control_points: [],
+      smooth: false,
+      distance_m: distanceM,
+      elevation_gain: route.total_elevation_gain ?? 0,
+      elevation_loss: route.total_elevation_loss ?? 0,
+      elevation_profile: route.elevation_profile ?? null,
+    }],
+  }
+}
+
+function routeNeedsGeometryHydration(route: PlannedRoute): boolean {
+  return route.segments.length === 0 && (lineStringFromRouteGeometry(route)?.coordinates.length ?? 0) >= 2
+}
+
+function sampleViaPointsFromGeometry(line: GeoJSON.LineString, maxVia = 25): [number, number][] {
+  const coords = line.coordinates
+  if (coords.length <= 2) return []
+
+  const interiorStart = 1
+  const interiorEnd = coords.length - 2
+  const interiorCount = interiorEnd - interiorStart + 1
+  const out: [number, number][] = []
+
+  if (interiorCount <= maxVia) {
+    for (let i = interiorStart; i <= interiorEnd; i++) {
+      out.push([coords[i][1], coords[i][0]])
+    }
+    return out
+  }
+
+  const used = new Set<number>()
+  for (let slot = 1; slot <= maxVia; slot++) {
+    const idx = Math.round((coords.length - 1) * slot / (maxVia + 1))
+    if (idx <= 0 || idx >= coords.length - 1 || used.has(idx)) continue
+    used.add(idx)
+    out.push([coords[idx][1], coords[idx][0]])
+  }
+  return out
+}
+
 // ─── Offroad DEM fill helper ──────────────────────────────────────────────────
 
 /** Haversine distance in meters between two [lon, lat] points. */
@@ -1280,9 +1387,10 @@ export function useRoutePlanner() {
         return {
           ...s,
           profileConfig,
-          segments: [],
           isCalculating: true,
           calculationError: null,
+          routeStats: null,
+          _statsCache: {},
           dirtyEngines: { ...s.dirtyEngines, [s.routingEngine]: true },
         }
       })
@@ -1316,7 +1424,9 @@ export function useRoutePlanner() {
 
   // ── Load route into planner ─────────────────────────────────────────────────
 
-  const loadRoute = useCallback((route: PlannedRoute) => {
+  const loadRoute = useCallback((incomingRoute: PlannedRoute) => {
+    const needsGeometryHydration = routeNeedsGeometryHydration(incomingRoute)
+    const route = routeWithGeometryFallback(incomingRoute)
     // Spec Rev 2.3 §7.4 / F3: Saved routes load instantly from DB
     // (waypoints + segments + profile + enrichment). NEVER recalculateAll().
     resetScalePin()
@@ -1400,6 +1510,60 @@ export function useRoutePlanner() {
         })
     }
 
+    if (needsGeometryHydration) {
+      const line = lineStringFromRouteGeometry(incomingRoute)
+      const from = route.waypoints[0]
+      const to = route.waypoints[route.waypoints.length - 1]
+      const profileConfig = cached ?? ({ profile: defaultsProfile } as ProfileConfig)
+      const via = line ? sampleViaPointsFromGeometry(line) : []
+      const segmentsSnapshot = route.segments
+
+      setState(s => {
+        const newToken = (s.lazyFillToken ?? 0) + 1
+        return { ...s, lazyFillInProgress: true, lazyFillToken: newToken }
+      })
+
+      void computeInternalRoute(from.latlng, to.latlng, profileConfig, via)
+        .then(result => {
+          const feature = result.features?.[0]
+          const props = feature?.properties ?? {}
+          if (!feature || props.status === 'no_route') {
+            setState(s => (
+              s.editingRouteId === route.id && s.segments === segmentsSnapshot
+                ? { ...s, lazyFillInProgress: false }
+                : s
+            ))
+            return
+          }
+
+          const hydratedSegment = buildSegmentFromFeature(from, to, feature, props.fallback === true)
+          const hydratedStats = extractRouteStatsFromFeature(feature)
+
+          setState(s => {
+            if (s.editingRouteId !== route.id || s.segments !== segmentsSnapshot) {
+              return { ...s, lazyFillInProgress: false }
+            }
+            return {
+              ...s,
+              segments: [hydratedSegment],
+              routeStats: hydratedStats,
+              effectiveProfile: buildCombinedProfileFromSegments([hydratedSegment], route.waypoints) ?? s.effectiveProfile,
+              routeSchemaVersion: 1,
+              lazyFillInProgress: false,
+              lazyFillPendingSave: true,
+            }
+          })
+        })
+        .catch(() => {
+          setState(s => (
+            s.editingRouteId === route.id && s.segments === segmentsSnapshot
+              ? { ...s, lazyFillInProgress: false }
+              : s
+          ))
+        })
+      return
+    }
+
     // ── Pre-T0 Migration (Phase E / Spec §5.3-5.5) ────────────────────────────
     // Only migrate when the route needs it — T0 steady-state routes are
     // served with route_schema_version=1 and all segments having profiles,
@@ -1460,7 +1624,8 @@ export function useRoutePlanner() {
     })()
   }, [addToast])
 
-  const loadRouteDraft = useCallback((route: PlannedRoute) => {
+  const loadRouteDraft = useCallback((incomingRoute: PlannedRoute) => {
+    const route = routeWithGeometryFallback(incomingRoute)
     resetScalePin()
     loadedRouteRef.current = null
 
