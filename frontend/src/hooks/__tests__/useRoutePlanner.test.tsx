@@ -394,16 +394,19 @@ describe('useRoutePlanner routeStats V6-Retrofit', () => {
   beforeEach(async () => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     addToastMock.mockClear()
+    localStorage.removeItem('skadia-routing-profile')
 
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue(null)
     vi.mocked(cacheServerDefaults).mockReset()
 
     const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockReset()
     vi.mocked(fetchProfileDefaults).mockResolvedValue({
       profile: 'hiking',
       uphill_cost: 7,
     } as any)
+    computeInternalRouteMock.mockReset()
   })
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -1858,6 +1861,143 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
     expect(result.current.totals.distance_m).toBe(1234)
   })
 
+  it('loadRoute rekonstruiert alte GeoJSON-only Routen fuer den Planer', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    computeInternalRouteMock.mockResolvedValueOnce({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [12.0, 49.0, 500],
+            [12.02, 49.01, 530],
+            [12.04, 49.0, 510],
+          ],
+        },
+        properties: {
+          distance_m: 4321,
+          ascent_m: 123,
+          descent_m: 45,
+          forest_pct: 0.4,
+          protected_pct: 0.1,
+          sac_ranges: { T2: [{ from: 0, to: 2 }] },
+          segments: [{ from_idx: 0, to_idx: 2, highway: 'track', surface: 'gravel' }],
+          elevation_profile: [
+            { dist_m: 0, ele_m: 500 },
+            { dist_m: 4321, ele_m: 510 },
+          ],
+        },
+      }],
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const coords = [
+      [12.0, 49.0, 500],
+      [12.02, 49.01, 530],
+      [12.04, 49.0, 510],
+    ]
+    const legacyRoute = makeTestRoute({
+      id: 'legacy-geojson-route',
+      waypoints: [],
+      segments: [],
+      geometry_geojson: JSON.stringify({ type: 'LineString', coordinates: coords }),
+      total_distance_m: 4321,
+      total_elevation_gain: 123,
+      total_elevation_loss: 45,
+      route_schema_version: 1,
+    })
+
+    act(() => {
+      result.current.loadRoute(legacyRoute)
+    })
+
+    expect(result.current.editingRouteId).toBe('legacy-geojson-route')
+    expect(result.current.waypoints).toHaveLength(2)
+    expect(result.current.waypoints[0].type).toBe('start')
+    expect(result.current.waypoints[0].latlng).toEqual([49.0, 12.0])
+    expect(result.current.waypoints[1].type).toBe('end')
+    expect(result.current.waypoints[1].latlng).toEqual([49.0, 12.04])
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0]).toMatchObject({
+      mode: 'routed',
+      distance_m: 4321,
+      elevation_gain: 123,
+      elevation_loss: 45,
+    })
+    expect(result.current.segments[0].geometry?.coordinates).toEqual(coords)
+
+    await waitFor(() => {
+      expect(result.current.routeStats?.forest_pct).toBe(0.4)
+    })
+    expect(computeInternalRouteMock).toHaveBeenCalledWith(
+      [49.0, 12.0],
+      [49.0, 12.04],
+      expect.objectContaining({ profile: 'hiking' }),
+      [[49.01, 12.02]],
+    )
+    expect(result.current.segments[0].sub_segments).toEqual([{ from_idx: 0, to_idx: 2, highway: 'track', surface: 'gravel' }])
+    expect(result.current.routeStats?.sac_ranges).toEqual({ T2: [{ from: 0, to: 2 }] })
+    expect(result.current.lazyFillPendingSave).toBe(true)
+  })
+
+  it('Profilwechsel behaelt geladene Route sichtbar waehrend Neuberechnung laeuft', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    let resolveRoute!: (value: GeoJSON.FeatureCollection) => void
+    computeInternalRouteMock.mockImplementationOnce(
+      () => new Promise(resolve => { resolveRoute = resolve }),
+    )
+
+    const route = makeTestRoute()
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+    expect(result.current.segments).toHaveLength(1)
+
+    const readyProfile = result.current.profile
+    if (readyProfile.status !== 'ready') {
+      throw new Error('profile defaults not ready')
+    }
+    await act(async () => {
+      void readyProfile.setAndRecalculate({ profile: 'mtb', uphill_cost: 4 } as any)
+    })
+
+    expect(result.current.isCalculating).toBe(true)
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].geometry?.coordinates).toEqual(route.segments[0].geometry?.coordinates)
+
+    await act(async () => {
+      resolveRoute({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [[11, 47, 500], [11.2, 47.2, 520]] },
+          properties: { distance_m: 5000, ascent_m: 100, descent_m: 20 },
+        }],
+      })
+    })
+
+    await waitFor(() => {
+      expect(result.current.isCalculating).toBe(false)
+    })
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].distance_m).toBe(5000)
+  })
+
   it('mount-fetch does not overwrite profileConfig set by loadRoute', async () => {
     let resolveMountFetch!: (v: any) => void
     const mountFetchPromise = new Promise<any>(r => { resolveMountFetch = r })
@@ -2001,7 +2141,7 @@ describe('useRoutePlanner (P6 null-initial-state)', () => {
   it('loadRoute leitet heutige Defaults fuer Legacy-Profil outdoor aus der Sportart ab', async () => {
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockImplementation((profile: string) => (
-      profile === 'hiking' ? { profile: 'hiking', uphill_cost: 7 } as any : null
+      { profile, uphill_cost: 7 } as any
     ))
 
     const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')

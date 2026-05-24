@@ -649,12 +649,14 @@ export async function computeInternalRoute(
   from: [number, number],
   to: [number, number],
   config?: ProfileConfig,
+  via?: [number, number][],
 ): Promise<GeoJSON.FeatureCollection> {
   return apiClient('/routing/route-internal', {
     method: 'POST',
     body: {
       from,
       to,
+      ...(via && via.length > 0 ? { via } : {}),
       config: config ?? { profile: 'hiking' },
     },
   })

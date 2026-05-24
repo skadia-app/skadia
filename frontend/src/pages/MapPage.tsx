@@ -18,7 +18,7 @@ import RouteComparisonPanel, { SUGGESTION_COLORS } from '@/components/route-plan
 import { getRoute } from '@/api/routes'
 import type { PlannedRoute, RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
-import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
+import { bboxForProfileDistRange, buildFallbackProfileToCoordMap, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
 import { displayActivityTitle } from '@/lib/activityTitle'
@@ -524,8 +524,11 @@ export default function MapPage() {
   }, [planner.segments, planner.waypoints])
 
   const profileCoordMap = useMemo(
-    () => buildProfileToCoordMap(planner.segments, planner.waypoints),
-    [planner.segments, planner.waypoints],
+    () => (
+      buildProfileToCoordMap(planner.segments, planner.waypoints)
+      ?? buildFallbackProfileToCoordMap(planner.elevationProfile, plannerCombinedCoords)
+    ),
+    [planner.elevationProfile, planner.segments, planner.waypoints, plannerCombinedCoords],
   )
 
   const showPreT0HoverToast = useCallback(() => {

@@ -12,6 +12,42 @@ import type { RouteSegment, RouteWaypoint, RouteElevationPoint } from '@/api/rou
  *  combined-profile point i. Length equals the combined profile length. */
 export type ProfileToCoordMap = number[]
 
+function haversineM(a: [number, number], b: [number, number]): number {
+  const R = 6371000
+  const dLat = (b[1] - a[1]) * Math.PI / 180
+  const dLon = (b[0] - a[0]) * Math.PI / 180
+  const sinDLat = Math.sin(dLat / 2)
+  const sinDLon = Math.sin(dLon / 2)
+  const h =
+    sinDLat * sinDLat +
+    Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * sinDLon * sinDLon
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+function nearestDistanceIndex(cumulative: number[], target: number): number {
+  if (cumulative.length === 0) return -1
+  if (target <= cumulative[0]) return 0
+  const lastIdx = cumulative.length - 1
+  if (target >= cumulative[lastIdx]) return lastIdx
+
+  let lo = 0
+  let hi = lastIdx
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (cumulative[mid] < target) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+
+  const nextIdx = lo
+  const prevIdx = lo - 1
+  return Math.abs(target - cumulative[prevIdx]) <= Math.abs(cumulative[nextIdx] - target)
+    ? prevIdx
+    : nextIdx
+}
+
 /**
  * Builds the combined profile, the ProfileToCoordMap, and the combined
  * coordinate array in a single pass — all three use the same sort + dedup
@@ -104,6 +140,43 @@ export function buildProfileToCoordMap(
   }
 
   if (profile.length === 0) return null
+  return { profile, map, coords }
+}
+
+/**
+ * Fallback mapping for routes where the chart profile exists only as a combined
+ * route profile while individual segments do not yet carry per-segment profiles.
+ * This keeps hover and brush zoom usable for legacy DB rows and DEM-fallback
+ * profiles. The mapping is distance-ratio based, so it tolerates profile and
+ * geometry arrays with different sample counts.
+ */
+export function buildFallbackProfileToCoordMap(
+  profile: RouteElevationPoint[] | null,
+  coords: [number, number][],
+): {
+  profile: RouteElevationPoint[]
+  map: ProfileToCoordMap
+  coords: [number, number][]
+} | null {
+  if (!profile || profile.length === 0 || coords.length < 2) return null
+
+  const cumulative = new Array<number>(coords.length)
+  cumulative[0] = 0
+  for (let i = 1; i < coords.length; i++) {
+    cumulative[i] = cumulative[i - 1] + haversineM(coords[i - 1], coords[i])
+  }
+
+  const totalCoordDist = cumulative[cumulative.length - 1]
+  const profileStart = profile[0]?.dist_m ?? 0
+  const profileEnd = profile[profile.length - 1]?.dist_m ?? profileStart
+  const totalProfileDist = profileEnd - profileStart
+  if (totalCoordDist <= 0 || totalProfileDist <= 0) return null
+
+  const map = profile.map(pt => {
+    const ratio = Math.max(0, Math.min(1, (pt.dist_m - profileStart) / totalProfileDist))
+    return nearestDistanceIndex(cumulative, ratio * totalCoordDist)
+  })
+
   return { profile, map, coords }
 }
 

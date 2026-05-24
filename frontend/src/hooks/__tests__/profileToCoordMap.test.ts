@@ -7,7 +7,7 @@
  * - null when no segment has a profile
  */
 import { describe, it, expect, vi } from 'vitest'
-import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction, profileIdxAtDist } from '../profileToCoordMap'
+import { bboxForProfileDistRange, buildFallbackProfileToCoordMap, buildProfileToCoordMap, hoverPointAtFraction, profileIdxAtDist } from '../profileToCoordMap'
 import type { RouteSegment, RouteWaypoint } from '@/api/routes'
 
 function makeWaypoints(...ids: string[]): RouteWaypoint[] {
@@ -166,6 +166,28 @@ describe('buildProfileToCoordMap', () => {
 })
 
 describe('brush zoom bbox lookup', () => {
+  it('TestBrushZoom_FallbackProfile_BoundsFollowsCombinedGeometry', () => {
+    const profile = [
+      { dist_m: 0, ele_m: 100 },
+      { dist_m: 1000, ele_m: 120 },
+      { dist_m: 2000, ele_m: 110 },
+      { dist_m: 3000, ele_m: 130 },
+    ]
+    const coords: [number, number][] = [
+      [11.0, 47.0],
+      [11.2, 47.2],
+      [11.4, 47.4],
+      [11.6, 47.6],
+    ]
+
+    const result = buildFallbackProfileToCoordMap(profile, coords)
+
+    expect(result).not.toBeNull()
+    expect(result!.map).toEqual([0, 1, 2, 3])
+    const bbox = bboxForProfileDistRange(900, 2100, result!.profile, result!.map, result!.coords)
+    expect(bbox).toEqual([11.2, 47.2, 11.4, 47.4])
+  })
+
   it('TestBrushZoom_BoundsFollowsRange', () => {
     const wps = makeWaypoints('a', 'b')
     const seg = makeSeg(
