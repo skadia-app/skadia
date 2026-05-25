@@ -53,7 +53,7 @@ vi.mock('@/lib/scaleAggregation', () => ({
 }))
 
 // ── Component under test ──────────────────────────────────────────────────────
-import RouteProfileChart, { buildProfile } from '../RouteProfileChart'
+import RouteProfileChart, { buildProfile, normalizeRouteProfileInput } from '../RouteProfileChart'
 import { makeFakeRouteStats } from '@/test-utils/routeFixtures'
 
 // Minimal RouteElevationPoint array — enough for buildProfile to produce ≥2 valid pts.
@@ -239,6 +239,57 @@ describe('buildProfile — null ele_m preserved as transparent gap', () => {
       { dist_m: 6000, ele_m: 500 },  // only 1 non-null — not renderable
     ]
     expect(buildProfile(raw, [])).toHaveLength(0)
+  })
+})
+
+describe('normalizeRouteProfileInput — loaded route profile hardening', () => {
+  it('converts legacy fraction/elevation route profiles to dist_m/ele_m points', () => {
+    const legacyProfile = [
+      { fraction: 0, elevation: 500 },
+      { fraction: 0.5, elevation: null },
+      { fraction: 1, elevation: 540 },
+    ] as unknown as RouteElevationPoint[]
+
+    expect(normalizeRouteProfileInput(legacyProfile, 12000)).toEqual([
+      { dist_m: 0, ele_m: 500 },
+      { dist_m: 6000, ele_m: null },
+      { dist_m: 12000, ele_m: 540 },
+    ])
+  })
+
+  it('drops incomplete or non-finite profile points before charting', () => {
+    const corruptProfile = [
+      { dist_m: 0, ele_m: 500 },
+      { dist_m: Number.NaN, ele_m: 510 },
+      { dist_m: 1000, ele_m: Number.POSITIVE_INFINITY },
+      { fraction: 0.5, elevation: 520 },
+      { dist_m: 2000, ele_m: 530 },
+      { dist_m: undefined, ele_m: 540 },
+    ] as unknown as RouteElevationPoint[]
+
+    expect(normalizeRouteProfileInput(corruptProfile, 2000)).toEqual([
+      { dist_m: 0, ele_m: 500 },
+      { dist_m: 1000, ele_m: 520 },
+      { dist_m: 2000, ele_m: 530 },
+    ])
+  })
+
+  it('does not feed non-finite points into buildProfile', () => {
+    const corruptProfile = [
+      { fraction: 0, elevation: 500 },
+      { dist_m: undefined, ele_m: 510 },
+      { fraction: 1, elevation: 540 },
+    ] as unknown as RouteElevationPoint[]
+
+    const normalized = normalizeRouteProfileInput(corruptProfile, 12000)
+    const points = buildProfile(normalized, [])
+
+    expect(points).toHaveLength(2)
+    for (const point of points) {
+      expect(Number.isFinite(point.distanceKm)).toBe(true)
+      expect(point.elevation === null || Number.isFinite(point.elevation)).toBe(true)
+      expect(Number.isFinite(point.grade)).toBe(true)
+    }
   })
 })
 
