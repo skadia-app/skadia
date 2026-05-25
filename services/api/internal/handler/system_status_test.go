@@ -10,14 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	natsgo "github.com/nats-io/nats.go"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	natsgo "github.com/nats-io/nats.go"
 )
 
 func TestAdminSystemStatusHandlerReturnsSchemaVersion(t *testing.T) {
@@ -259,6 +259,7 @@ func TestCollectNATSComponentTreatsConfiguredMissingConnectionAsUnavailable(t *t
 func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
 	js := fakeNATSInspector{
 		subjectStreams: map[string]string{
+			"skadia.activity.uploaded":    "SKADIA",
 			"skadia.photo.embed":          "SKADIA",
 			"skadia.stage2.high":          "SKADIA",
 			"skadia.document.uploaded":    "SKADIA",
@@ -267,6 +268,7 @@ func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
 		streams: map[string]bool{"SKADIA": true},
 		consumers: map[string]map[string]natsgo.ConsumerInfo{
 			"SKADIA": {
+				"pmc-calculator":          {},
 				"ml-stage2-high":          {NumPending: 2},
 				"ml-stage2-normal":        {},
 				"ml-stage2-low":           {},
@@ -286,6 +288,43 @@ func TestCollectNATSJetStreamSnapshotAcceptsWildcardSkadiaStream(t *testing.T) {
 	}
 	if got.Details["pending_message_count"] != "5" {
 		t.Fatalf("pending_message_count = %q, want 5", got.Details["pending_message_count"])
+	}
+}
+
+func TestCollectNATSJetStreamSnapshotAcceptsSplitSkadiaStreams(t *testing.T) {
+	js := fakeNATSInspector{
+		subjectStreams: map[string]string{
+			"skadia.activity.uploaded":    "activity",
+			"skadia.photo.embed":          "photo",
+			"skadia.stage2.high":          "stage2",
+			"skadia.document.uploaded":    "document",
+			"skadia.analytics.invalidate": "analytics",
+		},
+		streams: map[string]bool{
+			"activity":  true,
+			"photo":     true,
+			"stage2":    true,
+			"document":  true,
+			"analytics": true,
+		},
+		consumers: map[string]map[string]natsgo.ConsumerInfo{
+			"activity":  {"pmc-calculator": {NumPending: 1}},
+			"photo":     {"ml-photo-embed": {NumPending: 2}},
+			"stage2":    {"ml-stage2-high": {}, "ml-stage2-normal": {}, "ml-stage2-low": {}},
+			"document":  {"ml-document-processor": {}},
+			"analytics": {"ml-analytics-invalidate": {NumPending: 3}},
+		},
+	}
+	snap := systemstatus.NATSSnapshot{Configured: true, Connected: true}
+
+	collectNATSJetStreamSnapshot(&snap, js, true)
+	got := systemstatus.NATSStatusFromSnapshot(snap)
+
+	if got.State != systemstatus.StatusOK {
+		t.Fatalf("NATS status = %+v, want ok for split streams", got)
+	}
+	if got.Details["pending_message_count"] != "6" {
+		t.Fatalf("pending_message_count = %q, want 6", got.Details["pending_message_count"])
 	}
 }
 

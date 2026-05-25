@@ -27,6 +27,31 @@ type ActivityUploadedEvent struct {
 	HasGPS     bool   `json:"has_gps"`
 }
 
+type streamManager interface {
+	StreamInfo(stream string, opts ...natsgo.JSOpt) (*natsgo.StreamInfo, error)
+	AddStream(cfg *natsgo.StreamConfig, opts ...natsgo.JSOpt) (*natsgo.StreamInfo, error)
+}
+
+var requiredStreams = []natsgo.StreamConfig{
+	{Name: "activity", Subjects: []string{"skadia.activity.>"}, Storage: natsgo.FileStorage},
+	{Name: "stage2", Subjects: []string{"skadia.stage2.>"}, Storage: natsgo.FileStorage},
+	{Name: "document", Subjects: []string{"skadia.document.>"}, Storage: natsgo.FileStorage},
+	{Name: "analytics", Subjects: []string{"skadia.analytics.>"}, Storage: natsgo.FileStorage},
+	{Name: "photo", Subjects: []string{"skadia.photo.>"}, Storage: natsgo.FileStorage},
+}
+
+func ensureRequiredStreams(js streamManager) {
+	for _, cfg := range requiredStreams {
+		cfg := cfg
+		if _, err := js.StreamInfo(cfg.Name); err == nil {
+			continue
+		}
+		if _, err := js.AddStream(&cfg); err != nil {
+			slog.Warn("NATS stream creation", "stream", cfg.Name, "subjects", cfg.Subjects, "error", err)
+		}
+	}
+}
+
 func NewPublisher(natsURL string) (*Publisher, error) {
 	nc, err := natsgo.Connect(natsURL)
 	if err != nil {
@@ -39,16 +64,7 @@ func NewPublisher(natsURL string) (*Publisher, error) {
 		return nil, fmt.Errorf("create JetStream context: %w", err)
 	}
 
-	// Create stream if it doesn't exist
-	_, err = js.AddStream(&natsgo.StreamConfig{
-		Name:     "SKADIA",
-		Subjects: []string{"skadia.>"},
-		Storage:  natsgo.FileStorage,
-	})
-	if err != nil {
-		// Stream might already exist
-		slog.Warn("NATS stream creation", "error", err)
-	}
+	ensureRequiredStreams(js)
 
 	slog.Info("NATS publisher connected", "url", natsURL)
 	return &Publisher{nc: nc, js: js}, nil

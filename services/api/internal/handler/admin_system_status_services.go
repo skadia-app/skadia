@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	natsgo "github.com/nats-io/nats.go"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/systemstatus"
-	natsgo "github.com/nats-io/nats.go"
 )
 
 type expectedNATSQueue struct {
@@ -22,7 +22,8 @@ type expectedNATSQueue struct {
 }
 
 var expectedNATSCoreQueues = []expectedNATSQueue{
-	{stream: "SKADIA", subject: "skadia.photo.embed", consumers: []string{"ml-photo-embed"}},
+	{stream: "activity", subject: "skadia.activity.uploaded", consumers: []string{"pmc-calculator"}},
+	{stream: "photo", subject: "skadia.photo.embed", consumers: []string{"ml-photo-embed"}},
 }
 
 var expectedNATSMLQueues = []expectedNATSQueue{
