@@ -1219,8 +1219,7 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
     ))
 
     # --- Photo CLIP embedding ---
-    # Uses the existing SKADIA stream (skadia.> wildcard already covers skadia.photo.embed).
-    await _ensure_stream(js, "SKADIA", ["skadia.>"])
+    await _ensure_stream(js, "photo", ["skadia.photo.>"])
 
     pool = await get_pool()
 
