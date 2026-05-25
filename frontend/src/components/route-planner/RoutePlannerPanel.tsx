@@ -1,19 +1,6 @@
-import { memo, useState, useCallback, useEffect, useRef } from 'react'
+import { memo, useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
-import {
-  createRouteCourseRelationship,
-  createRoutePublicationPrivacyReview,
-  createRouteRelationship,
-  createRouteSnapshot,
-  forkRoute,
-  publishRouteCourse,
-  type CreateRouteCourseRelationshipRequest,
-  type CreateRouteRelationshipRequest,
-  type PublishRouteCourseResponse,
-  type RoutePublicationVisibility,
-  type RoutePublishPolicy,
-} from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
 import type { ProfileConfig } from '@/lib/routingProfiles'
@@ -31,7 +18,6 @@ import {
   type RoutingProfileEntry,
 } from '@/api/routingProfiles'
 import { apiDownload } from '@/api/client'
-import { listObjectAccessScopes } from '@/api/accessScopes'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 function formatElevation(m: number): string {
@@ -297,8 +283,6 @@ export default function RoutePlannerPanel({
   calculationError,
   onClearError,
   editingRoute,
-  editingRouteId = editingRoute?.id ?? null,
-  editingRouteVersion = editingRoute?.version ?? null,
   isSaving = false,
   lazyFillPendingSave = false,
 }: RoutePlannerPanelProps) {
@@ -312,42 +296,7 @@ export default function RoutePlannerPanel({
   // ── Profile management state ───────────────────────────────────────────
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveProfileName, setSaveProfileName] = useState('')
-  const [publishVisibility, setPublishVisibility] = useState<RoutePublicationVisibility>('private')
-  const [publishPolicy, setPublishPolicy] = useState<RoutePublishPolicy>('new_course')
-  const [compatibilityPreset, setCompatibilityPreset] = useState('standard')
-  const [publishPrivacyReviewed, setPublishPrivacyReviewed] = useState(false)
-  const [publishAccessScopeId, setPublishAccessScopeId] = useState('')
-  const [targetCourseSegmentId, setTargetCourseSegmentId] = useState('')
-  const [targetCourseVersionId, setTargetCourseVersionId] = useState('')
-  const [targetPublicationId, setTargetPublicationId] = useState('')
-  const [forkName, setForkName] = useState('')
-  const [lastForkRouteId, setLastForkRouteId] = useState('')
-  const [routeRelationshipTargetId, setRouteRelationshipTargetId] = useState('')
-  const [routeRelationshipType, setRouteRelationshipType] = useState<CreateRouteRelationshipRequest['relation_type']>('variant_of')
-  const [courseRelationshipTargetId, setCourseRelationshipTargetId] = useState('')
-  const [courseRelationshipType, setCourseRelationshipType] = useState<CreateRouteCourseRelationshipRequest['relation_type']>('variant_of')
-  const [sourcePublicationId, setSourcePublicationId] = useState('')
-  const { data: accessScopesData } = useQuery({
-    queryKey: ['object-access-scopes'],
-    queryFn: listObjectAccessScopes,
-    enabled: publishVisibility === 'shared',
-    staleTime: 60_000,
-  })
   const importInputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    setPublishPrivacyReviewed(false)
-  }, [
-    editingRouteId,
-    editingRouteVersion,
-    publishVisibility,
-    publishAccessScopeId,
-    publishPolicy,
-    compatibilityPreset,
-    targetPublicationId,
-    targetCourseSegmentId,
-    targetCourseVersionId,
-  ])
 
   // Fetch all profiles from the API
   const { data: profilesData } = useQuery({
@@ -394,139 +343,6 @@ export default function RoutePlannerPanel({
       addToast({
         type: 'error',
         title: 'Profil löschen fehlgeschlagen',
-        message: err.message,
-        duration: 0,
-      })
-    },
-  })
-
-  const publishMutation = useMutation<PublishRouteCourseResponse, Error>({
-    mutationFn: async () => {
-      if (!editingRouteId || !editingRouteVersion) {
-        throw new Error('route must be saved before publication')
-      }
-      if ((publishVisibility === 'shared' || publishVisibility === 'public') && !publishPrivacyReviewed) {
-        throw new Error('privacy review is required for shared or public publication')
-      }
-      if (publishVisibility === 'shared' && !publishAccessScopeId.trim()) {
-        throw new Error('shared publication requires a sharing scope')
-      }
-      if (!existingCourseTargetReady) {
-        throw new Error('existing-course publication requires target publication and course ids')
-      }
-      const operationBase = crypto.randomUUID()
-      const snapshot = await createRouteSnapshot(editingRouteId, `${operationBase}:snapshot`, editingRouteVersion)
-      if (publishVisibility === 'shared' || publishVisibility === 'public') {
-        await createRoutePublicationPrivacyReview(editingRouteId, {
-          route_snapshot_id: snapshot.snapshot_id,
-          source_route_version: snapshot.source_route_version,
-          audience_class: publishVisibility,
-          owner_confirmed: true,
-        })
-      }
-      return publishRouteCourse(editingRouteId, {
-        route_snapshot_id: snapshot.snapshot_id,
-        source_route_version: snapshot.source_route_version,
-        publish_policy: publishPolicy,
-        equivalence_decision: publishPolicy === 'new_course' ? 'new_group' : 'version_specific',
-        visibility: publishVisibility,
-        compatibility_preset: compatibilityPreset,
-        ...(publishVisibility === 'shared' && publishAccessScopeId.trim() ? { access_scope_id: publishAccessScopeId.trim() } : {}),
-        ...(targetPublicationId.trim() ? { target_publication_id: targetPublicationId.trim() } : {}),
-        ...(targetCourseSegmentId.trim() ? { target_course_segment_id: targetCourseSegmentId.trim() } : {}),
-        ...(targetCourseVersionId.trim() ? { target_course_segment_version_id: targetCourseVersionId.trim() } : {}),
-        operation_id: `${operationBase}:publish`,
-      })
-    },
-    onSuccess: (result) => {
-      setSourcePublicationId(result.publication_id)
-      addToast({ type: 'success', title: 'Route als Kurs veröffentlicht' })
-    },
-    onError: (err: Error) => {
-      addToast({
-        type: 'error',
-        title: 'Veröffentlichung fehlgeschlagen',
-        message: err.message,
-        duration: 0,
-      })
-    },
-  })
-
-  const forkMutation = useMutation({
-    mutationFn: () => {
-      if (!editingRouteId || !editingRouteVersion) throw new Error('route must be saved before fork')
-      const name = forkName.trim()
-      if (!name) throw new Error('fork name is required')
-      return forkRoute(editingRouteId, {
-        name,
-        source_route_version: editingRouteVersion,
-        operation_id: `${crypto.randomUUID()}:fork`,
-      })
-    },
-    onSuccess: (result) => {
-      setForkName('')
-      setLastForkRouteId(result.route_id)
-      void queryClient.invalidateQueries({ queryKey: ['routes'] })
-      addToast({
-        type: 'success',
-        title: 'Fork erstellt',
-        message: `Route ${result.route_id}`,
-      })
-    },
-    onError: (err: Error) => {
-      addToast({
-        type: 'error',
-        title: 'Fork fehlgeschlagen',
-        message: err.message,
-        duration: 0,
-      })
-    },
-  })
-
-  const routeRelationshipMutation = useMutation({
-    mutationFn: () => {
-      if (!editingRouteId) throw new Error('route must be saved before relationships')
-      const target = routeRelationshipTargetId.trim()
-      if (!target) throw new Error('target route is required')
-      return createRouteRelationship(editingRouteId, {
-        target_route_id: target,
-        relation_type: routeRelationshipType,
-        operation_id: `${crypto.randomUUID()}:route-relationship`,
-      })
-    },
-    onSuccess: () => {
-      setRouteRelationshipTargetId('')
-      addToast({ type: 'success', title: 'Beziehung gespeichert' })
-    },
-    onError: (err: Error) => {
-      addToast({
-        type: 'error',
-        title: 'Beziehung fehlgeschlagen',
-        message: err.message,
-        duration: 0,
-      })
-    },
-  })
-
-  const courseRelationshipMutation = useMutation({
-    mutationFn: () => {
-      const publication = sourcePublicationId.trim()
-      const target = courseRelationshipTargetId.trim()
-      if (!publication || !target) throw new Error('publication and target are required')
-      return createRouteCourseRelationship(publication, {
-        target_publication_id: target,
-        relation_type: courseRelationshipType,
-        operation_id: `${crypto.randomUUID()}:course-relationship`,
-      })
-    },
-    onSuccess: () => {
-      setCourseRelationshipTargetId('')
-      addToast({ type: 'success', title: 'Kursbeziehung gespeichert' })
-    },
-    onError: (err: Error) => {
-      addToast({
-        type: 'error',
-        title: 'Kursbeziehung fehlgeschlagen',
         message: err.message,
         duration: 0,
       })
@@ -648,8 +464,6 @@ export default function RoutePlannerPanel({
   }
 
   const hasRoute = waypoints.length >= 2
-  const existingCourseTargetReady =
-    publishPolicy === 'new_course' || (targetPublicationId.trim() !== '' && targetCourseSegmentId.trim() !== '')
 
   const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
     dragIndexRef.current = index
@@ -1151,206 +965,6 @@ export default function RoutePlannerPanel({
                 </svg>
                 Route vorschlagen
               </button>
-            )}
-
-            {editingRouteId && (
-              <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/60 p-2 space-y-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                  Kurs veröffentlichen
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <select
-                    aria-label="Sichtbarkeit der Kursveröffentlichung"
-                    value={publishVisibility}
-                    onChange={(e) => setPublishVisibility(e.target.value as RoutePublicationVisibility)}
-                    className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-                  >
-                    <option value="private">Privat</option>
-                    <option value="shared">Geteilt</option>
-                    <option value="public">Öffentlich</option>
-                  </select>
-                  <select
-                    aria-label="Kompatibilitätsprofil"
-                    value={compatibilityPreset}
-                    onChange={(e) => setCompatibilityPreset(e.target.value)}
-                    className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-                  >
-                    <option value="standard">Standard</option>
-                    <option value="trail">Trail</option>
-                    <option value="lap">Runde</option>
-                  </select>
-                  <select
-                    aria-label="Veröffentlichungsart"
-                    value={publishPolicy}
-                    onChange={(e) => setPublishPolicy(e.target.value as RoutePublishPolicy)}
-                    className="min-w-0 text-[11px] rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-                  >
-                    <option value="new_course">Neu</option>
-                    <option value="new_version_same_course">Neue Version</option>
-                    <option value="continue_equivalence_group">Äquivalenz fortführen</option>
-                    <option value="new_equivalence_group">Neue Äquivalenz</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <select
-                    aria-label="Freigabe-Scope"
-                    value={publishAccessScopeId}
-                    onChange={(event) => setPublishAccessScopeId(event.target.value)}
-                    disabled={publishVisibility !== 'shared'}
-                    className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                  >
-                    <option value="">Freigabe wählen</option>
-                    {(accessScopesData?.scopes ?? []).map((scope) => (
-                      <option key={scope.id} value={scope.id}>
-                        {scope.label?.trim() || `Freigabe ${scope.id.slice(0, 8)}`}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    aria-label="Ziel-Kurs"
-                    value={targetCourseSegmentId}
-                    onChange={(event) => setTargetCourseSegmentId(event.target.value)}
-                    placeholder="Ziel-Kurs"
-                    className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                  />
-                  <input
-                    aria-label="Ziel-Version"
-                    value={targetCourseVersionId}
-                    onChange={(event) => setTargetCourseVersionId(event.target.value)}
-                    placeholder="Ziel-Version"
-                    className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                  />
-                </div>
-                <input
-                  aria-label="Ziel-Veröffentlichung"
-                  value={targetPublicationId}
-                  onChange={(event) => setTargetPublicationId(event.target.value)}
-                  placeholder="Bestehende Veröffentlichung für neue Version/Äquivalenz"
-                  className="w-full rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                />
-                {(publishVisibility === 'shared' || publishVisibility === 'public') && (
-                  <label className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 p-1.5 text-[10px] leading-snug text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                    <input
-                      type="checkbox"
-                      checked={publishPrivacyReviewed}
-                      onChange={(event) => setPublishPrivacyReviewed(event.target.checked)}
-                      className="mt-0.5 h-3 w-3 accent-accent-DEFAULT"
-                    />
-                    <span>
-                      Privacy-Review bestätigt: Routenname, Beschreibung, Wegpunkte, Geometrie, Routenprofil,
-                      berechnete Eigenschaften und verknüpfte Medien dürfen in dieser Sichtbarkeit erscheinen.
-                    </span>
-                  </label>
-                )}
-                <button
-                  type="button"
-                  onClick={() => publishMutation.mutate()}
-                  disabled={
-                    !hasRoute ||
-                    !editingRouteVersion ||
-                    publishMutation.isPending ||
-                    !existingCourseTargetReady ||
-                    (publishVisibility === 'shared' && !publishAccessScopeId.trim()) ||
-                    ((publishVisibility === 'shared' || publishVisibility === 'public') && !publishPrivacyReviewed)
-                  }
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-200 hover:bg-white dark:hover:bg-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer"
-                >
-                  {publishMutation.isPending ? 'Veröffentliche...' : 'Als Kurs veröffentlichen'}
-                </button>
-                <div className="border-t border-neutral-200 pt-2 dark:border-neutral-700">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                    Fork & Beziehungen
-                  </div>
-                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-1.5">
-                    <input
-                      aria-label="Fork-Name"
-                      value={forkName}
-                      onChange={(event) => setForkName(event.target.value)}
-                      placeholder="Fork-Name"
-                      className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => forkMutation.mutate()}
-                      disabled={!editingRouteVersion || !forkName.trim() || forkMutation.isPending}
-                      className="rounded-md border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200"
-                    >
-                      Fork erstellen
-                    </button>
-                  </div>
-                  {lastForkRouteId && (
-                    <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      <span className="min-w-0 truncate">Fork {lastForkRouteId}</span>
-                      <a href={`/map?planner=1&edit_route_id=${encodeURIComponent(lastForkRouteId)}`} className="flex-shrink-0 font-medium underline underline-offset-2">
-                        Fork öffnen
-                      </a>
-                    </div>
-                  )}
-                  <div className="mt-1 grid grid-cols-[1fr_auto_auto] gap-1.5">
-                    <input
-                      aria-label="Zielroute"
-                      value={routeRelationshipTargetId}
-                      onChange={(event) => setRouteRelationshipTargetId(event.target.value)}
-                      placeholder="Zielroute"
-                      className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    />
-                    <select
-                      aria-label="Routenbeziehung"
-                      value={routeRelationshipType}
-                      onChange={(event) => setRouteRelationshipType(event.target.value as CreateRouteRelationshipRequest['relation_type'])}
-                      className="rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    >
-	                      <option value="variant_of">Variante</option>
-	                      <option value="derived_from">Abgeleitet</option>
-	                    </select>
-                    <button
-                      type="button"
-                      onClick={() => routeRelationshipMutation.mutate()}
-                      disabled={!routeRelationshipTargetId.trim() || routeRelationshipMutation.isPending}
-                      className="rounded-md border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200"
-                    >
-                      Beziehung speichern
-                    </button>
-                  </div>
-                  <div className="mt-1 grid grid-cols-[1fr_auto_auto] gap-1.5">
-                    <input
-                      aria-label="Quell-Kursveröffentlichung"
-                      value={sourcePublicationId}
-                      onChange={(event) => setSourcePublicationId(event.target.value)}
-                      placeholder="Quell-Kursveröffentlichung"
-                      className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    />
-                    <select
-                      aria-label="Kursbeziehung"
-                      value={courseRelationshipType}
-                      onChange={(event) =>
-                        setCourseRelationshipType(event.target.value as CreateRouteCourseRelationshipRequest['relation_type'])
-                      }
-                      className="rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    >
-                      <option value="variant_of">Variante</option>
-                      <option value="derived_from">Abgeleitet</option>
-                    </select>
-                  </div>
-                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-1.5">
-                    <input
-                      aria-label="Ziel-Kursveröffentlichung"
-                      value={courseRelationshipTargetId}
-                      onChange={(event) => setCourseRelationshipTargetId(event.target.value)}
-                      placeholder="Ziel-Kursveröffentlichung"
-                      className="min-w-0 rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => courseRelationshipMutation.mutate()}
-                      disabled={!sourcePublicationId.trim() || !courseRelationshipTargetId.trim() || courseRelationshipMutation.isPending}
-                      className="rounded-md border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200"
-                    >
-                      Kursbeziehung speichern
-                    </button>
-                  </div>
-                </div>
-              </div>
             )}
 
             {/* Save / Clear row */}
