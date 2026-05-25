@@ -98,7 +98,12 @@ export function buildProfile(
   raw: RouteElevationPoint[],
   segments: RouteSegment[],
 ): ProfilePoint[] {
-  if (raw.length < 2) return []
+  const safeRaw = raw.filter((pt): pt is RouteElevationPoint =>
+    pt != null &&
+    Number.isFinite(pt.dist_m) &&
+    (pt.ele_m === null || Number.isFinite(pt.ele_m)),
+  )
+  if (safeRaw.length < 2) return []
 
   // Pre-compute offroad dist_m ranges from segments
   let coveredM = 0
@@ -114,12 +119,12 @@ export function buildProfile(
   // Spec §6 Class A: null ele_m = DEM coverage gap. Keep null points so ECharts
   // renders an honest visual gap rather than linearly interpolating fake heights.
   // Require ≥2 non-null points to have a renderable chart at all.
-  const nonNullCount = raw.reduce((n, pt) => (pt.ele_m !== null ? n + 1 : n), 0)
+  const nonNullCount = safeRaw.reduce((n, pt) => (pt.ele_m !== null ? n + 1 : n), 0)
   if (nonNullCount < 2) return []
 
   // Build a lookup of non-null points for grade computation — grade is only
   // meaningful between points with actual elevation data.
-  const nonNullPts = raw.filter((pt): pt is RouteElevationPoint & { ele_m: number } =>
+  const nonNullPts = safeRaw.filter((pt): pt is RouteElevationPoint & { ele_m: number } =>
     pt.ele_m !== null,
   )
 
@@ -129,7 +134,7 @@ export function buildProfile(
     nonNullPts.map((pt, i) => [pt.dist_m, i]),
   )
 
-  const points: ProfilePoint[] = raw.map(pt => {
+  const points: ProfilePoint[] = safeRaw.map(pt => {
     const distanceKm = pt.dist_m / 1000
 
     // Grade via centred finite difference using nearest non-null neighbours.
@@ -188,6 +193,58 @@ interface DistRangeWaySurface {
   endDistM: number
   highway: string
   surface: string
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function finiteElevation(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return finiteNumber(value) ?? undefined
+}
+
+/**
+ * Normalize loaded route profiles before charting.
+ *
+ * Saved-route data can be older than the current RouteElevationPoint shape.
+ * Pre-T0 route profiles used `{fraction,elevation}` while the current chart
+ * consumes `{dist_m,ele_m}`. Corrupt or partial points must also be dropped:
+ * one undefined/NaN distance is enough to make ECharts compute non-finite
+ * canvas gradient stops.
+ *
+ * @internal Exported for unit-testing only.
+ */
+export function normalizeRouteProfileInput(
+  raw: RouteElevationPoint[] | null,
+  totalDistanceM: number,
+): RouteElevationPoint[] {
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  const finiteTotalM = Number.isFinite(totalDistanceM) && totalDistanceM > 0
+    ? totalDistanceM
+    : 0
+
+  const out: RouteElevationPoint[] = []
+  for (const point of raw as unknown[]) {
+    if (point == null || typeof point !== 'object') continue
+    const record = point as Record<string, unknown>
+
+    let distM = finiteNumber(record.dist_m)
+    if (distM === null && finiteTotalM > 0) {
+      const fraction = finiteNumber(record.fraction)
+      if (fraction !== null) {
+        distM = Math.max(0, Math.min(1, fraction)) * finiteTotalM
+      }
+    }
+    if (distM === null) continue
+
+    const elevation = finiteElevation(record.ele_m)
+      ?? finiteElevation(record.elevation)
+    if (elevation === undefined) continue
+
+    out.push({ dist_m: distM, ele_m: elevation })
+  }
+  return out
 }
 
 /** Flatten all segments' sub_segments into global-dist-based ranges so the
@@ -252,10 +309,15 @@ function RouteProfileChart({
   onToggleSummitPin,
   isCalculating = false,
 }: Props) {
+  const normalizedProfile = useMemo(
+    () => normalizeRouteProfileInput(profile, totalDistanceM),
+    [profile, totalDistanceM],
+  )
+
   // Build processed data — empty array when profile is null (renders placeholder)
   const livePoints = useMemo(
-    () => profile !== null ? buildProfile(profile, segments) : [],
-    [profile, segments],
+    () => normalizedProfile.length > 0 ? buildProfile(normalizedProfile, segments) : [],
+    [normalizedProfile, segments],
   )
 
   const subSegmentRanges = useMemo(
@@ -280,7 +342,13 @@ function RouteProfileChart({
   }
   const useSnapshot = (!haveLive || isCalculating) && snap.current.points.length >= 2
   const points = useSnapshot ? snap.current.points : livePoints
-  const effectiveTotalM = useSnapshot ? snap.current.totalDistanceM : totalDistanceM
+  const rawEffectiveTotalM = useSnapshot ? snap.current.totalDistanceM : totalDistanceM
+  const profileTotalM = points.length > 0
+    ? points[points.length - 1].distanceKm * 1000
+    : 0
+  const effectiveTotalM = Number.isFinite(rawEffectiveTotalM) && rawEffectiveTotalM > 0
+    ? rawEffectiveTotalM
+    : profileTotalM
 
   // Y-axis range with padding — skip null (gap) points
   const yRange = useMemo(() => {
