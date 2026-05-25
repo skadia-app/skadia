@@ -287,8 +287,9 @@ describe('buildLineColorExpression', () => {
     const scale = { type: 'linear' as const, stops: [{ value: 0, color: '#000' }, { value: 100, color: '#fff' }], clamped: true, metric: 'hr' as const, unit: 'bpm' }
     const expr = buildLineColorExpression(scale) as unknown as unknown[]
     expect(expr[0]).toBe('case')
-    // index 1 is the missing-value guard
-    expect(expr[1]).toEqual(['!', ['get', 'has_value']])
+    expect(expr[1]).toEqual(['==', ['get', 'inside'], false])
+    expect(expr[2]).toBe('#9ca3af')
+    expect(expr[3]).toEqual(['!', ['get', 'has_value']])
   })
 
   it('zones: builds case-wrapped match', () => {
@@ -303,7 +304,7 @@ describe('buildLineColorExpression', () => {
   it('constant: returns plain color string', () => {
     const scale = { type: 'constant' as const, color: '#22c55e', metric: 'sport' as const }
     const expr = buildLineColorExpression(scale)
-    expect(expr).toBe('#22c55e')
+    expect(expr).toEqual(['case', ['==', ['get', 'inside'], false], '#9ca3af', '#22c55e'])
   })
 })
 

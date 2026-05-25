@@ -15,6 +15,7 @@ import { useMetricColoring } from './useMetricColoring'
 import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
 import ScaleLegend from '@/components/shared/scale-legend/ScaleLegend'
+import { buildTrackMapFitTarget } from './trackMapZoom'
 
 export type SurfaceHighlightKey = {
   kind: 'highway' | 'surface'
@@ -311,6 +312,18 @@ export default function TrackMap({
           'line-width': 3,
           'line-opacity': 0.85,       // overridden by hook
         },
+      })
+
+      map.addSource('highlight', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+      })
+      map.addLayer({
+        id: 'highlight-line',
+        type: 'line',
+        source: 'highlight',
+        layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+        paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
       })
 
       // Heading arrows: sample every ~50 points with valid heading
@@ -914,39 +927,77 @@ export default function TrackMap({
     }
   }, [showSummits, mapLoaded])
 
-  // Chart brush → highlight via fitBounds (programmaticFit) — line-opacity modulation is handled by useMetricColoring
+  // Chart brush/wheel zoom drives the map viewport and visible selection overlay directly.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !hasTrack) return
+    let cancelled = false
 
     const apply = () => {
-      if (zoomRange) {
-        const segCoords = streams
-          .slice(zoomRange.startIdx, zoomRange.endIdx + 1)
-          .filter((s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null)
-          .map(s => [s.lng, s.lat] as [number, number])
+      if (cancelled) return
+      if (!map.getLayer('track-line')) {
+        map.once('load', apply)
+        map.once('idle', apply)
+        return
+      }
+      if (!map.getSource('highlight')) {
+        map.addSource('highlight', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+        })
+      }
+      if (!map.getLayer('highlight-line')) {
+        map.addLayer({
+          id: 'highlight-line',
+          type: 'line',
+          source: 'highlight',
+          layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+          paint: { 'line-color': sportColor, 'line-width': 4, 'line-opacity': 1 },
+        })
+      }
 
-        if (segCoords.length >= 2) {
-          const bounds = new maplibregl.LngLatBounds()
-          for (const c of segCoords) bounds.extend(c)
-          metricColoring.programmaticFit(bounds)
+      const target = buildTrackMapFitTarget(streams, coordinates, zoomRange)
+
+      const highlightSource = map.getSource('highlight') as maplibregl.GeoJSONSource | undefined
+      if (zoomRange && target) {
+        highlightSource?.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: target.coordinates },
+        })
+        if (map.getLayer('highlight-line')) {
+          map.setLayoutProperty('highlight-line', 'visibility', 'visible')
         }
       } else {
-        const bounds = new maplibregl.LngLatBounds()
-        for (const c of coordinates) bounds.extend(c)
-        if (coordinates.length >= 2) {
-          metricColoring.programmaticFit(bounds)
+        highlightSource?.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: [] },
+        })
+        if (map.getLayer('highlight-line')) {
+          map.setLayoutProperty('highlight-line', 'visibility', 'none')
         }
       }
+
+      if (!target) return
+
+      const bounds = new maplibregl.LngLatBounds()
+      for (const c of target.coordinates) bounds.extend(c)
+      map.fitBounds(bounds, {
+        padding: target.padding,
+        maxZoom: target.maxZoom,
+        duration: 600,
+      })
     }
 
-    if (map.isStyleLoaded()) {
-      apply()
-    } else {
-      map.once('load', apply)
+    apply()
+    return () => {
+      cancelled = true
+      map.off('load', apply)
+      map.off('idle', apply)
     }
     // NOTE: line-color and line-opacity are handled by useMetricColoring via the `inside` feature property.
-  }, [zoomRange]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoomRange, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasGps) {
     if (locationPin) {

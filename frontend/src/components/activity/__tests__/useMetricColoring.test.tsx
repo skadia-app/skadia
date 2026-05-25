@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useMetricColoring, splitStreamsAtTeleports } from '../useMetricColoring'
+import { useMetricColoring, splitStreamsAtTeleports, resolveEffectiveTrackBounds } from '../useMetricColoring'
 import type { StreamPoint } from '@/api/types'
+import type { ZoomRange } from '@/components/ActivityCharts'
 
 // Minimal fake Map — we only test the hook's state logic, not MapLibre integration
 function makeFakeMap() {
@@ -119,6 +120,24 @@ describe('useMetricColoring', () => {
     expect(map.on).toHaveBeenCalledWith('moveend', expect.any(Function))
     unmount()
     expect(map.off).toHaveBeenCalledWith('moveend', expect.any(Function))
+  })
+})
+
+describe('resolveEffectiveTrackBounds', () => {
+  const streams: StreamPoint[] = [
+    { time: '2026-01-01T00:00:00Z', lat: 47.0, lng: 11.0 },
+    { time: '2026-01-01T00:01:00Z', lat: 47.2, lng: 11.2 },
+    { time: '2026-01-01T00:02:00Z', lat: 47.4, lng: 11.4 },
+  ]
+  const viewportBounds = { west: 11.0, south: 47.0, east: 11.05, north: 47.05 }
+  const zoomRange: ZoomRange = { startIdx: 1, endIdx: 2, startKm: 1, endKm: 2, startPct: 20, endPct: 40 }
+
+  it('does not viewport-cut track features while a chart zoom range is active', () => {
+    expect(resolveEffectiveTrackBounds(streams, viewportBounds, zoomRange)).toBeUndefined()
+  })
+
+  it('keeps the viewport filter available when no chart zoom range is active', () => {
+    expect(resolveEffectiveTrackBounds(streams, viewportBounds, null)).toEqual(viewportBounds)
   })
 })
 

@@ -2,6 +2,7 @@ import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { useMetricColoring } from './activity/useMetricColoring'
 import MapColorDropdown from './activity/MapColorDropdown'
 import MapColorLegend from './activity/MapColorLegend'
+import { buildTrackMapFitTarget } from './activity/trackMapZoom'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -700,7 +701,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
       if (segCoords.length >= 2) {
         const bounds = new maplibregl.LngLatBounds()
         for (const c of segCoords) bounds.extend(c)
-        metricColoring.programmaticFit(bounds)
+        map.fitBounds(bounds, { padding: 50, maxZoom: 18, duration: 600 })
       }
     }
 
@@ -714,11 +715,12 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
 
     // Note: line-color/opacity overrides removed — useMetricColoring is authoritative.
     const apply = () => {
-      if (coordinates.length >= 2) {
-        const bounds = new maplibregl.LngLatBounds()
-        for (const c of coordinates) bounds.extend(c)
-        map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
-      }
+      const target = buildTrackMapFitTarget(streams, coordinates, null)
+      if (!target) return
+
+      const bounds = new maplibregl.LngLatBounds()
+      for (const c of target.coordinates) bounds.extend(c)
+      map.fitBounds(bounds, { padding: 60, maxZoom: target.maxZoom, duration: 600 })
     }
 
     if (map.isStyleLoaded()) apply()

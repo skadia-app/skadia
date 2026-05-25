@@ -521,8 +521,15 @@ export type LineColorExpression =
   | string
   | ExpressionSpecification
 
+const TRACK_OUTSIDE_SELECTION_COLOR = '#9ca3af'
+
 export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpression {
-  if (scale.type === 'constant') return scale.color
+  if (scale.type === 'constant') {
+    return ['case',
+      ['==', ['get', 'inside'], false], TRACK_OUTSIDE_SELECTION_COLOR,
+      scale.color,
+    ] as unknown as LineColorExpression
+  }
 
   if (scale.type === 'linear') {
     const interp: unknown[] = ['interpolate', ['linear'], ['get', 'value']]
@@ -530,6 +537,7 @@ export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpre
       interp.push(value, color)
     }
     return ['case',
+      ['==', ['get', 'inside'], false], TRACK_OUTSIDE_SELECTION_COLOR,
       ['!', ['get', 'has_value']], MISSING_COLOR,
       interp,
     ] as unknown as LineColorExpression
@@ -542,6 +550,7 @@ export function buildLineColorExpression(scale: ScaleDefinition): LineColorExpre
   })
   match.push(MISSING_COLOR) // default
   return ['case',
+    ['==', ['get', 'inside'], false], TRACK_OUTSIDE_SELECTION_COLOR,
     ['!', ['get', 'has_value']], MISSING_COLOR,
     match,
   ] as unknown as LineColorExpression

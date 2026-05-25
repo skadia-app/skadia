@@ -92,6 +92,31 @@ export interface UseMetricColoringResult {
   effectiveMode: Mode  // resolved mode after zones-availability fallback (N9)
 }
 
+export function resolveEffectiveTrackBounds(
+  streams: StreamPoint[],
+  viewportBounds: LngLatBoundsLike | undefined,
+  zoomRange: ZoomRange | null,
+): LngLatBoundsLike | undefined {
+  if (zoomRange) return undefined
+  if (!viewportBounds || streams.length === 0) return undefined
+
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
+  for (const s of streams) {
+    if (s.lat == null || s.lng == null) continue
+    if (s.lat < minLat) minLat = s.lat
+    if (s.lat > maxLat) maxLat = s.lat
+    if (s.lng < minLng) minLng = s.lng
+    if (s.lng > maxLng) maxLng = s.lng
+  }
+  if (!Number.isFinite(minLat)) return undefined
+
+  const fullArea = (maxLat - minLat) * (maxLng - minLng)
+  const viewArea = (viewportBounds.north - viewportBounds.south) *
+                   (viewportBounds.east - viewportBounds.west)
+  if (fullArea <= 0 || viewArea / fullArea >= VIEWPORT_MIN_RATIO_FOR_RESAMPLE) return undefined
+  return viewportBounds
+}
+
 export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColoringResult {
   const { streams, activity, hasGps, zoomRange, map, styleVersion } = args
 
@@ -259,28 +284,8 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
 
   // Decide whether to apply viewport filter (only if viewport is significantly smaller than full track)
   const effectiveBounds = useMemo<LngLatBoundsLike | undefined>(() => {
-    if (!viewportBounds || streams.length === 0) return undefined
-
-    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
-    for (const s of streams) {
-      if (s.lat == null || s.lng == null) continue
-      if (s.lat < minLat) minLat = s.lat
-      if (s.lat > maxLat) maxLat = s.lat
-      if (s.lng < minLng) minLng = s.lng
-      if (s.lng > maxLng) maxLng = s.lng
-    }
-    if (!Number.isFinite(minLat)) return undefined
-
-    // Simplified: since we only use the ratio, cos(lat) cancels between full and viewport
-    // (both measured in the same local tangent plane approximately at the track center).
-    // Using two different centers (fullLatC vs viewLatC) caused bias when the viewport
-    // was panned away from the track (e.g. track in Alps, view over Northern Germany).
-    const fullArea = (maxLat - minLat) * (maxLng - minLng)
-    const viewArea = (viewportBounds.north - viewportBounds.south) *
-                     (viewportBounds.east - viewportBounds.west)
-    if (fullArea <= 0 || viewArea / fullArea >= VIEWPORT_MIN_RATIO_FOR_RESAMPLE) return undefined
-    return viewportBounds
-  }, [viewportBounds, streams])
+    return resolveEffectiveTrackBounds(streams, viewportBounds, zoomRange)
+  }, [viewportBounds, streams, zoomRange])
 
   // Teleport-gap handling: splits the full GPS stream at points where two
   // consecutive valid GPS samples are >teleportThresholdM apart. This is the
