@@ -2,8 +2,6 @@ import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchTags } from '@/api/tags'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
-import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
-import { RoutingApplicableModifierKeys } from '@/lib/generatedRoutingApplicableModifiers'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
@@ -172,9 +170,9 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
   const [sportType, setSportType] = useState(initialValues?.sport_type ?? 'hiking')
   const [subType, setSubType] = useState(initialValues?.sub_type ?? '')
   const [isElectric, setIsElectric] = useState(initialValues?.is_electric ?? false)
-  const [isIndoor, setIsIndoor] = useState(initialValues?.is_indoor ?? false)
-  const [isVirtual, setIsVirtual] = useState(initialValues?.is_virtual ?? false)
-  const [isCommute, setIsCommute] = useState(initialValues?.is_commute ?? false)
+  const isIndoor = initialValues?.is_indoor ?? false
+  const isVirtual = initialValues?.is_virtual ?? false
+  const isCommute = initialValues?.is_commute ?? false
   const [difficulty, setDifficulty] = useState(initialValues?.difficulty ?? '')
   const [tagIds, setTagIds] = useState<string[]>(initialValues?.tag_ids ?? [])
   const [autoTag, setAutoTag] = useState(initialValues?.auto_tag ?? true)
@@ -204,17 +202,6 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
     'w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
 
   const labelClass = 'block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1'
-  const modifierState = {
-    is_electric: { checked: isElectric, setChecked: setIsElectric },
-    is_indoor: { checked: isIndoor, setChecked: setIsIndoor },
-    is_virtual: { checked: isVirtual, setChecked: setIsVirtual },
-    is_commute: { checked: isCommute, setChecked: setIsCommute },
-  }
-  const modifierControls = RoutingApplicableModifierKeys.map((key) => ({
-    key: key as keyof typeof modifierState,
-    label: ROUTE_MODIFIER_LABELS[key],
-    ...modifierState[key as keyof typeof modifierState],
-  }))
 
   return (
     <div className="space-y-4">
@@ -283,26 +270,22 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {modifierControls.map(({ key, label, checked, setChecked }) => (
-          <label key={key} className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</span>
-            <div className="relative flex-shrink-0">
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={(e) => {
-                  setChecked(e.target.checked)
-                  notify({ [key]: e.target.checked })
-                }}
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 rounded-full bg-neutral-300 dark:bg-neutral-700 peer-checked:bg-accent-DEFAULT transition-colors" />
-              <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-            </div>
-          </label>
-        ))}
-      </div>
+      <label className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2">
+        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Antrieb</span>
+        <div className="relative flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={isElectric}
+            onChange={(e) => {
+              setIsElectric(e.target.checked)
+              notify({ is_electric: e.target.checked })
+            }}
+            className="sr-only peer"
+          />
+          <div className="w-9 h-5 rounded-full bg-neutral-300 dark:bg-neutral-700 peer-checked:bg-accent-DEFAULT transition-colors" />
+          <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+        </div>
+      </label>
 
       {/* Tags multi-select */}
       <div>
@@ -337,7 +320,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
 
       {/* Profile override */}
       <div>
-        <label className={labelClass}>Routing-Profil (Override)</label>
+        <label className={labelClass}>Routing-Profil</label>
         <select
           value={profileOverride}
           onChange={(e) => { setProfileOverride(e.target.value); notify({ profile_override: e.target.value }) }}
