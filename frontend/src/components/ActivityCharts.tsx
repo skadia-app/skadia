@@ -1161,6 +1161,41 @@ interface ChartInteractionOpts {
   xData: number[]
 }
 
+export type ChartBrushArea = { range?: [number, number]; coordRange?: [number, number] }
+
+export function resolveBrushAreaDataRange(
+  chart: Pick<echarts.ECharts, 'convertFromPixel'>,
+  area: ChartBrushArea,
+): [number, number] | null {
+  if (area.range) {
+    const start = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
+    const end = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
+    if (start == null || end == null) return null
+    return [start as number, end as number]
+  }
+  if (area.coordRange) return area.coordRange
+  return null
+}
+
+export function normalizeDataZoomPercentRange(params: unknown, xMax: number): [number, number] | null {
+  const p = params as {
+    batch?: Array<{ start?: number; end?: number; startValue?: number; endValue?: number }>
+    start?: number
+    end?: number
+    startValue?: number
+    endValue?: number
+  }
+  const z = p.batch?.[0] ?? p
+  if (typeof z.start === 'number' && typeof z.end === 'number') return [z.start, z.end]
+  if (typeof z.startValue === 'number' && typeof z.endValue === 'number' && xMax > 0) {
+    return [
+      Math.max(0, Math.min(100, (z.startValue / xMax) * 100)),
+      Math.max(0, Math.min(100, (z.endValue / xMax) * 100)),
+    ]
+  }
+  return null
+}
+
 function setupChartInteractions(opts: ChartInteractionOpts): () => void {
   const { chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData } = opts
 
@@ -1213,7 +1248,16 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
     if (lastHoverIdx !== null) { lastHoverIdx = null; onHover(null) }
   })
 
-  type BrushArea = { range?: [number, number]; coordRange?: [number, number] }
+  let pendingBrushAreas: ChartBrushArea[] | null = null
+
+  chart.on('brush', (params: unknown) => {
+    const p = params as {
+      areas?: ChartBrushArea[]
+      batch?: Array<{ areas?: ChartBrushArea[] }>
+    }
+    const areas = p.areas ?? p.batch?.[0]?.areas
+    if (areas && areas.length > 0) pendingBrushAreas = [...areas]
+  })
 
   // Brush gesture ended → zoom all charts + map.
   // Uses shared brushZoomLockRef to prevent cascading: dataZoom dispatch
@@ -1224,31 +1268,24 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
     brushZoomLockRef.current = true
 
     const p = params as {
-      areas?: BrushArea[]
-      batch?: Array<{ areas?: BrushArea[] }>
+      areas?: ChartBrushArea[]
+      batch?: Array<{ areas?: ChartBrushArea[] }>
     }
-    const areas = p.areas ?? p.batch?.[0]?.areas
+    const directAreas = p.areas ?? p.batch?.[0]?.areas
+    const areas = directAreas && directAreas.length > 0 ? directAreas : pendingBrushAreas
+    pendingBrushAreas = null
     if (!areas || areas.length === 0) {
       brushZoomLockRef.current = false
       return
     }
 
     const area = areas[0]
-    let startData: number
-    let endData: number
-
-    if (area.coordRange) {
-      [startData, endData] = area.coordRange
-    } else if (area.range) {
-      const s = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[0])
-      const e = chart.convertFromPixel({ xAxisIndex: 0 }, area.range[1])
-      if (s == null || e == null) { brushZoomLockRef.current = false; return }
-      startData = s as number
-      endData = e as number
-    } else {
+    const dataRange = resolveBrushAreaDataRange(chart, area)
+    if (!dataRange) {
       brushZoomLockRef.current = false
       return
     }
+    const [startData, endData] = dataRange
 
     if (endData <= startData) { brushZoomLockRef.current = false; return }
     onBrushZoom(Math.max(0, startData), Math.min(xMax, endData))
@@ -1258,13 +1295,8 @@ function setupChartInteractions(opts: ChartInteractionOpts): () => void {
 
   // Mouse-wheel / pan → sync all other charts + update map.
   chart.on('dataZoom', (params: unknown) => {
-    const p = params as {
-      batch?: Array<{ start: number; end: number }>
-      start?: number
-      end?: number
-    }
-    const z = p.batch?.[0] ?? (p.start != null && p.end != null ? p as { start: number; end: number } : null)
-    if (z != null) onSyncZoom(z.start, z.end, chartId)
+    const range = normalizeDataZoomPercentRange(params, xMax)
+    if (range) onSyncZoom(range[0], range[1], chartId)
   })
 
   return () => {
