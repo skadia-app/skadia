@@ -20,8 +20,8 @@ import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
 import { SportFilter } from '@/components/sport/SportFilter'
 import { HeatmapApplicableModifierKeys } from '@/lib/generatedHeatmapApplicableModifiers'
-import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
-import { DEFAULT_SEGMENT_COLORS } from '@/components/Map/SegmentsOverlay'
+import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/map/SegmentsOverlay'
+import { DEFAULT_SEGMENT_COLORS } from '@/components/map/SegmentsOverlay'
 
 const MAP_FILTER_OPTIONS = sportFilterOptionsForPreset('MAP_PANEL_GPS')
 const ALL_SPORT_KEYS = getAllSportKeys(MAP_FILTER_OPTIONS)
