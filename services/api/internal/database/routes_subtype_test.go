@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func routeSubTypeTestDB(t *testing.T) (*DB, string) {
@@ -61,7 +61,7 @@ func TestPlannedRouteSubTypeRoundTrip(t *testing.T) {
 		Name:            "MTB route",
 		SportType:       "cycling",
 		SubType:         &subType,
-		Profile:         "cycling-mountain",
+		Profile:         "mtb",
 		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
 		Waypoints:       []model.RouteWaypoint{},
 		Segments:        []model.RouteSegment{},
@@ -151,7 +151,7 @@ func TestPlannedRouteMetadataAndModifiersRoundTrip(t *testing.T) {
 
 	updatedDifficulty := "SAC T3"
 	loaded.Difficulty = &updatedDifficulty
-	loaded.Profile = "hiking-sac2"
+	loaded.Profile = "hiking-mountain"
 	loaded.IsElectric = false
 	loaded.IsIndoor = true
 	loaded.IsVirtual = false
@@ -163,7 +163,7 @@ func TestPlannedRouteMetadataAndModifiersRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRoute after update: %v", err)
 	}
-	assertMetadata(t, updated, "SAC T3", "hiking-sac2", false, true, false, false)
+	assertMetadata(t, updated, "SAC T3", "hiking-mountain", false, true, false, false)
 
 	dupID, err := db.DuplicateRoute(ctx, id, userID)
 	if err != nil {
@@ -173,7 +173,7 @@ func TestPlannedRouteMetadataAndModifiersRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRoute duplicate: %v", err)
 	}
-	assertMetadata(t, duplicated, "SAC T3", "hiking-sac2", false, true, false, false)
+	assertMetadata(t, duplicated, "SAC T3", "hiking-mountain", false, true, false, false)
 }
 
 func TestPlannedRouteCreateNormalizesLegacySportTuple(t *testing.T) {

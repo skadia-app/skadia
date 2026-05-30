@@ -248,13 +248,13 @@ func routingProfileVariantBaseFromProfile(ctx context.Context, db *database.DB, 
 
 func brouterPreviewProfileToBadRouter(profile string) (string, error) {
 	switch profile {
-	case "hiking-mountain", "hiking-sac2", "walking", "running":
+	case "hiking-mountain":
 		return "hiking", nil
-	case "cycling-mountain":
+	case "mtb":
 		return "mtb", nil
-	case "cycling-gravel":
+	case "gravel":
 		return "gravel", nil
-	case "cycling-road":
+	case "fastbike":
 		return "road", nil
 	case "trekking":
 		return "trekking", nil

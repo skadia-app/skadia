@@ -39,6 +39,15 @@ func TestValidateBRouterProfileParamsAllowsNumericProcessUnusedTagsValues(t *tes
 	}
 }
 
+func TestValidateCustomBRouterProfileParamsAllowsProcessUnusedTagsOnly(t *testing.T) {
+	if err := ValidateCustomBRouterProfileParams("custom-trail", map[string]string{"processUnusedTags": "1"}); err != nil {
+		t.Fatalf("ValidateCustomBRouterProfileParams returned error: %v", err)
+	}
+	if err := ValidateCustomBRouterProfileParams("custom-trail", map[string]string{"unknown_param": "1"}); err == nil {
+		t.Fatal("expected custom profile unknown param to be rejected")
+	}
+}
+
 func TestBRouterProfileParamSurfaceCoversDocumentedProfileVars(t *testing.T) {
 	root := findProjectRoot()
 	if root == "" {
@@ -46,12 +55,9 @@ func TestBRouterProfileParamSurfaceCoversDocumentedProfileVars(t *testing.T) {
 	}
 	re := regexp.MustCompile(`%([A-Za-z0-9_.-]+)%`)
 	for profile, surface := range brouterProfileParamSurface {
-		path := filepath.Join(root, "data", "brouter", "profiles", profile+".brf")
+		path := filepath.Join(root, "config", "brouter", "profiles", profile+".brf")
 		data, err := os.ReadFile(path)
 		if err != nil {
-			if profile == "hiking-sac2" {
-				continue
-			}
 			t.Fatalf("read %s: %v", path, err)
 		}
 		for _, match := range re.FindAllSubmatch(data, -1) {

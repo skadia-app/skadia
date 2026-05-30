@@ -15,7 +15,7 @@ function renderForm() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <RouteMetadataForm currentProfile="hiking-sac2" onChange={vi.fn()} />
+      <RouteMetadataForm currentProfile="hiking-mountain" onChange={vi.fn()} />
     </QueryClientProvider>,
   )
 }

@@ -6,7 +6,7 @@ CREATE TABLE planned_routes (
     description     TEXT,
     sport_type      TEXT NOT NULL DEFAULT 'hiking',
     difficulty      TEXT,
-    profile         TEXT NOT NULL DEFAULT 'hiking-sac2',
+    profile         TEXT NOT NULL DEFAULT 'hiking-mountain',
     geometry        GEOMETRY(LineString, 4326) NOT NULL,
     waypoints       JSONB NOT NULL,
     segments        JSONB NOT NULL,

@@ -12,22 +12,10 @@ docker-compose.override.yml
 # Garage — generated from garage.toml.template (contains secrets)
 garage/garage.toml
 
-# Data / temp (runtime artefacts, not in git)
-# `data/*` rather than `data/` so subdirectories can be re-included via `!` exceptions
-data/*
-!data/tiles/
-!data/brouter/
+# Data / temp (runtime artifacts, not in git)
+data/
 temp/
 tmp/
-
-# Tile files too large for git — only the .gitkeep is tracked
-data/tiles/*
-!data/tiles/.gitkeep
-
-# BRouter: ignore segment files (rd5, binary, multiple GB); keep profiles + directory structure
-data/brouter/segments/*
-!data/brouter/segments/.gitkeep
-data/dem/
 
 # Tooling caches / dependencies (catch-all for root + subtrees)
 **/node_modules/

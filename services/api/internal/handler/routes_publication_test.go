@@ -428,7 +428,7 @@ func insertRoutePublicationPrivacyTestRoute(t *testing.T, h *Handler, userID str
 		Name:            "orig-name",
 		Description:     &desc,
 		SportType:       "hiking",
-		Profile:         "hiking-sac2",
+		Profile:         "hiking-mountain",
 		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.0,47.0],[11.1,47.1]]}`,
 		Waypoints: []model.RouteWaypoint{
 			{ID: "a", Type: "start", LatLng: [2]float64{47.0, 11.0}},

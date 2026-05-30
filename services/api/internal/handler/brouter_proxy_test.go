@@ -6,6 +6,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -81,6 +83,138 @@ func TestRouteViabrouterRejectsUnknownProfileParamBeforeProxy(t *testing.T) {
 	}
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouteViabrouterForwardsOfficialBRouterProfileName(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	var gotProfile string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/brouter" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		gotProfile = r.URL.Query().Get("profile")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"FeatureCollection","features":[]}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "fastbike"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if gotProfile != "fastbike" {
+		t.Fatalf("forwarded profile = %q, want fastbike", gotProfile)
+	}
+}
+
+func TestRouteViabrouterRejectsUnsupportedBRouterProfileName(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "made-up-profile"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if called {
+		t.Fatal("unsupported profile should be rejected before calling BRouter")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouteViabrouterMapsLegacyBRouterProfileNames(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	var gotProfile string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/brouter" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		gotProfile = r.URL.Query().Get("profile")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"FeatureCollection","features":[]}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "cycling-road"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if gotProfile != "fastbike" {
+		t.Fatalf("forwarded profile = %q, want fastbike", gotProfile)
+	}
+}
+
+func TestRouteViabrouterForwardsExistingCustomBRouterProfileName(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	profilesDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(profilesDir, "custom-trail.brf"), []byte("assign validForBikes 1\n"), 0o644); err != nil {
+		t.Fatalf("write custom profile: %v", err)
+	}
+	var gotProfile string
+	var gotProcessUnusedTags string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/brouter" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		gotProfile = r.URL.Query().Get("profile")
+		gotProcessUnusedTags = r.URL.Query().Get("profile:processUnusedTags")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"FeatureCollection","features":[]}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL, BRouterProfilesDir: profilesDir}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "custom-trail"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if gotProfile != "custom-trail" {
+		t.Fatalf("forwarded profile = %q, want custom-trail", gotProfile)
+	}
+	if gotProcessUnusedTags != "1" {
+		t.Fatalf("profile:processUnusedTags = %q, want 1", gotProcessUnusedTags)
 	}
 }
 
