@@ -65,6 +65,18 @@ services/api/cmd/*/main
 Thumbs.db
 
 # Local agent/session state
+AGENTS.md
+AGENTS.MD
+CLAUDE.md
+CLAUDE.MD
+GEMINI.md
+GEMINI.MD
+frontend/AGENTS.md
+frontend/AGENTS.MD
+frontend/CLAUDE.md
+frontend/CLAUDE.MD
+frontend/GEMINI.md
+frontend/GEMINI.MD
 .claude/
 .worktrees/
 .private/
@@ -115,7 +127,3 @@ services/api/landmark_admissibility_check
 # suggest this path as a default for local corpora, calibration history,
 # or per-developer scratch state — adoption is opt-in.
 .private/
-CLAUDE.md
-CLAUDE.MD
-frontend/CLAUDE.md
-frontend/CLAUDE.MD
