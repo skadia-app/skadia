@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestWriteTagToolsMetadata(t *testing.T) {
@@ -154,7 +154,7 @@ func TestDeleteTagWriteToolSummarizesAndCascades(t *testing.T) {
 	}
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO planned_routes (id, user_id, name, sport_type, profile, geometry, waypoints, segments)
-		VALUES ($1, $2, 'Testroute', 'hiking', 'hiking-sac2', ST_GeomFromText('LINESTRING(7 47, 7.1 47.1)', 4326), '[]'::jsonb, '[]'::jsonb)`,
+		VALUES ($1, $2, 'Testroute', 'hiking', 'hiking-mountain', ST_GeomFromText('LINESTRING(7 47, 7.1 47.1)', 4326), '[]'::jsonb, '[]'::jsonb)`,
 		routeID, userID,
 	); err != nil {
 		t.Fatalf("insert route: %v", err)

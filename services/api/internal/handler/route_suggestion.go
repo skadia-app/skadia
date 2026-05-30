@@ -32,12 +32,13 @@ type LandscapePreferences struct {
 // profileMap maps incoming profile names to BadRouter profile names.
 // BadRouter knows: hiking, mtb, gravel, trekking, road.
 var profileMap = map[string]string{
-	"hiking":      "hiking",
-	"hiking-sac2": "hiking",
-	"trekking":    "trekking",
-	"mtb":         "mtb",
-	"gravel":      "gravel",
-	"road":        "road",
+	"hiking":          "hiking",
+	"hiking-mountain": "hiking",
+	"trekking":        "trekking",
+	"mtb":             "mtb",
+	"gravel":          "gravel",
+	"road":            "road",
+	"fastbike":        "road",
 }
 
 func routingProfileMatchesSuggestionRequest(profile database.RoutingProfile, req RouteSuggestionRequest) bool {

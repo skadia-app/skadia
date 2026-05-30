@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // brouterCache caches the result of the BRouter profiles directory scan.
@@ -132,20 +132,28 @@ func brouterProfilePredicates(name string) []sport.Predicate {
 	switch name {
 	case "trekking":
 		return routing.DefaultPredicates("trekking")
-	case "cycling-road":
+	case "fastbike":
 		return routing.DefaultPredicates("road")
-	case "cycling-mountain":
+	case "mtb":
 		return routing.DefaultPredicates("mtb")
-	case "cycling-gravel":
+	case "gravel":
 		return routing.DefaultPredicates("gravel")
-	case "hiking-mountain", "hiking-sac2":
+	case "hiking-mountain":
 		return []sport.Predicate{{Sport: "hiking"}, {Sport: "mountaineering"}}
-	case "running":
-		return []sport.Predicate{{Sport: "running"}}
-	case "walking":
-		return []sport.Predicate{{Sport: "walking"}, {Sport: "hiking"}}
 	default:
 		return []sport.Predicate{}
+	}
+}
+
+func isVisibleBRouterProfile(name string) bool {
+	if _, ok := legacyBRouterProfileAliases[name]; ok {
+		return false
+	}
+	switch name {
+	case "all", "softaccess":
+		return false
+	default:
+		return isSafeBRouterProfileName(name)
 	}
 }
 
@@ -185,6 +193,9 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		var items []profileListItem
 		for _, path := range matches {
 			base := strings.TrimSuffix(filepath.Base(path), ".brf")
+			if !isVisibleBRouterProfile(base) {
+				continue
+			}
 			items = append(items, profileListItemFromBRouterProfile(base, brouterProfilePredicates(base)))
 		}
 		brouterCacheMu.Lock()
@@ -615,6 +626,11 @@ func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Requ
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid filename", r.URL.Path)
 		return
 	}
+	profileName := strings.TrimSuffix(base, filepath.Ext(base))
+	if !isSafeBRouterProfileName(profileName) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid profile name", r.URL.Path)
+		return
+	}
 
 	brouterDir := h.Config.BRouterProfilesDir
 	if err := os.MkdirAll(brouterDir, 0o755); err != nil {
@@ -636,7 +652,7 @@ func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Requ
 	}
 
 	slog.Info("BRouter profile uploaded", "filename", base, "bytes", len(data))
-	httputil.WriteJSON(w, http.StatusCreated, map[string]any{"name": strings.TrimSuffix(base, ".brf"), "filename": base})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]any{"name": profileName, "filename": base})
 }
 
 // HandleDeleteBrouterProfile deletes a .brf profile file from the BRouter profiles directory.

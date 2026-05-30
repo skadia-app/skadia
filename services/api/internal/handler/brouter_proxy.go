@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,17 +22,63 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing/brouterenrich"
 )
 
-// validBRouterProfiles is the allowlist of BRouter routing profiles.
-// Any profile not in this map is replaced with the default "hiking-mountain".
+// validBRouterProfiles is the allowlist of built-in BRouter routing profiles.
+// Legacy names are canonicalized below; unknown names are rejected unless a
+// matching safe custom .brf exists in the configured BRouter profile directory.
 var validBRouterProfiles = map[string]bool{
-	"hiking-mountain":  true, // Offizielles BRouter-Wanderprofil (SAC T1-T6, konfigurierbar)
-	"hiking-sac2":      true, // Skadia SAC T2 Profil (einfach, hardcoded)
-	"trekking":         true, // Rad-Trekking (Standard BRouter)
-	"cycling-road":     true, // Rennrad
-	"cycling-mountain": true, // MTB
-	"cycling-gravel":   true, // Gravel
-	"running":          true, // Laufen (basierend auf hiking-mountain)
-	"walking":          true, // Spaziergang (basierend auf hiking-mountain)
+	"fastbike":        true,
+	"gravel":          true,
+	"hiking-mountain": true,
+	"mtb":             true,
+	"shortest":        true,
+	"trekking":        true,
+}
+
+var legacyBRouterProfileAliases = map[string]string{
+	"cycling-gravel":   "gravel",
+	"cycling-mountain": "mtb",
+	"cycling-road":     "fastbike",
+	"hiking-sac2":      "hiking-mountain",
+	"running":          "hiking-mountain",
+	"walking":          "hiking-mountain",
+}
+
+func (h *Handler) canonicalBRouterProfile(profile string) (string, bool, bool) {
+	if profile == "" {
+		return "hiking-mountain", true, false
+	}
+	if validBRouterProfiles[profile] {
+		return profile, true, false
+	}
+	if alias, ok := legacyBRouterProfileAliases[profile]; ok {
+		return alias, true, false
+	}
+	if h.hasCustomBRouterProfile(profile) {
+		return profile, true, true
+	}
+	return "", false, false
+}
+
+func (h *Handler) hasCustomBRouterProfile(profile string) bool {
+	if !isSafeBRouterProfileName(profile) || h == nil || h.Config == nil || h.Config.BRouterProfilesDir == "" {
+		return false
+	}
+	path := filepath.Join(h.Config.BRouterProfilesDir, profile+".brf")
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func isSafeBRouterProfileName(name string) bool {
+	if len(name) == 0 || len(name) > 50 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // RouteRequest is the request body for POST /api/v1/routing/route.
@@ -38,7 +86,7 @@ type RouteRequest struct {
 	// Waypoints is a list of [latitude, longitude] pairs (at least 2).
 	// Frontend convention is latlng; the proxy swaps to lonlat for BRouter.
 	Waypoints [][2]float64 `json:"waypoints"`
-	// Profile is the BRouter routing profile name (e.g. "hiking-sac2", "trekking").
+	// Profile is the BRouter routing profile name (e.g. "hiking-mountain", "trekking").
 	Profile string `json:"profile"`
 	// Alternatives is the BRouter alternative-route index (0 = primary).
 	Alternatives int `json:"alternatives"`
@@ -68,11 +116,20 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "at least 2 waypoints required", r.URL.Path)
 		return
 	}
-	if !validBRouterProfiles[req.Profile] {
-		req.Profile = "hiking-mountain"
+	profile, ok, customProfile := h.canonicalBRouterProfile(req.Profile)
+	if !ok {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported BRouter profile", r.URL.Path)
+		return
 	}
+	req.Profile = profile
 	req.ProfileParams = ensureBRouterWayTagProfileParams(req.ProfileParams)
-	if err := routing.ValidateBRouterProfileParams(req.Profile, req.ProfileParams); err != nil {
+	var err error
+	if customProfile {
+		err = routing.ValidateCustomBRouterProfileParams(req.Profile, req.ProfileParams)
+	} else {
+		err = routing.ValidateBRouterProfileParams(req.Profile, req.ProfileParams)
+	}
+	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}

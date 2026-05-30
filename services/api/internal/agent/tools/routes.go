@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/routing/brouterenrich"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
-	"github.com/google/uuid"
 )
 
 var (
@@ -751,7 +751,7 @@ func routingProfileSupports(engine, source string, routeSuggesterAvailable bool,
 
 func routeSuggestionProfileSupported(profileKey string) bool {
 	switch strings.TrimSpace(profileKey) {
-	case "hiking", "hiking-sac2", "trekking", "mtb", "gravel", "road":
+	case "hiking", "hiking-mountain", "trekking", "mtb", "gravel", "road", "fastbike":
 		return true
 	default:
 		return false
@@ -870,11 +870,11 @@ func mapBadRouterBaseProfileToBRouter(profile string) string {
 	case "hiking":
 		return "hiking-mountain"
 	case "mtb":
-		return "cycling-mountain"
+		return "mtb"
 	case "gravel":
-		return "cycling-gravel"
+		return "gravel"
 	case "road":
-		return "cycling-road"
+		return "fastbike"
 	case "trekking":
 		return "trekking"
 	default:

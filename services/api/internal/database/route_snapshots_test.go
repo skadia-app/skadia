@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/jackc/pgx/v5"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func TestCreatePlannedRouteSnapshotIsIdempotentAndVersionChecked(t *testing.T) {
@@ -146,7 +146,7 @@ func insertRouteSnapshotTestRoute(t *testing.T, db *DB, userID, name string) *mo
 		Name:            name,
 		SportType:       "cycling",
 		SubType:         &subType,
-		Profile:         "cycling-mountain",
+		Profile:         "mtb",
 		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
 		Waypoints:       []model.RouteWaypoint{},
 		Segments:        []model.RouteSegment{},

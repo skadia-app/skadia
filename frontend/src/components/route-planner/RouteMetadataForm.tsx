@@ -7,12 +7,11 @@ import type { Tag } from '@/api/tags'
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
 
 export const BROUTER_PROFILES: { value: string; label: string }[] = [
-  { value: 'hiking-sac2', label: 'Wandern (SAC)' },
+  { value: 'hiking-mountain', label: 'Wandern' },
   { value: 'trekking', label: 'Trekking' },
   { value: 'fastbike', label: 'Rennrad' },
   { value: 'mtb', label: 'Mountainbike' },
   { value: 'gravel', label: 'Gravel' },
-  { value: 'safety', label: 'Stadtrad (sicher)' },
   { value: 'shortest', label: 'Kürzeste Route' },
 ]
 

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ----------------------------------------------------------------------------
@@ -203,7 +203,7 @@ func insertTestRoute(t *testing.T, h *Handler, userID string) string {
 		Description:      &desc,
 		SportType:        "hiking",
 		Difficulty:       &diff,
-		Profile:          "hiking-sac2",
+		Profile:          "hiking-mountain",
 		GeometryGeoJSON:  `{"type":"LineString","coordinates":[[11.0,47.0],[11.1,47.1]]}`,
 		Waypoints:        []model.RouteWaypoint{},
 		Segments:         []model.RouteSegment{},

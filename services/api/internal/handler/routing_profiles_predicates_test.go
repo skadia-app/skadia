@@ -88,3 +88,55 @@ func TestValidateLegacySportTypesForProfile(t *testing.T) {
 		t.Fatal("expected empty sport_types rejection")
 	}
 }
+
+func TestBRouterProfilePredicatesUseOfficialProfileNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		sport    string
+		subType  string
+		hasMatch bool
+	}{
+		{name: "fastbike", sport: "cycling", subType: "road", hasMatch: true},
+		{name: "mtb", sport: "cycling", subType: "mountain", hasMatch: true},
+		{name: "gravel", sport: "cycling", subType: "gravel_cycling", hasMatch: true},
+		{name: "all", hasMatch: false},
+		{name: "softaccess", hasMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preds := brouterProfilePredicates(tt.name)
+			if !tt.hasMatch {
+				if len(preds) != 0 {
+					t.Fatalf("brouterProfilePredicates(%q) = %#v, want empty", tt.name, preds)
+				}
+				return
+			}
+			if len(preds) == 0 {
+				t.Fatalf("brouterProfilePredicates(%q) returned no predicates", tt.name)
+			}
+			found := false
+			for _, pred := range preds {
+				if pred.Sport == tt.sport && pred.SubType != nil && *pred.SubType == tt.subType {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("brouterProfilePredicates(%q) = %#v, want %s/%s", tt.name, preds, tt.sport, tt.subType)
+			}
+		})
+	}
+}
+
+func TestVisibleBRouterProfileExcludesBuildHelperProfiles(t *testing.T) {
+	for _, name := range []string{"all", "softaccess", "cycling-gravel", "cycling-mountain", "cycling-road", "hiking-sac2", "running", "walking", "bad name"} {
+		if isVisibleBRouterProfile(name) {
+			t.Fatalf("isVisibleBRouterProfile(%q) = true, want false", name)
+		}
+	}
+	for _, name := range []string{"fastbike", "gravel", "hiking-mountain", "mtb", "shortest", "trekking", "custom-trail"} {
+		if !isVisibleBRouterProfile(name) {
+			t.Fatalf("isVisibleBRouterProfile(%q) = false, want true", name)
+		}
+	}
+}

@@ -181,14 +181,12 @@ const WaypointItem = memo(function WaypointItem({
 
 // Offline fallback for BRouter profiles (used when API is not available)
 const BROUTER_PROFILES_FALLBACK = [
-  { value: 'hiking-mountain', label: 'Wandern (Alpin, SAC T1-T3)' },
-  { value: 'hiking-sac2', label: 'Wandern (SAC T2 max)' },
-  { value: 'cycling-road', label: 'Rennrad' },
-  { value: 'cycling-mountain', label: 'MTB' },
-  { value: 'cycling-gravel', label: 'Gravel' },
+  { value: 'hiking-mountain', label: 'Wandern' },
+  { value: 'fastbike', label: 'Rennrad' },
+  { value: 'mtb', label: 'MTB' },
+  { value: 'gravel', label: 'Gravel' },
   { value: 'trekking', label: 'Trekking (Rad)' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'walking', label: 'Spaziergang' },
+  { value: 'shortest', label: 'Kürzeste Route' },
 ]
 
 export function buildCreateProfilePayload(name: string, profileConfig: ProfileConfig, currentBadRouterEntry?: RoutingProfileEntry) {

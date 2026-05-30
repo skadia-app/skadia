@@ -24,47 +24,6 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"processUnusedTags":        true,
 		"turnInstructionMode":      true,
 	},
-	"hiking-sac2": {
-		"consider_elevation": true,
-		"downhillcost":       true,
-		"downhillcutoff":     true,
-		"processUnusedTags":  true,
-		"uphillcost":         true,
-		"uphillcutoff":       true,
-		"turncost":           true,
-	},
-	"running": {
-		"consider_elevation":       true,
-		"consider_noise":           true,
-		"consider_river":           true,
-		"consider_forest":          true,
-		"consider_town":            true,
-		"SAC_scale_limit":          true,
-		"SAC_scale_preferred":      true,
-		"add_beeline":              true,
-		"allow_ferries":            true,
-		"allow_steps":              true,
-		"hiking_routes_preference": true,
-		"iswet":                    true,
-		"processUnusedTags":        true,
-		"turnInstructionMode":      true,
-	},
-	"walking": {
-		"consider_elevation":       true,
-		"consider_noise":           true,
-		"consider_river":           true,
-		"consider_forest":          true,
-		"consider_town":            true,
-		"SAC_scale_limit":          true,
-		"SAC_scale_preferred":      true,
-		"add_beeline":              true,
-		"allow_ferries":            true,
-		"allow_steps":              true,
-		"hiking_routes_preference": true,
-		"iswet":                    true,
-		"processUnusedTags":        true,
-		"turnInstructionMode":      true,
-	},
 	"trekking": {
 		"allow_steps":                  true,
 		"allow_ferries":                true,
@@ -93,42 +52,37 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"considerTurnRestrictions":     true,
 		"processUnusedTags":            true,
 	},
-	"cycling-road": {
-		"allow_steps":                       true,
-		"allow_ferries":                     true,
-		"allow_motorways":                   true,
-		"use_proposed_cycleroutes":          true,
-		"consider_traffic":                  true,
-		"consider_noise":                    true,
-		"consider_river":                    true,
-		"consider_forest":                   true,
-		"consider_town":                     true,
-		"consider_elevation":                true,
-		"downhillcost":                      true,
-		"downhillcutoff":                    true,
-		"uphillcost":                        true,
-		"uphillcutoff":                      true,
-		"totalMass":                         true,
-		"maxSpeed":                          true,
-		"S_C_x":                             true,
-		"C_r":                               true,
-		"bikerPower":                        true,
-		"turnInstructionMode":               true,
-		"turnInstructionCatchingRange":      true,
-		"turnInstructionRoundabouts":        true,
-		"considerTurnRestrictions":          true,
-		"correctMisplacedViaPoints":         true,
-		"correctMisplacedViaPointsDistance": true,
-		"processUnusedTags":                 true,
+	"fastbike": {
+		"allow_steps":                  true,
+		"allow_ferries":                true,
+		"allow_motorways":              true,
+		"use_proposed_cycleroutes":     true,
+		"consider_traffic":             true,
+		"consider_noise":               true,
+		"consider_river":               true,
+		"consider_forest":              true,
+		"consider_town":                true,
+		"consider_elevation":           true,
+		"downhillcost":                 true,
+		"downhillcutoff":               true,
+		"uphillcost":                   true,
+		"uphillcutoff":                 true,
+		"totalMass":                    true,
+		"maxSpeed":                     true,
+		"S_C_x":                        true,
+		"C_r":                          true,
+		"bikerPower":                   true,
+		"turnInstructionMode":          true,
+		"turnInstructionCatchingRange": true,
+		"turnInstructionRoundabouts":   true,
+		"considerTurnRestrictions":     true,
+		"processUnusedTags":            true,
 	},
-	"cycling-mountain": {
-		"use_proposed_cycleroutes":          true,
-		"correctMisplacedViaPoints":         true,
-		"correctMisplacedViaPointsDistance": true,
-		"add_beeline":                       true,
-		"processUnusedTags":                 true,
+	"mtb": {
+		"add_beeline":       true,
+		"processUnusedTags": true,
 	},
-	"cycling-gravel": {
+	"gravel": {
 		"turnInstructionMode":               true,
 		"turnInstructionRoundabouts":        true,
 		"totalMass":                         true,
@@ -151,6 +105,10 @@ var brouterProfileParamSurface = map[string]map[string]bool{
 		"prefer_rivers":                     true,
 		"prefer_unpaved_paths":              true,
 		"processUnusedTags":                 true,
+	},
+	"shortest": {
+		"turnInstructionMode": true,
+		"processUnusedTags":   true,
 	},
 }
 
@@ -194,6 +152,25 @@ func ValidateBRouterProfileParams(profile string, params map[string]string) erro
 		if !surface[key] {
 			return fmt.Errorf("profile_params.%s is not supported by profile %q", key, profile)
 		}
+	}
+	return nil
+}
+
+func ValidateCustomBRouterProfileParams(profile string, params map[string]string) error {
+	if !isSafeProfileParamToken(profile) {
+		return fmt.Errorf("routing profile %q contains unsafe characters", profile)
+	}
+	for key, value := range params {
+		if !isSafeProfileParamToken(key) || !isSafeProfileParamToken(value) {
+			return fmt.Errorf("profile_params.%s contains unsafe characters", key)
+		}
+		if key == "processUnusedTags" {
+			if value != "0" && value != "1" {
+				return fmt.Errorf("profile_params.%s must be 0 or 1", key)
+			}
+			continue
+		}
+		return fmt.Errorf("profile_params.%s is not supported by custom profile %q", key, profile)
 	}
 	return nil
 }

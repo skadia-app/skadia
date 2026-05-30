@@ -48,7 +48,7 @@ func TestCreateRoutingProfileVariantToolMetadataAndWritePrefs(t *testing.T) {
 
 func TestPrepareCreateRoutingProfileVariantNormalizesAndPreviews(t *testing.T) {
 	prepared, err := prepareCreateRoutingProfileVariant(context.Background(), nil, "user-1", json.RawMessage(`{
-		"base_profile_key": "cycling-gravel",
+		"base_profile_key": "gravel",
 		"intent": "mehr Wald",
 		"changes": {"forest_bonus": 0.8, "traffic_penalty": 0.4},
 		"name_hint": "Gravel Wald",
@@ -75,7 +75,7 @@ func TestPrepareCreateRoutingProfileVariantNormalizesAndPreviews(t *testing.T) {
 
 func TestPrepareCreateRoutingProfileVariantRejectsUnsupportedOverride(t *testing.T) {
 	_, err := prepareCreateRoutingProfileVariant(context.Background(), nil, "user-1", json.RawMessage(`{
-		"base_profile_key": "cycling-gravel",
+		"base_profile_key": "gravel",
 		"changes": {"invented_weight": 0.8}
 	}`))
 	if err == nil || !strings.Contains(err.Error(), "unsupported profile override") {

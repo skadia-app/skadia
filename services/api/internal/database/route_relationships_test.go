@@ -202,7 +202,7 @@ func createRouteRelationshipTestRoute(t *testing.T, db *DB, userID, name string)
 		Name:            name,
 		SportType:       "cycling",
 		SubType:         &subType,
-		Profile:         "cycling-mountain",
+		Profile:         "mtb",
 		GeometryGeoJSON: `{"type":"LineString","coordinates":[[7.000,47.000],[7.001,47.001]]}`,
 		Waypoints:       []model.RouteWaypoint{{ID: "a", Type: "start", LatLng: [2]float64{47.000, 7.000}}, {ID: "b", Type: "end", LatLng: [2]float64{47.001, 7.001}}},
 		Segments:        []model.RouteSegment{{FromWaypoint: "a", ToWaypoint: "b", Mode: "routed", DistanceM: 100, Geometry: &model.GeoJSONLineString{Type: "LineString", Coordinates: [][]float64{{7.000, 47.000}, {7.001, 47.001}}}}},

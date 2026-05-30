@@ -183,7 +183,7 @@ func createRouteProfileTestSnapshot(t *testing.T, db *DB, userID string, enrichm
 		Name:            "profile route",
 		SportType:       "cycling",
 		SubType:         &subType,
-		Profile:         "cycling-mountain",
+		Profile:         "mtb",
 		GeometryGeoJSON: `{"type":"LineString","coordinates":[[7.000,47.000],[7.001,47.000],[7.002,47.000],[7.003,47.000],[7.004,47.000]]}`,
 		Waypoints: []model.RouteWaypoint{
 			{ID: "a", Type: "start", LatLng: [2]float64{47.000, 7.000}},
