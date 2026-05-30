@@ -230,7 +230,7 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		// NOTE: We duplicate ResolveUserSchema's priority logic inline here
 		// (builtin → globalDefault → user-override if canEditSchemas) to enable
 		// a batch-JOIN and avoid N+1 SELECTs across 100k users.
-		// Spec §10.5 + Plan-Kritiker-v1 HIGH #15 explicitly accept this duplication.
+		// Spec §10.5 +  explicitly accept this duplication.
 		// If resolver.go:ResolveUserSchema priority changes, UPDATE THIS BLOCK IN
 		// LOCKSTEP (e.g. add new priority stage).
 		// See also: services/api/internal/shadowfs/resolver.go:ResolveUserSchema

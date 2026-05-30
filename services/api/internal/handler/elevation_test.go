@@ -211,7 +211,7 @@ func TestElevationProfile_AtVerticesIgnoresNumPoints(t *testing.T) {
 //
 // Plan-End-Critic finding #12 (T0 elevation-profile-gap-fill).
 func TestElevationProfile_LegacyResample_Unchanged(t *testing.T) {
-	t.Skip("legacy resample test requires DB mock — see plan-end critic finding #12")
+	t.Skip("legacy resample test requires DB mock — see legacy behavior")
 }
 
 // --- test helpers ---

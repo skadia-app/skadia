@@ -19,7 +19,11 @@ func TestResolveProductName(t *testing.T) {
 		want           string
 	}{
 		{"Wahoo ELEMNT from map", 32, 28, "", "Wahoo ELEMNT"},
-		{"Polar H10 from map", 123, 2, "", "Polar H10"},
+		{"Polar H10 from observed sensor product", 123, 2, "", "Polar H10"},
+		{"Polar H10 from alternate map", 123, 133, "", "Polar H10"},
+		{"Polar H9 from map", 123, 222, "", "Polar H9"},
+		{"Polar OH1 from map", 123, 151, "", "Polar OH1"},
+		{"Polar product_name is preserved", 123, 0, "Polar H10", "Polar H10"},
 		{"FIT product_name with known manufacturer", 32, 28, "ELEMNT BOLT V2", "Wahoo ELEMNT BOLT V2"},
 		{"Unknown non-garmin falls back to manufacturer", 32, 999, "", "Wahoo Fitness"},
 		{"ManufacturerInvalid returns empty", 65535, 0, "", ""},

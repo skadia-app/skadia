@@ -885,12 +885,13 @@ func TestEdgeCostInteractionCombinatorics(t *testing.T) {
 // so any JSON change is automatically reflected — no silent drift.
 //
 // trail_visibility_penalty seeds are intentional literals from spec §3.4 PR2-Seeds-Table:
-//   | Profile  | max_trail_visibility | trail_visibility_penalty (seed) |
-//   | hiking   | 3                    | 0.5                             |
-//   | mtb      | 4                    | 0.4                             |
-//   | gravel   | 3                    | 0.8  ← critical case (Opus #7)  |
-//   | trekking | 3                    | 0.5                             |
-//   | road     | 6 / 0.0 (unchanged)  | —                               |
+//
+//	| Profile  | max_trail_visibility | trail_visibility_penalty (seed) |
+//	| hiking   | 3                    | 0.5                             |
+//	| mtb      | 4                    | 0.4                             |
+//	| gravel   | 3                    | 0.8  ← critical case (edge case)  |
+//	| trekking | 3                    | 0.5                             |
+//	| road     | 6 / 0.0 (unchanged)  | —                               |
 //
 // MaxTrailVisibility is forced to 6 for ALL profiles so tv=5 (horrible, severity=3)
 // is never blocked — this isolates the additive-penalty cap from the block gate.
@@ -909,7 +910,7 @@ func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
 	pr2TvSeeds := map[string]float32{
 		"hiking":   0.5,
 		"mtb":      0.4,
-		"gravel":   0.8, // Opus #7: critical case — verify gravel base avoids cap breach
+		"gravel":   0.8, // edge case: critical case — verify gravel base avoids cap breach
 		"trekking": 0.5,
 		"road":     0.0,
 	}
@@ -927,7 +928,7 @@ func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
 
 			p := mergeWithDefaults(t, ProfileConfig{
 				Profile: profileName,
-				// Live seeds from JSON (Phase-A values; auto-updated when JSONs change):
+				// Live seeds from JSON (initial-visibility values; auto-updated when JSONs change):
 				NoisePenalty:   base.NoisePenalty,
 				TrafficPenalty: base.TrafficPenalty,
 				// PR2 target seeds (intentional literals — block-gate tested separately):
@@ -952,8 +953,8 @@ func TestEdgeCostInteraction_PerProfileSeeds(t *testing.T) {
 // TestEdgeCostInteraction_BlockGate_PerProfile verifies that the max_trail_visibility gate
 // returns costBlocked when tv > maxTv for every profile that has max_trail_visibility > 0.
 //
-// TODAY (Phase-A): all 5 profiles have max_trail_visibility=0 in config/badrouter/*.json,
-// so all sub-tests SKIP — this is expected and correct (null-wirkung, spec §Phase-A).
+// TODAY (initial-visibility): all 5 profiles have max_trail_visibility=0 in config/badrouter/*.json,
+// so all sub-tests SKIP — this is expected and correct (null-wirkung, spec §initial-visibility).
 //
 // WHEN PR2 LANDS: profiles get max_trail_visibility=3 (hiking/gravel/trekking) or
 // max_trail_visibility=4 (mtb). Those sub-tests will activate automatically and catch
@@ -969,7 +970,7 @@ func TestEdgeCostInteraction_BlockGate_PerProfile(t *testing.T) {
 
 			maxTv := derefInt(p.MaxTrailVisibility)
 			if maxTv == 0 {
-				t.Skipf("profile %q has max_trail_visibility=0 (Phase-A null-wirkung); block-gate n/a", profileName)
+				t.Skipf("profile %q has max_trail_visibility=0 (initial-visibility null-wirkung); block-gate n/a", profileName)
 			}
 
 			// Use the raw builtin profile so the gate is live from JSON.
@@ -1003,7 +1004,7 @@ func TestPhaseA_AllProfilesFastPathActive(t *testing.T) {
 		cfNoTv := closure(tags1Path, 0).Flat
 		cfWithTv := closure(tags1Path, uint64(5)<<36).Flat // tv=horrible in tags2
 		if cfNoTv != cfWithTv {
-			t.Errorf("profile %q: Phase-A must ignore trail_visibility — %f vs %f",
+			t.Errorf("profile %q: initial-visibility must ignore trail_visibility — %f vs %f",
 				name, cfNoTv, cfWithTv)
 		}
 	}

@@ -724,7 +724,7 @@ func (e *Engine) runPhase5Activities(
 		}
 		insertCols, geometryCols = augmentInsertColumnsForRow(insertCols, geometryCols, targetCols, rawRow)
 
-		// Track files referenced but not in export (Finding #14).
+		// Track files referenced but not in export (regression case).
 		fileID, hasFileID := stringVal(rawRow["file_id"])
 		if hasFileID && fileID != "" {
 			if _, exists := idMap.GetIfExists(fileID); !exists {
@@ -931,7 +931,7 @@ func (e *Engine) writeImportLog(
 		"bytes_imported":    result.BytesImported,
 		"phases_completed":  result.PhasesCompleted,
 		"export_migration":  manifest.SchemaMigration,
-		"skadia_version":   manifest.SkadiaVersion,
+		"skadia_version":    manifest.SkadiaVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal import log metadata: %w", err)

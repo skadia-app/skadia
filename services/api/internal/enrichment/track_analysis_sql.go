@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
-	"github.com/jackc/pgx/v5"
 )
 
 type sqlTrackTagStats struct {
@@ -24,7 +24,7 @@ type sqlTrackTagStats struct {
 // given activity within this call. Both the graph path
 // (enrichTrackAnalysisGraph) and this SQL fallback MUST DELETE+INSERT inside
 // their own Tx; no outer-Tx writes are allowed. Callers (re_enrich,
-// recompute, backfill) must not pre-DELETE — see Finding #3 for the data-loss
+// recompute, backfill) must not pre-DELETE — see regression case for the data-loss
 // window that creates. Track_analysis.go falls through from graph to SQL on
 // error, which is only safe because both paths are self-contained.
 func enrichTrackAnalysisSQL(

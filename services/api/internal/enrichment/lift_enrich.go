@@ -43,7 +43,7 @@ func LiftEnrichLockKey(activityID string) int64 {
 	return (LiftEnrichAdvisoryLockNs << 32) | int64(h.Sum32())
 }
 
-// enrichStreamLifts is the lift-detection adapter (Phase 4c — three-stage
+// enrichStreamLifts is the lift-detection adapter (OSM-snap — three-stage
 // snap pipeline). It is registered as a stream-enrichment module in
 // stream_enrich.go and replaces the legacy independent Method A + Method B
 // pair from services/ml/enrichment/lifts.py.
@@ -243,7 +243,7 @@ func enrichStreamLiftsCore(
 		return nil
 	}
 
-	// Phase 4c.5.1: when osm_lifts is empty the snap stages cannot run, but
+	// empty-OSM fallback: when osm_lifts is empty the snap stages cannot run, but
 	// the heuristic detector still does — its rides land as unsegmented
 	// heuristic candidates (the user-confirm flow takes over from there).
 	var hasOSM bool
@@ -346,7 +346,7 @@ func enrichStreamLiftsCore(
 		// stage3 remains nil — no Stage-3 candidates in heuristic-only mode.
 	}
 
-	// 4. Atomic destructive cleanup + rebuild — Codex N5a (Option B).
+	// 4. Atomic destructive cleanup + rebuild.
 	//
 	// Pre-fix the cleanup (DELETE candidates, NULL-out rejected pointers,
 	// DELETE segment_efforts) and the rebuild (INSERT segment_efforts +
@@ -380,7 +380,7 @@ func enrichStreamLiftsCore(
 	// Idempotent delete — guard user_id so only the activity's owner is
 	// affected. Rows with rejected_by_user=true are intentionally preserved:
 	// they are user-authored audit traces that must survive re-enrichment
-	// (Phase 4d). The re-insert path uses insertHeuristicCandidateTx (and
+	// (soft-reject). The re-insert path uses insertHeuristicCandidateTx (and
 	// insertAuditCandidateTx) to suppress re-detection of overlapping
 	// rejected candidates.
 	if _, err := tx.Exec(ctx, `
@@ -391,7 +391,7 @@ func enrichStreamLiftsCore(
 	`, activityID, userID); err != nil {
 		return fmt.Errorf("enrichStreamLifts: delete candidates: %w", err)
 	}
-	// Critic F5 — break the orphan FK on soft-rejected audit rows. Those
+	// Break the orphan FK on soft-rejected audit rows. Those
 	// rows are intentionally preserved across re-enrichment so the user's
 	// reject decision survives, but their segment_effort_id pointer would
 	// dangle once the segment_efforts DELETE below removes the referenced
@@ -435,7 +435,7 @@ func enrichStreamLiftsCore(
 
 	// 5. Persist Stage-1 + Stage-2 results inside the Tx.
 	//
-	// Phase-4 critic F2 (Variante B) — reject persistence. Before each
+	// soft-reject review — reject persistence. Before each
 	// SnapAction-Snap insert (canonical or suppressed-merge) we ask the DB
 	// whether a soft-rejected audit-row (any source) already covers the
 	// same window (boundary deltas ≤ 5 s). When yes, the entire insert is
@@ -443,7 +443,7 @@ func enrichStreamLiftsCore(
 	// reject survives re-enrichment instead of being overwritten by a fresh
 	// canonical row.
 	//
-	// N5b fix (Codex finding): this pre-check uses IsRejectedAnySourceInWindow
+	// This pre-check uses IsRejectedAnySourceInWindow
 	// (symmetric, source-agnostic) rather than IsOSMRejectedInWindow
 	// (source='osm' only). The asymmetric helper would let a heuristic-
 	// rejected window pass this guard, insert a fresh segment_effort, and
@@ -733,7 +733,7 @@ func ascentForDirection(r lifts.LiftRide, isReverse bool) float64 {
 }
 
 // insertSegmentEffortTx writes one Stage-1 / Stage-2 / Stage-3 segment_efforts
-// row with the Phase 4c audit flags. Returns the inserted id (UUID); the
+// row with the OSM-snap audit flags. Returns the inserted id (UUID); the
 // composite-PK hypertable design means we generate the id client-side and
 // thread it back to the audit-candidate insert.
 //
@@ -818,10 +818,9 @@ func insertSegmentEffortTx(
 // callers) and the ON CONFLICT (activity_id, started_at) DO UPDATE flips
 // the rejected heuristic row's source to 'osm' while keeping
 // rejected_by_user=true — a once-rejected window silently poisons all
-// future detection through the OSM path. Codex GPT-5.5-xhigh adversarial-
-// review surfaced this as F14 on commit 2062b1465 in branch
-// feature/lift-detection-go. Putting the symmetric guard at the upsert site
-// makes the bug unreachable regardless of which caller path arrives here.
+// future detection through the OSM path. Putting the symmetric guard at the
+// upsert site makes the bug unreachable regardless of which caller path
+// arrives here.
 //
 // Tx contract: the INSERT runs on tx so it commits atomically with the
 // rest of the rebuild. The IsRejectedAnySourceInWindow read intentionally
@@ -990,7 +989,7 @@ func insertStage3SegmentEffortsBatched(
 	if len(plans) == 0 {
 		return 0, nil
 	}
-	// Phase 1: per-lift time-window reads and reject-filter pre-checks.
+	// Step 1: per-lift time-window reads and reject-filter pre-checks.
 	// Collect the rows that will be batch-inserted.
 	rows := make([]stage3Row, 0, len(plans))
 	for _, plan := range plans {
@@ -1038,7 +1037,7 @@ func insertStage3SegmentEffortsBatched(
 		rows = deduped
 	}
 
-	// Phase 2: batch INSERT segment_efforts via UNNEST.
+	// Step 2: batch INSERT segment_efforts via UNNEST.
 	n := len(rows)
 	ids := make([]string, n)
 	activityIDs := make([]string, n)
@@ -1114,7 +1113,7 @@ func insertStage3SegmentEffortsBatched(
 		return 0, fmt.Errorf("stage3 batch segment_efforts insert: %w", err)
 	}
 
-	// Phase 3: batch INSERT audit candidates.
+	// Step 3: batch INSERT audit candidates.
 	auStartedAts := make([]time.Time, n)
 	auEndedAts := make([]time.Time, n)
 	auDurationSs := make([]int, n)
@@ -1407,7 +1406,7 @@ func insertStage3SegmentEffortTx(
 	if !ok {
 		return false, nil
 	}
-	// Phase-4 critic F2 (Variante B): pre-check the time-window against
+	// soft-reject review: pre-check the time-window against
 	// soft-rejected audit-rows. Stage 3 is the method-A coverage gap
 	// path; the audit-row writes startedAt/endedAt as derived here, so
 	// the rejected-window predicate uses those same boundaries.

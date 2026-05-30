@@ -222,10 +222,10 @@ func TestComputeVfRanges_K3(t *testing.T) {
 // functions return nil (no panic) when edgeCoordStart and the tag slice(s) have
 // mismatched lengths.  This guards against programmer errors in the route-build
 // pipeline — mismatches are never expected in production after the Phase-1
-// Batch-1-#3-Fix invariant holds, but the guard provides a safety net.
+// Regression fix invariant holds, but the guard provides a safety net.
 func TestComputeRanges_LenMismatch_ReturnsNil(t *testing.T) {
 	edgeCoordStart := []int{0, 5} // len 2
-	tags3 := []uint64{0, 0, 0}   // len 3 — mismatch
+	tags3 := []uint64{0, 0, 0}    // len 3 — mismatch
 
 	if r := computeForestRanges(edgeCoordStart, tags3, 10); r != nil {
 		t.Fatal("computeForestRanges: len-mismatch must return nil")
@@ -366,9 +366,9 @@ func BenchmarkComputeRanges_Fused_vs_Single(b *testing.B) {
 	edgeTags2 := make([]uint64, n)
 	for i := 0; i < n; i++ {
 		edgeCoordStart[i] = i * 5
-		sacRaw := uint8((i%6) + 1) // cycles 1..6
-		mtbRaw := uint8((i%6) + 1)
-		vfRaw := uint8((i%6) + 1)
+		sacRaw := uint8((i % 6) + 1) // cycles 1..6
+		mtbRaw := uint8((i % 6) + 1)
+		vfRaw := uint8((i % 6) + 1)
 		edgeTags1[i] = encodeSacScale(sacRaw) | encodeMtbScale(mtbRaw)
 		edgeTags2[i] = encodeForestPct(uint8((i%100)+1)) |
 			encodeProtectedArea(uint8(i%4)) |

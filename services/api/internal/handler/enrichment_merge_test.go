@@ -5,7 +5,7 @@ package handler
 //
 // These tests do NOT require a live DB. They replicate the pure-merge logic
 // from UpdateEnrichmentSettings in enrichment.go (lines ~676–699) and pin
-// down the behaviour that was called out as suspect in Finding #41:
+// down the behaviour that was called out as suspect in regression case:
 //
 //   * Frontend sends PATCH with only a subset of fields
 //   * Backend loads the existing settings, merges the patch on top,
@@ -13,7 +13,7 @@ package handler
 //   * The final struct must preserve fields that were NOT touched by the
 //     patch, including nullable *string pointer fields.
 //
-// Finding #41 suspected that partial PATCHes could silently clear
+// regression case suspected that partial PATCHes could silently clear
 // GeocodeFallbackURL (a *string field with `omitempty`). These tests
 // demonstrate the merge logic actually behaves correctly in all the
 // relevant scenarios.
@@ -66,41 +66,41 @@ func mergeEnrichmentSettingsForTest(t *testing.T, existing *model.EnrichmentSett
 // tell apart "preserved" from "zeroed".
 func baseSettings() *model.EnrichmentSettings {
 	return &model.EnrichmentSettings{
-		UserID:                    "user-123",
-		EnableSummitDetection:     true,
-		EnableWeatherEnrichment:   true,
-		EnableStopDetection:       true,
-		EnableAscentDetection:     true,
-		EnableAutoNaming:          true,
-		EnableLapDetection:        true,
-		ClimbMinGradientPct:       5.0,
-		ClimbMinElevationM:        100,
-		RoundTripThresholdM:       150,
-		OCRInvoicePrompt:          strPtr("custom invoice prompt"),
-		OCRGearPrompt:             strPtr("custom gear prompt"),
-		EnableForestDetection:     true,
-		EnableWaterDetection:      true,
-		EnableSettlementDetection: true,
-		EnableBorderDetection:     true,
-		EnableLiftDetection:       true,
-		EnableSurfaceDetection:    true,
-		EnableIntervalDetection:   true,
-		EnableEmbeddings:          true,
-		PhotoPreviewSize:          "wqhd",
-		TerraIncognitaRadiusM:     1000,
-		RouteDuplicateHausdorffM:  50,
+		UserID:                     "user-123",
+		EnableSummitDetection:      true,
+		EnableWeatherEnrichment:    true,
+		EnableStopDetection:        true,
+		EnableAscentDetection:      true,
+		EnableAutoNaming:           true,
+		EnableLapDetection:         true,
+		ClimbMinGradientPct:        5.0,
+		ClimbMinElevationM:         100,
+		RoundTripThresholdM:        150,
+		OCRInvoicePrompt:           strPtr("custom invoice prompt"),
+		OCRGearPrompt:              strPtr("custom gear prompt"),
+		EnableForestDetection:      true,
+		EnableWaterDetection:       true,
+		EnableSettlementDetection:  true,
+		EnableBorderDetection:      true,
+		EnableLiftDetection:        true,
+		EnableSurfaceDetection:     true,
+		EnableIntervalDetection:    true,
+		EnableEmbeddings:           true,
+		PhotoPreviewSize:           "wqhd",
+		TerraIncognitaRadiusM:      1000,
+		RouteDuplicateHausdorffM:   50,
 		RouteDuplicateLengthDiffKm: 1.0,
-		VideoClipFrames:           4,
-		PhashThresholdBits:        3,
-		GeocodeFallbackProvider:   "off",
-		GeocodeFallbackURL:        strPtr("https://my-proxy.example/nominatim"),
-		GeocodeFallbackTimeoutS:   5,
+		VideoClipFrames:            4,
+		PhashThresholdBits:         3,
+		GeocodeFallbackProvider:    "off",
+		GeocodeFallbackURL:         strPtr("https://my-proxy.example/nominatim"),
+		GeocodeFallbackTimeoutS:    5,
 	}
 }
 
 // TestUpdateEnrichmentSettings_partial_preserves_url documents that sending a
 // partial PATCH WITHOUT geocode_fallback_url does NOT clear the URL. This is
-// the core concern in Finding #41.
+// the core concern in regression case.
 func TestUpdateEnrichmentSettings_partial_preserves_url(t *testing.T) {
 	existing := baseSettings()
 	patch := []byte(`{"geocode_fallback_timeout_s": 7}`)

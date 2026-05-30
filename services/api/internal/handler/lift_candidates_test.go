@@ -333,7 +333,7 @@ func callRejectLiftCandidate(
 
 // TestRejectLiftCandidate_OSMSource_204: rejecting an audit-row with
 // source='osm' must succeed (204 No Content) and flip rejected_by_user to
-// true. Phase-4 critic F2 Variante B: the OSM reject path must be open so
+// true. regression case Variante B: the OSM reject path must be open so
 // the user can recover from a wrong snap (e.g. paths running parallel to
 // the lift line that the snap heuristic mis-attributes).
 func TestRejectLiftCandidate_OSMSource_204(t *testing.T) {

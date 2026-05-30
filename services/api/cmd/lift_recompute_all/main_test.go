@@ -139,7 +139,7 @@ func TestLiftRecomputeAll_ListActivityGearIDsUsesAssignments(t *testing.T) {
 // activities with no pending heuristic candidates (i.e., all heuristic candidates
 // are confirmed or rejected).
 //
-// Adversarial-Review-Finding #22: prevents the review modal from appearing for
+// regression case: prevents the review modal from appearing for
 // every historic activity after migration.
 func TestLiftRecomputeAll_AckBackfill_OnlyConfirmedSets(t *testing.T) {
 	pool := testdb.Open(t)

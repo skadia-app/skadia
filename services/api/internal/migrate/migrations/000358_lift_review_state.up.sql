@@ -1,4 +1,4 @@
--- Phase 4d — Soft-Reject-Persistenz + Acknowledgment-State + Detection-Mode Toggles.
+-- Soft-reject persistence, acknowledgment state, and detection-mode toggles.
 --
 -- rejected_by_user: soft-reject flag on lift candidates. Hidden from default
 -- queries and aggregates. Survives re-enrichment unless explicitly cleared via
@@ -30,7 +30,7 @@ COMMENT ON COLUMN activity_lift_candidates.rejected_by_user IS
 COMMENT ON COLUMN activities.lifts_acknowledged_at IS
     'Set when the user has reviewed lift candidates (confirm-all/reject-all/single-action via review modal). NULL means modal should show on next visit.';
 
--- Phase 1 of lift-detection-toggles: per-user sub-toggles and per-activity overrides.
+-- Per-user sub-toggles and per-activity overrides.
 --
 -- enable_lift_detection_osm / enable_lift_detection_heuristic:
 --   Sub-toggles of enable_lift_detection. Allow users to independently disable
@@ -62,7 +62,7 @@ COMMENT ON COLUMN activities.lift_detection_osm_override IS
 COMMENT ON COLUMN activities.lift_detection_heuristic_override IS
     'Per-activity override of user_enrichment_settings.enable_lift_detection_heuristic. NULL = inherit user setting.';
 
--- Phase 6 (toggles plan-end critic F3): widen lift_recompute running-job guard.
+-- Widen the lift_recompute running-job guard.
 --
 -- Old shape (000285): UNIQUE (user_id, job_type) WHERE status='running'
 --   - blocked any second lift_recompute regardless of activity_id, so a user

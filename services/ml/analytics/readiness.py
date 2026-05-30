@@ -1,7 +1,4 @@
-"""Readiness Score Worker — composite + factor loaders + cache write.
-
-Spec: docs/internal/specs/2026-05-01-readiness-design.md (§5–§6, §10.4).
-Plan: docs/internal/2026-05-01-readiness-plan.md (Phase 3).
+"""Readiness score worker: composite scoring, factor loading, and cache writes.
 
 The worker computes a daily readiness score (0–100) from up to three
 critical factors (HRV-Status, Sleep, Training-Load) plus optional bonus

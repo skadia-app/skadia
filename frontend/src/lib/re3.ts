@@ -1,5 +1,4 @@
 // Looney, Hoogkamer, Kram (2025) — RE3 Graded Running Equation
-// Reference: docs/research/2026-03-29-gap-re3-model-analysis.md
 
 /**
  * RE3 metabolic rate (W/kg).

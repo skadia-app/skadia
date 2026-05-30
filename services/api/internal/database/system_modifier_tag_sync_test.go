@@ -6,7 +6,7 @@ package database
 // Every test boots a fresh user via testdb.Open and asserts both the
 // transaction lifecycle and the resync side effects.
 //
-// Finding #18 tests (assertSystemModifierTagSyncSkipFlagSet) are at the bottom.
+// regression case tests (assertSystemModifierTagSyncSkipFlagSet) are at the bottom.
 
 import (
 	"context"
@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
 func systemModifierTagSyncTestDB(t *testing.T) (*DB, string, []string) {
@@ -483,4 +483,3 @@ func TestLinkActivityTagTxAcceptsFlaggedTx(t *testing.T) {
 		t.Fatalf("LinkActivityTagTx on flagged tx returned error: %v", err)
 	}
 }
-

@@ -1,7 +1,7 @@
 package database_test
 
-// Phase-4d Adversarial-Critic finding F8: the suppression guarantee of
-// InsertHeuristicCandidateIfNotRejected against a *pre-existing* rejected
+// InsertHeuristicCandidateIfNotRejected must preserve the suppression guarantee
+// against a *pre-existing* rejected
 // row in the ±5 s tolerance window must hold under concurrent insert
 // pressure. This is the realistic atomicity contract — once the user has
 // rejected a window, ALL concurrent inserts that fall within that window
@@ -138,8 +138,8 @@ func TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsSuppressedByPreE
 }
 
 // TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsWithShiftedTimes
-// covers the N4 race fix (Codex GPT-5.5-xhigh adversarial-review #4): with NO
-// pre-existing rejected row, two concurrent InsertHeuristicCandidateIfNotRejected
+// covers the concurrent insert case: with NO pre-existing rejected row,
+// two concurrent InsertHeuristicCandidateIfNotRejected
 // calls with started_at values shifted within the ±5 s tolerance window
 // could BOTH observe "no rejected row exists yet" and BOTH insert. The
 // per-activity advisory lock funnels them into single-file order so that

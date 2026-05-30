@@ -1,6 +1,6 @@
 package database_test
 
-// Phase-4 Adversarial-Critic finding F2 (high) — OSM-Reject-Recovery.
+// Phase-4 regression case— OSM-Reject-Recovery.
 //
 // Pre-fix: recomputeLiftStats counted segment_efforts unconditionally,
 // ignoring whether the corresponding audit-row in activity_lift_candidates

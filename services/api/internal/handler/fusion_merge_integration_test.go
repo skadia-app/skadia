@@ -56,12 +56,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -2165,8 +2165,8 @@ func TestRelatedTablesUnionCopy(t *testing.T) {
 
 // ─── Test: RevertFusion restores photos ───────────────────────────────────────
 
-// TestRevertFusionRestoresPhotos verifies Finding #12 from the Fusion Consistency
-// Refactor critic: photos reassigned to the merged activity during fusion are
+// TestRevertFusionRestoresPhotos verifies that photos reassigned to the
+// merged activity during fusion are
 // restored to their original source before DeleteActivity triggers CASCADE.
 //
 // Pre-fix behaviour: RevertFusion called DeleteActivity(mergedID) → CASCADE on
@@ -2385,8 +2385,8 @@ func TestRevertFusionRestoresPhotos(t *testing.T) {
 //   - No 500 Internal Server Error from either request.
 //   - The merged activity is deleted exactly once (no dangling state).
 //
-// This test covers Finding #17 from the Fusion Consistency Refactor critic:
-// the race window between GetFusionMembershipsForMerged (outside lock) and
+// This test covers the race window between GetFusionMembershipsForMerged
+// (outside lock) and
 // the lock acquisition that caused the second concurrent request to see non-empty
 // memberships and then fail on DeleteActivity (already deleted by the first).
 func TestRevertFusionConcurrentSameUser(t *testing.T) {
@@ -2681,9 +2681,9 @@ func TestRevertFusionWrongUser(t *testing.T) {
 // the integration test harness today. The fix (reload freshMerged after
 // fitLevelMerge) needs targeted coverage once a ShadowFS mock is added.
 
-// ─── Finding #8: Transitive Fusion Photo Restore ─────────────────────────────
+// ─── Transitive Fusion Photo Restore ─────────────────────────────────────────
 
-// TestTransitiveFusionPhotoRestore covers Round-2 critic Finding #8:
+// TestTransitiveFusionPhotoRestore covers the multi-step photo restore path.
 // When A+B→M1 (first fusion) and M1+C→M2 (second fusion), then:
 //
 //   - During fuse(A,B)→M1: P_A.source_activity_id = A, P_B.source_activity_id = B.
@@ -2699,7 +2699,7 @@ func TestRevertFusionWrongUser(t *testing.T) {
 // This test documents the INCONSISTENCY: after reverting M2, P_A is restored to A
 // which remains hidden (parent_id = M1).  A is visible only when M1 is later
 // reverted.  The photo is not lost, but the visibility state is surprising — the
-// critic flag stands.
+// the inconsistency remains documented.
 //
 // Revert M1:
 //   - A and B become visible (parent_id = NULL).
@@ -2907,7 +2907,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 	}
 
 	// Transitive COALESCE check: P_A must still point to A (not M1) after second fusion.
-	// This is the key assertion for Finding #8.
+	// This is the key assertion for regression case.
 	var paSource2ID *string
 	if err := pool.QueryRow(ctx,
 		`SELECT source_activity_id FROM activity_photos
@@ -2962,7 +2962,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 
 	// After reverting M2:
 	// — P_A is restored to A (activity_id = A).
-	//   INCONSISTENCY NOTE (Finding #8): A still has parent_id = M1 (A is hidden under M1).
+	//   INCONSISTENCY NOTE (regression case): A still has parent_id = M1 (A is hidden under M1).
 	//   The photo is not lost but it is attached to a hidden activity.
 	//   This test DOCUMENTS the inconsistency — it is not an error in the current codebase.
 	if got := countPhotosOf(t, actA); got != 1 {
@@ -3012,7 +3012,7 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 	t.Logf("after revert(M2): M1 memberships=%d (intact) — OK", m1MembershipCount)
 
 	// — A is still hidden (parent_id = M1) because M1 was not reverted.
-	//   This documents the Finding #8 inconsistency: photo P_A is on A but A is hidden.
+	//   This documents the regression case inconsistency: photo P_A is on A but A is hidden.
 	var aParentID *string
 	if err := pool.QueryRow(ctx,
 		`SELECT parent_id FROM activities WHERE id = $1`, actA,
@@ -3075,10 +3075,10 @@ func TestTransitiveFusionPhotoRestore(t *testing.T) {
 		countPhotosOf(t, actA), countPhotosOf(t, actB), countPhotosOf(t, actC))
 }
 
-// ─── Finding #21: copyRelatedTablesUnion partial-failure rollback ─────────────
+// ─── copyRelatedTablesUnion partial-failure rollback ─────────────────────────
 
-// TestCopyRelatedTablesUnionPartialFailureRollsBack covers Round-2 critic Finding #21:
-// the Batch-1 fix made copyRelatedTablesUnion errors fatal (return err instead of
+// TestCopyRelatedTablesUnionPartialFailureRollsBack covers rollback when
+// copyRelatedTablesUnion errors are fatal (return err instead of
 // slog.Warn), so the caller (applyFusionTxExtras) rolls back the TX on failure.
 //
 // Strategy: inject a TxFactory that wraps the real pgx.Tx with a mockTx that
@@ -3945,7 +3945,7 @@ func TestFusionMerge_TitleSourceFailureRollsBackTX(t *testing.T) {
 	})
 }
 
-// ─── Finding #9: applyFusionTxExtras coherent failure semantic ────────────────
+// ─── regression case: applyFusionTxExtras coherent failure semantic ────────────────
 
 // TestFusionMerge_AggregateFailureSkipsElevation verifies that when the aggregate
 // recompute fails (injected DB error), elevation is NOT computed or written —

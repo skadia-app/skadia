@@ -21,16 +21,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/migrate"
 )
 
 // isValidExportPath validates that a file path from DB metadata points to
@@ -383,7 +383,7 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	allNames := gdprAllTableNames(specs, healthTables)
 
 	// 2a. Read schema migration version BEFORE introspection. This is the
-	//     baseline we will compare against inside the TX (Finding #7 defense).
+	//     baseline we will compare against inside the TX (regression case defense).
 	//     On error we use 0 — a mismatch will then always trigger on any non-zero
 	//     in-TX version, which is the conservative/safe direction.
 	preIntrospectMigration, err := migrate.CurrentVersion(ctx, h.DB.Pool)
@@ -493,7 +493,7 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	allErrs = append(allErrs, exportErrs...)
 	manifest := map[string]any{
 		"format_version":   1,
-		"skadia_version":  skadiaExportVersion,
+		"skadia_version":   skadiaExportVersion,
 		"schema_migration": schemaMigrationInt,
 		"exported_at":      time.Now().Format(time.RFC3339),
 		"user_id":          userID,

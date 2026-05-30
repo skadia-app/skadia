@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/paulmach/orb"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
-	"github.com/paulmach/orb"
 )
 
 // SegmentEnrichmentResponse is the single source of truth for the HTTP response
 // shape. The handler in services/api/internal/handler/segments.go imports this
 // type and JSON-encodes it directly — do NOT re-declare it in the handler
-// package (Batch-5-Fix: ensure no duplicate struct declarations).
+// package (Regression fix: ensure no duplicate struct declarations).
 type SegmentEnrichmentResponse struct {
 	Surface     *SurfaceSuggestion `json:"surface"`
 	SacScale    *ScaleSuggestion   `json:"sac_scale"`

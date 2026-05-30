@@ -77,7 +77,7 @@ func callBulkLifts(
 
 // callRestoreLiftCandidate fires POST against the new restore endpoint.
 // The route is /api/v1/lift-candidates/{id}/restore — note that there is
-// no activity-id in the URL (Adversarial-Review-Finding #19 chose this
+// no activity-id in the URL (regression case chose this
 // form so the inspector can hit it without re-deriving the activity_id
 // from the candidate row).
 func callRestoreLiftCandidate(

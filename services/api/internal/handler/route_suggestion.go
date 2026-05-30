@@ -533,7 +533,7 @@ func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req R
 		}
 	}
 
-	// Step 10a: Pre-compute summit queries in parallel (Finding #20).
+	// Step 10a: Pre-compute summit queries in parallel (regression case).
 	// All variants' WKB encoding + PostGIS queries run concurrently before the
 	// build loop so that 3×~40ms PostGIS RTTs overlap instead of stacking.
 	// Per-variant isolation: errors are logged and produce nil (no bubble-up).
@@ -586,7 +586,7 @@ func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req R
 			descriptors = []VariantDescriptor{}
 		}
 
-		// Range computation per variant — single fused pass over edge tags (Finding #15).
+		// Range computation per variant — single fused pass over edge tags (regression case).
 		// Use LastEdgeCoordEnd-1 when set to exclude the dst-VE air-line tail from
 		// range highlights (F2: dst-VE Range-Bleed fix).
 		lastCoordIdx := lastRealCoordIdx(merged)
@@ -598,7 +598,7 @@ func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req R
 		vfRanges := allRanges.Vf
 		vfUnknownRanges := allRanges.VfUnknown
 
-		// Consume pre-computed summit results (Finding #20: parallel pre-fetch above).
+		// Consume pre-computed summit results (regression case: parallel pre-fetch above).
 		summitsPassed := summitsPerVariant[i]
 		responseSummits := make([]ResponsePassedSummit, 0, len(summitsPassed))
 		for _, s := range summitsPassed {

@@ -10,7 +10,7 @@ import (
 )
 
 // TestRenameSystemRule_OnlyTouchesSystemRule is the regression test for
-// Finding #26: migrations 000298 and 000299 did a blind
+// regression case: migrations 000298 and 000299 did a blind
 //
 //	UPDATE automation_rules SET name = '<new>' WHERE name = '<old>';
 //
@@ -89,7 +89,7 @@ func TestRenameSystemRule_OnlyTouchesSystemRule(t *testing.T) {
 		t.Errorf("system rule name: want %q, got %q", "Intervalltraining", sysName)
 	}
 
-	// User rule: UNTOUCHED — this is the core invariant Finding #26 is about.
+	// User rule: UNTOUCHED — this is the core invariant regression case is about.
 	var userName string
 	if err := db.Pool.QueryRow(ctx,
 		`SELECT name FROM automation_rules WHERE id = $1`, userRuleID,
@@ -133,7 +133,7 @@ func TestRenameSystemRule_NoMatchIsNotAnError(t *testing.T) {
 
 // TestRenameSystemRule_RejectsEmptyNames guards against accidental wipeouts:
 // passing an empty oldName or newName should be refused at the helper level
-// rather than silently running an UPDATE with '' as a literal value.
+// rather than silently running an UPDATE with ” as a literal value.
 func TestRenameSystemRule_RejectsEmptyNames(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

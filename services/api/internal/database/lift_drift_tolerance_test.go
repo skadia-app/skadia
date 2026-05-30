@@ -1,6 +1,6 @@
 package database_test
 
-// Phase-4 Adversarial-Critic finding F4: the drift-tolerance predicate used
+// Phase-4 regression case: the drift-tolerance predicate used
 // broad interval overlap instead of a per-boundary delta check. Any future
 // candidate whose window overlapped a rejected window by any amount was
 // suppressed, even when both boundaries had shifted far beyond ±5 s.

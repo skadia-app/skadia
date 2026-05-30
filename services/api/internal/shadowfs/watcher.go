@@ -28,8 +28,8 @@ const maxPendingSizes = 10_000
 // allowedExtensions is the set of activity file extensions that the watcher will
 // register as new files. Other files are ignored to prevent unrelated files
 // (logs, temp data, thumbnails) from polluting the user_files registry.
-// L10/L58: Bare ".gz" is excluded — it is too permissive (any gzipped file would be
-// picked up). Only compound extensions (.fit.gz / .gpx.gz / .tcx.gz) are accepted.
+// Bare ".gz" is excluded because it is too permissive; only compound activity
+// extensions (.fit.gz / .gpx.gz / .tcx.gz) are accepted.
 var allowedExtensions = map[string]bool{
 	".fit":    true,
 	".gpx":    true,
@@ -72,7 +72,7 @@ type LibraryWatcher struct {
 	// poll cycle to confirm size stability (i.e. the file is fully written).
 	// Key: absolute path, Value: size at first detection.
 	//
-	// M25: Symlinks report the size of their target (via os.Stat). If a symlink
+	// Symlinks report the size of their target (via os.Stat). If a symlink
 	// target is still being written, the observed size may change between cycles
 	// before validateWatcherPath rejects it. This is a 2-cycle window: the symlink
 	// is rejected on the cycle where size becomes stable. No registry entry is
@@ -106,11 +106,11 @@ func (w *LibraryWatcher) IgnorePath(path string) {
 // The watcher detects real-time changes; the reconciler handles inconsistencies
 // from crashes, manual edits, or missed events. Both are needed for full consistency.
 //
-// L57: The watcher uses directory mtime to detect changes. On Linux, renaming or
-// creating a file in a direct subdirectory updates that subdirectory's mtime, which
-// propagates up to the user root directory. However, changes in deeper subdirectories
-// (e.g. user/activities/2026/) do NOT propagate to the user root mtime on all
-// filesystems (e.g. btrfs subvolumes). This is acceptable: the Reconciler performs
+// The watcher uses directory mtime to detect changes. On Linux, renaming or
+// creating a file in a direct subdirectory updates that subdirectory's mtime,
+// which propagates up to the user root directory. However, changes in deeper
+// subdirectories (e.g. user/activities/2026/) do NOT propagate to the user root
+// mtime on all filesystems. This is acceptable: the reconciler performs
 // authoritative periodic full-scans. The watcher provides best-effort real-time
 // awareness only.
 func (w *LibraryWatcher) Run(ctx context.Context) {

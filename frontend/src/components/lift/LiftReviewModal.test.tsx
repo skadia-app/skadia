@@ -1359,7 +1359,7 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
     })
   })
 
-  it('Phase 11.11 Fix 6: LiftHelpModal dialog renders after (in DOM order) the review modal dialog', async () => {
+  it('Modal ordering regression: LiftHelpModal dialog renders after (in DOM order) the review modal dialog', async () => {
     // DOM order determines which z-50 fixed element wins in CSS stacking.
     // LiftHelpModal must be rendered AFTER the review ModalShell so that when
     // both have z-index:50 the help modal overlays the review modal.

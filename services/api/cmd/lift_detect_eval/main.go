@@ -19,7 +19,7 @@ func main() {
 	summary := flag.String("summary", "", "print 30s-bucket summary for the given file (relative to -root) and exit")
 	rides := flag.String("rides", "", "print CSV of detected ride boundaries (idx,start_t,end_t,dur_s,asc_m,desc_m,conf,start_lat,start_lng,end_lat,end_lng) for the given file and exit")
 	boundaries := flag.String("boundaries", "", "print per-ride boundary-offset table (best matching GT lift, both endpoint orientations, ✓/○/⚠/✗ tolerance band) for the given file and exit; requires -gt and optionally -gt-key")
-	gtPath := flag.String("gt", "", "path to local station-marker YAML (e.g. local-station-markers.yaml); used by -boundaries")
+	gtPath := flag.String("gt", "", "path to local station-marker YAML; used by -boundaries")
 	gtKey := flag.String("gt-key", "", "case.file key in the GT YAML; defaults to the value of -boundaries (relative to -root)")
 	sport := flag.String("sport", "ski", "sport profile for -rides / -boundaries (ignored in -dump/-summary)")
 	format := flag.String("format", "text", "output format for -manifest and -boundaries: text|json (default text). JSON enables machine-readable diffs via -diff.")

@@ -257,9 +257,12 @@ var productOverrides = map[[2]uint16]productOverride{
 	// Xplova Noza S → Smart Trainer
 	{45, 20051}: {category: "trainer"},
 	// Polar HRM overrides
-	{123, 2}:  {category: "sensor", sType: "Heart Rate"},
-	{123, 3}:  {category: "sensor", sType: "Heart Rate"},
-	{123, 20}: {category: "sensor", sType: "Heart Rate"},
+	{123, 2}:   {category: "sensor", sType: "Heart Rate"},
+	{123, 7}:   {category: "sensor", sType: "Heart Rate"},
+	{123, 133}: {category: "sensor", sType: "Heart Rate"},
+	{123, 151}: {category: "sensor", sType: "Heart Rate"},
+	{123, 222}: {category: "sensor", sType: "Heart Rate"},
+	{123, 235}: {category: "sensor", sType: "Heart Rate"},
 	// COROS POD → Running Dynamics
 	{294, 11}: {category: "sensor", sType: "Running Dynamics"},
 	{294, 12}: {category: "sensor", sType: "Running Dynamics"},
@@ -370,7 +373,7 @@ func generateSupportedDevicesMD() string {
 	w("```\ngo test ./internal/fitimport/ -run TestUpdateSupportedDevices -update\n```\n\n")
 	w("| Source File | When to Use | Mechanism |\n")
 	w("|---|---|---|\n")
-	w("| [`services/api/internal/fitimport/devicelookup.go`](services/api/internal/fitimport/devicelookup.go) | Device with known `[manufacturer_id, product_id]` pair not in FIT SDK | Static map lookup |\n")
+	w("| [`services/api/internal/fitimport/devicelookup.go`](services/api/internal/fitimport/devicelookup.go) | Hardware item with known `[manufacturer_id, product_id]` pair not in FIT SDK | Static map lookup |\n")
 	w("| [`services/api/internal/fitimport/manufacturer.go`](services/api/internal/fitimport/manufacturer.go) | Development devices (mfr=255): Apple Watch, Samsung, Amazfit, etc. | String pattern matching on product_name |\n")
 	w("| [`services/api/internal/fitimport/developer_app_registry.go`](services/api/internal/fitimport/developer_app_registry.go) | Third-party apps with known Application ID | Application ID hex lookup |\n")
 
@@ -661,7 +664,7 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 		category:     "recording",
 	})
 
-	// ---- 5. Development device brands ----
+	// ---- 5. Product-name device brands ----
 	for _, entry := range []struct {
 		manufacturer string
 		model        string
@@ -669,6 +672,7 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 		{manufacturer: "Amazfit", model: "All models (detected via product name)"},
 		{manufacturer: "Google", model: "All Pixel Watch models (detected via product name)"},
 		{manufacturer: "Huawei", model: "All wearable models (detected via file descriptor; exact model unavailable)"},
+		{manufacturer: "Polar", model: "All models with product_name metadata (detected via product name)"},
 		{manufacturer: "Samsung", model: "All Galaxy Watch models (detected via product name)"},
 	} {
 		recording = append(recording, deviceEntry{
@@ -786,6 +790,19 @@ func TestSupportedDevicesRecordingDevicesTableFormat(t *testing.T) {
 	if !strings.Contains(section, "| IpBike | App | Map |") {
 		t.Fatal("Recording Devices table should avoid exact manufacturer/model repetition")
 	}
+	for _, row := range []string{
+		"| Polar | Grit X | Map |",
+		"| Polar | Grit X Pro | Map |",
+		"| Polar | Grit X2 | Map |",
+		"| Polar | Ignite 3 | Map |",
+		"| Polar | Pacer Pro | Map |",
+		"| Polar | Vantage M3 | Map |",
+		"| Polar | Vantage V3 | Map |",
+	} {
+		if !strings.Contains(section, row) {
+			t.Fatalf("Recording Devices table should include Polar map capability row %q", row)
+		}
+	}
 	productNameMarker := requireRecordingNoteMarker(t, section, "Detected via product name.")
 	fileDescriptorMarker := requireRecordingNoteMarker(t, section, "Detected via file descriptor; exact model unavailable.")
 
@@ -801,6 +818,9 @@ func TestSupportedDevicesRecordingDevicesTableFormat(t *testing.T) {
 	if !strings.Contains(section, "| Huawei | All wearable models"+fileDescriptorMarker+" | Pattern |") ||
 		strings.Contains(section, "| Huawei | All models") {
 		t.Fatal("Huawei aggregate entry should be scoped to all wearable models, not all Huawei models")
+	}
+	if !strings.Contains(section, "| Polar | All models with product_name metadata"+productNameMarker+" | Pattern |") {
+		t.Fatal("Polar aggregate entry should expose product_name-based recording-device detection")
 	}
 	if !strings.Contains(section, "| Samsung | All Galaxy Watch models"+productNameMarker+" | Pattern |") ||
 		strings.Contains(section, "| Samsung | All models") {
@@ -965,6 +985,33 @@ func TestSupportedDevicesDeveloperFieldSensorsAreDiscoverable(t *testing.T) {
 	}
 	if strings.Contains(section, "Registry rows in this table are detected from FIT Developer Fields") {
 		t.Fatal("Sensors section should not describe developer-field rows that are no longer listed in the table")
+	}
+}
+
+func TestSupportedDevicesPolarSensorsStayMapBacked(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+	sectionStart := strings.Index(generated, "\n## Sensors\n")
+	if sectionStart < 0 {
+		t.Fatal("Sensors section not found")
+	}
+	sectionEnd := strings.Index(generated[sectionStart:], "\n## Developer Apps\n")
+	if sectionEnd < 0 {
+		t.Fatal("Developer Apps section not found after Sensors")
+	}
+	section := generated[sectionStart : sectionStart+sectionEnd]
+
+	for _, row := range []string{
+		"| Polar | H10 | Heart Rate | Map |",
+		"| Polar | H9 | Heart Rate | Map |",
+		"| Polar | OH1 | Heart Rate | Map |",
+		"| Polar | Verity Sense | Heart Rate | Map |",
+	} {
+		if !strings.Contains(section, row) {
+			t.Fatalf("Sensors table should include Polar map capability row %q", row)
+		}
+	}
+	if strings.Contains(section, "| Polar | H10 | Heart Rate | Product name |") {
+		t.Fatal("Polar H10 should be listed through the static map capability, not a generator-only product-name side list")
 	}
 }
 

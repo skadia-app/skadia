@@ -1,4 +1,4 @@
--- Follow-up to Finding #26 (review of migrations 000298/000299) and Finding #28
+-- Follow-up to regression case (review of migrations 000298/000299) and regression case
 -- (reverse_geocode_cache provider constraint).
 --
 -- Background #26:
@@ -54,7 +54,7 @@ BEGIN
     END IF;
 END $$;
 
--- Finding #28: Lock reverse_geocode_cache.provider to the two legal values so
+-- regression case: Lock reverse_geocode_cache.provider to the two legal values so
 -- typos in the Go layer fail fast instead of producing unreachable cache rows.
 -- If for any reason a row with an illegal provider exists (shouldn't happen —
 -- table was created empty in 000300 and the Go layer only writes "nominatim" /

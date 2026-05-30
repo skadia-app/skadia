@@ -18,7 +18,7 @@ func attrWithSubfields(key string, subs ...Attribute) Attribute {
 	return Attribute{Key: key, ValueType: "object", Subfields: subs}
 }
 
-// --- Finding #6: string and boolean ValueType type-checking -----------------
+// --- regression case: string and boolean ValueType type-checking -----------------
 
 // TestValidateAttributeValue_StringAcceptsString verifies that a string
 // ValueType attribute accepts a Go string value.
@@ -30,7 +30,7 @@ func TestValidateAttributeValue_StringAcceptsString(t *testing.T) {
 }
 
 // TestValidateAttributeValue_StringRejectsInt verifies that a string
-// ValueType attribute rejects an integer value (Finding #6).
+// ValueType attribute rejects an integer value (regression case).
 func TestValidateAttributeValue_StringRejectsInt(t *testing.T) {
 	a := attr("climb.harness_size", "string")
 	if err := validateAttributeValue(a, 42); err == nil {
@@ -60,7 +60,7 @@ func TestValidateAttributeValue_BoolAcceptsBool(t *testing.T) {
 }
 
 // TestValidateAttributeValue_BoolRejectsStringTrue verifies that a boolean
-// ValueType attribute rejects the string "true" (Finding #6).
+// ValueType attribute rejects the string "true" (regression case).
 func TestValidateAttributeValue_BoolRejectsStringTrue(t *testing.T) {
 	a := attr("gear.is_primary", "boolean")
 	if err := validateAttributeValue(a, "true"); err == nil {
@@ -79,7 +79,7 @@ func TestValidateAttributeValue_BoolRejectsNumber(t *testing.T) {
 
 // TestValidateAttributeValue_UnknownValueTypeReturnsError verifies that an
 // unknown ValueType always returns an error rather than silently passing
-// (Finding #6 — default-accept branch).
+// (regression case — default-accept branch).
 func TestValidateAttributeValue_UnknownValueTypeReturnsError(t *testing.T) {
 	a := attr("gear.mystery", "future_type")
 	if err := validateAttributeValue(a, "anything"); err == nil {
@@ -87,7 +87,7 @@ func TestValidateAttributeValue_UnknownValueTypeReturnsError(t *testing.T) {
 	}
 }
 
-// --- Finding #5: Subfields (object-typed) recursion -------------------------
+// --- regression case: Subfields (object-typed) recursion -------------------------
 
 // TestValidateAttributeValue_ObjectRejectsNonMap verifies that an object
 // ValueType attribute rejects a non-map value.
@@ -115,7 +115,7 @@ func TestValidateAttributeValue_ObjectAcceptsValidSubfields(t *testing.T) {
 }
 
 // TestValidateAttributeValue_ObjectRejectsUnknownSubkey verifies that a map
-// value with a key not present in Subfields is rejected (Finding #5).
+// value with a key not present in Subfields is rejected (regression case).
 func TestValidateAttributeValue_ObjectRejectsUnknownSubkey(t *testing.T) {
 	a := attrWithSubfields("geo",
 		attr("geo.width", "number"),
@@ -130,7 +130,7 @@ func TestValidateAttributeValue_ObjectRejectsUnknownSubkey(t *testing.T) {
 }
 
 // TestValidateAttributeValue_ObjectSubfieldEnumInvalidValue verifies that
-// invalid enum values inside a subfield are rejected (Finding #5).
+// invalid enum values inside a subfield are rejected (regression case).
 func TestValidateAttributeValue_ObjectSubfieldEnumInvalidValue(t *testing.T) {
 	// Use a real option-set from the generated schema: "position.front_rear"
 	a := attrWithSubfields("geo",
@@ -159,7 +159,7 @@ func TestValidateAttributeValue_ObjectSubfieldEnumValidValue(t *testing.T) {
 }
 
 // TestValidateAttributeValue_ObjectSubfieldNumberTypeMismatch verifies that
-// a string value for a number subfield is rejected (Finding #5).
+// a string value for a number subfield is rejected (regression case).
 func TestValidateAttributeValue_ObjectSubfieldNumberTypeMismatch(t *testing.T) {
 	a := attrWithSubfields("geo",
 		attr("geo.size", "number"),
@@ -174,7 +174,7 @@ func TestValidateAttributeValue_ObjectSubfieldNumberTypeMismatch(t *testing.T) {
 
 // TestValidateAttributeValue_DeepSubfieldRecursion verifies that nested
 // object attributes (Subfields within Subfields) are validated recursively
-// (Finding #5).
+// (regression case).
 func TestValidateAttributeValue_DeepSubfieldRecursion(t *testing.T) {
 	// Build: outer (object) -> inner (object) -> leaf (number)
 	inner := attrWithSubfields("inner",
@@ -214,7 +214,7 @@ func TestValidateAttributeValue_DeepSubfieldRecursion(t *testing.T) {
 	}
 }
 
-// --- Finding #10: UpdateGear type-change with stale Subfield content --------
+// --- regression case: UpdateGear type-change with stale Subfield content --------
 // This is tested at the unit level in validate_test.go by verifying that
 // ValidateAttributes correctly rejects stale attributes under the new type.
 // The handler-level integration test is in gear_crud_test.go
@@ -535,7 +535,7 @@ func TestValidateObjectSubfieldShowWhenRespectsLocalScope(t *testing.T) {
 // TestValidateAttributes_SubfieldTypeChange verifies that ValidateAttributes
 // for a new type key correctly rejects attributes that were valid for the old
 // type but are not allowed for the new type. This mirrors the type-change
-// re-validation path in UpdateGear (Finding #10).
+// re-validation path in UpdateGear (regression case).
 func TestValidateAttributes_SubfieldTypeChange(t *testing.T) {
 	// bike.frame_material is valid for "bike" but not for "helmet".
 	attrs := map[string]any{"bike.frame_material": "carbon"}

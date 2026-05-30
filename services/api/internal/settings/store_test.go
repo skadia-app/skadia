@@ -349,7 +349,7 @@ func TestSettingsStoreTTLRefresh(t *testing.T) {
 // TestSettingsStoreStartupRecoversFromLoadCacheFailure verifies that a fresh
 // store where initial loadCache never succeeded (lastLoad is zero) still
 // triggers a TTL rebuild on the next Get. Previously an IsZero-guard blocked
-// ALL future rebuilds in that scenario (Opus-Kritiker CRIT #3).
+// ALL future rebuilds in that scenario (regression guard).
 func TestSettingsStoreStartupRecoversFromLoadCacheFailure(t *testing.T) {
 	pool := settingsTestPool(t)
 	ctx := context.Background()

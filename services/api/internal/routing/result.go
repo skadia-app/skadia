@@ -7,7 +7,7 @@ import (
 )
 
 // ElevationPoint is a single point in the full-resolution elevation profile,
-// anchored to cumulative route distance (approach-exclusive — see spec §5.5).
+// anchored to cumulative route distance before approach-distance stitching.
 // EleM is a pointer so that gap-fill phase D can emit null for points without
 // valid DEM data; null MUST be preserved in JSON (no omitempty).
 type ElevationPoint struct {
@@ -24,12 +24,12 @@ type RouteResult struct {
 	DistanceM      float64        `json:"distance_m"`       // network + VE-tail (sub-edge between projection and seed node). Click-to-projection straight-line approach is in TotalDistanceM - DistanceM.
 	TotalDistanceM float64        `json:"total_distance_m"` // approach-inclusive (= ElevationProfile[last].DistM after addApproach)
 	AscentM        float64        `json:"ascent_m"`
-	DescentM     float64        `json:"descent_m"`
-	Cost         float64        `json:"cost"`
-	Segments     []RouteSegment `json:"segments"`
-	PassStats    PassStats      `json:"stats"`
-	ApproachFrom []LatLonEle    `json:"-"` // Straight line: click point → edge projection (start)
-	ApproachTo   []LatLonEle    `json:"-"` // Straight line: edge projection → click point (end)
+	DescentM       float64        `json:"descent_m"`
+	Cost           float64        `json:"cost"`
+	Segments       []RouteSegment `json:"segments"`
+	PassStats      PassStats      `json:"stats"`
+	ApproachFrom   []LatLonEle    `json:"-"` // Straight line: click point → edge projection (start)
+	ApproachTo     []LatLonEle    `json:"-"` // Straight line: edge projection → click point (end)
 
 	// Accumulators for Quality-Gate AvgFlat computation.
 	// Populated during retrack (findRouteUnified) or reconstruction (Pareto).
@@ -58,7 +58,7 @@ type RouteResult struct {
 	//
 	// Use this as the lastCoordIdx argument to computeAllRanges instead of
 	// len(Coordinates)-1 to prevent range-highlights from bleeding into the
-	// straight-line approach segment appended by the dst-VE path (F2 fix).
+	// straight-line approach segment appended by the dst-VE path.
 	// Zero means no dst-VE was appended (dst-VE is nil); callers should fall back to
 	// len(Coordinates)-1 when this field is zero.
 	LastEdgeCoordEnd int `json:"-"`
@@ -67,21 +67,21 @@ type RouteResult struct {
 	// Pointer-to-slice so nil is distinguishable from empty slice in JSON:
 	//   nil  → JSON null  (profile not yet computed)
 	//   &[]  → JSON []    (computed, but empty — should not occur in practice)
-	// Populated by the DEM enrichment step in Phase 2+.
+	// Populated by the DEM enrichment step.
 	// JSON serialisation happens via buildProperties (key "elevation_profile");
 	// this field itself is excluded from direct struct marshalling (json:"-").
 	ElevationProfile *[]ElevationPoint `json:"-"` // nil → JSON null via buildProperties
 
 	// ApproachFromProfile is the 2-point profile header for the snap-line from
 	// click_src to edge-projection_src. DistM=0 at click, DistM=approach_from_m
-	// at projection. EleM nil when DEM has no coverage (Spec §6 Class A).
+	// at projection. EleM nil when DEM has no coverage.
 	// Excluded from JSON — emitted as part of the combined elevation_profile via
 	// buildProperties / addApproach.
 	ApproachFromProfile []ElevationPoint `json:"-"`
 
 	// ApproachToProfile is the 2-point profile header for the snap-line from
 	// edge-projection_dst to click_dst. DistM=0 at projection, DistM=approach_to_m
-	// at click. EleM nil when DEM has no coverage (Spec §6 Class A).
+	// at click. EleM nil when DEM has no coverage.
 	ApproachToProfile []ElevationPoint `json:"-"`
 }
 
@@ -98,18 +98,16 @@ type LatLonEle struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
 	// Ele is the elevation in meters. The value is deterministically derived
-	// from the route's ElevationProfile via applyProfileToCoords (Spec Rev 2.3
-	// §6.1, F1). coord[2] remains a 3D-GeoJSON-standard property — Phase 5
-	// (originally planned to remove it) was canceled in Spec Rev 2.3 §3.
+	// from the route's ElevationProfile via applyProfileToCoords. coord[2]
+	// remains a 3D-GeoJSON-standard property for export compatibility.
 	//
 	// When EleValid is false, Ele is 0 as a sentinel value (no DEM data).
 	// Consumers MUST check EleValid before using Ele — 0 does NOT mean sea level.
 	//
-	// See docs/internal/specs/2026-04-22-route-elevation-profile-separation-design.md
 	Ele float64 `json:"ele"`
 	// EleValid is false when the corresponding ElevationPoint.EleM is nil
-	// (gap-fill phase D will populate real values; gap-fill phase A.0 leaves
-	// nil points unresolved). Omitted from JSON when true (happy path).
+	// (profile gap filling will populate real values; unresolved points stay
+	// nil). Omitted from JSON when true (happy path).
 	//
 	// JSON contract: when EleValid=false, ToGeoJSON emits coord[2]=0 as sentinel.
 	// Downstream consumers (FIT/GPX export, third-party tools) cannot distinguish
@@ -119,20 +117,19 @@ type LatLonEle struct {
 
 // RouteSegment describes a contiguous section with the same OSM way properties.
 type RouteSegment struct {
-	FromIdx   int    `json:"from_idx"`
-	ToIdx     int    `json:"to_idx"`
-	FromDistM float64 `json:"from_dist_m"` // cumulative distance (m) at segment start; 0 for first segment
-	ToDistM   float64 `json:"to_dist_m"`   // cumulative distance (m) at segment end; enables elevation-chart hover
-	Highway   string `json:"highway"`
-	Surface   string `json:"surface"`
-	SacScale  string `json:"sac_scale,omitempty"`
-	MtbScale  string `json:"mtb_scale,omitempty"`
-	Tracktype string `json:"tracktype,omitempty"`
-	OsmWayID  int64  `json:"osm_way_id"`
-	// F26 additions
-	MtbScaleUphill  string `json:"mtb_scale_uphill,omitempty"`
-	ViaFerrataScale string `json:"via_ferrata_scale,omitempty"`
-	TrailVisibility string `json:"trail_visibility,omitempty"`
+	FromIdx         int     `json:"from_idx"`
+	ToIdx           int     `json:"to_idx"`
+	FromDistM       float64 `json:"from_dist_m"` // cumulative distance (m) at segment start; 0 for first segment
+	ToDistM         float64 `json:"to_dist_m"`   // cumulative distance (m) at segment end; enables elevation-chart hover
+	Highway         string  `json:"highway"`
+	Surface         string  `json:"surface"`
+	SacScale        string  `json:"sac_scale,omitempty"`
+	MtbScale        string  `json:"mtb_scale,omitempty"`
+	Tracktype       string  `json:"tracktype,omitempty"`
+	OsmWayID        int64   `json:"osm_way_id"`
+	MtbScaleUphill  string  `json:"mtb_scale_uphill,omitempty"`
+	ViaFerrataScale string  `json:"via_ferrata_scale,omitempty"`
+	TrailVisibility string  `json:"trail_visibility,omitempty"`
 }
 
 // PassStats contains timing/expansion metrics for debugging.
@@ -218,9 +215,9 @@ func (r *RouteResult) ToGeoJSONWithExtras(extras map[string]any) json.RawMessage
 
 func (r *RouteResult) buildProperties() map[string]any {
 	props := map[string]any{
-		"distance_m":       int(r.DistanceM),
-		"total_distance_m": int(r.TotalDistanceM),
-		"ascent_m":         int(r.AscentM),
+		"distance_m":        int(r.DistanceM),
+		"total_distance_m":  int(r.TotalDistanceM),
+		"ascent_m":          int(r.AscentM),
 		"descent_m":         int(r.DescentM),
 		"cost":              int(r.Cost),
 		"segments":          r.Segments,

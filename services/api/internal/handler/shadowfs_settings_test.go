@@ -551,7 +551,7 @@ func TestUpdateFileSchemaLockdown(t *testing.T) {
 
 // TestUpdateShadowFSSettingsCompatLockdown verifies that the legacy
 // PUT /settings/shadow-fs endpoint honours the library.user_can_edit_schemas
-// admin gate (Opus-Kritiker CRIT #1 — closed 2026-04-24).
+// admin gate (regression guard — closed 2026-04-24).
 func TestUpdateShadowFSSettingsCompatLockdown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires DB")
@@ -597,7 +597,7 @@ func TestUpdateShadowFSSettingsCompatLockdown(t *testing.T) {
 }
 
 // TestUpdateShadowFSSettingsCompatPII verifies that the legacy endpoint
-// rejects PII variables in schema templates (Opus-Kritiker CRIT #1).
+// rejects PII variables in schema templates (regression guard).
 func TestUpdateShadowFSSettingsCompatPII(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires DB")

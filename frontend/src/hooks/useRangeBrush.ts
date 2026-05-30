@@ -29,11 +29,9 @@ type EchartsLike = {
   dispatchAction: (a: unknown) => void
 }
 
-// NOTE (Batch-5-Kritiker MIN22): clampRange für total<=1 liefert [0,0], also ein
-// "Punkt"-Range — kein UI-Sinn. Die Modal-Ebene MUSS den Editor bei trackPoints.length < 2
-// gar nicht erst öffnen (Caller-Precondition in ActivitySegments/SegmentEditorModal:
-// `if (trackPoints.length < 2) { addToast({type: 'warning', title: 'Zu wenig Trackpunkte'}); return }`).
-// clampRange defensiv auf [0,0] fallen lassen, damit der Hook nicht crasht.
+// For total <= 1, clampRange can only return [0,0], which is not a useful
+// editable range. The modal layer must avoid opening the editor when
+// trackPoints.length < 2; this defensive fallback keeps the hook crash-free.
 function clampRange(r: [number, number], total: number): [number, number] {
   if (total <= 1) return [0, 0]
   let [s, e] = r

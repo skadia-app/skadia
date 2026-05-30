@@ -234,13 +234,13 @@ func RunLegacyFusionMembershipsIfNeeded(
 		return fmt.Errorf("RunLegacyFusionMemberships: read opening token: %w", err)
 	}
 	if d, ok := tok.(json.Delim); !ok || d != '[' {
-		// Finding #23: warn instead of silently returning nothing.
+		// regression case: warn instead of silently returning nothing.
 		slog.Warn("dataimport: activities.json top-level not an array — fusion derivation skipped",
 			"token", fmt.Sprintf("%v", tok))
 		return nil
 	}
 
-	// Streaming pre-filter (Finding #12): only accumulate records that have
+	// Streaming pre-filter (regression case): only accumulate records that have
 	// fusion_sources populated; all other rows are decoded and discarded inline.
 	// Peak heap usage therefore scales with the number of fused activities, not
 	// the total activity count.

@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
@@ -306,7 +306,7 @@ func buildExportZip(t *testing.T, opts zipBuildOpts) string {
 	// manifest.json — always written
 	writeJSON("manifest.json", map[string]any{
 		"format_version":   1,
-		"skadia_version":  "2026.04",
+		"skadia_version":   "2026.04",
 		"schema_migration": opts.schemaMigration,
 		"exported_at":      time.Now().UTC().Format(time.RFC3339),
 		"user_id":          opts.sourceUserID,
@@ -3278,7 +3278,7 @@ func TestMultiPartSource(t *testing.T) {
 	current := currentSchemaMigration(t, pool)
 	manifest := map[string]any{
 		"format_version":   1,
-		"skadia_version":  "2026.04",
+		"skadia_version":   "2026.04",
 		"schema_migration": current,
 		"exported_at":      time.Now().UTC().Format(time.RFC3339),
 		"user_id":          srcUser,
@@ -3535,7 +3535,7 @@ func TestNonEmptyAccount(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: TestJSONBRemapNullColumn (Finding #18)
+// Test: TestJSONBRemapNullColumn (regression case)
 // ---------------------------------------------------------------------------
 
 // TestJSONBRemapNullColumn verifies that runJSONBRemap correctly skips NULL
@@ -3743,7 +3743,7 @@ func TestFileAttachmentMissingEntityDoesNotCreatePhantomMapping(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: TestPhase0MissingFileBlob (Finding #19)
+// Test: TestPhase0MissingFileBlob (regression case)
 // ---------------------------------------------------------------------------
 
 // TestPhase0MissingFileBlob verifies that when a file is listed in
@@ -4784,7 +4784,7 @@ func assertImportedOverlayJoinCount(t *testing.T, pool *pgxpool.Pool, query stri
 }
 
 // ---------------------------------------------------------------------------
-// Test: TestFileRefMissingFile (Finding #20)
+// Test: TestFileRefMissingFile (regression case)
 // ---------------------------------------------------------------------------
 
 // TestFileRefMissingFile verifies that a fileRef column (tags.cover_file_id)

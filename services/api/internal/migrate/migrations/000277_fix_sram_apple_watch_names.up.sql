@@ -9,7 +9,7 @@ SET product_name = 'SRAM'
 WHERE manufacturer_id = 268 AND product_name = 'Sram';
 
 -- Apple Watch: map raw iOS model identifiers to human-readable names.
--- Verified identifiers from Apple public docs + local fixture coverage.
+-- Verified identifiers from public docs and local fixture coverage.
 UPDATE devices
 SET product_name = CASE product_name
     WHEN 'Watch1,1'  THEN 'Apple Watch 38mm'

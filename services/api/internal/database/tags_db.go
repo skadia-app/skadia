@@ -1354,7 +1354,7 @@ func (db *DB) GetSystemTagID(ctx context.Context, userID, name string) (string, 
 // without any is_system filter. If a user had manually created a rule named
 // "Intervall-Training" (or "Intervalltraining" in the mirror direction), the
 // bulk UPDATE silently overwrote the user's own rule name — irrecoverable once
-// applied. The review bumped this to Finding #26.
+// applied. The review bumped this to regression case.
 //
 // All future code paths (including migrations launched via `DO $$ ... $$`
 // blocks OR orchestrated by Go) MUST either call this helper or otherwise

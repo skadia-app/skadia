@@ -12,7 +12,7 @@
 -- block wintersport-rows that existed before the rollback ran.
 --
 -- segment_type_meta DEFAULT '{}' is retained on rollback (harmless hardening).
--- No NOT NULL constraint was added by this migration (Batch-6B finding #4:
+-- No NOT NULL constraint was added by this migration (regression batch finding #4:
 -- NOT NULL was removed from up-migration as out-of-scope per Spec §4.9), so
 -- nothing to reverse on that front.
 
