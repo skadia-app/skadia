@@ -1084,7 +1084,7 @@ export default function MapPage() {
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
   //
-  // V6-Retrofit (Finding #6): Koordinaten kommen jetzt aus planner.routeStats.coordinates
+  // V6-Retrofit (regression case): Koordinaten kommen jetzt aus planner.routeStats.coordinates
   // statt aus activeSuggestion.geojson. routeStats wird vom Hook in allen Modi
   // befüllt (BadRouter Quelle 1, loadSuggestion Quelle 2, recalculateAll Quelle 3),
   // daher funktioniert das Overlay auch bei manuell geplanten Routen ohne activeSuggestion.
@@ -1104,7 +1104,7 @@ export default function MapPage() {
 
   // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
   //
-  // V6-Retrofit (Finding #6): Ranges kommen jetzt aus planner.routeStats statt
+  // V6-Retrofit (regression case): Ranges kommen jetzt aus planner.routeStats statt
   // aus activeSuggestion. Das erlaubt SAC/MTB/VF-Farbgebung auch bei manuell
   // geplanten Routen (BadRouter Quelle 1) ohne aktive Suggestion.
   // scaleEffective = scalePin ?? scaleHover — Hover liefert einen transienten
@@ -1166,7 +1166,7 @@ export default function MapPage() {
     if (!map) return
     const src = map.getSource(SOURCE_VF_UNKNOWN) as maplibregl.GeoJSONSource | undefined
     if (!src) return
-    // V6-Retrofit (Finding #6): vf_unknown_ranges aus planner.routeStats statt
+    // V6-Retrofit (regression case): vf_unknown_ranges aus planner.routeStats statt
     // activeSuggestion — zeigt K?-Overlay auch bei manuell geplanten Routen.
     const unknown = planner.routeStats?.vf_unknown_ranges ?? []
     if (unknown.length === 0 || parsedCoords.length < 2) {
@@ -1211,7 +1211,7 @@ export default function MapPage() {
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   //
-  // V6-Retrofit (Finding #6, complete): forest_ranges / protected_ranges kommen
+  // V6-Retrofit (regression case, complete): forest_ranges / protected_ranges kommen
   // jetzt aus planner.routeStats statt aus activeSuggestion — Highlight-Overlay
   // funktioniert damit auch bei manuell geplanten Routen. Wave2-FE-Hook stellt
   // sicher dass statsFromSuggestion die beiden Keys mit einbezieht.

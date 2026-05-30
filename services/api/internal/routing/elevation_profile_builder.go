@@ -149,7 +149,7 @@ func InterpolateProfileEleAt(profile []ElevationPoint, distM float64) float64 {
 // InterpolateProfileEleAt against cumulative-Haversine distance along coords.
 // Distance helper: `geo.DistanceHaversine(lat, lon, lat, lon)` from
 // `services/api/internal/geo/distance.go:17` — the only accepted distance
-// helper in the plan (Critic-Finding #8).
+// helper in the plan (regression case).
 //
 // This is THE single source of truth for inline `coord[2]` after Phase 1
 // (Spec Rev 2.3 §5.2, §6.5): both retrackUnified and BuildRouteResultFromEdges

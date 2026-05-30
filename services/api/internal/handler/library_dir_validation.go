@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
 // uuidShapeRegex matches the canonical UUID format (8-4-4-4-12 hex digits).
@@ -26,7 +26,7 @@ var uuidShapeRegex = regexp.MustCompile(
 // Returns rejected=true when the caller must return immediately (response already written).
 // Shared between user and admin endpoints (spec §4/§7).
 //
-// Order of checks (intentional — matches Opus critic HIGH #7):
+// Order of checks (intentional — matches review ordering):
 //  1. Path-safety: null bytes, length, path separators, reserved prefixes.
 //  2. Clash-check: does the value exactly match another user's UUID? → 200 + clash-status.
 //     MUST run before UUID-format-reject so the clash branch is reachable even when the

@@ -130,7 +130,7 @@ func generateSyntheticPool(region string) []RouteCandidate {
 // Route variance: [short, medium, long] relative to target distance.
 // withOutdoor populates region-specific outdoor tags (SAC scale, MTB scale,
 // trail visibility, via ferrata) in the same pass — avoiding a second switch
-// on the caller side (Opus Finding #19).
+// on the caller side (regression case).
 func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool, withOutdoor bool) []RouteCandidate {
 	// Region-specific base profile
 	var baseAscent float64
@@ -166,11 +166,11 @@ func generateSyntheticPoolFull(region string, targetM float64, hasCoverage bool,
 		}
 		if hasCoverage {
 			// Introduce some variance between routes so descriptors can fire:
-			pool[i].MergedForestPct      = forestBase + float32(i)*0.05
+			pool[i].MergedForestPct = forestBase + float32(i)*0.05
 			pool[i].MergedRiverProximity = riverBase + float32(i)*0.03
-			pool[i].MergedProtectedArea  = protectedBase + float32(i)*0.08
-			pool[i].MergedNoiseScore     = noiseBase * (1.0 - float32(i)*0.1)
-			pool[i].MergedTrafficClass   = trafficBase * (1.0 - float32(i)*0.1)
+			pool[i].MergedProtectedArea = protectedBase + float32(i)*0.08
+			pool[i].MergedNoiseScore = noiseBase * (1.0 - float32(i)*0.1)
+			pool[i].MergedTrafficClass = trafficBase * (1.0 - float32(i)*0.1)
 		}
 		// else: all Merged* remain 0 (= semantic "no coverage data")
 	}

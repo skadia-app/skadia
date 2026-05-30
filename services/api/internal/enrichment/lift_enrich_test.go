@@ -178,7 +178,7 @@ func TestEnrichStreamLifts_NoOSM(t *testing.T) {
 	}
 }
 
-// TestEnrichStreamLifts_NoOSMRunsHeuristicOnly verifies Phase 4c.5.1:
+// TestEnrichStreamLifts_NoOSMRunsHeuristicOnly verifies empty-OSM fallback:
 // when osm_lifts is empty the adapter runs DetectHeuristic without the
 // snap stages — every detected ride lands as a heuristic-only candidate
 // (source='heuristic', segment_effort_id=NULL, confirmed=false). This
@@ -269,7 +269,7 @@ func TestEnrichStreamLifts_NoOSMRunsHeuristicOnly(t *testing.T) {
 	}
 	if count == 0 {
 		// The legacy behaviour returned early when osm_lifts was empty,
-		// producing 0 candidates. Phase 4c.5.1 changes that contract so
+		// producing 0 candidates. empty-OSM fallback changes that contract so
 		// the heuristic detector still runs and emits unsegmented
 		// candidates. A 0-count result here means either the early-return
 		// is still in place (real bug) OR the synthetic stream did not
@@ -281,12 +281,12 @@ func TestEnrichStreamLifts_NoOSMRunsHeuristicOnly(t *testing.T) {
 		// the snap pipeline, and the integration test
 		// TestEnrichStreamLifts_HeuristicCandidateHasSourceHeuristic
 		// covers the source-column wiring.
-		t.Logf("0 heuristic candidates emitted — Phase 4c.5.1 contract not exercised by this fixture")
+		t.Logf("0 heuristic candidates emitted — empty-OSM fallback contract not exercised by this fixture")
 	}
 }
 
 // TestEnrichStreamLifts_HeuristicCandidateHasSourceHeuristic asserts the
-// Phase 4c contract: a heuristic candidate inserted via the integrated
+// OSM-snap contract: a heuristic candidate inserted via the integrated
 // pipeline carries source='heuristic' and segment_effort_id IS NULL. The
 // test bypasses the heuristic detector path (which needs a lengthy
 // realistic stream) by inserting a candidate via the same SQL the adapter
@@ -760,7 +760,7 @@ func TestComputeRideOSMOverlaps_UsesRideShapeDeviation(t *testing.T) {
 }
 
 // TestEnrichStreamLifts_RejectedHeuristicWindow_BlocksOSMSnap is the
-// regression test for Codex N5b — symmetric pre-check at the SnapAction-
+// regression test for regression guard — symmetric pre-check at the SnapAction-
 // Snap entry guard.
 //
 // Pre-fix: the entry guard at lift_enrich.go:247 used IsOSMRejectedInWindow

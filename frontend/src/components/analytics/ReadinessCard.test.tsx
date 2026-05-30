@@ -300,7 +300,7 @@ describe('ReadinessCardFull', () => {
   })
 })
 
-// ── Level snapshot tests (Codex-Finding #16, 5 cases) ────────────────────────
+// ── Level snapshot tests ─────────────────────────────────────────────────────
 
 describe('ReadinessCardFull — level snapshots', () => {
   beforeEach(() => {
@@ -340,7 +340,7 @@ describe('ReadinessCardFull — level snapshots', () => {
   }
 })
 
-// ── Detail-overlay snapshot (Codex-Finding #16, 1 case) ──────────────────────
+// ── Detail-overlay snapshot ─────────────────────────────────────────────────
 
 describe('ReadinessCardFull — detail overlay snapshot', () => {
   beforeEach(() => {

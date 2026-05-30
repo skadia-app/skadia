@@ -98,7 +98,7 @@ func TestBuildElevationProfile_EmptyDEM_ContinuesDistance(t *testing.T) {
 }
 
 func TestBuildElevationProfile_NilSegDistsWithElevsGreater1_DistanceContinues(t *testing.T) {
-	// Guard 3 (Critic-Finding #20): segDists==nil but elevs>1 → unexpected
+	// Guard 3 (regression case): segDists==nil but elevs>1 → unexpected
 	// tile state. Helper logs Warn, emits no profile append, but
 	// edgeEndDistM advances via EdgeDistanceCm (axis continuity §P5).
 	reader := &fakeElevReader{

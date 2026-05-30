@@ -1,6 +1,6 @@
 package enrichment
 
-// Phase-4 Adversarial-Critic finding F2 (Variante B) — OSM-Reject persists
+// Phase-4 regression case— OSM-Reject persists
 // across re-enrichment.
 //
 // Pre-fix: rejecting an OSM audit-row only flipped rejected_by_user=true on

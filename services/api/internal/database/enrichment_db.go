@@ -787,8 +787,8 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 // ConfirmLiftCandidate flips a candidate's confirmed flag and recomputes the
 // owning activity's lift_* aggregates atomically.
 //
-// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): the candidate UPDATE
-// and the recompute now share a single transaction. Pre-fix the UPDATE
+// The candidate UPDATE
+// and the recompute now share a single transaction. Previously the UPDATE
 // committed via auto-commit and recomputeLiftStats opened its own Tx; if
 // recompute failed (DB hiccup, gear-stats failure, etc.) the candidate
 // stayed flipped while activities.lift_* and gear stats remained stale and
@@ -825,10 +825,10 @@ func (db *DB) ConfirmLiftCandidate(ctx context.Context, userID, candidateID, act
 
 // RejectLiftCandidate soft-rejects a lift candidate and recomputes activity
 // lift stats. The row is marked rejected_by_user=true rather than deleted so
-// that it survives subsequent re-enrichment passes (Phase 4d: the idempotent
+// that it survives subsequent re-enrichment passes (soft-reject: the idempotent
 // DELETE in enrichStreamLifts now skips rows with rejected_by_user=true).
 //
-// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): the candidate UPDATE
+// The candidate UPDATE
 // and the recompute share a single transaction so that a recompute failure
 // rolls back the soft-reject too — see ConfirmLiftCandidate for the full
 // rationale.
@@ -904,7 +904,7 @@ func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, a
 	return nil
 }
 
-// recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
+// recomputeLiftStats recomputes activities.lift_* columns. OSM-snap
 // dedup contract: every reviewed lift counted exactly once across the two
 // storage layers — segment_efforts (Stage 1/2/3 of the snap pipeline, counted
 // only after a confirmed audit row exists) + activity_lift_candidates
@@ -918,13 +918,13 @@ func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, a
 // candidates → 1 segment_effort) and Stage 3 method-A-only inserts
 // (1 audit candidate → 1 segment_effort).
 //
-// Phase-4 critic F2 (Variante B): the segment_efforts arm filters out
+// soft-reject review: the segment_efforts arm filters out
 // efforts whose audit-row has been soft-rejected by the user. The predicate
 // is "NOT EXISTS a rejected audit-row referencing this effort" rather than
 // a JOIN on segment_effort_id — Stage 2 cable-hold merges produce one
 // canonical effort with N audit-rows, and a JOIN would N-fold the count
 // of every kept merge. The NOT EXISTS form is also correct for
-// segment_efforts that have no audit-row at all (pre-Phase-4c data): the
+// segment_efforts that have no audit-row at all (pre-audit-row data): the
 // sub-select returns zero rows, the predicate is true, the effort is
 // counted normally.
 type recomputeOpts struct {
@@ -982,15 +982,15 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 // the probe is a read-only diagnostic that must run after the outer commit,
 // so the caller is responsible for invoking it once its own commit succeeds.
 //
-// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): ConfirmLiftCandidate
+// ConfirmLiftCandidate
 // and RejectLiftCandidate use this variant so the candidate-flag UPDATE
 // and the activities.lift_* UPDATE commit atomically. Pre-fix the candidate
 // flag was committed as auto-commit and recomputeLiftStats opened its own
 // Tx; if recompute failed, the candidate stayed flipped while activities.
 // lift_* and gear stats remained stale.
 //
-// N7 fix (Codex GPT-5.5-xhigh adversarial-review #7): the heuristic-only
-// arm filters on `segment_effort_id IS NULL` AND `source = 'heuristic'`.
+// The heuristic-only arm filters on `segment_effort_id IS NULL` AND
+// `source = 'heuristic'`.
 // Without the source filter, an OSM-source row whose segment_effort_id has
 // been NULLed out (e.g. lift_enrich.go's F5 fix when re-enrichment removes
 // the segment_effort while preserving the rejected audit row, then a later
@@ -1257,7 +1257,7 @@ func (db *DB) RecomputeLiftStats(ctx context.Context, userID, activityID string,
 // DescentM and DistanceM are stored as nullable DOUBLE PRECISION in the DB.
 // F25 fix: passing zero stores 0 — NOT NULL — because the SQL binds the
 // Go float64 value directly without a NULLIF wrapper. This matches the
-// pre-Phase-4d insert path and is the intended behaviour: callers that
+// legacy insert path and is the intended behaviour: callers that
 // genuinely have no descent/distance data should not pass this struct
 // (or future callers can switch the fields to *float64 and add explicit
 // nil-handling at the SQL site if NULL semantics are needed). A zero
@@ -1278,11 +1278,10 @@ type HeuristicCandidateInput struct {
 // candidate's boundaries. The check uses per-boundary deltas rather than
 // broad interval overlap — a candidate whose window merely overlaps a rejected
 // one but has moved by more than 5 s on either edge is treated as a distinct
-// detection and is not suppressed (Phase-4 critic F4).
+// detection and is not suppressed.
 //
 // The check and insert are collapsed into a single INSERT ... WHERE NOT EXISTS
-// statement so there is no window for a concurrent reject to land between
-// them (Phase-4 critic F5).
+// statement so there is no window for a concurrent reject to land between them.
 //
 // Returns true if a row was inserted, false if it was suppressed (matching
 // rejected row) or already present (ON CONFLICT). Does not call
@@ -1305,22 +1304,22 @@ type HeuristicCandidateInput struct {
 // rejected heuristic row to source='osm' but left rejected_by_user=true,
 // after which IsOSMRejectedInWindow (source='osm' filter) saw it and
 // silently blocked all future OSM snaps in that window — the inverse of
-// the asymmetric intent. Codex GPT-5.5-xhigh adversarial-review surfaced
+// the asymmetric intent. review surfaced
 // this as F14 on commit 2062b1465 in branch feature/lift-detection-go.
 // The fix is the symmetric design above.
 //
 // User-decision: when a user soft-rejects a lift candidate, the rejection
 // persists across re-enrichment AND across OSM data imports — regardless
 // of which detection source surfaces the lift again. (Confirmed by user
-// in session 2026-05-08 during Codex GPT-5.5-xhigh adversarial-review
+// in session 2026-05-08 during review
 // follow-up.)
 func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	ctx context.Context,
 	userID, activityID string,
 	in HeuristicCandidateInput,
 ) (bool, error) {
-	// N4 fix (Codex GPT-5.5-xhigh adversarial-review #4): serialize concurrent
-	// inserts on the same activity. The single INSERT ... WHERE NOT EXISTS
+	// Serialize concurrent inserts on the same activity. The single
+	// INSERT ... WHERE NOT EXISTS
 	// statement is atomic against a stable rejected row (covered by the
 	// existing TestInsertHeuristicCandidateIfNotRejected_… atomicity test),
 	// but two concurrent INSERT statements with shifted started_at within the
@@ -1390,7 +1389,7 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 
 	// Single atomic statement: insert only when no rejected row with boundaries
 	// within ±5 s exists. The interval literals avoid pgx type-inference issues
-	// with make_interval(secs => $N) that appeared in Phase 4d.
+	// with make_interval(secs => $N) that appeared in soft-reject.
 	//
 	// Run on the same lockConn so the INSERT is serialized behind the lock
 	// acquisition on this connection (otherwise the lock and the INSERT could
@@ -1421,8 +1420,7 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 // to source='osm' covers the given [startedAt, endedAt] window with both
 // per-boundary deltas ≤ 5 s. The OSM-snap pipeline calls this as an early
 // exit before doing the relatively expensive segment_effort INSERT, so a
-// previously rejected OSM row short-circuits the snap path (Phase-4 critic
-// F2 Variante B).
+// previously rejected OSM row short-circuits the snap path.
 //
 // The boundary-delta tolerance mirrors InsertHeuristicCandidateIfNotRejected
 // (Slot-2 F4): a re-detection that has shifted by more than 5 s on either
@@ -1537,7 +1535,7 @@ func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string
 // candidate rows but still refreshes lifts_acknowledged_at to NOW() (the
 // "user re-acknowledged" signal). The recompute is also idempotent.
 //
-// Phase 6.3.1.2 bullet 1.
+// lift review workflow
 func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID string) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -1585,7 +1583,7 @@ func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID s
 //
 // Idempotent and atomic — same contract as ConfirmAllLiftCandidates.
 //
-// Phase 6.3.1.2 bullet 2.
+// lift review workflow
 func (db *DB) RejectAllLiftCandidates(ctx context.Context, userID, activityID string) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -1630,7 +1628,7 @@ func (db *DB) RejectAllLiftCandidates(ctx context.Context, userID, activityID st
 //
 // 0-row UPDATE (wrong owner) → pgx.ErrNoRows → 404 in the handler.
 //
-// Phase 6.3.1.2 bullet 3.
+// lift review workflow
 func (db *DB) AcknowledgeLifts(ctx context.Context, userID, activityID string) error {
 	var ownedID string
 	if err := db.Pool.QueryRow(ctx, `
@@ -1664,7 +1662,7 @@ func (db *DB) AcknowledgeLifts(ctx context.Context, userID, activityID string) e
 // Owner check is enforced via the activities UPDATE (RETURNING id);
 // 0-row UPDATE → pgx.ErrNoRows → handler maps to 404.
 //
-// Phase 6.3.1.2 bullet 4.
+// lift review workflow
 func (db *DB) RecalculateActivityLifts(ctx context.Context, userID, activityID string) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -1730,7 +1728,7 @@ func (db *DB) RecalculateActivityLifts(ctx context.Context, userID, activityID s
 // Returns the activity_id of the restored candidate so the handler can
 // recompute aggregates and re-fire rules.
 //
-// Adversarial-Review-Finding #19. Phase 6.3.1.2 bullet 5.
+// lift review workflow
 func (db *DB) RestoreLiftCandidate(ctx context.Context, userID, candidateID string) (string, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {

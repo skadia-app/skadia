@@ -302,14 +302,14 @@ func TestCreateRouteFromImport_T0Compliant_WritesV1(t *testing.T) {
 	platform := "komoot"
 	sourceID := fmt.Sprintf("k-%d", time.Now().UnixNano())
 	importData := &model.RouteImportData{
-		Name:            "Imported T0 Route",
-		SportType:       "hiking",
-		Profile:         "outdoor",
-		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
-		WaypointsJSON:   "[]",
-		SegmentsJSON:    `[{"from_waypoint":"wp0","to_waypoint":"wp1","mode":"routed","distance_m":250}]`,
-		SourcePlatform:  &platform,
-		SourceID:        &sourceID,
+		Name:             "Imported T0 Route",
+		SportType:        "hiking",
+		Profile:          "outdoor",
+		GeometryGeoJSON:  `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+		WaypointsJSON:    "[]",
+		SegmentsJSON:     `[{"from_waypoint":"wp0","to_waypoint":"wp1","mode":"routed","distance_m":250}]`,
+		SourcePlatform:   &platform,
+		SourceID:         &sourceID,
 		ElevationProfile: t0Profile(),
 	}
 
@@ -456,7 +456,7 @@ func TestGetPlannedRoute_ReturnsSchemaVersion(t *testing.T) {
 	}
 }
 
-// --- Self-tracking DB probe (Finding #4) ---
+// --- Self-tracking DB probe (regression case) ---
 
 // TestMigrationPathStillReachable_DBProbe queries the real database to count
 // planned_routes with route_schema_version = 0 (Pre-T0). When that count reaches

@@ -14,8 +14,7 @@ package lifts
 // "lifts.auto_confirm_heuristic" in services/api/internal/settings) so an
 // admin can flip it without a rebuild. That requires plumbing the
 // SettingsStore into database.DB (currently held only by the handler layer)
-// and is intentionally deferred to its own plan — see F11/F40 in the
-// 2026-05-04 lift-detection plan critic notes.
+// and is intentionally deferred until the setting has a proper runtime owner.
 //
 // When the toggle is flipped to true a DB backfill is required: existing
 // heuristic candidates with confirmed=false would suddenly count toward

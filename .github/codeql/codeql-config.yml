@@ -21,10 +21,4 @@ paths-ignore:
   # ML-service tests: noise-prone (test fixtures intentionally exercise
   # error paths). Production code in services/ml/ outside tests/ stays scanned.
   - services/ml/tests/**
-  # Local-only screenshot/scratch directories (cleanup doc Phase 1 moves
-  # `` to private; defensive ignore until then).
-  - **
   - temp/**
-  # Local FIT/GPX corpus — gitignored in current state; defensive ignore
-  # so a future tracked import doesn't reach CodeQL extraction.
-  - 

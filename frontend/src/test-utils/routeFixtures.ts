@@ -1,34 +1,29 @@
 /**
- * Test-Fixture-Factories für Route-Planner-Domain — zentrale Quelle, damit neue
- * Type-Felder nur an einer Stelle mit sinnvollen Defaults ergänzt werden müssen.
+ * Test fixture factories for the route-planner domain. Keep default values in
+ * one place so new route fields do not drift across tests.
  *
- * Defaults sind "neutral": Tests, die Metriken validieren wollen, überschreiben
- * gezielt via `overrides`. Compile-grün allein reicht nicht — jedes neu
- * hinzugefügte Feld braucht einen gezielten Test der es aktiv prüft, sonst
- * "dark code" (siehe Plan LF-#21).
+ * Defaults are neutral: tests that validate metrics should override values via
+ * `overrides`. Compile-only coverage is not enough for newly added fields;
+ * add a focused assertion wherever the field is read or merged.
  *
- * ⚠️ BEIM ERWEITERN VON RouteStats / RouteSuggestion:
- * 1. Default in der entsprechenden Factory unten ergänzen (neutral).
- * 2. Mindestens einen gezielten Test schreiben, der das neue Feld aktiv prüft:
- *    - extractRouteStatsFromFeature liest es aus feature.properties (Hook-Test)
- *    - mergeSegmentStatsForState merged es korrekt über Segmente (Hook-Test)
- *    - Konsumenten (RouteProfileChart, MapPage highlightFeatures) rendern es
- * 3. Compile-grün + Factory-Default-Update ohne neuen Test ist "dark code"
- *    — der Feld-Fluss durch den Hook ist nicht verifiziert und eine
- *    stumme Regression (z.B. vertauschte Keys) würde nicht bemerkt.
- *    Präzedenzfall: V6.1-Drift forest_pct-Skala (0-100 vs 0.0-1.0) wurde
- *    erst durch Opus-Kritiker-Runde-2 gefunden, weil der Parity-Test nur
- *    Key-Präsenz prüfte statt Werte.
+ * When extending RouteStats / RouteSuggestion:
+ * 1. Add a neutral default in the matching factory below.
+ * 2. Add a focused test that proves the field is actively consumed:
+ *    - extraction from feature.properties
+ *    - merge behavior across route segments
+ *    - rendering by chart and map consumers
+ * 3. A factory default without a focused assertion can hide silent key or scale
+ *    regressions.
  *
  * Verwendung:
  *
  * ```ts
  * import { makeFakeRouteStats, makeFakeSuggestion } from '@/test-utils/routeFixtures'
  *
- * // Neutrale Fixture (keine Metriken gewünscht)
+ * // Neutral fixture (no metrics expected)
  * const stats = makeFakeRouteStats()
  *
- * // Gezielter Override
+ * // Focused override
  * const stats = makeFakeRouteStats({
  *   forest_pct: 0.65,
  *   forest_ranges: [{ from: 0, to: 10 }],
@@ -38,7 +33,7 @@
 import type { RouteStats } from '@/hooks/useRoutePlanner'
 import type { RouteSuggestion } from '@/api/routes'
 
-/** Minimaler Coordinate-Array (3 Punkte), genug für buildProfile + buildHighlight. */
+/** Minimal coordinate array (3 points), enough for buildProfile + buildHighlight. */
 const DEFAULT_COORDS: number[][] = [
   [12.0, 49.0, 500],
   [12.01, 49.01, 510],
@@ -46,10 +41,8 @@ const DEFAULT_COORDS: number[][] = [
 ]
 
 export function makeFakeRouteStats(overrides: Partial<RouteStats> = {}): RouteStats {
-  // Defaults "unbekannt/nicht berechnet" (null) statt "Route hat 0 %" (0).
-  // Semantik: null = Backend hat nichts emittiert oder Enrichment-Feld fehlt.
-  // Tests, die "Route hat explizit 0 %" asserten wollen, überschreiben gezielt.
-  // (F4-Runde-3: Semantik-Divergenz zu früheren makeStats-Wrappern vermeiden.)
+  // Defaults use "unknown/not computed" (null) instead of "route has 0%" (0).
+  // Tests that need an explicit 0% value should override it directly.
   return {
     forest_pct: null,
     protected_pct: null,

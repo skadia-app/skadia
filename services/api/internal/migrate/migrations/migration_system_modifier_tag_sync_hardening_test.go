@@ -131,13 +131,13 @@ type systemModifierTagSyncFixture struct {
 func makeSystemModifierTagSyncFixture(t *testing.T, ctx context.Context, tx pgx.Tx) systemModifierTagSyncFixture {
 	t.Helper()
 	f := systemModifierTagSyncFixture{
-		user1ID:               uuid.NewString(),
-		user2ID:               uuid.NewString(),
-		cyclingElectricID:     uuid.NewString(),
-		runningElectricID:     uuid.NewString(),
-		virtualID:             uuid.NewString(),
-		commuteID:             uuid.NewString(),
-		indoorID:              uuid.NewString(),
+		user1ID:           uuid.NewString(),
+		user2ID:           uuid.NewString(),
+		cyclingElectricID: uuid.NewString(),
+		runningElectricID: uuid.NewString(),
+		virtualID:         uuid.NewString(),
+		commuteID:         uuid.NewString(),
+		indoorID:          uuid.NewString(),
 	}
 
 	// Users.
@@ -612,11 +612,11 @@ var _ = idsToSorted // suppress unused-helper lint until follow-up tests use it
 // tests. It seeds a user, the four system tags, and one activity. Each test
 // drives its own INSERT/UPDATE sequence to isolate trigger behavior.
 type directionAFixture struct {
-	userID         string
-	pendelnTagID   string
-	indoorTagID    string
-	eBikeTagID     string
-	virtuellTagID  string
+	userID        string
+	pendelnTagID  string
+	indoorTagID   string
+	eBikeTagID    string
+	virtuellTagID string
 }
 
 func makeDirectionAFixture(t *testing.T, ctx context.Context, tx pgx.Tx) directionAFixture {
@@ -1169,7 +1169,7 @@ func snapshotSystemModifierFunctionBodies(t *testing.T, ctx context.Context, tx 
 // TestMigration000353DownRoundTripPreservesPre353State applies down.sql then
 // up.sql inside a single rolled-back transaction and asserts that the trigger
 // function bodies plus the resync function presence/absence round-trip
-// cleanly. Pins down-migration correctness — Critic-Finding #9 (search_path
+// cleanly. Pins down-migration correctness — Critic-regression case (search_path
 // drift between up and down) would manifest as
 // snapshot_initial != snapshot_after_up_again here.
 func TestMigration000353DownRoundTripPreservesPre353State(t *testing.T) {
@@ -1235,11 +1235,11 @@ func TestMigration000353DownRoundTripPreservesPre353State(t *testing.T) {
 // and activity IDs. Returned shape is deterministic so reflect.DeepEqual can
 // diff snapshot_after_1 vs snapshot_after_5 for the idempotency assertion.
 type resyncStateSnapshot struct {
-	tagsArrays      map[string][]string // activityID -> sorted tag names from activities.tags
-	junctionPairs   []string            // sorted "<activityID>:<tagID>" pairs
-	tagCounts       map[string]int      // tagID -> activity_count for system tags of the user
-	tagIsSystem     map[string]bool     // tagID -> is_system for tags in scope (system + name-collision tags)
-	removalPairs    []string            // sorted "<activityID>:<tagID>" pairs in activity_tag_removals
+	tagsArrays    map[string][]string // activityID -> sorted tag names from activities.tags
+	junctionPairs []string            // sorted "<activityID>:<tagID>" pairs
+	tagCounts     map[string]int      // tagID -> activity_count for system tags of the user
+	tagIsSystem   map[string]bool     // tagID -> is_system for tags in scope (system + name-collision tags)
+	removalPairs  []string            // sorted "<activityID>:<tagID>" pairs in activity_tag_removals
 }
 
 func snapshotResyncState(t *testing.T, ctx context.Context, tx pgx.Tx, userID string, activityIDs []string, tagIDs []string) resyncStateSnapshot {

@@ -1,7 +1,7 @@
 package enrichment
 
-// Phase 4 Critic finding F1 (critical): Stage-2 cable-hold merge persistence
-// path. MergeMultiRideForOSM marks the non-canonical group members as
+// Stage-2 cable-hold merge persistence path. MergeMultiRideForOSM marks
+// the non-canonical group members as
 // SuppressedByMerge but does not propagate MergedRideIndices onto them. The
 // persistence loop in lift_enrich.go indexes res.MergedRideIndices[0] and
 // panics index-out-of-range before the audit row can be written. This test
@@ -246,7 +246,7 @@ func TestEnrichStreamLifts_Stage2CableHoldMerge_Persists(t *testing.T) {
 	// Pre-fix: this panics with "runtime error: index out of range [0] with
 	// length 0" inside the SuppressedByMerge branch. Post-fix: returns nil.
 	if err := enrichStreamLifts(ctx, db, userID, activityID, stream); err != nil {
-		t.Fatalf("enrichStreamLifts: %v (Phase-4 critic F1: persistence must not error)", err)
+		t.Fatalf("enrichStreamLifts: %v (persistence must not error)", err)
 	}
 
 	// Assertion 2: exactly one segment_efforts row for the merged group.

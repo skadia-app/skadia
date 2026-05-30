@@ -258,7 +258,7 @@ func TestSuggestRoutes_Outdoor_SubSegmentsAnnotated(t *testing.T) {
 		t.Errorf("mtb_scale=S2 segment missing")
 	}
 	// SAC edge on (0,1)↔(1,1) is traversed by Route 0 (col-1 down-and-back);
-	// hard-assertion valid after Leg1-segments pipeline fix (Opus R2-#6):
+	// hard-assertion valid after Leg1-segments pipeline fix (reconstruction regression):
 	// BuildRouteResultFromEdges now populates Segments so mergeLegs includes
 	// all leg1 edges in the user-facing segments array.
 	if !foundSac {

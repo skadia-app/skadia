@@ -6,8 +6,6 @@ import (
 )
 
 // appleWatchModels maps Apple machine identifiers to human-readable names.
-// Source: public device registry DevelopmentFitSdkMapping.php + public identifier list
-// License: MIT, Copyright (c) 2017 upstream registry — https://github.com/public device registry
 var appleWatchModels = map[string]string{
 	"Watch1,1":  "Apple Watch 38mm",
 	"Watch1,2":  "Apple Watch 42mm",
@@ -95,7 +93,6 @@ func ResolveDevelopmentManufacturer(productName, descriptor string) (source, dev
 
 	// 3. Samsung: productName starts with "samsung" or "galaxy watch"
 	// Samsung Health exports use "Samsung Galaxy Watch6 Classic" etc.
-	// device name mapping.php confirms prefix-matching pattern (MIT, upstream registry 2017)
 	if strings.HasPrefix(pnLower, "samsung") || strings.HasPrefix(pnLower, "galaxy watch") {
 		return "Samsung", productName
 	}

@@ -1,6 +1,6 @@
 package database_test
 
-// Phase-4 Adversarial-Critic finding F2 (Variante B) — IsOSMRejectedInWindow.
+// Phase-4 regression case— IsOSMRejectedInWindow.
 //
 // Unit-level coverage of the new DB helper that the OSM-snap-pipeline calls
 // before inserting a fresh segment_effort + audit-row. Mirrors the

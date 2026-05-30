@@ -333,7 +333,7 @@ describe('migrateRoute — Stage 3 (DEM concat-hop)', () => {
 
 describe('fillSegmentsViaConcatHop — per-segment independence', () => {
   it('two 2D segments in the same DEM batch → N1+N2 total DEM vertices (no cross-segment dedup)', async () => {
-    // Finding #4 fix: fillSegmentsViaConcatHop does NOT dedup junction vertices
+    // regression case fix: fillSegmentsViaConcatHop does NOT dedup junction vertices
     // across segment boundaries. Each segment contributes all its coords.
     // Seg1: 3 coords, Seg2: 3 coords → 6 total DEM vertices.
     // After remapping: seg1 gets 3 points (indices 0..2), seg2 gets 3 points (indices 3..5).
@@ -603,7 +603,7 @@ it('TestMigration_TwoTabsSameRoute_NoConflict — second tab observes 412 with c
 it('TestMigration_ApproachEndEqualsNextSplineStart_NoDoubleDrop', async () => {
   // Two adjacent segments where seg1 ends at exactly the same coord as seg2 starts.
   // fillSegmentsViaConcatHop does NOT dedup across segment boundaries in the DEM
-  // batch (Finding #4 fix): each segment contributes all its coords independently.
+  // batch (regression case fix): each segment contributes all its coords independently.
   // Seg1 has 2 coords, seg2 has 2 coords → 4 total DEM vertices.
   // This prevents silent vertex loss when the stillNeedsDem batch is non-contiguous
   // in the original route (e.g. positions [1, 2, 4] of a 5-segment route).

@@ -343,7 +343,7 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
  *   approach-inklusiv wäre und gegen das approach-exklusive Profil driftet —
  *   Spec §5.5).
  *
- * Achsen-Diskrepanz (Critic-Finding #9 + #17): Bei Segmenten ohne Profil wird
+ * Achsen-Diskrepanz (regression case): Bei Segmenten ohne Profil wird
  * ersatzweise seg.distance_m als Offset verwendet. Für routed-Segmente ist das
  * approach-inklusiv, für offroad approach-exklusiv. Der resultierende Drift ist
  * typischerweise 10–100 m (abhängig von der Approach-Länge), also im Bereich eines
@@ -444,7 +444,7 @@ export function mergeSegmentStatsForState(
       for (let j = 1; j < segLen; j++) coordinatesMerged.push(segCoords[j])
     }
 
-    // Finding #7 fix: always add seg.distance_m to totalDist so that segments
+    // regression case fix: always add seg.distance_m to totalDist so that segments
     // without stats (e.g. BRouter-fallover leg) count as 0 % rather than being
     // excluded from the denominator. This keeps forest_pct / protected_pct
     // proportional to the full route distance, not just the BadRouter portion.
@@ -477,7 +477,7 @@ export function mergeSegmentStatsForState(
       shiftFlatRanges(stats.protected_ranges, protectedRangesMerged)
       if (stats.summits_passed) {
         // Summits dedupliziert: kann an Segment-Grenzen doppelt auftreten.
-        // Finding #8 fix: osm_id=0 (DB-Importbug) → Coord-Fallback-Key statt osm_id,
+        // regression case fix: osm_id=0 (DB-Importbug) → Coord-Fallback-Key statt osm_id,
         // sonst werden alle osm_id=0-Gipfel fälschlich als Duplikate behandelt.
         const dedupKey = (sm: { osm_id: number; lat: number; lng: number }) =>
           sm.osm_id > 0 ? String(sm.osm_id) : `${sm.lat.toFixed(5)},${sm.lng.toFixed(5)}`
@@ -832,7 +832,7 @@ export function useRoutePlanner() {
           didPopulate = true
           return { ...s, profileConfig: fresh }
         })
-        // Finding #10: if waypoints were added before profileConfig was ready,
+        // regression case: if waypoints were added before profileConfig was ready,
         // they have no segments yet — recalculate now that we have a profile.
         // Use a microtask so setState above has committed before we read state.
         if (didPopulate) {
@@ -1216,7 +1216,7 @@ export function useRoutePlanner() {
       currentProfileConfig = s.profileConfig
       currentEngine = s.routingEngine
       currentBrouterProfile = s.brouterProfile
-      // Finding #9 fix (Option b): do NOT clear existing segments here.
+      // regression case fix (Option b): do NOT clear existing segments here.
       // Keeps DB-loaded segments visible while re-routing is in-flight, preventing
       // the visible flash (route → blank → route). _calculateSegment replaces each
       // segment in-place via findIndex+map (Quelle 1 path).
@@ -1479,7 +1479,7 @@ export function useRoutePlanner() {
       // the persisted engine (or current selection for legacy routes without
       // routing_engine). Also seed routingEngine so the engine-toggle UI
       // reflects the engine that actually produced the saved geometry.
-      // Finding #10 (2026-04-24): seed from route.routing_engine, not s.routingEngine.
+      // regression case (2026-04-24): seed from route.routing_engine, not s.routingEngine.
       routingEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
       lastRenderedEngine: (route.routing_engine ?? s.routingEngine) as typeof s.routingEngine,
       dirtyEngines: { badrouter: false, brouter: false },
@@ -2302,7 +2302,7 @@ export function useRoutePlanner() {
 
   const totals = {
     // Use approach-inclusive total_distance_m when available (BadRouter); fall back to
-    // network-only distance_m for BRouter and offroad segments (Spec §5.5 / Finding #17).
+    // network-only distance_m for BRouter and offroad segments (Spec §5.5 / regression case).
     distance_m: state.segments.reduce((acc, seg) => acc + (seg.total_distance_m ?? seg.distance_m), 0),
     elevation_gain: state.segments.reduce(
       (acc, seg) => acc + seg.elevation_gain,

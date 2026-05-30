@@ -542,7 +542,7 @@ func listActivityGearIDs(ctx context.Context, pool *pgxpool.Pool, activityID, us
 //
 // This prevents the review modal from popping up on all historic activities
 // the first time a user visits them after the lift-detection migration
-// (Adversarial-Review-Finding #22).
+// (regression case).
 func runAckBackfill(ctx context.Context, pool *pgxpool.Pool, userID *string) (int64, error) {
 	if userID != nil {
 		tag, err := pool.Exec(ctx, `

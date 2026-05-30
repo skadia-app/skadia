@@ -556,7 +556,7 @@ func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID
 // Owner check is enforced inside the DB layer via a JOIN to activities.
 // 0-row UPDATE (wrong owner, already-non-rejected, missing row) → 404.
 //
-// Adversarial-Review-Finding #19. Phase 6.3.1.2 bullet 5.
+// regression case. Phase 6.3.1.2 bullet 5.
 func (h *Handler) RestoreLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {

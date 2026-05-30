@@ -585,9 +585,8 @@ export default function ReadinessCardFull() {
     },
   })
 
-  // Source toggle is visible only when at least one factor has ≥2 available sources.
-  // Using factor.source alone would be wrong — it only shows the active choice,
-  // not whether an alternative exists (Codex-Finding #6).
+  // Source toggle is visible only when at least one factor has multiple
+  // available sources. factor.source only contains the active choice.
   const toggleVisible = (data?.factors ?? []).some(
     f => (f.available_sources?.length ?? 0) >= 2,
   )

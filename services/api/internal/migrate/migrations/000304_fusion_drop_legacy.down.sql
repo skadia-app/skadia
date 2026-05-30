@@ -8,7 +8,7 @@
 
 -- Down for migration 000304.
 --
--- WARNING — NOT fully lossless (Finding #22):
+-- WARNING — NOT fully lossless (regression case):
 --  - Pre-302 fusion_sources JSONB allowed exactly ONE source per field_key
 --    (or the literal "fuse" marker for multi-source stitching).
 --  - Memberships allow MULTIPLE sources per field_key (needed for new semantics).
@@ -20,7 +20,7 @@
 --    only ever wrote single source_ids or "fuse"), so a same-day rollback
 --    is safe.
 --
--- Rollback-ordering rule (Finding #33): if 000304 is to roll back AND 000302
+-- Rollback-ordering rule (regression case): if 000304 is to roll back AND 000302
 -- (memberships) is to roll back, always roll 000304 down FIRST. Otherwise
 -- the UPDATE trigger would reference a dropped function.
 

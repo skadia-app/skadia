@@ -109,13 +109,23 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			rec.Manufacturer = mfr
 		}
 
-		// Use dynamic field interpretation for product
+		// Use dynamic field interpretation for product.
+		productID := uint16(0)
 		prodName, prodVal := di.GetProduct()
-		if prodName == "garmin_product" {
+		switch prodName {
+		case "garmin_product":
 			gp := prodVal.(typedef.GarminProduct)
 			if gp != typedef.GarminProductInvalid {
 				rec.GarminProduct = gp.String()
 				rec.GarminProductID = int32(gp)
+				productID = uint16(gp)
+			}
+		case "favero_product":
+			productID = uint16(prodVal.(typedef.FaveroProduct))
+		case "product":
+			productID = prodVal.(uint16)
+			if productID == 0xFFFF {
+				productID = 0
 			}
 		}
 
@@ -134,8 +144,8 @@ func ExtractSensors(deviceInfos []*mesgdef.DeviceInfo) []model.SensorRecord {
 			Type:            "sensor",
 			Manufacturer:    FormatManufacturer(typedef.Manufacturer(rec.ManufacturerID).String()),
 			ManufacturerID:  int(rec.ManufacturerID),
-			ProductName:     ResolveProductName(uint16(rec.ManufacturerID), uint16(rec.GarminProductID), rec.ProductName),
-			ProductID:       int(rec.GarminProductID),
+			ProductName:     ResolveProductName(uint16(rec.ManufacturerID), productID, rec.ProductName),
+			ProductID:       int(productID),
 			SerialNumber:    rec.SerialNumber,
 			AntDeviceNumber: rec.AntDeviceNumber,
 			DeviceTypes:     rec.AllDeviceTypes,

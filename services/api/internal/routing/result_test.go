@@ -218,7 +218,7 @@ func TestMergeLegs_DistanceAxisContinuity(t *testing.T) {
 }
 
 func TestMergeLegs_LegProfileDoesntStartAtZero_DistanceShiftPreservesContinuity(t *testing.T) {
-	// Critic-Finding #21: wenn ein Leg-Profile nicht bei DistM=0 beginnt
+	// regression case: wenn ein Leg-Profile nicht bei DistM=0 beginnt
 	// (z.B. wegen vorgelagerter degenerate-Edges innerhalb des Legs),
 	// bleibt der Distanz-Shift mathematisch konsistent — der erste
 	// emittierte Punkt landet bei mergedDistM + legProfile[startIdx].DistM,

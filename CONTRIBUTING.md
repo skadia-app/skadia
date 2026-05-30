@@ -33,7 +33,7 @@ fork or self-hosted instance, the same rules apply.
    section if any AI assistance was involved (see "AI assistance" below).
 5. CI runs gitleaks, CodeQL, actionlint, zizmor, the size gate, and the
    pre-commit hook in server-side replay. All must pass before review.
-6. Address bot-review findings before requesting human review.
+6. Address automation flags before requesting human review.
 
 ### Branch protection on `main`
 
@@ -107,25 +107,22 @@ The `CHANGELOG.md` file follows a date-as-version format:
   jargon — first bullet should name the visible feature, not the
   technical change.
 
-
 ## AI assistance
 
-This project is openly developed with AI agents (Claude Code, Codex, etc.)
-contributing alongside humans. AI-authored PRs are welcome under three
-conditions:
+This project accepts AI-assisted contributions alongside human-written
+changes. AI-authored PRs are welcome under three conditions:
 
 1. **Disclose the tool used** in the PR template's "AI tooling disclosure"
    section. We do not use this to filter PRs; we use it to interpret the
    diff (e.g. an agent's verbose comments tell us where to push back).
-2. **Resolve all bot-review findings before requesting human review.** Do
+2. **Resolve all automation flags before requesting human review.** Do
    not stack human reviewer time on top of unaddressed automation flags.
 3. **State the level of human verification.** "Tests pass and I spot-
    checked the diff" is fine; "the agent said it works" is not. Human
    accountability for the change does not transfer to the AI tool.
 
-Project-internal agent rules are in `CLAUDE.md` (root, `frontend/`).
-External contributors are not expected to follow them, but reading them
-helps interpret existing code patterns.
+Project-internal agent rules are separate from this contributor guide.
+External contributors are not expected to follow them.
 
 ## License
 

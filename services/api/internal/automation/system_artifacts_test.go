@@ -1,7 +1,6 @@
 package automation
 
-// Tests for the central system-artifacts spec list + EnsureSystemArtifacts.
-// Phase 4b.A.2 — see docs/internal/2026-05-04-lift-detection-go-migration-plan.md.
+// Tests for the central system-artifacts list and EnsureSystemArtifacts.
 //
 // Integration tests against TEST_DATABASE_URL (skipped when unset).
 
@@ -189,7 +188,8 @@ func TestEnsureSystemArtifacts_NewSpec_BackfillsExistingUser(t *testing.T) {
 	userID := createTestUser(t, pool)
 	db := &database.DB{Pool: pool}
 
-	// Simulate a pre-Phase-4b user: no system artefacts, version stays at 0.
+	// Simulate an existing user before system artifacts were seeded:
+	// no system artifacts, version stays at 0.
 	// (Tags table protects system tags from delete via DB trigger from
 	// migration 000170, so we cannot simulate "tag missing" — but the realistic
 	// new-spec backfill scenario is "rule missing, tag may or may not be

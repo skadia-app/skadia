@@ -159,7 +159,7 @@ func (m *buildRouteReaderMock) FindNearestEdge(_, _ float64, _ func(uint64) bool
 }
 
 // TestBuildRouteResultFromEdges_PopulatesSegments verifies that
-// BuildRouteResultFromEdges now populates result.Segments (Opus R2-#6 fix).
+// BuildRouteResultFromEdges now populates result.Segments (reconstruction regression fix).
 // Uses three edges with distinct Tags1 values (highway=path, SAC T1/T2/T3) so
 // each edge forms its own segment — asserting len(Segments)==3.
 func TestBuildRouteResultFromEdges_PopulatesSegments(t *testing.T) {
@@ -192,7 +192,7 @@ func TestBuildRouteResultFromEdges_PopulatesSegments(t *testing.T) {
 
 	// Result must have Segments populated — before the fix it was nil.
 	if result.Segments == nil {
-		t.Fatal("Segments is nil — BuildRouteResultFromEdges did not populate Segments (Opus R2-#6 regression)")
+		t.Fatal("Segments is nil — BuildRouteResultFromEdges did not populate Segments (reconstruction regression regression)")
 	}
 	// 3 edges, each with distinct Tags1 → 3 segments.
 	if len(result.Segments) != 3 {
@@ -286,8 +286,8 @@ func TestBuildRouteResultFromEdges_NoSpike_NonMonotonicEdge(t *testing.T) {
 		tags1: map[uint64]uint64{201: 0},
 		tags2: map[uint64]uint64{201: 0},
 		coords: map[uint64][3]int32{
-			10: {470000000, 110000000, 500},  // node 10: ele 50m (500 dm)
-			11: {470100000, 110150000, 600},  // node 11: ele 60m (600 dm)
+			10: {470000000, 110000000, 500}, // node 10: ele 50m (500 dm)
+			11: {470100000, 110150000, 600}, // node 11: ele 60m (600 dm)
 		},
 		elevProfiles: map[uint64][2]interface{}{
 			201: {[]int32{1000, 1050, 980, 1020}, []uint16{5000, 4000, 3000}},

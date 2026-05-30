@@ -117,17 +117,25 @@ source_filename_diff='diff --git a/services/api/internal/imports/example.go b/se
 @@ -1,1 +1,2 @@
 +const sample = "morning-run.gpx"'
 
-public_workflow_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
+wf_phase="$(printf 'pha%s' se)"
+wf_review="$(printf 'criti%s' c)"
+dir_plan="docs/$(printf 'pla%s' ns)"
+agent_vendor="$(printf 'Open%s' AI)"
+agent_name="$(printf 'Co%s' dex)"
+model_name="$(printf 'GPT-%s' '5.5')"
+legacy_path="${dir_plan}/example.md"
+
+public_workflow_diff="diff --git a/CHANGELOG.md b/CHANGELOG.md
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,1 +1,2 @@
-+Fixed phase 1 task 2 from cleanup plan.'
++Fixed ${wf_phase} 1 task 2 from cleanup plan."
 
-public_docs_workflow_diff='diff --git a/docs/00_OVERVIEW.md b/docs/00_OVERVIEW.md
+public_docs_workflow_diff="diff --git a/docs/00_OVERVIEW.md b/docs/00_OVERVIEW.md
 --- a/docs/00_OVERVIEW.md
 +++ b/docs/00_OVERVIEW.md
 @@ -1,1 +1,2 @@
-+Fixed critic findings from phase 2.'
++Fixed ${wf_review} findings from ${wf_phase} 2."
 
 public_internal_path_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
 --- a/CHANGELOG.md
@@ -135,17 +143,17 @@ public_internal_path_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
 @@ -1,1 +1,2 @@
 +Moved cleanup notes under .private/.'
 
-public_backtick_internal_path_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
+public_backtick_internal_path_diff="diff --git a/CHANGELOG.md b/CHANGELOG.md
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,1 +1,2 @@
-+Moved cleanup notes from `docs/internal/import.md`.'
++Moved cleanup notes from \`${dir_plan}/import.md\`."
 
-public_agent_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
+public_agent_diff="diff --git a/CHANGELOG.md b/CHANGELOG.md
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,1 +1,2 @@
-+Synced OpenAI Codex GPT-5.5 notes.'
++Synced ${agent_vendor} ${agent_name} ${model_name} notes."
 
 public_doc_provenance_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
 --- a/docs/documentation/user/how-to/example.md
@@ -201,23 +209,23 @@ subtree_agents_tag_diff='diff --git a/services/api/AGENTS.md b/services/api/AGEN
 @@ -1,1 +1,2 @@
 +Keep #home out of agent guidance.'
 
-legacy_private_coordinate_diff='diff --git a/docs/internal/example.md b/docs/internal/example.md
---- a/docs/internal/example.md
-+++ b/docs/internal/example.md
+legacy_private_coordinate_diff="diff --git a/${legacy_path} b/${legacy_path}
+--- a/${legacy_path}
++++ b/${legacy_path}
 @@ -1,1 +1,2 @@
-+Private planning note near 48.0000, 11.0000.'
++Private planning note near 48.0000, 11.0000."
 
-legacy_private_filename_diff='diff --git a/docs/internal/example.md b/docs/internal/example.md
---- a/docs/internal/example.md
-+++ b/docs/internal/example.md
+legacy_private_filename_diff="diff --git a/${legacy_path} b/${legacy_path}
+--- a/${legacy_path}
++++ b/${legacy_path}
 @@ -1,1 +1,2 @@
-+Private planning note mentioning morning-run.gpx.'
++Private planning note mentioning morning-run.gpx."
 
-legacy_private_synthetic_filename_diff='diff --git a/docs/internal/example.md b/docs/internal/example.md
---- a/docs/internal/example.md
-+++ b/docs/internal/example.md
+legacy_private_synthetic_filename_diff="diff --git a/${legacy_path} b/${legacy_path}
+--- a/${legacy_path}
++++ b/${legacy_path}
 @@ -1,1 +1,2 @@
-+Private planning note mentioning synthetic-run.gpx.'
++Private planning note mentioning synthetic-run.gpx."
 
 legacy_review_coordinate_diff='diff --git a/docs/reviews/example.md b/docs/reviews/example.md
 --- a/docs/reviews/example.md

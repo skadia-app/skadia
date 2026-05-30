@@ -13,7 +13,7 @@ go test ./internal/fitimport/ -run TestUpdateSupportedDevices -update
 
 | Source File | When to Use | Mechanism |
 |---|---|---|
-| [`services/api/internal/fitimport/devicelookup.go`](services/api/internal/fitimport/devicelookup.go) | Device with known `[manufacturer_id, product_id]` pair not in FIT SDK | Static map lookup |
+| [`services/api/internal/fitimport/devicelookup.go`](services/api/internal/fitimport/devicelookup.go) | Hardware item with known `[manufacturer_id, product_id]` pair not in FIT SDK | Static map lookup |
 | [`services/api/internal/fitimport/manufacturer.go`](services/api/internal/fitimport/manufacturer.go) | Development devices (mfr=255): Apple Watch, Samsung, Amazfit, etc. | String pattern matching on product_name |
 | [`services/api/internal/fitimport/developer_app_registry.go`](services/api/internal/fitimport/developer_app_registry.go) | Third-party apps with known Application ID | Application ID hex lookup |
 
@@ -309,20 +309,33 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Magene | C606 | Map |
 | Magene | L508 | Map |
 | Morpheus | M7 | Map |
+| Polar | A300 | Map |
+| Polar | A360 | Map |
+| Polar | A370 | Map |
+| Polar | All models with product_name metadata<sup>1</sup> | Pattern |
 | Polar | Grit X | Map |
 | Polar | Grit X Pro | Map |
-| Polar | Grit X2 Pro | Map |
+| Polar | Grit X2 | Map |
 | Polar | Ignite | Map |
 | Polar | Ignite 2 | Map |
 | Polar | Ignite 3 | Map |
+| Polar | Loop | Map |
+| Polar | Loop 2 | Map |
+| Polar | M200 | Map |
+| Polar | M400 | Map |
+| Polar | M430 | Map |
+| Polar | M450 | Map |
+| Polar | M460 | Map |
+| Polar | M600 | Map |
 | Polar | Pacer | Map |
 | Polar | Pacer Pro | Map |
 | Polar | Unite | Map |
+| Polar | V650 | Map |
 | Polar | V800 | Map |
 | Polar | Vantage M | Map |
 | Polar | Vantage M2 | Map |
+| Polar | Vantage M3 | Map |
 | Polar | Vantage V | Map |
-| Polar | Vantage V Titan | Map |
 | Polar | Vantage V2 | Map |
 | Polar | Vantage V3 | Map |
 | Powertap | Joule | Map |
@@ -436,8 +449,10 @@ Some sensor-like devices and apps, including Stryd, use FIT Developer Fields ins
 | Garmin | Vector S | Power Meter | SDK |
 | Garmin | Vector SS | Power Meter | SDK |
 | Polar | H10 | Heart Rate | Map |
+| Polar | H7 | Heart Rate | Map |
 | Polar | H9 | Heart Rate | Map |
 | Polar | OH1 | Heart Rate | Map |
+| Polar | Verity Sense | Heart Rate | Map |
 | Power2max | S | Power Meter | Map |
 | Powertap | C1 | Power Meter | Map |
 | Powertap | G3 | Power Meter | Map |

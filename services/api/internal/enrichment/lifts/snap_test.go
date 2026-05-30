@@ -115,7 +115,7 @@ func TestSnapToOSMLifts_PartialCoverageMarksMultiRideGroup(t *testing.T) {
 // TestSnapToOSMLifts_SinglePartialNoSibling: coverage 0.30..0.70 but no other
 // ride hits the same lift → Action="passthrough" (ride stays heuristic-only)
 // — but the ride physically rode an OSM lift, so OSMCandidateIdx must point
-// at that lift to block Stage 3 (Phase-4 critic finding F1).
+// at that lift to block Stage 3 (regression case).
 func TestSnapToOSMLifts_SinglePartialNoSibling(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
@@ -150,7 +150,7 @@ func TestSnapToOSMLifts_SinglePartialNoSibling(t *testing.T) {
 // TestSnapToOSMLifts_SinglePartialNoSibling case: without the sentinel,
 // MethodACoverageGap could not distinguish "no OSM relation" from "OSM lift
 // at index 0", and Stage 3 would incorrectly skip osmCandidates[0] for every
-// passthrough ride (Phase-4 critic finding F1).
+// passthrough ride (regression case).
 func TestSnapToOSMLifts_PassthroughNoOverlapHasSentinelIdx(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
@@ -435,7 +435,7 @@ func TestMethodACoverageGap_NoPlanWhenAllSnapped(t *testing.T) {
 // neighbourhood, so Stage 3 still proposes the unrelated lifts.
 //
 // This test replaces the older TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift
-// (Phase-4 critic finding F1). The old test asserted that *any* passthrough,
+// (regression case). The old test asserted that *any* passthrough,
 // including one whose OSMCandidateIdx defaulted to 0 from the SnapResult
 // zero-value, left the lift uncovered. That contract caused recomputeLiftStats
 // to double-count: the heuristic detector inserted an activity_lift_candidates
@@ -464,7 +464,7 @@ func TestMethodACoverageGap_PassthroughWithoutOSMRelationStillPlansLift(t *testi
 // at the OSM lift it physically rode on) MUST block Stage 3 — otherwise Stage
 // 3 inserts an OSM-side segment_effort for the same physical ride that the
 // heuristic detector already emitted as a candidate, double-counting in
-// recomputeLiftStats. (Phase-4 critic finding F1.)
+// recomputeLiftStats. (regression case.)
 func TestMethodACoverageGap_PassthroughWithPartialCoverageBlocksStage3(t *testing.T) {
 	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
 	osmB := OSMLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0}
@@ -648,7 +648,7 @@ func TestSnapCorpus_HeuristicOnlyNoOSM(t *testing.T) {
 
 // TestComputeIsReverseFromSamples_MalformedIndicesDoesNotPanic exercises
 // every degenerate index combination against a non-empty samples slice
-// (Phase-4 critic finding F19). The previous asymmetric bounds check would
+// (regression case). The previous asymmetric bounds check would
 // panic on (StartSampleIdx >= len, EndSampleIdx in range) and similar
 // inversions. The function must return false instead.
 func TestComputeIsReverseFromSamples_MalformedIndicesDoesNotPanic(t *testing.T) {
@@ -715,7 +715,7 @@ func TestCableHoldSignalsHold_MalformedIndicesDoesNotPanic(t *testing.T) {
 }
 
 // TestMergeMultiRideForOSM_CableHoldSurvivesForeignRideSamples exercises
-// Phase-4 critic finding F26: when an unrelated ride (different OSM lift)
+// regression case: when an unrelated ride (different OSM lift)
 // chronologically lies between the two cable-hold rides, its GPS samples
 // were previously checked against the anchor's 10m drift and would always
 // fail — rejecting the legitimate cable-hold merge. The fix skips foreign-
@@ -780,7 +780,7 @@ func TestMergeMultiRideForOSM_CableHoldSurvivesForeignRideSamples(t *testing.T) 
 }
 
 // TestMergeMultiRideForOSM_LoneMemberDefensiveBlocksStage3 exercises
-// Phase-4 critic finding F39: if a Stage-1 result tags exactly one ride as
+// regression case: if a Stage-1 result tags exactly one ride as
 // MultiRideGroup (the defensive branch in MergeMultiRideForOSM), Stage 2
 // must still prevent Stage 3 from re-planning the same OSM lift, otherwise
 // the consumer's defensive heuristic-only insert plus a Stage 3 OSM-side

@@ -412,7 +412,7 @@ describe('resolveScale — cadence (activity-relative)', () => {
   })
 })
 
-// ─── Finding #29c: resolveScale zones+speed with m/s → km/h conversion ───────
+// ─── regression case: resolveScale zones+speed with m/s → km/h conversion ───────
 
 describe('resolveScale — zones speed (m/s → km/h)', () => {
   it('resolveScale zones mode for speed converts m/s zone_highs to km/h', () => {
