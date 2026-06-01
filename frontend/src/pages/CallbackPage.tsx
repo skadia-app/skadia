@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { setToken } from '@/lib/auth'
 import { clearQueryClientCache } from '@/lib/queryClient'
 import { exchangeAuthCode } from '@/api/auth'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function CallbackPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +52,7 @@ export default function CallbackPage() {
             onClick={() => navigate('/login', { replace: true })}
             className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
           >
-            Zurück zur Anmeldung
+            {t('auth.common.backToLogin')}
           </button>
         </div>
       </div>
@@ -59,7 +61,7 @@ export default function CallbackPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-950">
-      <span className="text-sm text-neutral-400">Anmeldung wird verarbeitet...</span>
+      <span className="text-sm text-neutral-400">{t('auth.callback.processing')}</span>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 // Selectors for all natively focusable elements
@@ -19,6 +20,7 @@ interface ModalShellProps {
 }
 
 export function ModalShell({ onClose, maxWidth = 'max-w-lg', children, className }: ModalShellProps) {
+  const { t } = useTranslation()
   const panelRef = useRef<HTMLDivElement>(null)
   // Save the element that had focus before the modal opened
   const returnFocusRef = useRef<Element | null>(null)
@@ -85,7 +87,7 @@ export function ModalShell({ onClose, maxWidth = 'max-w-lg', children, className
       className="fixed inset-0 z-50 flex items-center justify-center"
       role="dialog"
       aria-modal="true"
-      aria-label="Dialog"
+      aria-label={t('common.dialog')}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div

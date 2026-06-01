@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { deleteActivity, deleteActivities } from '@/api/activities'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -10,7 +11,7 @@ interface Props {
   activityTitle?: string | null
   onClose: () => void
   onDeleted: () => void
-  /** Wenn gesetzt: Aktivität hat Kinder/Quellen. Zeigt Auswahl-Dialog. */
+  /** When set, the activity has child/source activities and needs a choice dialog. */
   hasChildren?: boolean
 }
 
@@ -21,6 +22,7 @@ export default function DeleteConfirmModal({
   onDeleted,
   hasChildren,
 }: Props) {
+  const { t } = useTranslation()
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [sourcesMode, setSourcesMode] = useState<'restore' | 'delete' | null>(null)
   const queryClient = useQueryClient()
@@ -48,20 +50,22 @@ export default function DeleteConfirmModal({
   })
 
   const label = isSingle
-    ? (activityTitle ?? 'diese Aktivität')
-    : `${activityIds.length} Aktivitäten`
+    ? (activityTitle ?? t('activities.deleteConfirm.thisActivity'))
+    : t('activities.deleteConfirm.activityCount', { count: activityIds.length })
 
   // Warning text varies based on sourcesMode
   const warningText = sourcesMode === 'restore'
-    ? 'Das Fusion-Ergebnis wird gelöscht. Die Quell-Aktivitäten werden wiederhergestellt und wieder sichtbar.'
+    ? t('activities.deleteConfirm.restoreWarning')
     : isSingle
-      ? 'Diese Aktion kann nicht rückgängig gemacht werden. Die Originaldatei wird dauerhaft aus dem Speicher entfernt.'
-      : 'Diese Aktion kann nicht rückgängig gemacht werden. Alle Originaldateien werden dauerhaft aus dem Speicher entfernt.'
+      ? t('activities.deleteConfirm.singleWarning')
+      : t('activities.deleteConfirm.bulkWarning')
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm" className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-4">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          {isSingle ? 'Aktivität löschen?' : `${activityIds.length} Aktivitäten löschen?`}
+          {isSingle
+            ? t('activities.deleteConfirm.titleSingle')
+            : t('activities.deleteConfirm.titleBulk', { count: activityIds.length })}
         </h2>
 
         {isSingle && activityTitle && (
@@ -73,19 +77,19 @@ export default function DeleteConfirmModal({
         {hasChildren && sourcesMode === null ? (
           <div className="space-y-3">
             <p className="text-sm text-neutral-700 dark:text-neutral-300">
-              Diese Aktivität enthält verknüpfte Original-Aktivitäten. Was soll mit ihnen passieren?
+              {t('activities.deleteConfirm.sourcesQuestion')}
             </p>
             <div className="flex flex-col gap-2">
               <button onClick={() => setSourcesMode('restore')} className="w-full px-4 py-2.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-left cursor-pointer">
-                <span className="font-medium block">Originale wiederherstellen</span>
-                <span className="text-xs text-neutral-500">Quell-Aktivitäten werden wieder sichtbar, nur das Ergebnis wird gelöscht</span>
+                <span className="font-medium block">{t('activities.deleteConfirm.restoreOriginals')}</span>
+                <span className="text-xs text-neutral-500">{t('activities.deleteConfirm.restoreOriginalsHint')}</span>
               </button>
               <button onClick={() => setSourcesMode('delete')} className="w-full px-4 py-2.5 text-sm rounded-lg border border-red-200 dark:border-red-900 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-left cursor-pointer">
-                <span className="font-medium block">Alle löschen</span>
-                <span className="text-xs text-red-500">Das Ergebnis UND alle Quell-Aktivitäten werden dauerhaft gelöscht</span>
+                <span className="font-medium block">{t('activities.deleteConfirm.deleteAll')}</span>
+                <span className="text-xs text-red-500">{t('activities.deleteConfirm.deleteAllHint')}</span>
               </button>
             </div>
-            <button onClick={onClose} className="w-full px-4 py-2 text-sm text-neutral-500 hover:text-neutral-700 cursor-pointer">Abbrechen</button>
+            <button onClick={onClose} className="w-full px-4 py-2 text-sm text-neutral-500 hover:text-neutral-700 cursor-pointer">{t('account.actions.cancel')}</button>
           </div>
         ) : (
           <>
@@ -100,12 +104,12 @@ export default function DeleteConfirmModal({
 
             {sourcesMode === 'delete' && (
               <p className="text-xs font-medium text-red-700 dark:text-red-400">
-                Die zusammengeführten Quellaktivitäten werden ebenfalls dauerhaft gelöscht.
+                {t('activities.deleteConfirm.deleteSourcesWarning')}
               </p>
             )}
 
             {state === 'error' && (
-              <p className="text-sm text-red-500">Fehler beim Löschen. Bitte erneut versuchen.</p>
+              <p className="text-sm text-red-500">{t('activities.deleteConfirm.error')}</p>
             )}
 
             <div className="flex justify-end gap-3 pt-1">
@@ -114,7 +118,7 @@ export default function DeleteConfirmModal({
                 disabled={state === 'loading'}
                 className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                Abbrechen
+                {t('account.actions.cancel')}
               </button>
               <button
                 onClick={() => mutation.mutate()}
@@ -127,14 +131,14 @@ export default function DeleteConfirmModal({
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Löschen…
+                    {t('activities.deleteConfirm.deleting')}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    {label} löschen
+                    {t('activities.deleteConfirm.deleteLabel', { label })}
                   </>
                 )}
               </button>
