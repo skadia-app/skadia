@@ -26,6 +26,19 @@ function setTypeLabel(type: number | undefined): string {
   return `Typ ${type ?? '?'}`
 }
 
+const FIT_BASE_UNIT_POUND = 2
+const KG_TO_LBS = 2.20462262185
+
+function formatWeight(weightKg: number | null | undefined, weightDisplayUnit: number | undefined): string {
+  if (weightKg == null) return '—'
+
+  if (weightDisplayUnit === FIT_BASE_UNIT_POUND) {
+    return `${(weightKg * KG_TO_LBS).toFixed(1)} lbs`
+  }
+
+  return `${weightKg.toFixed(1)} kg`
+}
+
 interface Props { sets: ActivitySet[] }
 
 export function StrengthSetsTable({ sets }: Props) {
@@ -72,7 +85,7 @@ export function StrengthSetsTable({ sets }: Props) {
                     <td>{setTypeLabel(s.set_type)}</td>
                     <td className="text-right tabular-nums">{s.repetitions ?? '—'}×</td>
                     <td className="text-right tabular-nums">
-                      {s.weight_kg != null ? `${s.weight_kg.toFixed(1)} ${s.weight_display_unit === 1 ? 'lbs' : 'kg'}` : '—'}
+                      {formatWeight(s.weight_kg, s.weight_display_unit)}
                     </td>
                     <td className="text-right tabular-nums">{s.duration_s != null ? fmtDuration(s.duration_s, 'short') : '—'}</td>
                   </tr>
