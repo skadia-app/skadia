@@ -5,6 +5,8 @@ import {
   type SportModifierTSField,
 } from './generatedSportModifiers'
 import { systemTagSyncByModifierKey } from './generatedSystemTags'
+import { localizeString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 export type { SportModifierKey, SportModifierTSField }
 
@@ -13,8 +15,9 @@ export type SportModifierState = Partial<Record<SportModifierTSField, boolean>>
 
 export const SPORT_MODIFIER_KEYS = [...GENERATED_SPORT_MODIFIER_KEYS] as SportModifierKey[]
 
-export function modifierLabel(key: SportModifierKey): string {
-  return requireModifier(key).label
+export function modifierLabel(key: SportModifierKey, language?: SupportedLanguage): string {
+  const modifier = requireModifier(key)
+  return localizeString(modifier.labels, language) || modifier.label
 }
 
 export function modifierKeysForCapability(capability: SportModifierCapability): SportModifierKey[] {
@@ -53,10 +56,10 @@ export function modifierFromTSField(field: string): SportModifierKey | null {
   return modifierByTSField.get(field) ?? null
 }
 
-export function sportModifierSuffix(state: SportModifierState): string {
+export function sportModifierSuffix(state: SportModifierState, language?: SupportedLanguage): string {
   return modifierKeysForCapability('activity_state')
     .filter((key) => Boolean(state[modifierTSField(key)]))
-    .map((key) => modifierLabel(key).slice(0, 1).toUpperCase())
+    .map((key) => modifierLabel(key, language).slice(0, 1).toUpperCase())
     .join('/')
 }
 

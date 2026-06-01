@@ -155,13 +155,13 @@ type projectionIndexes struct {
 }
 
 type pendingProjectionLeaf struct {
-	SportType         string
-	SubType           string
-	ParentLabelDE     string
-	CompactLabelDE    string
-	WithParentLabelDE string
-	ExplicitLabelDE   string
-	ForceParentLabel  bool
+	SportType        string
+	SubType          string
+	ParentLabelDE    string
+	CompactLabel     LocaleMap
+	WithParentLabel  LocaleMap
+	ExplicitLabel    LocaleMap
+	ForceParentLabel bool
 }
 
 var promotedProjectionParents = map[string]struct{}{
@@ -791,10 +791,10 @@ func leavesForSport(sport Sport, entry ActivityFilterEntry, throughCategory bool
 	}
 	if includeParent {
 		leaves = append(leaves, pendingProjectionLeaf{
-			SportType:       sport.SportType,
-			ParentLabelDE:   sport.Labels["de"],
-			CompactLabelDE:  sport.Labels["de"],
-			ExplicitLabelDE: entry.Labels["de"],
+			SportType:     sport.SportType,
+			ParentLabelDE: sport.Labels["de"],
+			CompactLabel:  cloneLocaleMap(sport.Labels),
+			ExplicitLabel: cloneLocaleMap(entry.Labels),
 		})
 	}
 	for _, subType := range sport.SubTypes {
@@ -808,15 +808,14 @@ func leafForSubType(sport Sport, subType SubType, entry ActivityFilterEntry) pen
 	if _, ok := parentContextSubTypes[subType.SubType]; ok {
 		forceParent = true
 	}
-	compact := subType.Labels["de"]
 	return pendingProjectionLeaf{
-		SportType:         sport.SportType,
-		SubType:           subType.SubType,
-		ParentLabelDE:     sport.Labels["de"],
-		CompactLabelDE:    compact,
-		WithParentLabelDE: sport.Labels["de"] + ": " + compact,
-		ExplicitLabelDE:   entry.Labels["de"],
-		ForceParentLabel:  forceParent,
+		SportType:        sport.SportType,
+		SubType:          subType.SubType,
+		ParentLabelDE:    sport.Labels["de"],
+		CompactLabel:     cloneLocaleMap(subType.Labels),
+		WithParentLabel:  joinLocaleMaps(sport.Labels, subType.Labels, ": "),
+		ExplicitLabel:    cloneLocaleMap(entry.Labels),
+		ForceParentLabel: forceParent,
 	}
 }
 
@@ -826,20 +825,20 @@ func disambiguateProjectionLeaves(pending []pendingProjectionLeaf) []ExpandedAct
 		out = append(out, ExpandedActivityFilterLeaf{
 			SportType: leaf.SportType,
 			SubType:   leaf.SubType,
-			Label:     LocaleMap{"de": projectionLeafLabel(leaf)},
+			Label:     projectionLeafLabel(leaf),
 		})
 	}
 	return out
 }
 
-func projectionLeafLabel(leaf pendingProjectionLeaf) string {
-	if leaf.ExplicitLabelDE != "" {
-		return leaf.ExplicitLabelDE
+func projectionLeafLabel(leaf pendingProjectionLeaf) LocaleMap {
+	if leaf.ExplicitLabel["de"] != "" {
+		return cloneLocaleMap(leaf.ExplicitLabel)
 	}
 	if leaf.SubType != "" && leaf.ForceParentLabel {
-		return leaf.WithParentLabelDE
+		return cloneLocaleMap(leaf.WithParentLabel)
 	}
-	return leaf.CompactLabelDE
+	return cloneLocaleMap(leaf.CompactLabel)
 }
 
 func validateProjectionGroupLabels(presetKey string, group ExpandedActivityFilterGroup) error {
@@ -867,6 +866,33 @@ func resolveGroupLabel(group ActivityFilterGroup, idx projectionIndexes) (Locale
 		return nil, fmt.Errorf("label_ref references unknown category %q", categoryKey)
 	}
 	return cloneLocaleMap(category.Labels), nil
+}
+
+func joinLocaleMaps(left LocaleMap, right LocaleMap, separator string) LocaleMap {
+	out := LocaleMap{}
+	for lang := range left {
+		if lang != "de" && (left[lang] == "" || right[lang] == "") {
+			continue
+		}
+		out[lang] = localizedMapValue(left, lang) + separator + localizedMapValue(right, lang)
+	}
+	for lang := range right {
+		if lang != "de" && (left[lang] == "" || right[lang] == "") {
+			continue
+		}
+		out[lang] = localizedMapValue(left, lang) + separator + localizedMapValue(right, lang)
+	}
+	if out["de"] == "" {
+		out["de"] = localizedMapValue(left, "de") + separator + localizedMapValue(right, "de")
+	}
+	return out
+}
+
+func localizedMapValue(values LocaleMap, lang string) string {
+	if values[lang] != "" {
+		return values[lang]
+	}
+	return values["de"]
 }
 
 func newProjectionIndexes(taxonomy Taxonomy) projectionIndexes {

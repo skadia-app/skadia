@@ -17,8 +17,10 @@ type gearSchemaResponse struct {
 	Version         int         `json:"version"`
 	AssignmentRoles interface{} `json:"assignmentRoles"`
 	OptionSets      interface{} `json:"optionSets"`
+	UnitGroups      interface{} `json:"unitGroups,omitempty"`
 	Attributes      interface{} `json:"attributes"`
 	GearTypes       interface{} `json:"gearTypes"`
+	ComponentTypes  interface{} `json:"componentTypes,omitempty"`
 }
 
 // GetGearSchema returns the effective gear schema for the authenticated user.
@@ -46,8 +48,10 @@ func (h *Handler) GetGearSchema(w http.ResponseWriter, r *http.Request) {
 		Version:         1,
 		AssignmentRoles: schema.AssignmentRoles,
 		OptionSets:      schema.OptionSets,
+		UnitGroups:      schema.UnitGroups,
 		Attributes:      schema.Attributes,
 		GearTypes:       schema.GearTypes,
+		ComponentTypes:  schema.ComponentTypes,
 	}
 
 	body, err := json.Marshal(resp)

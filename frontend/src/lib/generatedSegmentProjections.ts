@@ -2,16 +2,16 @@
 
 export const GENERATED_SEGMENT_PROJECTION = {
   domains: [
-    { key: 'real_world_gps', label: 'GPS draußen', status: 'active' },
-    { key: 'virtual_route', label: 'Virtuelle Strecke', status: 'reserved' },
+    { key: 'real_world_gps', label: 'GPS draußen', labels: { de: 'GPS draußen', en: 'Outdoor GPS', es: 'GPS al aire libre', fr: 'GPS en extérieur', it: 'GPS all\'aperto' }, status: 'active' },
+    { key: 'virtual_route', label: 'Virtuelle Strecke', labels: { de: 'Virtuelle Strecke', en: 'Virtual route', es: 'Ruta virtual', fr: 'Parcours virtuel', it: 'Percorso virtuale' }, status: 'reserved' },
   ],
   segmentTypes: [
-    { key: 'standard', label: 'Standard', activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
-    { key: 'trail', label: 'Trail', activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
-    { key: 'lap', label: 'Runde', activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
-    { key: 'wintersport', label: 'Winter', activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
-    { key: 'wassersport', label: 'Wassersport', activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
-    { key: 'lift', label: 'Lift', activeDomains: [], compatibilityRole: 'legacy_lift' },
+    { key: 'standard', label: 'Standard', labels: { de: 'Standard', en: 'Standard', es: 'Estándar', fr: 'Standard', it: 'Standard' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
+    { key: 'trail', label: 'Trail', labels: { de: 'Trail', en: 'Trail', es: 'Trail', fr: 'Trail', it: 'Trail' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
+    { key: 'lap', label: 'Runde', labels: { de: 'Runde', en: 'Lap', es: 'Vuelta', fr: 'Tour', it: 'Giro' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
+    { key: 'wintersport', label: 'Winter', labels: { de: 'Winter', en: 'Winter', es: 'Invierno', fr: 'Hiver', it: 'Inverno' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
+    { key: 'wassersport', label: 'Wassersport', labels: { de: 'Wassersport', en: 'Water sports', es: 'Deportes acuáticos', fr: 'Sports nautiques', it: 'Sport acquatici' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' },
+    { key: 'lift', label: 'Lift', labels: { de: 'Lift', en: 'Lift', es: 'Remonte', fr: 'Remontée', it: 'Impianto di risalita' }, activeDomains: [], compatibilityRole: 'legacy_lift' },
   ],
   routeOptions: [
     { sportType: 'running' },

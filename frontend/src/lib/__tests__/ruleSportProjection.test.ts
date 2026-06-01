@@ -34,6 +34,16 @@ describe('rule sport projection', () => {
     expect(options.find((option) => option.value === 'running:trail')?.label).toBe('Trail')
   })
 
+  it('localizes source-backed rule labels without changing functional keys', () => {
+    const options = ruleTupleOptions('en')
+
+    expect(options.find((option) => option.value === 'cycling')?.label).toBe('Cycling')
+    expect(options.find((option) => option.value === 'running:trail')?.label).toBe('Trail')
+    expect(ruleModifierControlsForTuple('cycling', 'mountain', 'en').find((modifier) => modifier.key === 'is_electric')?.label).toBe('Electric assist')
+    expect(ruleTraitConditionFields('en').find((field) => field.field === 'sport_environment')?.label).toBe('Environment')
+    expect(ruleTraitConditionFields('en').find((field) => field.field === 'sport_environment')?.options.find((option) => option.value === 'water')?.label).toBe('Water')
+  })
+
   it('exposes modifier applicability for new taxonomy tuples', () => {
     expect(ruleModifierControlsForTuple('mobility').find((modifier) => modifier.key === 'is_indoor')?.actionApplicable).toBe(true)
     expect(ruleModifierControlsForTuple('diving', 'dynamic_apnea').find((modifier) => modifier.key === 'is_indoor')?.actionApplicable).toBe(true)

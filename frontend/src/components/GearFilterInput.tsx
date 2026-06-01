@@ -1,12 +1,15 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Smartphone, Radio } from 'lucide-react'
 import { fetchGear } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear } from '@/api/types'
 import type { Device } from '@/api/hardware'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { getActiveSchema } from '@/lib/gearSchema'
 import { gearTypeLabel as schemaGearTypeLabel, gearTypeScope } from '@/lib/gearSchemaHelpers'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 export type GearFilterState = 'include' | 'exclude'
 
@@ -48,16 +51,12 @@ export function gearTypeIcon(type: string, scope?: string | null): string {
   return icons[gearTypeScope(getActiveSchema(), type, scope)] ?? '🎒'
 }
 
-function gearTypeLabel(type: string): string {
-  return schemaGearTypeLabel(getActiveSchema(), type)
+function gearTypeLabel(type: string, language: SupportedLanguage): string {
+  return schemaGearTypeLabel(getActiveSchema(), type, language)
 }
 
 function deviceLabel(d: Device): string {
   return d.custom_name || d.product_name || d.manufacturer || d.id
-}
-
-function deviceKindLabel(d: Device): string {
-  return d.type === 'recorder' ? 'Gerät' : 'Sensor'
 }
 
 export default function GearFilterInput({
@@ -65,9 +64,11 @@ export default function GearFilterInput({
   onChange,
   deviceValue = [],
   onDeviceChange,
-  placeholder = 'Ausrüstung / Gerät suchen...',
+  placeholder,
   compact,
 }: Props) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const [search, setSearch] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -155,7 +156,7 @@ export default function GearFilterInput({
     <div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          {onDeviceChange ? 'Ausrüstung & Geräte' : 'Ausrüstung'}
+          {onDeviceChange ? t('gearPages.filter.gearAndDevices') : t('gearPages.filter.gear')}
         </span>
         {hasActive && !compact && (
           <button
@@ -163,7 +164,7 @@ export default function GearFilterInput({
             onClick={() => { onChange([]); onDeviceChange?.([]) }}
             className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            Zurücksetzen
+            {t('gearPages.actions.reset')}
           </button>
         )}
       </div>
@@ -179,7 +180,7 @@ export default function GearFilterInput({
           }}
           onClick={handleOpen}
           onFocus={handleOpen}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('gearPages.filter.placeholder')}
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent placeholder-neutral-400 dark:placeholder-neutral-500"
         />
         {search && (
@@ -202,7 +203,7 @@ export default function GearFilterInput({
               {onDeviceChange && filteredDevices.length > 0 && (
                 <div className="px-2 pt-1 pb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    Ausrüstung
+                    {t('gearPages.filter.gear')}
                   </span>
                 </div>
               )}
@@ -223,7 +224,7 @@ export default function GearFilterInput({
                     </span>
                     {!state && (
                       <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
-                        {gearTypeLabel(gear.type)}
+                        {gearTypeLabel(gear.type, language)}
                       </span>
                     )}
                     {stateIndicator(state)}
@@ -239,14 +240,14 @@ export default function GearFilterInput({
               {filteredGear.length > 0 && (
                 <div className="px-2 pt-2 pb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    Geräte & Sensoren
+                    {t('gearPages.filter.devicesAndSensors')}
                   </span>
                 </div>
               )}
               {filteredGear.length === 0 && (
                 <div className="px-2 pt-1 pb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    Geräte & Sensoren
+                    {t('gearPages.filter.devicesAndSensors')}
                   </span>
                 </div>
               )}
@@ -269,7 +270,7 @@ export default function GearFilterInput({
                     </span>
                     {!state && (
                       <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
-                        {deviceKindLabel(device)}
+                        {device.type === 'recorder' ? t('gearPages.filter.device') : t('gearPages.filter.sensor')}
                       </span>
                     )}
                     {stateIndicator(state)}
@@ -283,13 +284,13 @@ export default function GearFilterInput({
 
       {showEmpty && (
         <div className="mt-1.5 px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Ergebnisse gefunden
+          {t('gearPages.filter.noResults')}
         </div>
       )}
 
       {hasActive && !compact && (
         <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-1.5">
-          Klick: einschließen &rarr; ausschließen &rarr; entfernen
+          {t('gearPages.filter.hint')}
         </p>
       )}
     </div>

@@ -1,14 +1,17 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import GearDetailPage from './GearDetailPage'
 import type { Gear, GearComponent, ChainRotationGroup, BikeSetup, ComponentTypePreset } from '@/api/types'
 import {
   createServiceInterval,
+  createChainRotation,
   fetchGear,
   fetchGearDetail,
   updateComponent,
@@ -21,6 +24,11 @@ import {
   activateBikeSetup,
   fetchComponentPresets,
 } from '@/api/gear'
+
+const mockUserPrefs = vi.hoisted((): { locale: string; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 const MOCK_COMPONENT: GearComponent = {
   id: 'c1',
@@ -103,6 +111,10 @@ vi.mock('@/lib/modal', () => ({
   useModal: vi.fn(() => ({ open: vi.fn(), close: vi.fn() })),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
+
 vi.mock('@/components/GearDocumentSection', () => ({ default: () => null }))
 vi.mock('@/components/GearForm', () => ({ default: () => null }))
 
@@ -133,7 +145,32 @@ function componentPresetFixture(overrides: Partial<ComponentTypePreset> = {}): C
   }
 }
 
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockUserPrefs.locale = 'de'
+  mockUserPrefs.units = 'metric'
+  vi.mocked(fetchGearDetail).mockResolvedValue(MOCK_GEAR)
+  vi.mocked(fetchGear).mockResolvedValue([])
+  vi.mocked(listServiceEvents).mockResolvedValue([])
+  vi.mocked(listServiceIntervals).mockResolvedValue([])
+  vi.mocked(getChainRotation).mockResolvedValue(null)
+  vi.mocked(listBikeSetups).mockResolvedValue([])
+  vi.mocked(fetchComponentPresets).mockResolvedValue([])
+})
+
 describe('GearDetailPage tabs', () => {
+  beforeEach(() => {
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
+    vi.mocked(fetchGearDetail).mockResolvedValue(MOCK_GEAR)
+    vi.mocked(fetchGear).mockResolvedValue([])
+    vi.mocked(listServiceEvents).mockResolvedValue([])
+    vi.mocked(listServiceIntervals).mockResolvedValue([])
+    vi.mocked(getChainRotation).mockResolvedValue(null)
+    vi.mocked(listBikeSetups).mockResolvedValue([])
+    vi.mocked(fetchComponentPresets).mockResolvedValue([])
+  })
+
   it('TestDefaultTabIsStammdatenWithNoURLParam', async () => {
     renderPage('/gear/g1')
     // The tab bar must be rendered with the default tab active.
@@ -144,22 +181,22 @@ describe('GearDetailPage tabs', () => {
 
   it('TestURLParamSportSelectsSportTab', async () => {
     renderPage('/gear/g1?tab=sports')
-    const sportTab = await screen.findByRole('tab', { name: 'Sport' })
+    const sportTab = await screen.findByRole('tab', { name: 'Sportarten' })
     expect(sportTab).toHaveAttribute('data-state', 'active')
   })
 
   it('TestSwitchingTabUpdatesURLParam', async () => {
     const user = userEvent.setup()
     renderPage('/gear/g1')
-    const sportTab = await screen.findByRole('tab', { name: 'Sport' })
-    // Before clicking, Sport tab is not active.
+    const sportTab = await screen.findByRole('tab', { name: 'Sportarten' })
+    // Before clicking, the sports tab is not active.
     expect(sportTab).not.toHaveAttribute('data-state', 'active')
 
     await user.click(sportTab)
 
-    // After clicking, Sport tab becomes active.
+    // After clicking, the sports tab becomes active.
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Sport' })).toHaveAttribute('data-state', 'active')
+      expect(screen.getByRole('tab', { name: 'Sportarten' })).toHaveAttribute('data-state', 'active')
     })
     // Stammdaten is no longer active.
     expect(screen.getByRole('tab', { name: 'Stammdaten' })).not.toHaveAttribute('data-state', 'active')
@@ -180,15 +217,31 @@ describe('GearDetailPage tabs', () => {
     renderPage('/gear/g1?tab=components')
 
     expect(await screen.findByRole('heading', { name: 'Komponenten' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Ketten-Rotation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Kettenrotation' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Setups' })).not.toBeInTheDocument()
+  })
+
+  it('uses a generic label for unknown component status values', async () => {
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      components: [{
+        ...MOCK_COMPONENT,
+        status: 'backend_private_component_status' as GearComponent['status'],
+      }],
+    })
+
+    renderPage('/gear/g1?tab=components')
+
+    expect(await screen.findByText('Testkette')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannter Status')).toBeInTheDocument()
+    expect(screen.queryByText('backend_private_component_status')).not.toBeInTheDocument()
   })
 
   it('TestWearTabShowsChainRotation', async () => {
     renderPage('/gear/g1?tab=wear')
 
-    expect(await screen.findByRole('heading', { name: 'Ketten-Rotation' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Nutzung gesamt' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Kettenrotation' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Gesamtnutzung' })).toBeInTheDocument()
   })
 
   it('TestComponentsTabShowsHierarchyAfterEditableListOnlyForNestedComponents', async () => {
@@ -273,6 +326,50 @@ describe('GearDetailPage tabs', () => {
     })
   })
 
+  it('TestDetailStatsUseUserUnitPreferenceForDistanceAndElevation', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      total_distance_m: 3218.688,
+      total_elevation_gain_m: 100,
+      total_elevation_loss_m: 50,
+      components: [],
+    })
+
+    renderPage('/gear/g1')
+
+    expect(await screen.findByText('Testrad')).toBeInTheDocument()
+    expect(screen.getByText('2.0 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft')).toBeInTheDocument()
+    expect(screen.getByText('−164 ft')).toBeInTheDocument()
+    expect(screen.queryByText('3.22 km')).not.toBeInTheDocument()
+    expect(screen.queryByText('+100 m')).not.toBeInTheDocument()
+  })
+
+  it('TestComponentSummaryUsesUserUnitPreferenceForDistanceAndElevation', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      components: [{
+        ...MOCK_COMPONENT,
+        total_distance_m: 1609.344,
+        total_elevation_gain_m: 25,
+        total_elevation_loss_m: 10,
+      }],
+    })
+
+    renderPage('/gear/g1?tab=components')
+
+    const crudSection = await screen.findByTestId('components-crud')
+    expect(within(crudSection).getByText('1.0 mi')).toBeInTheDocument()
+    expect(within(crudSection).getByText('+82 ft')).toBeInTheDocument()
+    expect(within(crudSection).getByText('−33 ft')).toBeInTheDocument()
+    expect(within(crudSection).queryByText('1 km')).not.toBeInTheDocument()
+    expect(within(crudSection).queryByText('+25 m')).not.toBeInTheDocument()
+  })
+
   it('TestComponentFormFiltersGearTypePresetsAndUsesNeutralPlaceholders', async () => {
     const user = userEvent.setup()
     const shoeGear: Gear = {
@@ -290,14 +387,25 @@ describe('GearDetailPage tabs', () => {
     renderPage('/gear/g1?tab=components')
 
     const crudSection = await screen.findByTestId('components-crud')
-    await user.click(within(crudSection).getByRole('button', { name: '+ Hinzufügen' }))
+    await user.click(within(crudSection).getByRole('button', { name: 'Hinzufügen' }))
 
     await waitFor(() => {
       expect(fetchComponentPresets).toHaveBeenCalledWith('shoes.running')
     })
     expect(within(crudSection).queryByText('Vorlage')).not.toBeInTheDocument()
-    expect(within(crudSection).getByPlaceholderText('Komponententyp *')).toBeInTheDocument()
+    expect(within(crudSection).getByPlaceholderText('Typ *')).toBeInTheDocument()
     expect(within(crudSection).queryByPlaceholderText(/Kette|Reifen/)).not.toBeInTheDocument()
+  })
+})
+
+describe('GearDetailPage i18n fallbacks', () => {
+  it('does not ship gearPages defaultValue fallbacks from GearDetailPage', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/pages/GearDetailPage.tsx'), 'utf8')
+    const fallbackMatches = source
+      .split('\n')
+      .filter(line => line.includes("t('gearPages.") && line.includes('defaultValue'))
+
+    expect(fallbackMatches).toEqual([])
   })
 })
 
@@ -330,7 +438,7 @@ describe('ServiceEventsPanel status gate', () => {
     await user.click(serviceButtons[0])
     await waitFor(() => {
       expect(within(crudSection).getByRole('button', { name: '+ Intervall' })).toBeInTheDocument()
-      expect(within(crudSection).getByRole('button', { name: '+ Service eintragen' })).toBeInTheDocument()
+      expect(within(crudSection).getByRole('button', { name: '+ Service' })).toBeInTheDocument()
     })
 
     // Close active panel, open retired component panel
@@ -345,11 +453,13 @@ describe('ServiceEventsPanel status gate', () => {
 
     // Create buttons must NOT be present for the retired component
     expect(within(crudSection).queryByRole('button', { name: '+ Intervall' })).not.toBeInTheDocument()
-    expect(within(crudSection).queryByRole('button', { name: '+ Service eintragen' })).not.toBeInTheDocument()
+    expect(within(crudSection).queryByRole('button', { name: '+ Service' })).not.toBeInTheDocument()
   })
 
   it('TestServiceIntervalValueUsesVisibleDisplayUnits', async () => {
     const user = userEvent.setup()
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
     vi.mocked(fetchGearDetail).mockResolvedValue(MOCK_GEAR)
     vi.mocked(listServiceEvents).mockResolvedValue([])
     vi.mocked(listServiceIntervals).mockResolvedValue([])
@@ -362,15 +472,15 @@ describe('ServiceEventsPanel status gate', () => {
 
     expect(within(crudSection).getByText('Wert (h)')).toBeInTheDocument()
     await user.selectOptions(within(crudSection).getByLabelText('Metrik'), 'distance_m')
-    expect(within(crudSection).getByText('Wert (km)')).toBeInTheDocument()
+    expect(within(crudSection).getByText('Wert (mi)')).toBeInTheDocument()
 
-    await user.type(within(crudSection).getByLabelText('Wert (km)'), '500')
+    await user.type(within(crudSection).getByLabelText('Wert (mi)'), '1')
     await user.click(within(crudSection).getByRole('button', { name: 'Speichern' }))
 
     await waitFor(() => {
       expect(createServiceInterval).toHaveBeenCalledWith('c1', expect.objectContaining({
         metric_key: 'distance_m',
-        interval_value: 500000,
+        interval_value: 1609.344,
       }))
     })
   })
@@ -389,9 +499,9 @@ describe('Component transfer', () => {
     renderPage('/gear/g1?tab=components')
 
     const crudSection = await screen.findByTestId('components-crud')
-    await user.click(within(crudSection).getByRole('button', { name: 'Übertragen' }))
+    await user.click(within(crudSection).getByRole('button', { name: 'Transfer' }))
 
-    const select = within(crudSection).getByDisplayValue('Ziel wählen...')
+    const select = within(crudSection).getByDisplayValue('Zielausrüstung wählen...')
     expect(within(select).getByRole('option', { name: 'Zielrad (Fahrrad / Mountainbike / Enduro)' })).toBeInTheDocument()
     expect(within(select).getByRole('option', { name: 'Legacy E-Bike (E-Bike)' })).toBeInTheDocument()
     expect(within(select).queryByRole('option', { name: 'Laufschuh (Schuhe / Laufschuhe)' })).not.toBeInTheDocument()
@@ -402,7 +512,7 @@ describe('ChainRotation edit form', () => {
   const MOCK_ROTATION: ChainRotationGroup = {
     id: 'rot1',
     gear_id: 'g1',
-    name: 'Ketten-Rotation',
+    name: 'Kettenrotation',
     swap_interval_metric_key: 'distance_m',
     swap_interval_value: 500000,
     members: [],
@@ -435,7 +545,7 @@ describe('ChainRotation edit form', () => {
     expect(screen.getByText(/Wechsel alle 500/)).toBeInTheDocument()
 
     // Open the edit form via the pencil button.
-    const editBtn = screen.getByRole('button', { name: 'Intervall bearbeiten' })
+    const editBtn = screen.getByRole('button', { name: 'Rotationsintervall bearbeiten' })
     await user.click(editBtn)
 
     // The edit form must be visible with a Metrik select and a value input.
@@ -455,7 +565,7 @@ describe('ChainRotation edit form', () => {
     // updateChainRotation must have been called with the correct base-unit values.
     // name is always included (R2-2: backend accepts and trims the name field).
     expect(updateChainRotation).toHaveBeenCalledWith('rot1', {
-      name: 'Ketten-Rotation',
+      name: 'Kettenrotation',
       swap_interval_metric_key: 'elevation_gain_m',
       swap_interval_value: 5000,
     })
@@ -463,7 +573,37 @@ describe('ChainRotation edit form', () => {
     // After the mutation succeeds and the query refetches, the UI must display
     // the new metric (elevation_gain_m shows "5000 m").
     await waitFor(() => {
-      expect(screen.getByText(/Wechsel alle 5000 m/)).toBeInTheDocument()
+      expect(screen.getByText(/Wechsel alle 5\.000 m/)).toBeInTheDocument()
+    })
+  })
+
+  it('TestChainRotationCreateUsesVisibleDisplayUnits', async () => {
+    const user = userEvent.setup()
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    const secondChain: GearComponent = { ...MOCK_COMPONENT, id: 'c2', name: 'Reserve chain' }
+    vi.mocked(fetchGearDetail).mockResolvedValue({ ...MOCK_GEAR, components: [MOCK_COMPONENT, secondChain] })
+    vi.mocked(getChainRotation).mockResolvedValue(null)
+    vi.mocked(createChainRotation).mockResolvedValue({} as ChainRotationGroup)
+
+    renderPage('/gear/g1?tab=wear')
+
+    await user.click(await screen.findByRole('button', { name: 'Rotation anlegen' }))
+    expect(screen.getByText('Wechselintervall (mi)')).toBeInTheDocument()
+
+    const intervalInput = screen.getByRole('spinbutton')
+    await user.clear(intervalInput)
+    await user.type(intervalInput, '1')
+    await user.click(screen.getByRole('checkbox', { name: /Testkette/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Reserve chain/ }))
+    await user.click(screen.getByRole('button', { name: 'Rotation anlegen' }))
+
+    await waitFor(() => {
+      expect(createChainRotation).toHaveBeenCalledWith('g1', expect.objectContaining({
+        swap_interval_metric_key: 'distance_m',
+        swap_interval_value: 1609.344,
+        component_ids: ['c1', 'c2'],
+      }))
     })
   })
 
@@ -485,11 +625,11 @@ describe('ChainRotation edit form', () => {
     })
 
     // Open edit form.
-    const editBtn = screen.getByRole('button', { name: 'Intervall bearbeiten' })
+    const editBtn = screen.getByRole('button', { name: 'Rotationsintervall bearbeiten' })
     await user.click(editBtn)
 
     // Find the Bezeichnung input and change the name.
-    const nameInput = screen.getByDisplayValue('Ketten-Rotation')
+    const nameInput = screen.getByDisplayValue('Kettenrotation')
     await user.clear(nameInput)
     await user.type(nameInput, 'Neue Bezeichnung')
 
@@ -522,19 +662,18 @@ describe('ChainRotation edit form', () => {
       expect(screen.getByText(/Wechsel alle/)).toBeInTheDocument()
     })
 
-    const editBtn = screen.getByRole('button', { name: 'Intervall bearbeiten' })
+    const editBtn = screen.getByRole('button', { name: 'Rotationsintervall bearbeiten' })
     await user.click(editBtn)
 
     // Clear the name field.
-    const nameInput = screen.getByDisplayValue('Ketten-Rotation')
+    const nameInput = screen.getByDisplayValue('Kettenrotation')
     await user.clear(nameInput)
 
     // Save button must be disabled.
     const saveButton = screen.getByRole('button', { name: 'Speichern' })
     expect(saveButton).toBeDisabled()
 
-    // An error hint must be visible.
-    expect(screen.getByText('Name darf nicht leer sein.')).toBeInTheDocument()
+    expect(updateChainRotation).not.toHaveBeenCalled()
   })
 })
 
@@ -588,7 +727,7 @@ describe('BikeSetupsSection — Setup tab', () => {
 
     expect(await screen.findByRole('heading', { name: 'Setups' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Setups' })).toHaveAttribute('data-state', 'active')
-    expect(screen.getByText('Noch kein Setup angelegt')).toBeInTheDocument()
+    expect(screen.getByText('Noch keine Setups vorhanden.')).toBeInTheDocument()
   })
 
   it('TestBikeSetupDropdownSwitchesSelectedSetup', async () => {
@@ -617,7 +756,7 @@ describe('BikeSetupsSection — Setup tab', () => {
   })
 
   it('TestBikeSetupCaptureComponentsFlagSent', async () => {
-    // Open "+ Neu", fill in a name, check "Komponenten mitsichern", submit.
+    // Open "+ Neu", fill in a name, check "Aktuelle Komponenten mitschreiben", submit.
     const user = userEvent.setup()
     const newSetup: BikeSetup = { ...MOCK_SETUP_1, id: 's10', name: 'Neues Setup', is_active: false }
     vi.mocked(listBikeSetups)
@@ -635,11 +774,11 @@ describe('BikeSetupsSection — Setup tab', () => {
     await user.click(neuBtn)
 
     // Fill in the name field.
-    const nameInput = await screen.findByPlaceholderText('z.B. Trail Setup, Bikepark, Winter')
+    const nameInput = await screen.findByPlaceholderText('z. B. Park-Setup')
     await user.type(nameInput, 'Neues Setup')
 
-    // Check "Komponenten mitsichern".
-    const captureCheckbox = screen.getByRole('checkbox', { name: /Komponenten mitsichern/i })
+    // Check "Aktuelle Komponenten mitschreiben".
+    const captureCheckbox = screen.getByRole('checkbox', { name: /Aktuelle Komponenten mitschreiben/i })
     await user.click(captureCheckbox)
     expect(captureCheckbox).toBeChecked()
 
@@ -667,17 +806,17 @@ describe('BikeSetupsSection — Setup tab', () => {
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
     await user.click(screen.getByRole('button', { name: '+ Neu' }))
 
-    await user.type(await screen.findByPlaceholderText('z.B. Trail Setup, Bikepark, Winter'), 'Unit Setup')
-    await user.click(screen.getByRole('button', { name: 'Dämpfer' }))
+    await user.type(await screen.findByPlaceholderText('z. B. Park-Setup'), 'Unit Setup')
+    await user.click(screen.getByRole('button', { name: 'Hintere Federung' }))
     await user.click(screen.getByRole('button', { name: 'Reifen' }))
     expect(screen.getByLabelText('Flipchip-Position')).toBeInTheDocument()
-    expect(screen.getByLabelText('Vorne: Breite (Zoll)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Vorne: Breite (in)')).toBeInTheDocument()
     expect(screen.getByLabelText('Vorne: Druck (bar)')).toBeInTheDocument()
     expect(screen.queryByLabelText('Vorne: Breite (mm)')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Vorne: Druck (PSI)')).not.toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Flipchip-Position'), 'low')
-    await user.type(screen.getByLabelText('Vorne: Breite (Zoll)'), '2.5')
+    await user.type(screen.getByLabelText('Vorne: Breite (in)'), '2.5')
     await user.type(screen.getByLabelText('Vorne: Druck (bar)'), '1.7')
 
     const saveButtons = screen.getAllByRole('button', { name: 'Speichern' })
@@ -706,7 +845,7 @@ describe('BikeSetupsSection — Setup tab', () => {
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
     await user.click(screen.getByRole('button', { name: '+ Neu' }))
 
-    expect(screen.getByLabelText(/Komponenten-Snapshot dient nur als Verlaufs-Information/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Speichert eine Momentaufnahme der montierten Komponenten/i)).toBeInTheDocument()
     expect(screen.queryByText('ⓘ')).not.toBeInTheDocument()
   })
 
@@ -721,14 +860,14 @@ describe('BikeSetupsSection — Setup tab', () => {
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
 
     // The collapsible toggle must be present.
-    const toggle = await screen.findByRole('button', { name: /Komponenten zum Zeitpunkt der Speicherung/i })
+    const toggle = await screen.findByRole('button', { name: /2 Komponenten-Snapshot/i })
     await user.click(toggle)
 
     // After expanding, the info note must be visible.
     await waitFor(() => {
       expect(screen.getByRole('note')).toBeInTheDocument()
     })
-    expect(screen.getByRole('note')).toHaveTextContent('Nur Snapshot')
+    expect(screen.getByRole('note')).toHaveTextContent('Dieser Snapshot zeigt die beim Speichern montierten Komponenten.')
   })
 
   it('TestBikeSetupActivationDoesNotPromptComponentChange', async () => {

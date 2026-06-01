@@ -1,12 +1,11 @@
-// Shared UI strings for gear component inputs.
-// Single point of extraction for the future i18n sprint.
+// Shared translation keys for gear component inputs.
+// Keep callers on catalog keys instead of hardcoded UI strings.
 
-export const GEAR_INPUT_STRINGS = {
-  searchPlaceholder: 'Suchen...',
+export const GEAR_INPUT_STRING_KEYS = {
+  searchPlaceholder: 'gearComponentInputs.searchPlaceholder',
 } as const
 
-// Common action strings reused across multiple gear components.
-export const GEAR_ACTION_STRINGS = {
-  save: 'Speichern',
-  cancel: 'Abbrechen',
+export const GEAR_ACTION_STRING_KEYS = {
+  save: 'actions.save',
+  cancel: 'actions.cancel',
 } as const

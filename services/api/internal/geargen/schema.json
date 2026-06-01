@@ -42,6 +42,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "unique_per_activity": {"type": "boolean"}
       }
     },
@@ -51,7 +52,8 @@
       "required": ["key", "label_de"],
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.]*$"},
-        "label_de": {"type": "string", "minLength": 1}
+        "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"}
       }
     },
     "option_set": {
@@ -74,6 +76,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "allowed_units": {
           "type": "array",
           "minItems": 1,
@@ -89,6 +92,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "value_type": {
           "type": "string",
           "enum": ["number", "string", "enum", "enum_with_freetext", "geometry", "object", "boolean", "date", "unit_number", "search_enum", "multi_enum"]
@@ -181,6 +185,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "scope": {
           "type": "string",
           "enum": ["bike", "shoes", "winter", "water", "diving", "climb", "apparel", "other"]
@@ -213,6 +218,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "component_type": {"type": "string"},
         "optional": {"type": "boolean"}
       }
@@ -224,6 +230,7 @@
       "properties": {
         "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
         "label_de": {"type": "string", "minLength": 1},
+        "labels": {"$ref": "#/$defs/locale_map"},
         "parent_key": {"type": "string"},
         "subtype_keys": {
           "type": "array",
@@ -233,6 +240,17 @@
           "type": "array",
           "items": {"type": "string"}
         }
+      }
+    },
+    "locale_map": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1},
+      "properties": {
+        "de": {"type": "string", "minLength": 1},
+        "en": {"type": "string", "minLength": 1},
+        "fr": {"type": "string", "minLength": 1},
+        "it": {"type": "string", "minLength": 1},
+        "es": {"type": "string", "minLength": 1}
       }
     }
   }

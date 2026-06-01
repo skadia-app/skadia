@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { filterToExistingSports, generateActivityFilterOptions, generateGearSportOptions, generateMapFilterOptions, getOptionKey, type SportOption } from '../sportOptions'
+import { modifierLabel } from '../sportModifiers'
 
 describe('sport filter options', () => {
   it('renders activity projection groups in deterministic order', () => {
@@ -43,6 +44,24 @@ describe('sport filter options', () => {
       'multi',
       'fitness_other',
     ])
+  })
+
+  it('localizes generated filter labels without changing tuple keys', () => {
+    const options = generateActivityFilterOptions('en')
+    const leaves = flattenLeaves(options)
+
+    expect(groupByKey(options, 'water_paddle').label).toBe('Paddling')
+    expect(groupByKey(options, 'bike').label).toBe('Rides')
+    expect(leaves.find((leaf) => getOptionKey(leaf) === 'running')?.label).toBe('Running')
+    expect(leaves.find((leaf) => getOptionKey(leaf) === 'running:street')?.label).toBe('Running: Road')
+    expect(leaves.find((leaf) => getOptionKey(leaf) === 'cycling:mountain')?.label).toBe('Mountainbike')
+    expect(leaves.map(getOptionKey)).toContain('cycling:mountain')
+  })
+
+  it('localizes sport modifier labels without changing modifier keys', () => {
+    expect(modifierLabel('is_electric', 'de')).toBe('E-Antrieb')
+    expect(modifierLabel('is_electric', 'en')).toBe('Electric assist')
+    expect(modifierLabel('is_indoor', 'en')).toBe('Indoor')
   })
 
   it('renders six water groups from generated activity projection', () => {
@@ -264,6 +283,14 @@ describe('sport filter options', () => {
     expect(values).not.toContain('training')
     expect(values).not.toContain('unknown')
     expect(values).not.toContain('cycling:mountain')
+  })
+
+  it('localizes generated manual gear default sport options', () => {
+    const options = generateGearSportOptions('en')
+    const running = options.find((option) => option.value === 'running')
+
+    expect(running?.label).toBe('Running')
+    expect(running?.labels).toMatchObject({ de: 'Laufen', en: 'Running' })
   })
 })
 

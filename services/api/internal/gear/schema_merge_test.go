@@ -18,12 +18,18 @@ func baseSchema() gear.GearSchema {
 				{Key: "mtb", LabelDE: "MTB"},
 			}},
 		},
+		UnitGroups: []gear.UnitGroup{
+			{Key: "distance", LabelDE: "Distanz", AllowedUnits: []string{"m", "km"}, CanonicalUnit: "m"},
+		},
 		Attributes: []gear.Attribute{
 			{Key: "helmet.subcategory", LabelDE: "Helmkategorie", ValueType: "enum", OptionSetKey: "helmet.subcategory"},
 		},
 		GearTypes: []gear.GearType{
 			{Key: "helmet", LabelDE: "Helm", Scope: "other", DefaultAssignmentRoleKey: "worn",
 				AttributeKeys: []string{"helmet.subcategory"}},
+		},
+		ComponentTypes: []gear.ComponentType{
+			{Key: "helmet_pad", LabelDE: "Helmpolster", AttributeKeys: []string{"helmet.subcategory"}},
 		},
 	}
 }
@@ -59,6 +65,37 @@ func TestUserCanAddOptionToOptionSet(t *testing.T) {
 	}
 	if !hasOption(os, "kayak") {
 		t.Error("user-added option 'kayak' missing after merge")
+	}
+}
+
+func TestUserCustomizationPreservesSchemaCatalogs(t *testing.T) {
+	base := baseSchema()
+	custom := []gear.UserSchemaDefinition{
+		{
+			TypeKey:       "helmet",
+			ExtraAttrKeys: []string{"helmet.extra_note"},
+			ExtraAttributes: []gear.Attribute{
+				{Key: "helmet.extra_note", LabelDE: "Notiz", ValueType: "text"},
+			},
+		},
+	}
+
+	result, err := gear.MergeSchemaWithUserCustom(base, custom)
+	if err != nil {
+		t.Fatalf("MergeSchemaWithUserCustom: %v", err)
+	}
+
+	if len(result.UnitGroups) != len(base.UnitGroups) {
+		t.Fatalf("UnitGroups len = %d, want %d", len(result.UnitGroups), len(base.UnitGroups))
+	}
+	if len(result.ComponentTypes) != len(base.ComponentTypes) {
+		t.Fatalf("ComponentTypes len = %d, want %d", len(result.ComponentTypes), len(base.ComponentTypes))
+	}
+	if result.UnitGroups[0].Key != "distance" {
+		t.Errorf("UnitGroups[0].Key = %q, want distance", result.UnitGroups[0].Key)
+	}
+	if result.ComponentTypes[0].Key != "helmet_pad" {
+		t.Errorf("ComponentTypes[0].Key = %q, want helmet_pad", result.ComponentTypes[0].Key)
 	}
 }
 

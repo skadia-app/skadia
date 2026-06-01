@@ -1,6 +1,6 @@
 modifiers:
   - key: is_electric
-    labels: {de: E-Antrieb}
+    labels: {de: E-Antrieb, en: Electric assist, fr: Assistance électrique, it: Assistenza elettrica, es: Asistencia eléctrica}
     go_field: IsElectric
     ts_field: isElectric
     json_key: is_electric
@@ -43,7 +43,7 @@ modifiers:
       - bike.balance
 
   - key: is_indoor
-    labels: {de: Indoor}
+    labels: {de: Indoor, en: Indoor, fr: Indoor, it: Indoor, es: Indoor}
     go_field: IsIndoor
     ts_field: isIndoor
     json_key: is_indoor
@@ -59,7 +59,7 @@ modifiers:
     subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_virtual
-    labels: {de: Virtuell}
+    labels: {de: Virtuell, en: Virtual, fr: Virtuel, it: Virtuale, es: Virtual}
     go_field: IsVirtual
     ts_field: isVirtual
     json_key: is_virtual
@@ -75,7 +75,7 @@ modifiers:
     subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_commute
-    labels: {de: Pendeln}
+    labels: {de: Pendeln, en: Commute, fr: Trajet domicile-travail, it: Pendolarismo, es: Desplazamiento diario}
     go_field: IsCommute
     ts_field: isCommute
     json_key: is_commute

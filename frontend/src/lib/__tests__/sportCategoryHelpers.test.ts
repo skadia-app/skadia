@@ -38,6 +38,27 @@ describe('segment sport category helpers', () => {
     expect(groups.map(group => group.label)).not.toContain('Surfen & Segeln')
   })
 
+  it('localizes visible segment category labels without changing category keys', () => {
+    const groups = getVisibleCategories('wassersport', 'en')
+
+    expect(groups.map(group => group.key)).toEqual([
+      'water_swim',
+      'water_paddle',
+      'water_board',
+      'water_boat',
+      'water_dive',
+      'water_other',
+    ])
+    expect(groups.map(group => group.label)).toEqual([
+      'Swimming',
+      'Paddling',
+      'Surfing/board',
+      'Sailing/boat',
+      'Diving/snorkeling',
+      'Fishing',
+    ])
+  })
+
   it('expands generated water buckets to their projected sport keys', () => {
     const whitelist = whitelistForSegmentType('wassersport')
 

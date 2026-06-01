@@ -1,50 +1,20 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Gear, GearDefaultModifiers, GearDefaultSportPredicate, GearComponent } from '@/api/types'
 import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
 import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 import { GearApplicableModifierKeys } from '@/lib/generatedGearApplicableModifiers'
 import { getActiveSchema, lookupGearType } from '@/lib/gearSchema'
 import type { Attribute, RecommendedAttribute } from '@/lib/gearSchema'
-import { gearTypeOptionsForScope, gearTypeAttributes, gearTypeScope, optionSetOptions } from '@/lib/gearSchemaHelpers'
+import { gearSchemaLabel, gearTypeOptionsForScope, gearTypeAttributes, gearTypeScope, optionSetOptions } from '@/lib/gearSchemaHelpers'
 import type { GearCategoryScope, GearTypeOption } from '@/lib/gearSchemaTypes'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 import ComponentSlotList from '@/components/gear/ComponentSlotList'
 import { isAttributeVisible, type EvalContext } from '@/lib/gearConditionEval'
 import SearchableEnumInput from '@/components/gear/inputs/SearchableEnumInput'
 
 // ── Scope-aware placeholders ──────────────────────────────────────────────────
-
-const NAME_PLACEHOLDER: Record<GearCategoryScope, string> = {
-  bike: 'z.B. Canyon Spectral',
-  shoes: 'z.B. Trail-Schuh Sommer',
-  winter: 'z.B. Tourenski Winter',
-  water: 'z.B. SUP-Board See',
-  diving: 'z.B. Atemregler Set',
-  climb: 'z.B. Klettergurt',
-  apparel: 'z.B. Regenjacke',
-  other: 'z.B. Ersatzteilbox',
-}
-
-const WEIGHT_PLACEHOLDER: Record<GearCategoryScope, string> = {
-  bike: 'z.B. 13500',
-  shoes: 'z.B. 280',
-  winter: 'z.B. 1800',
-  water: 'z.B. 9500',
-  diving: 'z.B. 850',
-  climb: 'z.B. 400',
-  apparel: 'z.B. 200',
-  other: 'z.B. 850',
-}
-
-const SUB_TYPE_PLACEHOLDER: Record<GearCategoryScope, string> = {
-  bike: 'z.B. Winter, Alltag, Rennen',
-  shoes: 'z.B. Straße, Trail, Winter',
-  winter: 'z.B. Piste, Tour, Powder',
-  water: 'z.B. See, Tour, Training',
-  diving: 'z.B. Kaltwasser, Reise, Backup',
-  climb: 'z.B. Halle, Fels, Alpin',
-  apparel: 'z.B. Sommer, Winter, Regen',
-  other: 'z.B. Trainingsmatte, Helm, Werkzeugset',
-}
 
 // ── Form prop types ───────────────────────────────────────────────────────────
 
@@ -85,9 +55,11 @@ function scopeForType(typeKey: string): GearCategoryScope {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function GearForm({ gear, categoryScope, onSave, onCancel, isSaving }: GearFormProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const schema = getActiveSchema()
   const baseSportOptions = useMemo(() => {
-    const tupleOptions = selectableSportTupleOptions()
+    const tupleOptions = selectableSportTupleOptions(language)
     const parentsWithSubtypes = new Set(
       tupleOptions.filter((option) => option.subType).map((option) => option.value),
     )
@@ -97,12 +69,12 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       .map((option) => ({
         value: sportTupleKey(option.value, option.subType),
         label: option.subType
-          ? sportDetailLabel(option.value, option.subType)
+          ? sportDetailLabel(option.value, option.subType, language)
           : parentsWithSubtypes.has(option.value)
-            ? `${option.label} (alle)`
+            ? t('gearPages.form.allSportSubtypes', { label: option.label })
             : option.label,
       }))
-  }, [])
+  }, [language, t])
 
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')
@@ -130,15 +102,15 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   // Schema-driven type options scoped to the current category.
   const typeOptions = useMemo((): GearTypeOption[] => {
-    const scoped = gearTypeOptionsForScope(schema, scope)
+    const scoped = gearTypeOptionsForScope(schema, scope, language)
     if (type && !scoped.some(opt => opt.value === type)) {
       const current = schema.gearTypes.find(gt => gt.key === type)
       if (current) {
-        return [{ value: current.key, label: current.labelDe }, ...scoped]
+        return [{ value: current.key, label: gearSchemaLabel(current, language) }, ...scoped]
       }
     }
     return scoped
-  }, [schema, scope, type])
+  }, [schema, scope, type, language])
 
   // Auto-select single option for new gear (no gear.id) in 'other' scope.
   useEffect(() => {
@@ -155,8 +127,8 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
   const hasSlots = (selectedSchemaType?.slots?.length ?? 0) > 0
 
   const sportOptions = useMemo(
-    () => optionsIncludingCurrentRows(baseSportOptions, defaultPredicateRows),
-    [baseSportOptions, defaultPredicateRows],
+    () => optionsIncludingCurrentRows(baseSportOptions, defaultPredicateRows, language),
+    [baseSportOptions, defaultPredicateRows, language],
   )
   const duplicateDefaultRowIds = useMemo(
     () => duplicatePredicateRowIds(defaultPredicateRows),
@@ -296,7 +268,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {/* Name */}
       <div>
         <label htmlFor="gear-name" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-          Name *
+          {t('gearPages.form.nameRequired')}
         </label>
         <input
           id="gear-name"
@@ -305,17 +277,17 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
           onChange={(e) => setName(e.target.value)}
           required
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-          placeholder={NAME_PLACEHOLDER[scope]}
+          placeholder={t(`gearPages.form.placeholders.name.${scope}`)}
         />
       </div>
 
       {/* Type — schema-driven searchable combobox */}
       <SearchableOptionSelect
-        label="Typ"
+        label={t('gearPages.form.type')}
         value={type}
         options={typeOptions}
-        placeholder="Typ suchen..."
-        listboxLabel="Typ-Vorschläge"
+        placeholder={t('gearPages.form.searchType')}
+        listboxLabel={t('gearPages.form.typeSuggestions')}
         onChange={handleTypeChange}
         onCustomValueChange={setCustomTypeLabel}
       />
@@ -324,7 +296,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {showCustomSubType && (
         <div>
           <label htmlFor="gear-sub-type" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Untertyp
+            {t('gearPages.form.subType')}
           </label>
           <input
             id="gear-sub-type"
@@ -332,7 +304,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
             value={subType}
             onChange={(e) => setSubType(e.target.value)}
             className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-            placeholder={SUB_TYPE_PLACEHOLDER[scope]}
+            placeholder={t(`gearPages.form.placeholders.subType.${scope}`)}
           />
         </div>
       )}
@@ -345,7 +317,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label htmlFor="gear-brand" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Marke
+            {t('gearPages.form.brand')}
           </label>
           <input
             id="gear-brand"
@@ -357,7 +329,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
         </div>
         <div>
           <label htmlFor="gear-model" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Modell
+            {t('gearPages.form.model')}
           </label>
           <input
             id="gear-model"
@@ -373,7 +345,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="gear-purchased-at" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Kaufdatum
+            {t('gearPages.form.purchaseDate')}
           </label>
           <input
             id="gear-purchased-at"
@@ -385,7 +357,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
         </div>
         <div>
           <label htmlFor="gear-weight" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Gewicht (g)
+            {t('gearPages.form.weightG')}
           </label>
           <input
             id="gear-weight"
@@ -394,7 +366,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
             value={weightG}
             onChange={(e) => setWeightG(e.target.value)}
             className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-            placeholder={WEIGHT_PLACEHOLDER[scope]}
+            placeholder={t(`gearPages.form.placeholders.weight.${scope}`)}
           />
         </div>
       </div>
@@ -403,6 +375,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {selectedAttributes.length > 0 && (
         <GearAttributeFields
           schema={schema}
+          language={language}
           attributes={selectedAttributes}
           values={attributes}
           recommended={selectedSchemaType?.recommended?.attributes}
@@ -414,7 +387,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {hasSlots && selectedSchemaType && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Komponenten
+            {t('gearPages.components.title')}
           </p>
           <ComponentSlotList
             gearType={selectedSchemaType}
@@ -429,7 +402,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {/* Sport predicate assignment (Plan-1 predicate-based, GearApplicableModifierKeys) */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Standard für Sportarten
+          {t('gearPages.form.defaultSports')}
         </label>
         <div className="space-y-2">
           {defaultPredicateRows.map((row, index) => {
@@ -439,10 +412,10 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
                 <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,0.8fr))_auto] gap-2 items-end">
                   <label className="block">
                     <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
-                      Sportart
+                      {t('gearPages.form.sportType')}
                     </span>
                     <select
-                      aria-label={`Standard ${index + 1} Sportart`}
+                      aria-label={t('gearPages.form.defaultSportAria', { index: index + 1 })}
                       value={row.sportKey}
                       onChange={(e) => updateDefaultPredicate(index, { sportKey: e.target.value })}
                       aria-invalid={duplicated}
@@ -457,7 +430,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
                     <ModifierSelect
                       key={key}
                       label={modifierLabel(key)}
-                      ariaLabel={`Standard ${index + 1} ${modifierLabel(key)}`}
+                      ariaLabel={t('gearPages.form.defaultModifierAria', { index: index + 1, label: modifierLabel(key) })}
                       value={row.modifiers[key] ?? 'any'}
                       onChange={(value) => updateDefaultPredicate(index, {
                         modifiers: { ...row.modifiers, [key]: value },
@@ -466,16 +439,16 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
                   ))}
                   <button
                     type="button"
-                    aria-label={`Standard ${index + 1} entfernen`}
+                    aria-label={t('gearPages.form.removeDefaultAria', { index: index + 1 })}
                     onClick={() => removeDefaultPredicate(index)}
                     className="h-10 px-3 rounded-lg text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
                   >
-                    Entfernen
+                    {t('gearPages.actions.remove')}
                   </button>
                 </div>
                 {duplicated && (
                   <p className="text-xs text-rose-600 dark:text-rose-400">
-                    Doppelter Standard: gleiche Sportart und Modifier bereits vorhanden.
+                    {t('gearPages.form.duplicateDefault')}
                   </p>
                 )}
               </div>
@@ -486,7 +459,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
             onClick={addDefaultPredicate}
             className="text-sm font-medium text-accent-600 dark:text-orange-400 hover:underline cursor-pointer"
           >
-            + Standard hinzufügen
+            {t('gearPages.form.addDefault')}
           </button>
         </div>
       </div>
@@ -494,7 +467,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       {/* Notes */}
       <div>
         <label htmlFor="gear-notes" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-          Notizen
+          {t('gearPages.form.notes')}
         </label>
         <textarea
           id="gear-notes"
@@ -512,14 +485,14 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
           onClick={onCancel}
           className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
         >
-          Abbrechen
+          {t('gearPages.actions.cancel')}
         </button>
         <button
           type="submit"
           disabled={isSaving || !name.trim() || (!type && !customTypeLabel.trim()) || hasDuplicateDefaultPredicates}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
-          {isSaving ? 'Speichert...' : 'Speichern'}
+          {isSaving ? t('gearPages.actions.saving') : t('gearPages.actions.save')}
         </button>
       </div>
     </form>
@@ -533,10 +506,11 @@ function GearModifierToggles({
   values: GearModifierValues
   onChange: (key: SportModifierKey, value: boolean) => void
 }) {
+  const { t } = useTranslation()
   return (
     <fieldset className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/40 px-3 py-3">
       <legend className="px-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-        Merkmale
+        {t('gearPages.form.features')}
       </legend>
       <div className="flex flex-wrap gap-x-5 gap-y-2">
         {GEAR_DEFAULT_MODIFIER_KEYS.map((key) => (
@@ -559,8 +533,8 @@ function GearModifierToggles({
 //
 // Renders the gear-level attribute fields with:
 //   - visibility filtering via isAttributeVisible
-//   - recommended values surfaced at the top of dropdowns with an "empfohlen" tag
-//   - "+ Custom-Wert" free-text entry for constrained fields
+//   - recommended values surfaced at the top of dropdowns
+//   - custom free-text entry for constrained fields
 //   - mullet wheel-size mode (wheel_size = mullet reveals front/rear pickers)
 //   - kombi side-by-side layout for shock eye-to-eye + stroke fields
 
@@ -572,6 +546,7 @@ const MULLET_WHEEL_PAIR = {
 
 interface GearAttributeFieldsProps {
   schema: ReturnType<typeof getActiveSchema>
+  language: ReturnType<typeof supportedLanguageFrom>
   attributes: Attribute[]
   values: Record<string, string>
   recommended?: RecommendedAttribute[]
@@ -580,11 +555,13 @@ interface GearAttributeFieldsProps {
 
 function GearAttributeFields({
   schema,
+  language,
   attributes,
   values,
   recommended,
   onChange,
 }: GearAttributeFieldsProps) {
+  const { t } = useTranslation()
   // Build eval context for visibility: self = current gear attributes
   const evalCtx: EvalContext = useMemo(
     () => ({ self: values, gear: values }),
@@ -643,6 +620,7 @@ function GearAttributeFields({
         <div key="mullet-pickers" className="col-span-full grid grid-cols-2 gap-4">
           <GearAttributeInput
             schema={schema}
+            language={language}
             attr={attr}
             values={values}
             recommendedValues={recommendedMap.get(attr.key)}
@@ -651,6 +629,7 @@ function GearAttributeFields({
           {rearAttr && (
             <GearAttributeInput
               schema={schema}
+              language={language}
               attr={rearAttr}
               values={values}
               recommendedValues={recommendedMap.get(rearAttr.key)}
@@ -684,6 +663,7 @@ function GearAttributeFields({
             <GearAttributeInput
               key={ga.key}
               schema={schema}
+              language={language}
               attr={ga}
               values={values}
               recommendedValues={recommendedMap.get(ga.key)}
@@ -705,6 +685,7 @@ function GearAttributeFields({
           <div className="grid grid-cols-2 gap-4">
             <GearAttributeInput
               schema={schema}
+              language={language}
               attr={attrA}
               values={values}
               recommendedValues={recommendedMap.get(attrA.key)}
@@ -712,6 +693,7 @@ function GearAttributeFields({
             />
             <GearAttributeInput
               schema={schema}
+              language={language}
               attr={attrB}
               values={values}
               recommendedValues={recommendedMap.get(attrB.key)}
@@ -720,7 +702,7 @@ function GearAttributeFields({
           </div>
           {kombiReadout && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Einbaumaß: <span className="font-medium text-neutral-700 dark:text-neutral-300">{kombiReadout}</span>
+              {t('gearPages.form.installationLength')}: <span className="font-medium text-neutral-700 dark:text-neutral-300">{kombiReadout}</span>
             </p>
           )}
         </div>,
@@ -732,6 +714,7 @@ function GearAttributeFields({
       <GearAttributeInput
         key={attr.key}
         schema={schema}
+        language={language}
         attr={attr}
         values={values}
         recommendedValues={recommendedMap.get(attr.key)}
@@ -753,6 +736,7 @@ function GearAttributeFields({
 
 interface GearAttributeInputProps {
   schema: ReturnType<typeof getActiveSchema>
+  language: ReturnType<typeof supportedLanguageFrom>
   attr: Attribute
   values: Record<string, string>
   recommendedValues?: (string | number | boolean)[]
@@ -761,11 +745,13 @@ interface GearAttributeInputProps {
 
 function GearAttributeInput({
   schema,
+  language,
   attr,
   values,
   recommendedValues,
   onChange,
 }: GearAttributeInputProps) {
+  const { t } = useTranslation()
   const currentValue = values[attr.key] ?? ''
   const inputId = `gear-attr-${attr.key}`
 
@@ -791,21 +777,25 @@ function GearAttributeInput({
     return [
       ...sortedOpts.rec.map(opt => ({
         ...opt,
-        labelDe: `★ ${opt.labelDe} (empfohlen)`,
+        displayLabel: t('gearPages.form.recommendedOption', {
+          label: gearSchemaLabel(opt, language),
+        }),
       })),
       ...sortedOpts.rest,
     ]
-  }, [opts, sortedOpts])
+  }, [opts, sortedOpts, language, t])
+  const inputOptions = searchableOptions ?? opts
+  const attrLabel = gearSchemaLabel(attr, language)
 
   if (hasOptions) {
     return (
       <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-        {attr.labelDe}
+        {attrLabel}
         <div className="mt-1">
           <SearchableEnumInput
             id={inputId}
             value={currentValue}
-            options={searchableOptions}
+            options={inputOptions}
             onChange={(v) => onChange(attr.key, v)}
             allowFreeText
           />
@@ -817,7 +807,7 @@ function GearAttributeInput({
   // No options: text / number input
   return (
     <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-      {attr.labelDe}
+      {attrLabel}
       <input
         id={inputId}
         type={attr.valueType === 'number' ? 'number' : 'text'}
@@ -848,6 +838,7 @@ function SearchableOptionSelect({
   onChange: (value: string) => void
   onCustomValueChange?: (value: string) => void
 }) {
+  const { t } = useTranslation()
   const inputId = `${label.toLowerCase()}-combobox`
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -948,12 +939,12 @@ function SearchableOptionSelect({
                   onClick={chooseCustom}
                   className="block w-full px-3 py-2 text-left text-sm text-accent-700 dark:text-accent-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                 >
-                  Eigenen Typ verwenden: {customValue}
+                  {t('gearPages.form.useCustomType', { value: customValue })}
                 </button>
               )}
             </>
           ) : (
-            <div className="px-3 py-2 text-sm text-neutral-400">Keine Treffer</div>
+            <div className="px-3 py-2 text-sm text-neutral-400">{t('gearPages.form.noMatches')}</div>
           )}
         </div>
       )}
@@ -974,6 +965,7 @@ function ModifierSelect({
   value: ModifierChoice
   onChange: (value: ModifierChoice) => void
 }) {
+  const { t } = useTranslation()
   return (
     <label className="block">
       <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{label}</span>
@@ -983,9 +975,9 @@ function ModifierSelect({
         onChange={(e) => onChange(e.target.value as ModifierChoice)}
         className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
       >
-        <option value="any">egal</option>
-        <option value="true">Ja</option>
-        <option value="false">Nein</option>
+        <option value="any">{t('gearPages.form.modifierAny')}</option>
+        <option value="true">{t('gearPages.form.yes')}</option>
+        <option value="false">{t('gearPages.form.no')}</option>
       </select>
     </label>
   )
@@ -1125,13 +1117,14 @@ function modifierKeyPart(key: string, value: boolean | undefined): string {
 function optionsIncludingCurrentRows(
   baseOptions: GearPredicateOption[],
   rows: GearPredicateRow[],
+  language?: SupportedLanguage,
 ): GearPredicateOption[] {
   const options = [...baseOptions]
   const seen = new Set(options.map((option) => option.value))
   for (const row of rows) {
     if (seen.has(row.sportKey)) continue
     const tuple = splitSportTupleKey(row.sportKey)
-    options.push({ value: row.sportKey, label: sportDetailLabel(tuple.sportType, tuple.subType) })
+    options.push({ value: row.sportKey, label: sportDetailLabel(tuple.sportType, tuple.subType, language) })
     seen.add(row.sportKey)
   }
   return options

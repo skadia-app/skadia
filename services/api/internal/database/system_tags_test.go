@@ -13,14 +13,17 @@ func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
 	want := map[string]systemModifierTagSync{}
 	for _, s := range tags.SystemTagSyncs {
 		want[s.ModifierKey] = systemModifierTagSync{
-			ModifierKey:   s.ModifierKey,
-			SystemTagName: s.SystemTag,
-			SystemType:    systemTypeForModifierKey(s.ModifierKey),
-			RuleName:      systemRuleNameForTagSync(s),
-			OnlySportType: s.OnlySportType,
-			Color:         s.Color,
-			Description:   s.Description,
-			ReadonlySync:  s.ReadonlySync,
+			ModifierKey:    s.ModifierKey,
+			SystemTagName:  s.SystemTag,
+			SystemType:     systemTypeForModifierKey(s.ModifierKey),
+			RuleName:       systemRuleNameForTagSync(s),
+			OnlySportType:  s.OnlySportType,
+			Color:          s.Color,
+			Description:    s.Description,
+			DisplayKey:     systemTagDisplayKeyForModifier(s.ModifierKey),
+			DescriptionKey: systemTagDescriptionKeyForModifier(s.ModifierKey),
+			RuleLabelKey:   systemRuleLabelKeyForSystemType(systemTypeForModifierKey(s.ModifierKey)),
+			ReadonlySync:   s.ReadonlySync,
 		}
 	}
 
@@ -75,6 +78,44 @@ func TestReadonlySystemModifierSyncRulesPreserveEBikeScope(t *testing.T) {
 	}
 	if got := sport.SportModifierLabelDE("is_electric"); got == "E-Bike" {
 		t.Fatal("generic is_electric label must not be E-Bike")
+	}
+}
+
+func TestSystemModifierTagSyncsExposeStableDisplayKeys(t *testing.T) {
+	got := map[string]systemModifierTagSync{}
+	for _, sync := range systemModifierTagSyncs() {
+		got[sync.ModifierKey] = sync
+	}
+
+	for _, tc := range []struct {
+		modifierKey    string
+		displayKey     string
+		descriptionKey string
+		ruleLabelKey   string
+	}{
+		{
+			modifierKey:    "is_electric",
+			displayKey:     "tags.system.is_electric.label",
+			descriptionKey: "tags.system.is_electric.description",
+			ruleLabelKey:   "automation.system_rules.electric_sync.label",
+		},
+		{
+			modifierKey:    "is_virtual",
+			displayKey:     "tags.system.is_virtual.label",
+			descriptionKey: "tags.system.is_virtual.description",
+			ruleLabelKey:   "automation.system_rules.virtual_sync.label",
+		},
+	} {
+		sync, ok := got[tc.modifierKey]
+		if !ok {
+			t.Fatalf("missing sync %q", tc.modifierKey)
+		}
+		if sync.DisplayKey != tc.displayKey || sync.DescriptionKey != tc.descriptionKey || sync.RuleLabelKey != tc.ruleLabelKey {
+			t.Fatalf("sync %q keys = display:%q description:%q rule:%q, want display:%q description:%q rule:%q",
+				tc.modifierKey,
+				sync.DisplayKey, sync.DescriptionKey, sync.RuleLabelKey,
+				tc.displayKey, tc.descriptionKey, tc.ruleLabelKey)
+		}
 	}
 }
 

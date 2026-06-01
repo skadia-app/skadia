@@ -1,6 +1,8 @@
 import { GENERATED_SEGMENT_PROJECTION } from './generatedSegmentProjections'
 import type { SegType } from '@/components/segment-editor/constants'
 import type { SportPredicate } from './sportSelection'
+import { localizeString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 type SegmentProjectionEntry = (typeof GENERATED_SEGMENT_PROJECTION)['eligible'][number]
 type SegmentProjectionSegmentType = (typeof GENERATED_SEGMENT_PROJECTION)['segmentTypes'][number]
@@ -18,9 +20,9 @@ export function segmentProjectionEntriesForType(segType: SegType): SegmentProjec
   return GENERATED_SEGMENT_PROJECTION.eligible.filter(entry => entry.segmentType === segType)
 }
 
-export function segmentTypeLabel(segType: SegType): string {
+export function segmentTypeLabel(segType: SegType, language?: SupportedLanguage): string {
   const segmentType = GENERATED_SEGMENT_PROJECTION.segmentTypes.find((candidate: SegmentProjectionSegmentType) => candidate.key === segType)
-  return segmentType?.label ?? segType
+  return segmentType ? localizeString(segmentType.labels, language) : segType
 }
 
 export function segmentEligibleSelectionKeys(segType: SegType): string[] {

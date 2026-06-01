@@ -131,6 +131,114 @@ func TestRenderGoEmitsNewAttributeFields(t *testing.T) {
 	}
 }
 
+func TestRenderGoEmitsLocalizedLabels(t *testing.T) {
+	schema := &geargen.Schema{
+		AssignmentRoles: []geargen.AssignmentRole{
+			{
+				Key:     "primary",
+				LabelDE: "Hauptausrüstung",
+				Labels: geargen.LocaleMap{
+					"de": "Hauptausrüstung",
+					"en": "Primary gear",
+					"fr": "Équipement principal",
+					"it": "Attrezzatura principale",
+					"es": "Equipamiento principal",
+				},
+			},
+		},
+		OptionSets: []geargen.OptionSet{
+			{
+				Key: "yes_no",
+				Options: []geargen.OptionValue{
+					{
+						Key:     "yes",
+						LabelDE: "Ja",
+						Labels: geargen.LocaleMap{
+							"de": "Ja",
+							"en": "Yes",
+							"fr": "Oui",
+							"it": "Sì",
+							"es": "Sí",
+						},
+					},
+				},
+			},
+		},
+		UnitGroups: []geargen.UnitGroup{
+			{
+				Key:           "length",
+				LabelDE:       "Länge",
+				Labels:        geargen.LocaleMap{"de": "Länge", "en": "Length", "fr": "Longueur", "it": "Lunghezza", "es": "Longitud"},
+				AllowedUnits:  []string{"mm", "in"},
+				CanonicalUnit: "mm",
+			},
+		},
+		Attributes: []geargen.Attribute{
+			{
+				Key:       "bike.frame_size_cm",
+				LabelDE:   "Rahmengröße",
+				Labels:    geargen.LocaleMap{"de": "Rahmengröße", "en": "Frame size", "fr": "Taille du cadre", "it": "Taglia del telaio", "es": "Talla del cuadro"},
+				ValueType: "number",
+				Subfields: []geargen.Attribute{
+					{
+						Key:       "bike.frame_size_cm.note",
+						LabelDE:   "Notiz",
+						Labels:    geargen.LocaleMap{"de": "Notiz", "en": "Note", "fr": "Note", "it": "Nota", "es": "Nota"},
+						ValueType: "string",
+					},
+				},
+			},
+		},
+		GearTypes: []geargen.GearType{
+			{
+				Key:                      "bike",
+				LabelDE:                  "Fahrrad",
+				Labels:                   geargen.LocaleMap{"de": "Fahrrad", "en": "Bike", "fr": "Vélo", "it": "Bici", "es": "Bicicleta"},
+				Scope:                    "bike",
+				DefaultAssignmentRoleKey: "primary",
+				Slots: []geargen.GearTypeSlot{
+					{
+						Key:           "frame",
+						LabelDE:       "Rahmen",
+						Labels:        geargen.LocaleMap{"de": "Rahmen", "en": "Frame", "fr": "Cadre", "it": "Telaio", "es": "Cuadro"},
+						ComponentType: "bike.frame",
+					},
+				},
+			},
+		},
+		ComponentTypes: []geargen.ComponentType{
+			{
+				Key:     "bike.frame",
+				LabelDE: "Rahmen",
+				Labels:  geargen.LocaleMap{"de": "Rahmen", "en": "Frame", "fr": "Cadre", "it": "Telaio", "es": "Cuadro"},
+			},
+		},
+	}
+	out, err := geargen.RenderGo(schema)
+	if err != nil {
+		t.Fatalf("RenderGo() error = %v", err)
+	}
+	src := string(out)
+
+	for _, want := range []string{
+		"type LocalizedString map[string]string",
+		"Labels            LocalizedString",
+		"Labels                   LocalizedString",
+		`Labels: localizedLabels("Hauptausrüstung", map[string]string{"de": "Hauptausrüstung", "en": "Primary gear", "es": "Equipamiento principal", "fr": "Équipement principal", "it": "Attrezzatura principale"})`,
+		`Labels: localizedLabels("Ja", map[string]string{"de": "Ja", "en": "Yes", "es": "Sí", "fr": "Oui", "it": "Sì"})`,
+		`Labels: localizedLabels("Länge", map[string]string{"de": "Länge", "en": "Length", "es": "Longitud", "fr": "Longueur", "it": "Lunghezza"})`,
+		`Labels: localizedLabels("Rahmengröße", map[string]string{"de": "Rahmengröße", "en": "Frame size", "es": "Talla del cuadro", "fr": "Taille du cadre", "it": "Taglia del telaio"})`,
+		`Labels: localizedLabels("Notiz", map[string]string{"de": "Notiz", "en": "Note", "es": "Nota", "fr": "Note", "it": "Nota"})`,
+		`localizedLabels("Fahrrad", map[string]string{"de": "Fahrrad", "en": "Bike", "es": "Bicicleta", "fr": "Vélo", "it": "Bici"})`,
+		`localizedLabels("Rahmen", map[string]string{"de": "Rahmen", "en": "Frame", "es": "Cuadro", "fr": "Cadre", "it": "Telaio"})`,
+		"func localizedLabels(labelDE string, labels map[string]string) LocalizedString",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("RenderGo() output missing %q\n--- output ---\n%s", want, src)
+		}
+	}
+}
+
 func TestRenderGoEmitsShowWhenField(t *testing.T) {
 	schema := &geargen.Schema{
 		AssignmentRoles: []geargen.AssignmentRole{{Key: "primary", LabelDE: "Haupt"}},

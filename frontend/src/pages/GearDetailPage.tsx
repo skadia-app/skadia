@@ -2,14 +2,14 @@ import { useState, useCallback, useEffect } from 'react'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { useTranslation } from 'react-i18next'
 import { CircleHelp } from 'lucide-react'
 import { getActiveSchema } from '@/lib/gearSchema'
 import {
   gearTypeAppliesToTarget,
   gearTypeAttributes,
   gearTypeLabel as schemaGearTypeLabel,
+  gearSchemaLabelCandidates,
   gearTypeScope,
 } from '@/lib/gearSchemaHelpers'
 import { type GearCategoryScope } from '@/lib/gearSchemaTypes'
@@ -35,8 +35,9 @@ import type {
   BikeSetup, GearDocument,
   GearCostSummary, GearDefaultSportPredicate,
 } from '@/api/types'
-import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
 import { PRODUCTIVE_SERVICE_METRICS, USAGE_METRIC_LABELS, formatUsageMetricValue, type ServiceMetricKey } from '@/lib/gearUsageMetrics'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { useModal } from '@/lib/modal'
 import GearForm from '@/components/GearForm'
 import GearDocumentSection from '@/components/GearDocumentSection'
@@ -45,6 +46,17 @@ import GearGeometryTab from '@/components/gear/GearGeometryTab'
 import GearSportsTab from '@/components/gear/GearSportsTab'
 import GearComponentsTab from '@/components/gear/GearComponentsTab'
 import GearWearTab from '@/components/gear/GearWearTab'
+import { useUnitFormatters, type UnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceFromDisplayValue,
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationFromDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  formatWeight,
+  type UnitSystem,
+} from '@/lib/units'
 
 // Valid tab values for URL-param sync.
 type GearDetailTab = 'stammdaten' | 'geometry' | 'sports' | 'components' | 'setups' | 'wear'
@@ -57,6 +69,8 @@ function isValidTab(v: string | null): v is GearDetailTab {
 export default function GearDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const [editing, setEditing] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -105,14 +119,14 @@ export default function GearDetailPage() {
   })
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('gearPages.common.loadingGear')}</div>
   }
 
   if (!gear) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <span className="text-neutral-400">Ausrüstung nicht gefunden</span>
-        <Link to="/gear" className="text-sm text-accent-DEFAULT hover:text-accent-600">Zurück zur Übersicht</Link>
+        <span className="text-neutral-400">{t('gearPages.detail.notFound')}</span>
+        <Link to="/gear" className="text-sm text-accent-DEFAULT hover:text-accent-600">{t('gearPages.common.backToOverview')}</Link>
       </div>
     )
   }
@@ -123,12 +137,12 @@ export default function GearDetailPage() {
         to="/gear"
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> Alle Ausrüstung
+        <span>&#8592;</span> {t('gearPages.detail.allGear')}
       </Link>
 
       {editing ? (
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Bearbeiten</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">{t('gearPages.actions.edit')}</h2>
           <GearForm
             gear={gear}
             categoryScope={categoryScopeForGear(gear)}
@@ -144,14 +158,14 @@ export default function GearDetailPage() {
             <div>
               <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{gear.name}</h1>
               <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-                {gearTypeLabelResolved(gear.type)}
-                {gear.sub_type && ` / ${subTypeLabel(gear.sub_type)}`}
+                {gearTypeLabelResolved(gear.type, language)}
+                {gear.sub_type && ` / ${subTypeLabel(gear.sub_type, t)}`}
                 {gear.brand && ` - ${gear.brand}`}
                 {gear.model && ` ${gear.model}`}
               </p>
               {gear.purchased_at && (
                 <p className="text-xs text-neutral-400 mt-1">
-                  Gekauft: {format(new Date(gear.purchased_at), 'dd. MMMM yyyy', { locale: de })}
+                  {t('gearPages.detail.purchased', { date: formatDateLong(gear.purchased_at, i18n.language) })}
                 </p>
               )}
               <GearStatusBadge status={gear.status} />
@@ -161,7 +175,7 @@ export default function GearDetailPage() {
                 onClick={() => setEditing(true)}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
               >
-                Bearbeiten
+                {t('gearPages.actions.edit')}
               </button>
               <StatusMenu
                 current={gear.status}
@@ -198,6 +212,8 @@ interface GearDetailTabsProps {
 }
 
 function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabChange, onSportsSave }: GearDetailTabsProps) {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevationGain, formatElevationLoss, options: unitOptions } = useUnitFormatters()
   const schema = getActiveSchema()
   const attrs = gearTypeAttributes(schema, gear.type)
   const hasGeometry = attrs.some(
@@ -211,36 +227,36 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
   return (
     <Tabs value={displayedTab} onValueChange={(v) => onTabChange(v as GearDetailTab)}>
       <TabsList className="flex-wrap h-auto">
-        <TabsTrigger value="stammdaten">Stammdaten</TabsTrigger>
-        {hasGeometry && <TabsTrigger value="geometry">Geometrie</TabsTrigger>}
-        <TabsTrigger value="sports">Sport</TabsTrigger>
-        <TabsTrigger value="components">Komponenten</TabsTrigger>
-        {isBike && <TabsTrigger value="setups">Setups</TabsTrigger>}
-        <TabsTrigger value="wear">Verschleiß</TabsTrigger>
+        <TabsTrigger value="stammdaten">{t('gearPages.detail.tabs.data')}</TabsTrigger>
+        {hasGeometry && <TabsTrigger value="geometry">{t('gearPages.detail.tabs.geometry')}</TabsTrigger>}
+        <TabsTrigger value="sports">{t('gearPages.detail.tabs.sports')}</TabsTrigger>
+        <TabsTrigger value="components">{t('gearPages.components.title')}</TabsTrigger>
+        {isBike && <TabsTrigger value="setups">{t('gearPages.setups.title')}</TabsTrigger>}
+        <TabsTrigger value="wear">{t('gearPages.detail.tabs.wear')}</TabsTrigger>
       </TabsList>
 
-      {/* Stammdaten tab — stats, notes, images, documents, costs */}
+      {/* Data tab: stats, notes, images, documents, costs */}
       <TabsContent value="stammdaten" className="space-y-6">
-        {/* Tiefenmeter is the lead metric for ski / downhill-MTB gear; keep it
-            visible at the same level as Höhenmeter so neither hides in a sub-tab. */}
+        {/* Descent is a lead metric for ski and downhill-MTB gear; keep it
+            visible at the same level as ascent so neither hides in a sub-tab. */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <StatCard label="Distanz" value={formatDistance(gear.total_distance_m)} />
-          <StatCard label="Höhenmeter" value={formatElevationGain(gear.total_elevation_gain_m) ?? '—'} />
-          <StatCard label="Tiefenmeter" value={formatElevationLoss(gear.total_elevation_loss_m) ?? '—'} />
-          <StatCard label="Zeit" value={formatDuration(gear.total_time_s)} />
-          <StatCard label="Aktivitäten" value={String(gear.total_activities)} />
+          <StatCard label={t('gearPages.metrics.distance')} value={formatDistance(gear.total_distance_m)} />
+          <StatCard label={t('gearPages.metrics.elevationGain')} value={formatElevationGain(gear.total_elevation_gain_m) ?? '—'} />
+          <StatCard label={t('gearPages.metrics.elevationLoss')} value={formatElevationLoss(gear.total_elevation_loss_m) ?? '—'} />
+          <StatCard label={t('gearPages.metrics.time')} value={formatDuration(gear.total_time_s)} />
+          <StatCard label={t('gearPages.metrics.activities')} value={String(gear.total_activities)} />
         </div>
 
         {gear.weight_g != null && (
           <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gewicht</h3>
+            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('gearPages.form.weight')}</h3>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">{gear.weight_g} g</p>
           </div>
         )}
 
         {gear.notes && (
           <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Notizen</h3>
+            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('gearPages.form.notes')}</h3>
             <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap">{gear.notes}</p>
           </div>
         )}
@@ -250,25 +266,27 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
 
         {costSummary && costSummary.total_cost > 0 && (
           <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 space-y-4">
-            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Kosten</h2>
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('gearPages.costs.title')}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtkosten</div>
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('gearPages.costs.total')}</div>
                 <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
                   {costSummary.total_cost.toFixed(2)} {costSummary.currency}
                 </div>
               </div>
               {costSummary.cost_per_km != null && (
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/km</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+                    {t('gearPages.costs.perDistanceUnit', { unit: distanceInputUnit(unitOptions.units) })}
+                  </div>
                   <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
-                    {costSummary.cost_per_km.toFixed(3)} {costSummary.currency}/km
+                    {(unitOptions.units === 'imperial' ? costSummary.cost_per_km * 1.609344 : costSummary.cost_per_km).toFixed(3)} {costSummary.currency}/{distanceInputUnit(unitOptions.units)}
                   </div>
                 </div>
               )}
               {costSummary.cost_per_hour != null && (
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/Stunde</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('gearPages.costs.perHour')}</div>
                   <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
                     {costSummary.cost_per_hour.toFixed(2)} {costSummary.currency}/h
                   </div>
@@ -279,7 +297,7 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
         )}
       </TabsContent>
 
-      {/* Geometrie tab — schema-driven subfield editor */}
+      {/* Geometry tab: schema-driven subfield editor */}
       {hasGeometry && (
         <TabsContent value="geometry">
           <GearGeometryTab item={gear} schema={schema} onChange={() => {}} />
@@ -291,7 +309,7 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
         <GearSportsTab item={gear} onSave={onSportsSave} />
       </TabsContent>
 
-      {/* Komponenten tab — editable component list first.
+      {/* Components tab: editable component list first.
           The read-only hierarchy is only useful when parent-child links exist. */}
       <TabsContent value="components" className="space-y-6">
         <section data-testid="components-crud">
@@ -305,7 +323,7 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
         {hasComponentHierarchy && (
           <section data-testid="components-hierarchy">
             <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wide">
-              Hierarchie
+              {t('gearPages.components.hierarchy')}
             </h3>
             <GearComponentsTab components={components} />
           </section>
@@ -318,7 +336,7 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
         </TabsContent>
       )}
 
-      {/* Verschleiß tab — usage aggregates + service events placeholder */}
+      {/* Wear tab: usage aggregates and service events placeholder */}
       <TabsContent value="wear" className="space-y-6">
         {isBike && (
           <ChainRotationSection gearId={gear.id} components={components} />
@@ -332,19 +350,15 @@ function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabC
 // ── Status ──────────────────────────────────────────────────────────────────────
 
 function GearStatusBadge({ status }: { status: GearStatus }) {
+  const { t } = useTranslation()
   const styles: Record<GearStatus, string> = {
     active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
     stored: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     retired: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
   }
-  const labels: Record<GearStatus, string> = {
-    active: 'Aktiv',
-    stored: 'Gelagert',
-    retired: 'Ausgemustert',
-  }
   return (
     <span className={`inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium ${styles[status]}`}>
-      {labels[status]}
+      {t(`gearPages.status.${status}`)}
     </span>
   )
 }
@@ -354,11 +368,12 @@ function StatusMenu({ current, onSelect, disabled }: {
   onSelect: (s: GearStatus) => void
   disabled: boolean
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const allOptions: { value: GearStatus; label: string; color: string }[] = [
-    { value: 'active', label: 'Aktivieren', color: 'text-emerald-600 dark:text-emerald-400' },
-    { value: 'stored', label: 'Lagern', color: 'text-amber-600 dark:text-amber-400' },
-    { value: 'retired', label: 'Ausmustern', color: 'text-rose-600 dark:text-rose-400' },
+    { value: 'active', label: t('gearPages.statusActions.activate'), color: 'text-emerald-600 dark:text-emerald-400' },
+    { value: 'stored', label: t('gearPages.statusActions.store'), color: 'text-amber-600 dark:text-amber-400' },
+    { value: 'retired', label: t('gearPages.statusActions.retire'), color: 'text-rose-600 dark:text-rose-400' },
   ]
   const options = allOptions.filter(o => o.value !== current)
 
@@ -369,7 +384,7 @@ function StatusMenu({ current, onSelect, disabled }: {
         disabled={disabled}
         className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Status ändern
+        {t('gearPages.statusActions.change')}
       </button>
       {open && (
         <>
@@ -410,6 +425,8 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
   components: GearComponent[]
   focusComponentId?: string | null
 }) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevationGain, formatElevationLoss } = useUnitFormatters()
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -456,12 +473,12 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Komponenten</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gearPages.components.title')}</h2>
         <button
           onClick={() => setAdding(true)}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer"
         >
-          + Hinzufügen
+          {t('gearPages.actions.add')}
         </button>
       </div>
 
@@ -515,7 +532,7 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
                         {[
                           comp.type,
                           [comp.brand, comp.model].filter(Boolean).join(' '),
-                          formatComponentDistance(comp.total_distance_m),
+                          formatDistanceCompact(comp.total_distance_m),
                           formatComponentDuration(comp.total_time_s),
                           comp.total_elevation_gain_m > 0 ? formatElevationGain(comp.total_elevation_gain_m) : '',
                           comp.total_elevation_loss_m > 0 ? formatElevationLoss(comp.total_elevation_loss_m) : '',
@@ -530,32 +547,32 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
                         onClick={() => setServiceId(serviceId === comp.id ? null : comp.id)}
                         className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
                       >
-                        Service
+                        {t('gearPages.service.title')}
                       </button>
                       <button
                         onClick={() => setHistoryId(historyId === comp.id ? null : comp.id)}
                         className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
                       >
-                        Historie
+                        {t('gearPages.components.history')}
                       </button>
                       <button
                         onClick={() => setTransferringId(comp.id)}
                         className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer"
                       >
-                        Übertragen
+                        {t('gearPages.components.transfer')}
                       </button>
                       <button
                         onClick={() => setEditingId(comp.id)}
                         className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
                       >
-                        Bearbeiten
+                        {t('gearPages.actions.edit')}
                       </button>
                       <button
                         onClick={() => removeMutation.mutate(comp.id)}
                         disabled={removeMutation.isPending}
                         className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Entfernen
+                        {t('gearPages.actions.remove')}
                       </button>
                     </div>
                   </div>
@@ -563,7 +580,9 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
                   {expandedId === comp.id && (
                     <div className="mt-2 ml-5 space-y-1">
                       {comp.serial_number && (
-                        <div className="text-xs text-neutral-400">SN: {comp.serial_number}</div>
+                        <div className="text-xs text-neutral-400">
+                          {t('gearPages.components.serialNumber')}: {comp.serial_number}
+                        </div>
                       )}
                       <ComponentImagesSection componentId={comp.id} />
                     </div>
@@ -593,7 +612,7 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
         </div>
       ) : (
         !adding && (
-          <p className="text-sm text-neutral-400 py-4 text-center">Keine Komponenten vorhanden.</p>
+          <p className="text-sm text-neutral-400 py-4 text-center">{t('gearPages.components.empty')}</p>
         )
       )}
     </div>
@@ -601,24 +620,17 @@ function ComponentsList({ gearId, gearType, components, focusComponentId }: {
 }
 
 function ComponentStatusBadge({ status }: { status: GearStatus }) {
+  const { t } = useTranslation()
   if (status === 'active') return null
   const styles: Record<string, string> = {
     stored: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
     retired: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
   }
-  const labels: Record<string, string> = {
-    stored: 'Gelagert',
-    retired: 'Ausgemustert',
-  }
   return (
     <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${styles[status] ?? ''}`}>
-      {labels[status] ?? status}
+      {status === 'stored' || status === 'retired' ? t(`gearPages.status.${status}`) : t('gearPages.status.unknown')}
     </span>
   )
-}
-
-function formatComponentDistance(meters: number): string {
-  return `${Math.round(Math.max(0, meters) / 1000)} km`
 }
 
 function formatComponentDuration(seconds: number): string {
@@ -627,27 +639,48 @@ function formatComponentDuration(seconds: number): string {
   return `${Math.round(minutes / 60)} h`
 }
 
-function serviceMetricInputUnit(metric: ServiceMetricKey): string {
+function formatGearUsageMetricValue(
+  metric: string,
+  value: number | null | undefined,
+  unitFormatters: UnitFormatters,
+): string {
+  if (value == null || Number.isNaN(value)) return '\u2014'
   switch (metric) {
-    case 'distance_m': return 'km'
-    case 'moving_time_s':
-    case 'elapsed_time_s': return 'h'
-    case 'activity_count': return 'Anzahl'
-    case 'elapsed_days': return 'Tage'
+    case 'distance_m':
+      return unitFormatters.formatDistance(value)
     case 'elevation_gain_m':
-    case 'elevation_loss_m': return 'm'
+    case 'elevation_loss_m':
+    case 'net_ascent_m':
+    case 'net_descent_m':
+    case 'lift_ascent_m':
+    case 'lift_descent_m':
+      return unitFormatters.formatElevation(value)
+    default:
+      return formatUsageMetricValue(metric, value, unitFormatters.options)
   }
 }
 
-function serviceMetricInputPlaceholder(metric: ServiceMetricKey): string {
+function gearMetricInputUnit(metric: ServiceMetricKey | ChainRotationMetricKey, units: UnitSystem, t: ReturnType<typeof useTranslation>['t']): string {
   switch (metric) {
-    case 'distance_m': return 'z.B. 500'
+    case 'distance_m': return distanceInputUnit(units)
     case 'moving_time_s':
-    case 'elapsed_time_s': return 'z.B. 50'
-    case 'activity_count': return 'z.B. 20'
-    case 'elapsed_days': return 'z.B. 90'
+    case 'elapsed_time_s': return 'h'
+    case 'activity_count': return t('gearPages.service.units.count')
+    case 'elapsed_days': return t('gearPages.service.units.days')
     case 'elevation_gain_m':
-    case 'elevation_loss_m': return 'z.B. 5000'
+    case 'elevation_loss_m': return elevationInputUnit(units)
+  }
+}
+
+function gearMetricInputPlaceholder(metric: ServiceMetricKey | ChainRotationMetricKey, units: UnitSystem): string {
+  switch (metric) {
+    case 'distance_m': return units === 'imperial' ? '300' : '500'
+    case 'moving_time_s':
+    case 'elapsed_time_s': return '50'
+    case 'activity_count': return '20'
+    case 'elapsed_days': return '90'
+    case 'elevation_gain_m':
+    case 'elevation_loss_m': return units === 'imperial' ? '16000' : '5000'
   }
 }
 
@@ -663,12 +696,20 @@ function serviceMetricInputStep(metric: ServiceMetricKey): string {
   }
 }
 
-function serviceMetricInputToBase(metric: ServiceMetricKey, value: string): number {
+function gearMetricInputToBase(metric: ServiceMetricKey | ChainRotationMetricKey, value: string, units: UnitSystem): number {
   const parsed = parseFloat(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return 0
-  if (metric === 'distance_m') return parsed * 1000
+  if (metric === 'distance_m') return distanceFromDisplayValue(parsed, units)
   if (metric === 'moving_time_s' || metric === 'elapsed_time_s') return parsed * 3600
+  if (metric === 'elevation_gain_m' || metric === 'elevation_loss_m') return elevationFromDisplayValue(parsed, units)
   return parsed
+}
+
+function gearMetricBaseToInputValue(metric: ServiceMetricKey | ChainRotationMetricKey, value: number, units: UnitSystem): number {
+  if (metric === 'distance_m') return distanceToDisplayValue(value, units)
+  if (metric === 'moving_time_s' || metric === 'elapsed_time_s') return value / 3600
+  if (metric === 'elevation_gain_m' || metric === 'elevation_loss_m') return elevationToDisplayValue(value, units)
+  return value
 }
 
 function cssEscapeIdentifier(value: string): string {
@@ -687,6 +728,8 @@ function TransferDialog({ component, componentId, currentGearId, currentGearType
   currentGearType: string
   onClose: () => void
 }) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const queryClient = useQueryClient()
   const [targetId, setTargetId] = useState('')
 
@@ -712,16 +755,16 @@ function TransferDialog({ component, componentId, currentGearId, currentGearType
 
   return (
     <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-      <div className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">Komponente transferieren</div>
+      <div className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">{t('gearPages.components.transferComponent')}</div>
       <div className="flex items-center gap-2">
         <select
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
           className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
         >
-          <option value="">Ziel wählen...</option>
+          <option value="">{t('gearPages.components.chooseTarget')}</option>
           {targets.map(g => (
-            <option key={g.id} value={g.id}>{g.name} ({schemaGearTypeLabel(schema, g.type)})</option>
+            <option key={g.id} value={g.id}>{g.name} ({schemaGearTypeLabel(schema, g.type, language)})</option>
           ))}
         </select>
         <button
@@ -729,21 +772,21 @@ function TransferDialog({ component, componentId, currentGearId, currentGearType
           disabled={!targetId || mutation.isPending}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
-          {mutation.isPending ? '...' : 'Übertragen'}
+          {mutation.isPending ? '...' : t('gearPages.components.transfer')}
         </button>
         <button
           onClick={onClose}
           className="px-3 py-1.5 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
         >
-          Abbrechen
+          {t('gearPages.actions.cancel')}
         </button>
       </div>
       {mutation.isError && (
-        <p className="text-xs text-rose-500 mt-1">Übertragung fehlgeschlagen</p>
+        <p className="text-xs text-rose-500 mt-1">{t('gearPages.components.transferFailed')}</p>
       )}
       {allGear && targets.length === 0 && (
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-          Keine kompatible Zielausrüstung vorhanden.
+          {t('gearPages.components.noCompatibleTarget')}
         </p>
       )}
     </div>
@@ -775,6 +818,7 @@ function isTransferTargetCompatible(
 // ── Component History ───────────────────────────────────────────────────────────
 
 function ComponentHistoryPanel({ componentId }: { componentId: string }) {
+  const { t, i18n } = useTranslation()
   const { data: history, isLoading } = useQuery({
     queryKey: ['component-history', componentId],
     queryFn: () => getComponentHistory(componentId),
@@ -790,22 +834,22 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
   const gearName = (gearId: string) =>
     gearList?.find((g) => g.id === gearId)?.name ?? gearId.slice(0, 8)
 
-  if (isLoading) return <div className="text-xs text-neutral-400 mt-2">Lade Historie...</div>
+  if (isLoading) return <div className="text-xs text-neutral-400 mt-2">{t('gearPages.components.loadingHistory')}</div>
 
   if (!history || history.length === 0) {
-    return <div className="text-xs text-neutral-400 mt-2">Keine Übertragungs-Historie vorhanden.</div>
+    return <div className="text-xs text-neutral-400 mt-2">{t('gearPages.components.noTransferHistory')}</div>
   }
 
   return (
     <div className="mt-3 space-y-1">
-      <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Übertragungs-Historie</div>
+      <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">{t('gearPages.components.transferHistory')}</div>
       {history.map((a: ComponentAssignment) => (
         <div key={a.id} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="w-2 h-2 rounded-full bg-accent-400 flex-shrink-0" />
           <span className="font-medium text-neutral-700 dark:text-neutral-300">{gearName(a.gear_id)}</span>
           <span>
-            {formatDateShort(a.installed_at)}
-            {a.removed_at ? ` \u2013 ${formatDateShort(a.removed_at)}` : ' \u2013 jetzt'}
+            {formatDateShort(a.installed_at, i18n.language)}
+            {a.removed_at ? ` \u2013 ${formatDateShort(a.removed_at, i18n.language)}` : ` \u2013 ${t('gearPages.common.now')}`}
           </span>
         </div>
       ))}
@@ -816,6 +860,8 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
 // ── Service Events ──────────────────────────────────────────────────────────────
 
 function ServiceEventsPanel({ componentId, status }: { componentId: string; status: GearStatus }) {
+  const { t, i18n } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const isActive = status === 'active'
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
@@ -875,7 +921,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
       name: intervalName.trim() || USAGE_METRIC_LABELS[intervalMetric],
       metric_key: intervalMetric,
       interval_type: intervalMetric,
-      interval_value: serviceMetricInputToBase(intervalMetric, intervalValue),
+      interval_value: gearMetricInputToBase(intervalMetric, intervalValue, unitFormatters.options.units),
       is_recurring: true,
     }),
     onSuccess: () => {
@@ -898,20 +944,20 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Service-Historie</div>
+        <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">{t('gearPages.service.history')}</div>
         {isActive && (
           <div className="flex items-center gap-3">
             <button
               onClick={() => setAddingInterval(!addingInterval)}
               className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
             >
-              + Intervall
+              {t('gearPages.service.addInterval')}
             </button>
             <button
               onClick={() => setAdding(!adding)}
               className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
             >
-              + Service eintragen
+              {t('gearPages.service.addEvent')}
             </button>
           </div>
         )}
@@ -921,12 +967,12 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
         <div className="flex flex-wrap gap-1.5">
           {intervals.map((interval: GearServiceInterval) => (
             <span key={interval.id} className="inline-flex items-center gap-1 rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300">
-              {interval.name}: {formatUsageMetricValue(interval.metric_key, interval.interval_value)}
+              {interval.name}: {formatGearUsageMetricValue(interval.metric_key, interval.interval_value, unitFormatters)}
               <button
                 onClick={() => deleteIntervalMut.mutate(interval.id)}
                 disabled={deleteIntervalMut.isPending}
                 className="text-neutral-400 hover:text-rose-500 disabled:opacity-50 cursor-pointer"
-                title="Intervall löschen"
+                title={t('gearPages.service.deleteInterval')}
               >
                 x
               </button>
@@ -939,17 +985,17 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <label className="space-y-1">
-              <span className="block text-xs text-neutral-500 dark:text-neutral-400">Name</span>
+              <span className="block text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.form.name')}</span>
               <input
                 type="text"
                 value={intervalName}
                 onChange={(e) => setIntervalName(e.target.value)}
-                placeholder="z.B. Tausch"
+                placeholder={t('gearPages.service.intervalNamePlaceholder')}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
               />
             </label>
             <label className="space-y-1">
-              <span className="block text-xs text-neutral-500 dark:text-neutral-400">Metrik</span>
+              <span className="block text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.service.metric')}</span>
               <select
                 value={intervalMetric}
                 onChange={(e) => setIntervalMetric(e.target.value as ServiceMetricKey)}
@@ -962,13 +1008,13 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
             </label>
             <label className="space-y-1">
               <span className="block text-xs text-neutral-500 dark:text-neutral-400">
-                Wert ({serviceMetricInputUnit(intervalMetric)})
+                {t('gearPages.service.valueWithUnit', { unit: gearMetricInputUnit(intervalMetric, unitFormatters.options.units, t) })}
               </span>
               <input
                 type="number"
                 value={intervalValue}
                 onChange={(e) => setIntervalValue(e.target.value)}
-                placeholder={serviceMetricInputPlaceholder(intervalMetric)}
+                placeholder={gearMetricInputPlaceholder(intervalMetric, unitFormatters.options.units)}
                 step={serviceMetricInputStep(intervalMetric)}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
               />
@@ -979,14 +1025,14 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
               onClick={() => setAddingInterval(false)}
               className="px-2.5 py-1 rounded text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
             >
-              Abbrechen
+              {t('gearPages.actions.cancel')}
             </button>
             <button
               onClick={() => addIntervalMut.mutate()}
               disabled={!intervalValue || addIntervalMut.isPending}
               className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              Speichern
+              {t('gearPages.actions.save')}
             </button>
           </div>
         </div>
@@ -1007,7 +1053,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
                 onChange={(e) => setSelectedIntervalId(e.target.value)}
                 className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
               >
-                <option value="">Kein Intervall-Reset</option>
+                <option value="">{t('gearPages.service.noIntervalReset')}</option>
                 {intervals.map(interval => (
                   <option key={interval.id} value={interval.id}>
                     {interval.name}
@@ -1019,7 +1065,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
               type="number"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
-              placeholder="Kosten (EUR)"
+              placeholder={t('gearPages.service.costPlaceholder')}
               step="0.01"
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
             />
@@ -1028,14 +1074,14 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Beschreibung"
+            placeholder={t('gearPages.form.description')}
             className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
           />
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notizen"
+            placeholder={t('gearPages.form.notes')}
             className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
           />
           <div className="flex gap-2 justify-end">
@@ -1043,20 +1089,20 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
               onClick={() => setAdding(false)}
               className="px-2.5 py-1 rounded text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
             >
-              Abbrechen
+              {t('gearPages.actions.cancel')}
             </button>
             <button
               onClick={() => addMut.mutate()}
               disabled={addMut.isPending}
               className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              Speichern
+              {t('gearPages.actions.save')}
             </button>
           </div>
         </div>
       )}
 
-      {isLoading && <div className="text-xs text-neutral-400">Lade...</div>}
+      {isLoading && <div className="text-xs text-neutral-400">{t('common.loading')}</div>}
 
       {events && events.length > 0 ? (
         <div className="space-y-1">
@@ -1064,7 +1110,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
             <div key={e.id} className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
                 <span className="text-neutral-700 dark:text-neutral-300 font-medium">
-                  {formatDateShort(e.performed_at)}
+                  {formatDateShort(e.performed_at, i18n.language)}
                 </span>
                 {e.description && <span>{e.description}</span>}
                 {e.cost != null && <span className="text-emerald-600 dark:text-emerald-400">{e.cost.toFixed(2)} EUR</span>}
@@ -1080,7 +1126,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
           ))}
         </div>
       ) : (
-        !isLoading && !adding && <div className="text-xs text-neutral-400">Keine Service-Einträge.</div>
+        !isLoading && !adding && <div className="text-xs text-neutral-400">{t('gearPages.service.noEntries')}</div>
       )}
     </div>
   )
@@ -1101,12 +1147,10 @@ const CHAIN_ROTATION_METRICS: ChainRotationMetricKey[] = [
 ]
 
 /** Convert a user-facing display value to base units (metres / seconds). */
-function metricInputToBase(metric: ChainRotationMetricKey, value: string): number {
+function chainMetricInputToBase(metric: ChainRotationMetricKey, value: string, units: UnitSystem): number {
   const parsed = parseFloat(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return metric === 'distance_m' ? 500000 : 0
-  if (metric === 'distance_m') return parsed * 1000
-  if (metric === 'moving_time_s' || metric === 'elapsed_time_s') return parsed * 3600
-  return parsed
+  return gearMetricInputToBase(metric, value, units)
 }
 
 /** Return the member's accumulated value for the given metric. */
@@ -1124,11 +1168,13 @@ function ChainRotationSection({ gearId, components }: {
   gearId: string
   components: GearComponent[]
 }) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('Ketten-Rotation')
+  const [name, setName] = useState(() => t('gearPages.chainRotation.defaultName'))
   const [rotationMetric, setRotationMetric] = useState<ChainRotationMetricKey>('distance_m')
-  const [rotationIntervalValue, setRotationIntervalValue] = useState('500')
+  const [rotationIntervalValue, setRotationIntervalValue] = useState(() => String(distanceToDisplayValue(500000, unitFormatters.options.units)))
   const [sortMetric, setSortMetric] = useState<ChainRotationMetricKey>('distance_m')
   const [selectedComps, setSelectedComps] = useState<Set<string>>(new Set())
 
@@ -1148,7 +1194,7 @@ function ChainRotationSection({ gearId, components }: {
     mutationFn: () => createChainRotation(gearId, {
       name,
       swap_interval_metric_key: rotationMetric,
-      swap_interval_value: metricInputToBase(rotationMetric, rotationIntervalValue),
+      swap_interval_value: chainMetricInputToBase(rotationMetric, rotationIntervalValue, unitFormatters.options.units),
       component_ids: Array.from(selectedComps),
     }),
     onSuccess: () => {
@@ -1181,7 +1227,7 @@ function ChainRotationSection({ gearId, components }: {
       return updateChainRotation(rotation!.id, {
         name: trimmedName,
         swap_interval_metric_key: editMetric,
-        swap_interval_value: metricInputToBase(editMetric, editIntervalValue),
+        swap_interval_value: chainMetricInputToBase(editMetric, editIntervalValue, unitFormatters.options.units),
       })
     },
     onSuccess: () => {
@@ -1198,11 +1244,7 @@ function ChainRotationSection({ gearId, components }: {
     if (!rotation) return
     const metric = (rotation.swap_interval_metric_key || 'distance_m') as ChainRotationMetricKey
     const baseValue = rotation.swap_interval_value ?? ((rotation.swap_interval_km ?? 500) * 1000)
-    // Convert base units back to user-facing display units for the input.
-    let displayValue: string
-    if (metric === 'distance_m') displayValue = String(baseValue / 1000)
-    else if (metric === 'moving_time_s' || metric === 'elapsed_time_s') displayValue = String(baseValue / 3600)
-    else displayValue = String(baseValue)
+    const displayValue = String(gearMetricBaseToInputValue(metric, baseValue, unitFormatters.options.units))
     setEditName(rotation.name)
     setEditMetric(metric)
     setEditIntervalValue(displayValue)
@@ -1236,13 +1278,13 @@ function ChainRotationSection({ gearId, components }: {
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Ketten-Rotation</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gearPages.chainRotation.title')}</h2>
         {!rotation && !creating && (
           <button
             onClick={() => setCreating(true)}
             className="text-sm text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            + Rotation erstellen
+            {t('gearPages.chainRotation.create')}
           </button>
         )}
       </div>
@@ -1251,7 +1293,7 @@ function ChainRotationSection({ gearId, components }: {
         <div className="space-y-3 mb-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">Name</label>
+              <label className="block text-xs text-neutral-500 mb-1">{t('gearPages.form.name')}</label>
               <input
                 type="text"
                 value={name}
@@ -1260,7 +1302,7 @@ function ChainRotationSection({ gearId, components }: {
               />
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">Metrik</label>
+              <label className="block text-xs text-neutral-500 mb-1">{t('gearPages.service.metric')}</label>
               <select
                 value={rotationMetric}
                 onChange={(e) => setRotationMetric(e.target.value as ChainRotationMetricKey)}
@@ -1273,7 +1315,7 @@ function ChainRotationSection({ gearId, components }: {
             </div>
             <div>
               <label className="block text-xs text-neutral-500 mb-1">
-                Wechselintervall ({rotationMetric === 'distance_m' ? 'km' : rotationMetric.endsWith('_time_s') ? 'h' : 'm'})
+                {t('gearPages.chainRotation.swapIntervalWithUnit', { unit: gearMetricInputUnit(rotationMetric, unitFormatters.options.units, t) })}
               </label>
               <input
                 type="number"
@@ -1286,10 +1328,10 @@ function ChainRotationSection({ gearId, components }: {
 
           <div>
             <label className="block text-xs text-neutral-500 mb-1">
-              Ketten auswählen (min. 2)
+              {t('gearPages.chainRotation.selectChains')}
               {usingFallback && (
                 <span className="ml-1.5 text-accent-DEFAULT">
-                  — alle Komponenten gezeigt, da keine Ketten-Komponenten erkannt wurden
+                  {t('gearPages.chainRotation.fallbackComponents')}
                 </span>
               )}
             </label>
@@ -1307,13 +1349,13 @@ function ChainRotationSection({ gearId, components }: {
                     {c.type && (
                       <span className="text-xs text-neutral-400">({c.type})</span>
                     )}
-                    <span className="text-xs text-neutral-400">{formatDistance(c.total_distance_m)}</span>
+                    <span className="text-xs text-neutral-400">{unitFormatters.formatDistance(c.total_distance_m)}</span>
                   </label>
                 ))}
               </div>
             ) : (
               <p className="text-xs text-neutral-400">
-                Keine Komponenten vorhanden. Füge zuerst Ketten als Komponenten hinzu.
+                {t('gearPages.chainRotation.noComponents')}
               </p>
             )}
           </div>
@@ -1323,7 +1365,7 @@ function ChainRotationSection({ gearId, components }: {
               onClick={() => setCreating(false)}
               className="px-3 py-1.5 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
             >
-              Abbrechen
+              {t('gearPages.actions.cancel')}
             </button>
             <button
               onClick={() => createMut.mutate()}
@@ -1331,8 +1373,8 @@ function ChainRotationSection({ gearId, components }: {
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {selectedComps.size < 2
-                ? `Rotation erstellen (${selectedComps.size}/2 gewählt)`
-                : 'Rotation erstellen'}
+                ? t('gearPages.chainRotation.createSelected', { count: selectedComps.size })
+                : t('gearPages.chainRotation.createPlain')}
             </button>
           </div>
         </div>
@@ -1354,16 +1396,16 @@ function ChainRotationSection({ gearId, components }: {
                   <span className="text-neutral-700 dark:text-neutral-300 font-medium">{rotation.name}</span>
                   <div className="flex items-center gap-2">
                     {editSuccess && (
-                      <span className="text-xs text-emerald-600 dark:text-emerald-400">Gespeichert</span>
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400">{t('gearPages.common.saved')}</span>
                     )}
                     <span className="text-xs text-neutral-500">
-                      Wechsel alle {formatUsageMetricValue(metric, intervalValue)}
+                      {t('gearPages.chainRotation.swapEvery', { value: formatGearUsageMetricValue(metric, intervalValue, unitFormatters) })}
                     </span>
                     {!editing && (
                       <button
                         onClick={openEdit}
-                        title="Bearbeiten"
-                        aria-label="Intervall bearbeiten"
+                        title={t('gearPages.actions.edit')}
+                        aria-label={t('gearPages.chainRotation.editInterval')}
                         className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer"
                       >
                         {/* Pencil icon */}
@@ -1380,7 +1422,7 @@ function ChainRotationSection({ gearId, components }: {
                   <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
-                        <label className="block text-xs text-neutral-500 mb-1">Bezeichnung</label>
+                        <label className="block text-xs text-neutral-500 mb-1">{t('gearPages.chainRotation.label')}</label>
                         <input
                           type="text"
                           value={editName}
@@ -1389,7 +1431,7 @@ function ChainRotationSection({ gearId, components }: {
                         />
                       </div>
                       <div>
-                        <label htmlFor="edit-chain-metric" className="block text-xs text-neutral-500 mb-1">Metrik</label>
+                        <label htmlFor="edit-chain-metric" className="block text-xs text-neutral-500 mb-1">{t('gearPages.service.metric')}</label>
                         <select
                           id="edit-chain-metric"
                           value={editMetric}
@@ -1403,7 +1445,7 @@ function ChainRotationSection({ gearId, components }: {
                       </div>
                       <div>
                         <label className="block text-xs text-neutral-500 mb-1">
-                          Wechselintervall ({editMetric === 'distance_m' ? 'km' : editMetric.endsWith('_time_s') ? 'h' : 'm'})
+                          {t('gearPages.chainRotation.swapIntervalWithUnit', { unit: gearMetricInputUnit(editMetric, unitFormatters.options.units, t) })}
                         </label>
                         <input
                           type="number"
@@ -1418,21 +1460,21 @@ function ChainRotationSection({ gearId, components }: {
                         onClick={() => setEditing(false)}
                         className="px-2.5 py-1 rounded text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
                       >
-                        Abbrechen
+                        {t('gearPages.actions.cancel')}
                       </button>
                       <button
                         onClick={() => updateMut.mutate()}
                         disabled={!editIntervalValue || !editName.trim() || updateMut.isPending}
                         className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
-                        {updateMut.isPending ? '...' : 'Speichern'}
+                        {updateMut.isPending ? '...' : t('gearPages.actions.save')}
                       </button>
                     </div>
                     {editName.trim() === '' && (
-                      <p className="text-xs text-rose-500">Name darf nicht leer sein.</p>
+                      <p className="text-xs text-rose-500">{t('gearPages.form.nameRequiredError')}</p>
                     )}
                     {updateMut.isError && (
-                      <p className="text-xs text-rose-500">Speichern fehlgeschlagen</p>
+                      <p className="text-xs text-rose-500">{t('gearPages.errors.saveFailed')}</p>
                     )}
                   </div>
                 )}
@@ -1440,7 +1482,7 @@ function ChainRotationSection({ gearId, components }: {
                 {rotation.members && rotation.members.length > 0 && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-neutral-400">Sortierung</span>
+                      <span className="text-xs text-neutral-400">{t('gearPages.chainRotation.sorting')}</span>
                       <select
                         value={sortMetric}
                         onChange={(e) => setSortMetric(e.target.value as ChainRotationMetricKey)}
@@ -1463,10 +1505,10 @@ function ChainRotationSection({ gearId, components }: {
                             <div className="flex items-center justify-between text-xs">
                               <span className={`font-medium ${m.is_active ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}>
                                 {m.component_name}
-                                {m.is_active && <span className="ml-1 text-emerald-600 dark:text-emerald-400">(montiert)</span>}
+                                {m.is_active && <span className="ml-1 text-emerald-600 dark:text-emerald-400">({t('gearPages.chainRotation.installed')})</span>}
                               </span>
                               <span className={isDue ? 'text-rose-500 font-medium' : 'text-neutral-500'}>
-                                {formatUsageMetricValue(metric, currentValue)} / {formatUsageMetricValue(metric, intervalValue)}
+                                {formatGearUsageMetricValue(metric, currentValue, unitFormatters)} / {formatGearUsageMetricValue(metric, intervalValue, unitFormatters)}
                               </span>
                             </div>
                             <div className="w-full h-1 rounded-full bg-neutral-200 dark:bg-neutral-700 mt-0.5">
@@ -1491,14 +1533,14 @@ function ChainRotationSection({ gearId, components }: {
               disabled={deleteMut.isPending}
               className="px-3 py-1.5 rounded-lg text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Rotation löschen
+              {t('gearPages.chainRotation.delete')}
             </button>
             <button
               onClick={() => swapMut.mutate()}
               disabled={swapMut.isPending}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              {swapMut.isPending ? 'Wechsle...' : 'Nächste Kette'}
+              {swapMut.isPending ? t('gearPages.chainRotation.swapping') : t('gearPages.chainRotation.nextChain')}
             </button>
           </div>
         </div>
@@ -1506,7 +1548,7 @@ function ChainRotationSection({ gearId, components }: {
 
       {!rotation && !creating && (
         <p className="text-sm text-neutral-400">
-          Keine Ketten-Rotation konfiguriert. Erstelle eine, um mehrere Ketten gleichmäßig abzunutzen.
+          {t('gearPages.chainRotation.empty')}
         </p>
       )}
     </div>
@@ -1520,15 +1562,17 @@ function isUsefulComponentPreset(
   gearType: string,
   presetName: string,
 ): boolean {
-  const name = presetName.trim().toLocaleLowerCase('de')
+  const name = presetName.trim().toLocaleLowerCase()
   if (!name) return false
 
   const scope = gearTypeScope(schema, gearType)
-  const componentLabels = new Set((schema.componentTypes ?? []).map(ct => ct.labelDe.toLocaleLowerCase('de')))
+  const componentLabels = new Set(
+    (schema.componentTypes ?? []).flatMap(ct => gearSchemaLabelCandidates(ct).map(label => label.toLocaleLowerCase())),
+  )
   const gearTypeLabelsInScope = new Set(
     schema.gearTypes
       .filter(gt => gearTypeScope(schema, gt.key) === scope)
-      .map(gt => gt.labelDe.toLocaleLowerCase('de')),
+      .flatMap(gt => gearSchemaLabelCandidates(gt).map(label => label.toLocaleLowerCase())),
   )
 
   return !gearTypeLabelsInScope.has(name) || componentLabels.has(name)
@@ -1547,6 +1591,7 @@ function ComponentForm({
   onCancel: () => void
   isSaving?: boolean
 }) {
+  const { t } = useTranslation()
   const [usePreset, setUsePreset] = useState(!component)
   const [presetId, setPresetId] = useState('')
   const [name, setName] = useState(component?.name ?? '')
@@ -1598,25 +1643,25 @@ function ComponentForm({
   }, {} as Record<string, ComponentTypePreset[]>)
 
   const categoryLabels: Record<string, string> = {
-    antrieb: 'Antrieb',
-    drivetrain: 'Antrieb',
-    bremsen: 'Bremsen',
-    braking: 'Bremsen',
-    reifen: 'Reifen',
-    wheels: 'Laufräder',
-    frame: 'Rahmen & Cockpit',
-    fahrwerk: 'Fahrwerk',
-    suspension: 'Federung',
-    ebike: 'E-Bike',
-    lighting: 'Beleuchtung',
-    accessories: 'Zubehör',
-    shoes: 'Schuhe',
-    sole: 'Sohle',
-    insole: 'Einlegesohle',
-    ski: 'Ski',
-    base: 'Belag',
-    edge: 'Kanten',
-    binding: 'Bindung',
+    antrieb: t('gearPages.componentCategories.drivetrain'),
+    drivetrain: t('gearPages.componentCategories.drivetrain'),
+    bremsen: t('gearPages.componentCategories.brakes'),
+    braking: t('gearPages.componentCategories.brakes'),
+    reifen: t('gearPages.componentCategories.tires'),
+    wheels: t('gearPages.componentCategories.wheels'),
+    frame: t('gearPages.componentCategories.frame'),
+    fahrwerk: t('gearPages.componentCategories.suspension'),
+    suspension: t('gearPages.componentCategories.suspension'),
+    ebike: t('gearPages.subtypes.eBike'),
+    lighting: t('gearPages.componentCategories.lighting'),
+    accessories: t('gearPages.componentCategories.accessories'),
+    shoes: t('gearPages.componentCategories.shoes'),
+    sole: t('gearPages.componentCategories.sole'),
+    insole: t('gearPages.componentCategories.insole'),
+    ski: t('gearPages.componentCategories.ski'),
+    base: t('gearPages.componentCategories.base'),
+    edge: t('gearPages.componentCategories.edge'),
+    binding: t('gearPages.componentCategories.binding'),
   }
 
   return (
@@ -1631,7 +1676,7 @@ function ComponentForm({
                 onChange={() => setUsePreset(true)}
                 className="text-accent-DEFAULT"
               />
-              <span className="text-neutral-700 dark:text-neutral-300">Vorlage</span>
+              <span className="text-neutral-700 dark:text-neutral-300">{t('gearPages.components.preset')}</span>
             </label>
             <label className="flex items-center gap-1.5 text-sm cursor-pointer">
               <input
@@ -1640,7 +1685,7 @@ function ComponentForm({
                 onChange={() => setUsePreset(false)}
                 className="text-accent-DEFAULT"
               />
-              <span className="text-neutral-700 dark:text-neutral-300">Eigener Typ</span>
+              <span className="text-neutral-700 dark:text-neutral-300">{t('gearPages.components.customType')}</span>
             </label>
           </div>
 
@@ -1650,7 +1695,7 @@ function ComponentForm({
               onChange={(e) => selectPreset(e.target.value)}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
             >
-              <option value="">Vorlage wählen...</option>
+              <option value="">{t('gearPages.components.choosePreset')}</option>
               {Object.entries(groupedPresets).map(([cat, items]) => (
                 <optgroup key={cat} label={categoryLabels[cat] ?? cat}>
                   {items.map(p => (
@@ -1668,7 +1713,7 @@ function ComponentForm({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Name"
+          placeholder={t('gearPages.form.name')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
@@ -1676,35 +1721,35 @@ function ComponentForm({
           value={type}
           onChange={(e) => setType(e.target.value)}
           required
-          placeholder="Komponententyp *"
+          placeholder={t('gearPages.components.typeRequired')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
           value={brand}
           onChange={(e) => setBrand(e.target.value)}
-          placeholder="Marke"
+          placeholder={t('gearPages.form.brand')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="Modell"
+          placeholder={t('gearPages.form.model')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="number"
           value={weightG}
           onChange={(e) => setWeightG(e.target.value)}
-          placeholder="Gewicht (g)"
+          placeholder={t('gearPages.form.weightG')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
           type="number"
           value={purchasePrice}
           onChange={(e) => setPurchasePrice(e.target.value)}
-          placeholder="Kaufpreis (EUR)"
+          placeholder={t('gearPages.form.purchasePriceEur')}
           step="0.01"
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
@@ -1718,7 +1763,7 @@ function ComponentForm({
           type="text"
           value={serialNumber}
           onChange={(e) => setSerialNumber(e.target.value)}
-          placeholder="Seriennummer"
+          placeholder={t('gearPages.components.serialNumber')}
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
       </div>
@@ -1728,14 +1773,14 @@ function ComponentForm({
           onClick={onCancel}
           className="px-3 py-1.5 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
         >
-          Abbrechen
+          {t('gearPages.actions.cancel')}
         </button>
         <button
           type="submit"
           disabled={isSaving || !name.trim() || !type.trim()}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
-          {isSaving ? 'Speichert...' : 'Speichern'}
+          {isSaving ? t('gearPages.actions.saving') : t('gearPages.actions.save')}
         </button>
       </div>
     </form>
@@ -1835,6 +1880,8 @@ function tirePressureBarValue(source: Record<string, any>, barKey: string, psiKe
 }
 
 function BikeSetupsSection({ gearId }: { gearId: string }) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -1895,7 +1942,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
   if (!setups || setups.length === 0) {
     return (
       <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Setups</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('gearPages.setups.title')}</h2>
         {creating ? (
           <BikeSetupForm
             onSave={(data) => createMut.mutate(data)}
@@ -1904,12 +1951,12 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
           />
         ) : (
           <div className="text-center py-4">
-            <p className="text-sm text-neutral-400 mb-3">Noch kein Setup angelegt</p>
+            <p className="text-sm text-neutral-400 mb-3">{t('gearPages.setups.empty')}</p>
             <button
               onClick={() => setCreating(true)}
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer"
             >
-              + Neues Setup
+              {t('gearPages.setups.new')}
             </button>
           </div>
         )}
@@ -1921,7 +1968,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
       {/* Header row: dropdown + action buttons */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mr-1">Setups</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mr-1">{t('gearPages.setups.title')}</h2>
 
         {/* Setup selector dropdown */}
         <select
@@ -1932,22 +1979,22 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
             setSnapshotOpen(false)
           }}
           className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100 cursor-pointer"
-          aria-label="Setup auswählen"
+          aria-label={t('gearPages.setups.choose')}
         >
           {setups.map(s => (
             <option key={s.id} value={s.id}>
-              {s.is_active ? `✓ ${s.name} (aktiv)` : s.name}
+              {s.is_active ? `✓ ${s.name} (${t('gearPages.status.active').toLocaleLowerCase()})` : s.name}
             </option>
           ))}
         </select>
 
-        {/* Bearbeiten */}
+        {/* Edit */}
         {editingId !== resolvedSelectedId && (
           <button
             onClick={() => setEditingId(resolvedSelectedId)}
             className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
           >
-            Bearbeiten
+            {t('gearPages.actions.edit')}
           </button>
         )}
 
@@ -1957,47 +2004,47 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
             onClick={() => { setCreating(true); setEditingId(null) }}
             className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            + Neu
+            {t('gearPages.setups.newShort')}
           </button>
         )}
 
-        {/* Aktivieren — only when not already active */}
+        {/* Activate: only when not already active */}
         {selectedSetup && !selectedSetup.is_active && (
           <button
             onClick={() => activateMut.mutate(selectedSetup.id)}
             disabled={activateMut.isPending}
             className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Aktivieren
+            {t('gearPages.statusActions.activate')}
           </button>
         )}
 
-        {/* Löschen — disabled when only setup or active */}
+        {/* Delete: disabled when only setup or active */}
         {deleteConfirmId === resolvedSelectedId ? (
           <span className="flex items-center gap-1 text-xs">
-            <span className="text-neutral-500">Sicher?</span>
+            <span className="text-neutral-500">{t('gearPages.common.areYouSure')}</span>
             <button
               onClick={() => selectedSetup && deleteMut.mutate(selectedSetup.id)}
               disabled={deleteMut.isPending}
               className="text-rose-600 hover:text-rose-800 cursor-pointer disabled:opacity-50"
             >
-              Ja
+              {t('gearPages.common.yes')}
             </button>
             <button
               onClick={() => setDeleteConfirmId(null)}
               className="text-neutral-500 hover:text-neutral-700 cursor-pointer"
             >
-              Nein
+              {t('gearPages.common.no')}
             </button>
           </span>
         ) : (
           <button
             onClick={() => canDelete && setDeleteConfirmId(resolvedSelectedId)}
             disabled={!canDelete}
-            title={!canDelete ? (selectedSetup?.is_active ? 'Aktives Setup kann nicht gelöscht werden' : 'Mindestens ein Setup muss vorhanden sein') : undefined}
+            title={!canDelete ? (selectedSetup?.is_active ? t('gearPages.setups.activeDeleteDisabled') : t('gearPages.setups.minimumOne')) : undefined}
             className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Löschen
+            {t('gearPages.actions.delete')}
           </button>
         )}
       </div>
@@ -2029,26 +2076,28 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
                 <span className="font-medium text-neutral-900 dark:text-neutral-100">{selectedSetup.name}</span>
                 {selectedSetup.is_active && (
                   <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                    Aktiv
+                    {t('gearPages.status.active')}
                   </span>
                 )}
               </div>
 
               {(selectedSetup.intended_use || selectedSetup.rider_weight_kg) && (
                 <div className="text-xs text-neutral-500 dark:text-neutral-400 flex gap-3">
-                  {selectedSetup.intended_use && <span>Nutzung: {selectedSetup.intended_use}</span>}
-                  {selectedSetup.rider_weight_kg && <span>Fahrergewicht: {selectedSetup.rider_weight_kg} kg</span>}
+                  {selectedSetup.intended_use && <span>{t('gearPages.setups.intendedUseValue', { value: selectedSetup.intended_use })}</span>}
+                  {selectedSetup.rider_weight_kg && (
+                    <span>{t('gearPages.setups.riderWeightValue', { value: formatWeight(selectedSetup.rider_weight_kg, unitOptions) })}</span>
+                  )}
                 </div>
               )}
 
               {/* JSONB section tags */}
               <div className="flex flex-wrap gap-1.5">
-                {selectedSetup.suspension_front && <SetupTag label="Gabel" />}
-                {selectedSetup.suspension_rear && <SetupTag label="Dämpfer" />}
-                {selectedSetup.tires && <SetupTag label="Reifen" />}
-                {selectedSetup.contact_points && <SetupTag label="Kontaktpunkte" />}
-                {selectedSetup.brakes && <SetupTag label="Bremsen" />}
-                {selectedSetup.drivetrain && <SetupTag label="Antrieb" />}
+                {selectedSetup.suspension_front && <SetupTag label={t('gearPages.setups.frontSuspension')} />}
+                {selectedSetup.suspension_rear && <SetupTag label={t('gearPages.setups.rearSuspension')} />}
+                {selectedSetup.tires && <SetupTag label={t('gearPages.setups.tires')} />}
+                {selectedSetup.contact_points && <SetupTag label={t('gearPages.setups.contactPoints')} />}
+                {selectedSetup.brakes && <SetupTag label={t('gearPages.setups.brakes')} />}
+                {selectedSetup.drivetrain && <SetupTag label={t('gearPages.setups.drivetrain')} />}
               </div>
 
               {/* Component snapshot section */}
@@ -2062,7 +2111,7 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
                   >
                     <span>{snapshotOpen ? '▼' : '▶'}</span>
                     <span>
-                      Komponenten zum Zeitpunkt der Speicherung ({selectedSetup.component_snapshot.components.length})
+                      {t('gearPages.setups.snapshotComponents', { count: selectedSetup.component_snapshot.components.length })}
                     </span>
                   </button>
                   {snapshotOpen && (
@@ -2070,10 +2119,10 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
                       <p
                         className="text-xs text-neutral-500 dark:text-neutral-400 flex items-start gap-1"
                         role="note"
-                        aria-label="Nur Snapshot — keine Auswirkung auf aktuell verbaute Komponenten."
+                        aria-label={t('gearPages.setups.snapshotNote')}
                       >
                         <span>ℹ</span>
-                        <span>Nur Snapshot — keine Auswirkung auf aktuell verbaute Komponenten.</span>
+                        <span>{t('gearPages.setups.snapshotNote')}</span>
                       </p>
                       <ul className="space-y-0.5">
                         {selectedSetup.component_snapshot.components.map(c => (
@@ -2118,6 +2167,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   onCancel: () => void
   isSaving?: boolean
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(setup?.name ?? '')
   const [riderWeight, setRiderWeight] = useState(setup?.rider_weight_kg?.toString() ?? '')
   const [intendedUse, setIntendedUse] = useState(setup?.intended_use ?? '')
@@ -2125,7 +2175,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [isActive, setIsActive] = useState(setup?.is_active ?? false)
   const [captureComponents, setCaptureComponents] = useState(false)
 
-  // Gabel (Federung vorne)
+  // Fork/front suspension
   const sf = setup?.suspension_front ?? {}
   const [sfTravel, setSfTravel] = useState(sf.travel_mm?.toString() ?? '')
   const [sfPressure, setSfPressure] = useState(sf.pressure_psi?.toString() ?? '')
@@ -2135,7 +2185,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [sfHsc, setSfHsc] = useState(sf.hsc?.toString() ?? '')
   const [sfSag, setSfSag] = useState(sf.sag_pct?.toString() ?? '')
 
-  // Dämpfer (Federung hinten)
+  // Shock/rear suspension
   const sr = setup?.suspension_rear ?? {}
   const [srTravel, setSrTravel] = useState(sr.travel_mm?.toString() ?? '')
   const [srPressure, setSrPressure] = useState(sr.pressure_psi?.toString() ?? '')
@@ -2147,13 +2197,13 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [flipchipPosition, setFlipchipPosition] = useState(jsonString(sr, 'flipchip_position'))
 
   // Tires
-  const t = setup?.tires ?? {}
-  const [tireFront, setTireFront] = useState(t.front_model ?? '')
-  const [tireRear, setTireRear] = useState(t.rear_model ?? '')
-  const [tireFrontBar, setTireFrontBar] = useState(tirePressureBarValue(t, 'front_pressure_bar', 'front_pressure_psi'))
-  const [tireRearBar, setTireRearBar] = useState(tirePressureBarValue(t, 'rear_pressure_bar', 'rear_pressure_psi'))
-  const [tireFrontWidth, setTireFrontWidth] = useState(jsonValue(t, 'front_width_in', 'front_width_mm'))
-  const [tireRearWidth, setTireRearWidth] = useState(jsonValue(t, 'rear_width_in', 'rear_width_mm'))
+  const tiresJson = setup?.tires ?? {}
+  const [tireFront, setTireFront] = useState(tiresJson.front_model ?? '')
+  const [tireRear, setTireRear] = useState(tiresJson.rear_model ?? '')
+  const [tireFrontBar, setTireFrontBar] = useState(tirePressureBarValue(tiresJson, 'front_pressure_bar', 'front_pressure_psi'))
+  const [tireRearBar, setTireRearBar] = useState(tirePressureBarValue(tiresJson, 'rear_pressure_bar', 'rear_pressure_psi'))
+  const [tireFrontWidth, setTireFrontWidth] = useState(jsonValue(tiresJson, 'front_width_in', 'front_width_mm'))
+  const [tireRearWidth, setTireRearWidth] = useState(jsonValue(tiresJson, 'rear_width_in', 'rear_width_mm'))
 
   // Contact points
   const cp = setup?.contact_points ?? {}
@@ -2234,98 +2284,98 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
     <form onSubmit={handleSubmit} className="space-y-3 mb-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
-          <label className="block text-xs text-neutral-500 mb-1">Name *</label>
+          <label className="block text-xs text-neutral-500 mb-1">{t('gearPages.form.nameRequired')}</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            placeholder="z.B. Trail Setup, Bikepark, Winter"
+            placeholder={t('gearPages.setups.placeholders.name')}
             className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
           />
         </div>
-        <JsonField label="Fahrergewicht (kg)" value={riderWeight} onChange={setRiderWeight} placeholder="75" />
-        <JsonField label="Einsatzzweck" value={intendedUse} onChange={setIntendedUse} placeholder="Trail, Bikepark, Tour" />
+        <JsonField label={t('gearPages.setups.riderWeightKg')} value={riderWeight} onChange={setRiderWeight} placeholder="75" />
+        <JsonField label={t('gearPages.setups.intendedUse')} value={intendedUse} onChange={setIntendedUse} placeholder={t('gearPages.setups.placeholders.intendedUse')} />
       </div>
 
-      <SetupSection label="Gabel">
+      <SetupSection label={t('gearPages.setups.frontSuspension')}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <JsonField label="Federweg (mm)" value={sfTravel} onChange={setSfTravel} placeholder="150" />
-          <JsonField label="Druck (PSI)" value={sfPressure} onChange={setSfPressure} placeholder="65" />
-          <JsonField label="Sag (%)" value={sfSag} onChange={setSfSag} placeholder="25" />
-          <JsonField label="LSR – Low Speed Rebound (Klicks)" value={sfLsr} onChange={setSfLsr} placeholder="8" />
-          <JsonField label="HSR – High Speed Rebound (Klicks)" value={sfHsr} onChange={setSfHsr} placeholder="3" />
-          <JsonField label="LSC – Low Speed Compression (Klicks)" value={sfLsc} onChange={setSfLsc} placeholder="5" />
-          <JsonField label="HSC – High Speed Compression (Klicks)" value={sfHsc} onChange={setSfHsc} placeholder="2" />
+          <JsonField label={t('gearPages.setups.travelMm')} value={sfTravel} onChange={setSfTravel} placeholder="150" />
+          <JsonField label={t('gearPages.setups.pressurePsi')} value={sfPressure} onChange={setSfPressure} placeholder="65" />
+          <JsonField label={t('gearPages.setups.sagPercent')} value={sfSag} onChange={setSfSag} placeholder="25" />
+          <JsonField label={t('gearPages.setups.lsrClicks')} value={sfLsr} onChange={setSfLsr} placeholder="8" />
+          <JsonField label={t('gearPages.setups.hsrClicks')} value={sfHsr} onChange={setSfHsr} placeholder="3" />
+          <JsonField label={t('gearPages.setups.lscClicks')} value={sfLsc} onChange={setSfLsc} placeholder="5" />
+          <JsonField label={t('gearPages.setups.hscClicks')} value={sfHsc} onChange={setSfHsc} placeholder="2" />
         </div>
       </SetupSection>
 
-      <SetupSection label="Dämpfer">
+      <SetupSection label={t('gearPages.setups.rearSuspension')}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <JsonField label="Federweg (mm)" value={srTravel} onChange={setSrTravel} placeholder="140" />
-          <JsonField label="Druck (PSI)" value={srPressure} onChange={setSrPressure} placeholder="180" />
-          <JsonField label="Sag (%)" value={srSag} onChange={setSrSag} placeholder="30" />
-          <JsonField label="LSR – Low Speed Rebound (Klicks)" value={srLsr} onChange={setSrLsr} placeholder="6" />
-          <JsonField label="HSR – High Speed Rebound (Klicks)" value={srHsr} onChange={setSrHsr} placeholder="2" />
-          <JsonField label="LSC – Low Speed Compression (Klicks)" value={srLsc} onChange={setSrLsc} placeholder="4" />
-          <JsonField label="HSC – High Speed Compression (Klicks)" value={srHsc} onChange={setSrHsc} placeholder="1" />
+          <JsonField label={t('gearPages.setups.travelMm')} value={srTravel} onChange={setSrTravel} placeholder="140" />
+          <JsonField label={t('gearPages.setups.pressurePsi')} value={srPressure} onChange={setSrPressure} placeholder="180" />
+          <JsonField label={t('gearPages.setups.sagPercent')} value={srSag} onChange={setSrSag} placeholder="30" />
+          <JsonField label={t('gearPages.setups.lsrClicks')} value={srLsr} onChange={setSrLsr} placeholder="6" />
+          <JsonField label={t('gearPages.setups.hsrClicks')} value={srHsr} onChange={setSrHsr} placeholder="2" />
+          <JsonField label={t('gearPages.setups.lscClicks')} value={srLsc} onChange={setSrLsc} placeholder="4" />
+          <JsonField label={t('gearPages.setups.hscClicks')} value={srHsc} onChange={setSrHsc} placeholder="1" />
           <SelectField
-            label="Flipchip-Position"
+            label={t('gearPages.setups.flipchipPosition')}
             value={flipchipPosition}
             onChange={setFlipchipPosition}
             options={[
-              { value: '', label: 'Nicht gesetzt' },
-              { value: 'high', label: 'High' },
-              { value: 'low', label: 'Low' },
+              { value: '', label: t('gearPages.common.notSet') },
+              { value: 'high', label: t('gearPages.setups.flipchip.high') },
+              { value: 'low', label: t('gearPages.setups.flipchip.low') },
             ]}
           />
         </div>
       </SetupSection>
 
-      <SetupSection label="Reifen">
+      <SetupSection label={t('gearPages.setups.tires')}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <JsonField label="Vorne: Modell" value={tireFront} onChange={setTireFront} placeholder="Maxxis Minion DHF" />
-          <JsonField label="Vorne: Breite (Zoll)" value={tireFrontWidth} onChange={setTireFrontWidth} placeholder="2.5" />
-          <JsonField label="Vorne: Druck (bar)" value={tireFrontBar} onChange={setTireFrontBar} placeholder="1.7" />
-          <JsonField label="Hinten: Modell" value={tireRear} onChange={setTireRear} placeholder="Maxxis Dissector" />
-          <JsonField label="Hinten: Breite (Zoll)" value={tireRearWidth} onChange={setTireRearWidth} placeholder="2.4" />
-          <JsonField label="Hinten: Druck (bar)" value={tireRearBar} onChange={setTireRearBar} placeholder="1.8" />
+          <JsonField label={t('gearPages.setups.frontModel')} value={tireFront} onChange={setTireFront} placeholder="Maxxis Minion DHF" />
+          <JsonField label={t('gearPages.setups.frontWidthIn')} value={tireFrontWidth} onChange={setTireFrontWidth} placeholder="2.5" />
+          <JsonField label={t('gearPages.setups.frontPressureBar')} value={tireFrontBar} onChange={setTireFrontBar} placeholder="1.7" />
+          <JsonField label={t('gearPages.setups.rearModel')} value={tireRear} onChange={setTireRear} placeholder="Maxxis Dissector" />
+          <JsonField label={t('gearPages.setups.rearWidthIn')} value={tireRearWidth} onChange={setTireRearWidth} placeholder="2.4" />
+          <JsonField label={t('gearPages.setups.rearPressureBar')} value={tireRearBar} onChange={setTireRearBar} placeholder="1.8" />
         </div>
       </SetupSection>
 
-      <SetupSection label="Kontaktpunkte">
+      <SetupSection label={t('gearPages.setups.contactPoints')}>
         <div className="grid grid-cols-2 gap-2">
-          <JsonField label="Sattelhöhe (mm)" value={saddleHeight} onChange={setSaddleHeight} placeholder="720" />
-          <JsonField label="Sattel-Modell" value={saddleModel} onChange={setSaddleModel} placeholder="Ergon SM Sport" />
-          <JsonField label="Vorbaulänge (mm)" value={stemLength} onChange={setStemLength} placeholder="50" />
-          <JsonField label="Lenkerbreite (mm)" value={handlebarWidth} onChange={setHandlebarWidth} placeholder="780" />
+          <JsonField label={t('gearPages.setups.saddleHeightMm')} value={saddleHeight} onChange={setSaddleHeight} placeholder="720" />
+          <JsonField label={t('gearPages.setups.saddleModel')} value={saddleModel} onChange={setSaddleModel} placeholder="Ergon SM Sport" />
+          <JsonField label={t('gearPages.setups.stemLengthMm')} value={stemLength} onChange={setStemLength} placeholder="50" />
+          <JsonField label={t('gearPages.setups.handlebarWidthMm')} value={handlebarWidth} onChange={setHandlebarWidth} placeholder="780" />
         </div>
       </SetupSection>
 
-      <SetupSection label="Bremsen">
+      <SetupSection label={t('gearPages.setups.brakes')}>
         <div className="grid grid-cols-2 gap-2">
-          <JsonField label="Vorne: Belag-Typ" value={brakeFrontPad} onChange={setBrakeFrontPad} placeholder="Sinter, Organisch" />
-          <JsonField label="Vorne: Scheibe (mm)" value={brakeFrontRotor} onChange={setBrakeFrontRotor} placeholder="203" />
-          <JsonField label="Hinten: Belag-Typ" value={brakeRearPad} onChange={setBrakeRearPad} placeholder="Sinter, Organisch" />
-          <JsonField label="Hinten: Scheibe (mm)" value={brakeRearRotor} onChange={setBrakeRearRotor} placeholder="180" />
+          <JsonField label={t('gearPages.setups.frontPadType')} value={brakeFrontPad} onChange={setBrakeFrontPad} placeholder={t('gearPages.setups.placeholders.padType')} />
+          <JsonField label={t('gearPages.setups.frontRotorMm')} value={brakeFrontRotor} onChange={setBrakeFrontRotor} placeholder="203" />
+          <JsonField label={t('gearPages.setups.rearPadType')} value={brakeRearPad} onChange={setBrakeRearPad} placeholder={t('gearPages.setups.placeholders.padType')} />
+          <JsonField label={t('gearPages.setups.rearRotorMm')} value={brakeRearRotor} onChange={setBrakeRearRotor} placeholder="180" />
         </div>
       </SetupSection>
 
-      <SetupSection label="Antrieb">
+      <SetupSection label={t('gearPages.setups.drivetrain')}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <JsonField label="Kettenblatt" value={chainring} onChange={setChainring} placeholder="32T" />
-          <JsonField label="Kassette" value={cassette} onChange={setCassette} placeholder="10-52T" />
-          <JsonField label="Kettenlänge (Glieder)" value={chainLength} onChange={setChainLength} placeholder="116" />
+          <JsonField label={t('gearPages.setups.chainring')} value={chainring} onChange={setChainring} placeholder="32T" />
+          <JsonField label={t('gearPages.setups.cassette')} value={cassette} onChange={setCassette} placeholder="10-52T" />
+          <JsonField label={t('gearPages.setups.chainLengthLinks')} value={chainLength} onChange={setChainLength} placeholder="116" />
         </div>
       </SetupSection>
 
       <div>
-        <label className="block text-xs text-neutral-500 mb-1">Notizen</label>
+        <label className="block text-xs text-neutral-500 mb-1">{t('gearPages.form.notes')}</label>
         <input
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Sonstige Anmerkungen"
+          placeholder={t('gearPages.setups.placeholders.notes')}
           className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
         />
       </div>
@@ -2337,7 +2387,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
           onChange={(e) => setIsActive(e.target.checked)}
           className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
         />
-        <span className="text-sm text-neutral-700 dark:text-neutral-300">Als aktives Setup setzen</span>
+        <span className="text-sm text-neutral-700 dark:text-neutral-300">{t('gearPages.setups.setActive')}</span>
       </label>
 
       <label className="flex items-start gap-2 cursor-pointer">
@@ -2348,11 +2398,11 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
           className="mt-0.5 w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
         />
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
-          Komponenten mitsichern{' '}
+          {t('gearPages.setups.captureComponents')}{' '}
           <span
             className="inline-block align-[-2px] text-neutral-400 cursor-help"
-            title="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
-            aria-label="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
+            title={t('gearPages.setups.captureComponentsHelp')}
+            aria-label={t('gearPages.setups.captureComponentsHelp')}
           >
             <CircleHelp aria-hidden="true" size={14} />
           </span>
@@ -2365,14 +2415,14 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
           onClick={onCancel}
           className="px-3 py-1.5 rounded-lg text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
         >
-          Abbrechen
+          {t('gearPages.actions.cancel')}
         </button>
         <button
           type="submit"
           disabled={isSaving || !name.trim()}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
-          {isSaving ? 'Speichert...' : 'Speichern'}
+          {isSaving ? t('gearPages.actions.saving') : t('gearPages.actions.save')}
         </button>
       </div>
     </form>
@@ -2382,49 +2432,57 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
 // ── Tab-slot definitions (Phase 6.4 wiring) ──────────────────────────────────
 //
 // Tabs for GearDetailPage (wired in Phase 6.4):
-//   0 – Stammdaten    (edit form, notes, weight, cost, images, documents)
-//   1 – Komponenten   (ComponentsList + ComponentForm)
-//   2 – Geometrie     (GearGeometryTab — Phase 6.1)
-//   3 – Sportarten    (GearSportsTab — Phase 6.2, applicable_sport_predicates)
-//   4 – Verschleiß    (ServiceEventsPanel — Phase 6.3)
+//   0 – data          (edit form, notes, weight, cost, images, documents)
+//   1 – components    (ComponentsList + ComponentForm)
+//   2 – geometry      (GearGeometryTab — Phase 6.1)
+//   3 – sports        (GearSportsTab — Phase 6.2, applicable_sport_predicates)
+//   4 – wear          (ServiceEventsPanel — Phase 6.3)
 //
 // No behaviour change in Phase 5; the sections remain flat (unboxed into tabs).
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-function formatDateShort(dateStr: string): string {
+function formatDateShort(dateStr: string, locale: string): string {
   try {
-    return format(new Date(dateStr), 'dd.MM.yy', { locale: de })
+    return new Date(dateStr).toLocaleDateString(locale || undefined, { day: '2-digit', month: '2-digit', year: '2-digit' })
+  } catch {
+    return dateStr
+  }
+}
+
+function formatDateLong(dateStr: string, locale: string): string {
+  try {
+    return new Date(dateStr).toLocaleDateString(locale || undefined, { day: '2-digit', month: 'long', year: 'numeric' })
   } catch {
     return dateStr
   }
 }
 
 // Schema-driven type label; falls back to hardcoded table for unknown keys.
-function gearTypeLabelResolved(type: string): string {
-  return schemaGearTypeLabel(getActiveSchema(), type)
+function gearTypeLabelResolved(type: string, language: ReturnType<typeof supportedLanguageFrom>): string {
+  return schemaGearTypeLabel(getActiveSchema(), type, language)
 }
 
 function categoryScopeForGear(gear: Gear): GearCategoryScope {
   return gearTypeScope(getActiveSchema(), gear.type, gear.scope)
 }
 
-function subTypeLabel(subType: string): string {
+function subTypeLabel(subType: string, t: ReturnType<typeof useTranslation>['t']): string {
   const labels: Record<string, string> = {
-    mountain: 'MTB',
-    road: 'Rennrad',
-    gravel: 'Gravel',
-    cyclocross: 'Cyclocross',
-    enduro: 'Enduro',
-    downhill: 'Downhill',
-    cross_country: 'Cross-Country',
-    trail: 'Trail',
-    touring: 'Touring',
-    bmx: 'BMX',
-    fixie: 'Fixie',
-    urban: 'Urban',
-    e_bike: 'E-Bike',
-    hybrid: 'Hybrid',
+    mountain: t('gearPages.subtypes.mountain'),
+    road: t('gearPages.subtypes.road'),
+    gravel: t('gearPages.subtypes.gravel'),
+    cyclocross: t('gearPages.subtypes.cyclocross'),
+    enduro: t('gearPages.subtypes.enduro'),
+    downhill: t('gearPages.subtypes.downhill'),
+    cross_country: t('gearPages.subtypes.crossCountry'),
+    trail: t('gearPages.subtypes.trail'),
+    touring: t('gearPages.subtypes.touring'),
+    bmx: t('gearPages.subtypes.bmx'),
+    fixie: t('gearPages.subtypes.fixie'),
+    urban: t('gearPages.subtypes.urban'),
+    e_bike: t('gearPages.subtypes.eBike'),
+    hybrid: t('gearPages.subtypes.hybrid'),
   }
   return labels[subType] ?? subType
 }
@@ -2441,6 +2499,7 @@ function AuthenticatedGearImage({
   className?: string
   alt?: string
 }) {
+  const { t } = useTranslation()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState(false)
 
@@ -2457,7 +2516,7 @@ function AuthenticatedGearImage({
   if (error) {
     return (
       <div className={`flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400 text-xs ${className ?? ''}`}>
-        Fehler
+        {t('gearPages.common.error')}
       </div>
     )
   }
@@ -2477,6 +2536,7 @@ function AuthenticatedGearImage({
 // ── Component Images ─────────────────────────────────────────────────────────────
 
 function ComponentImagesSection({ componentId }: { componentId: string }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { openModal } = useModal()
   const [uploading, setUploading] = useState(false)
@@ -2507,7 +2567,7 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
   if (images.length === 0 && !uploading) {
     return (
       <label className="text-xs text-neutral-400 hover:text-accent-DEFAULT cursor-pointer transition-colors">
-        + Foto
+        {t('gearPages.images.addPhotoShort')}
         <input
           type="file"
           accept="image/*"
@@ -2546,11 +2606,11 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); openModal({
-                title: 'Foto löschen?',
-                message: 'Das Foto wird unwiderruflich gelöscht.',
+                title: t('gearPages.images.deleteTitle'),
+                message: t('gearPages.images.deleteMessage'),
                 buttons: [
-                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                  { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(doc.id) },
+                  { label: t('gearPages.actions.cancel'), variant: 'default', onClick: () => {} },
+                  { label: t('gearPages.actions.delete'), variant: 'destructive', onClick: () => deleteMutation.mutate(doc.id) },
                 ],
               }) }}
               className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -2598,6 +2658,7 @@ function ComponentImagesSection({ componentId }: { componentId: string }) {
 // ── Gear Images ─────────────────────────────────────────────────────────────────
 
 function GearImagesSection({ gearId }: { gearId: string }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { openModal } = useModal()
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
@@ -2641,11 +2702,11 @@ function GearImagesSection({ gearId }: { gearId: string }) {
   const handleDelete = useCallback((docId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     openModal({
-      title: 'Foto löschen?',
-      message: 'Das Foto wird unwiderruflich gelöscht.',
+      title: t('gearPages.images.deleteTitle'),
+      message: t('gearPages.images.deleteMessage'),
       buttons: [
-        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-        { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate(docId) },
+        { label: t('gearPages.actions.cancel'), variant: 'default', onClick: () => {} },
+        { label: t('gearPages.actions.delete'), variant: 'destructive', onClick: () => deleteMutation.mutate(docId) },
       ],
     })
   }, [deleteMutation, openModal])
@@ -2653,9 +2714,9 @@ function GearImagesSection({ gearId }: { gearId: string }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Bilder</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gearPages.images.title')}</h2>
         <label className="px-3 py-1.5 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors cursor-pointer">
-          + Foto hinzufügen
+          {t('gearPages.images.addPhoto')}
           <input
             type="file"
             accept="image/*"
@@ -2683,7 +2744,7 @@ function GearImagesSection({ gearId }: { gearId: string }) {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            Wird hochgeladen...
+            {t('gearPages.images.uploading')}
           </div>
         )}
 
@@ -2711,14 +2772,14 @@ function GearImagesSection({ gearId }: { gearId: string }) {
           </div>
         ) : !uploading ? (
           <div className="text-center py-8 text-sm text-neutral-400">
-            Noch keine Bilder. Fotos hierher ziehen oder Button nutzen.
+            {t('gearPages.images.empty')}
           </div>
         ) : null}
       </div>
 
       {uploadMutation.isError && (
         <p className="text-sm text-rose-500 mt-2">
-          Upload fehlgeschlagen: {uploadMutation.error instanceof Error ? uploadMutation.error.message : 'Unbekannt'}
+          {t('gearPages.images.uploadFailed', { message: uploadMutation.error instanceof Error ? uploadMutation.error.message : t('gearPages.common.unknown') })}
         </p>
       )}
 

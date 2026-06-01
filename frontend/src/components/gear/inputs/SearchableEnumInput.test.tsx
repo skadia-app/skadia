@@ -1,9 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SearchableEnumInput from '@/components/gear/inputs/SearchableEnumInput'
 import type { OptionValue } from '@/lib/generatedGearSchema'
+import { i18n } from '@/i18n/i18n'
 
 const OPTIONS: OptionValue[] = [
   { key: 'aluminum', labelDe: 'Aluminium' },
@@ -13,6 +14,48 @@ const OPTIONS: OptionValue[] = [
 ]
 
 describe('SearchableEnumInput', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
+  it('uses a derived display label before schema labels', async () => {
+    await i18n.changeLanguage('en')
+    const options: (OptionValue & { displayLabel: string })[] = [
+      {
+        key: 'carbon',
+        labelDe: 'Carbon',
+        labels: { de: 'Carbon', en: 'Carbon fiber' },
+        displayLabel: 'Recommended: Carbon fiber',
+      },
+    ]
+
+    render(
+      <SearchableEnumInput id="test" value="" options={options} onChange={vi.fn()} />,
+    )
+    fireEvent.focus(screen.getByRole('combobox'))
+
+    expect(screen.getByText('Recommended: Carbon fiber')).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Carbon fiber' })).not.toBeInTheDocument()
+  })
+
+  it('uses the schema label for selected values when a display label exists', async () => {
+    await i18n.changeLanguage('en')
+    const options: (OptionValue & { displayLabel: string })[] = [
+      {
+        key: 'carbon',
+        labelDe: 'Carbon',
+        labels: { de: 'Carbon', en: 'Carbon fiber' },
+        displayLabel: 'Recommended: Carbon fiber',
+      },
+    ]
+
+    render(
+      <SearchableEnumInput id="test" value="carbon" options={options} onChange={vi.fn()} />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveValue('Carbon fiber')
+  })
+
   it('TestRendersAllOptionsInitially', () => {
     render(
       <SearchableEnumInput id="test" value="" options={OPTIONS} onChange={vi.fn()} />,
