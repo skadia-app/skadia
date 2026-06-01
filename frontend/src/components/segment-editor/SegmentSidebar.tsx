@@ -17,6 +17,7 @@ import { DifficultyColorPicker } from './DifficultyColorPicker'
 import { SportCategoryChips } from './SportCategoryChips'
 import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
+import { fmtDist, fmtElevation } from '@/lib/format'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segmentSportSelection'
 import { segmentEligibleSelectionKeys, segmentTypeLabel } from '@/lib/segmentProjection'
 
@@ -169,13 +170,13 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       {info && (mode === 'track' || (mode === 'draw' && info.distanceKm > 0)) && (
         <div className="mx-3 mt-3 rounded-lg border border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800 p-3">
           <div className="grid grid-cols-3 gap-x-2 text-center">
-            <MetricCell label="Distanz" value={`${info.distanceKm.toFixed(1)} km`} />
-            <MetricCell label="Aufstieg" value={`+${Math.round(info.gainM)} m`} valueClassName="text-red-500" />
-            <MetricCell label="Abstieg"  value={`−${Math.round(info.lossM)} m`} valueClassName="text-green-500" />
+            <MetricCell label="Distanz" value={fmtDist(info.distanceKm * 1000)} />
+            <MetricCell label="Aufstieg" value={formatSignedElevation(info.gainM, '+')} valueClassName="text-red-500" />
+            <MetricCell label="Abstieg"  value={formatSignedElevation(info.lossM, '−')} valueClassName="text-green-500" />
           </div>
           {info.elevationMaxM != null && (
             <div className="mt-2 border-t border-neutral-200 dark:border-neutral-700/60 pt-2 text-center">
-              <MetricCell label="Höchstpunkt" value={`${Math.round(info.elevationMaxM)} m`} />
+              <MetricCell label="Höchstpunkt" value={fmtElevation(info.elevationMaxM)} />
             </div>
           )}
         </div>
@@ -391,6 +392,11 @@ function MetricCell({ label, value, valueClassName }: { label: string; value: st
       <div className={cn('mt-0.5 text-sm font-semibold', valueClassName ?? 'text-neutral-900 dark:text-neutral-100')}>{value}</div>
     </div>
   )
+}
+
+function formatSignedElevation(valueM: number | null | undefined, sign: '+' | '−'): string {
+  const formatted = fmtElevation(valueM)
+  return formatted === '—' ? formatted : `${sign}${formatted}`
 }
 
 function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {

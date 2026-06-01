@@ -13,8 +13,17 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { ArrowLeftRight, ZoomIn } from 'lucide-react'
 import { useRangeBrush } from '@/hooks/useRangeBrush'
 import { cn, findClosestIdx } from '@/lib/utils'
+import { fmtDist, fmtElevation } from '@/lib/format'
 
 echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
+
+export function formatTrackModeDistanceKm(valueKm: number | null | undefined): string {
+  return fmtDist(valueKm == null ? valueKm : valueKm * 1000)
+}
+
+export function formatTrackModeElevationM(valueM: number | null | undefined): string {
+  return fmtElevation(valueM)
+}
 
 export interface TrackPoint {
   lat: number
@@ -127,7 +136,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         axisLabel: {
           fontSize: 10,
           color: '#6b7280',
-          formatter: (v: number) => `${v.toFixed(1)} km`,
+          formatter: (v: number) => formatTrackModeDistanceKm(v),
           showMinLabel: true,
           showMaxLabel: true,
         },
@@ -143,7 +152,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         axisLabel: {
           fontSize: 10,
           color: '#6b7280',
-          formatter: (v: number) => `${v} m`,
+          formatter: (v: number) => formatTrackModeElevationM(v),
           showMinLabel: false,
           showMaxLabel: true,
         },
@@ -166,9 +175,9 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           const idx = p[0].dataIndex
           const elevVal = elevationSeries[idx]
           const kmVal = cumulativeKm[idx]
-          const kmStr = kmVal != null ? kmVal.toFixed(2) : '—'
-          const elevStr = elevVal != null ? `${Math.round(elevVal)} m` : '—'
-          return `<div style="font-size:11px;line-height:1.7"><div style="color:#9ca3af">${kmStr} km</div><div><strong style="color:#f9fafb">${elevStr}</strong></div></div>`
+          const kmStr = formatTrackModeDistanceKm(kmVal)
+          const elevStr = formatTrackModeElevationM(elevVal)
+          return `<div style="font-size:11px;line-height:1.7"><div style="color:#9ca3af">${kmStr}</div><div><strong style="color:#f9fafb">${elevStr}</strong></div></div>`
         },
       },
       brush: {
@@ -321,8 +330,8 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     setIsZoomed(false)
   }, [])
 
-  const startKm = cumulativeKm[range[0]]?.toFixed(1) ?? '0.0'
-  const endKm = cumulativeKm[range[1]]?.toFixed(1) ?? '0.0'
+  const startDistance = formatTrackModeDistanceKm(cumulativeKm[range[0]])
+  const endDistance = formatTrackModeDistanceKm(cumulativeKm[range[1]])
 
   // Keyboard handler: arrow-keys on focused handle buttons.
   const startRef = useRef<HTMLButtonElement>(null)
@@ -379,7 +388,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       {/* setStart/setEnd from useRangeBrush fire onBrushChange → onRangeChange (state update).
           onCommitRange is called on pointerUp via DualRangeSlider.onCommit (fitBounds). */}
       <div className="mb-2 flex items-center gap-2">
-        <span className="w-14 shrink-0 font-mono text-xs text-neutral-500 dark:text-neutral-500">{startKm} km</span>
+        <span className="w-14 shrink-0 font-mono text-xs text-neutral-500 dark:text-neutral-500">{startDistance}</span>
         <DualRangeSlider
           min={0}
           max={trackPoints.length - 1}
@@ -389,7 +398,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           onEndChange={setEnd}
           onCommit={onCommitRange}
         />
-        <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500 dark:text-neutral-500">{endKm} km</span>
+        <span className="w-14 shrink-0 text-right font-mono text-xs text-neutral-500 dark:text-neutral-500">{endDistance}</span>
       </div>
 
       {/* Row 3 — Stepper controls + action buttons */}
