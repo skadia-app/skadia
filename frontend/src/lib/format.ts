@@ -1,4 +1,22 @@
+import { i18n } from '@/i18n/i18n'
+import { isSupportedLanguage, localeForLanguage, type SupportedLanguage } from '@/i18n/languages'
+import { de, enUS, es, fr, it, type Locale } from 'date-fns/locale'
+
 export type DurationStyle = 'clock' | 'human' | 'compact' | 'short' | 'lifetime' | 'abbr' | 'decimal'
+export type DateFnsLocale = Locale
+
+export const DEFAULT_LOCALE = localeForLanguage('de')
+
+const DATE_FNS_LOCALES: Record<SupportedLanguage, Locale> = { de, en: enUS, fr, it, es }
+
+export function activeLocale(): string {
+  const baseLanguage = i18n.language?.split('-')[0] ?? ''
+  return localeForLanguage(isSupportedLanguage(baseLanguage) ? baseLanguage : 'de')
+}
+
+export function dateFnsLocaleForLanguage(language: SupportedLanguage): Locale {
+  return DATE_FNS_LOCALES[language]
+}
 
 /** Format seconds in various styles. Default 'clock' = h:mm:ss / m:ss */
 export function fmtDuration(s: number | null | undefined, style: DurationStyle = 'clock'): string {
@@ -54,83 +72,83 @@ export function normTz(tz: string | null | undefined): string | undefined {
   return tz.replace(/^UTC([+-])/, '$1')
 }
 
-/** Format an ISO date string as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
-export function fmtTime(iso: string, timezone?: string | null): string {
+/** Format an ISO date string as HH:MM. Optional timezone (IANA or UTC offset). */
+export function fmtTime(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleTimeString('de-DE', opts)
+  return new Date(iso).toLocaleTimeString(locale, opts)
 }
 
-/** Format a Date object as HH:MM (de-DE locale). Optional timezone (IANA or UTC offset). */
-export function fmtTimeFromDate(date: Date, timezone?: string | null): string {
+/** Format a Date object as HH:MM. Optional timezone (IANA or UTC offset). */
+export function fmtTimeFromDate(date: Date, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return date.toLocaleTimeString('de-DE', opts)
+  return date.toLocaleTimeString(locale, opts)
 }
 
 /**
- * Format an ISO date string as a full weekday+date string (de-DE locale).
+ * Format an ISO date string as a full weekday+date string.
  * Optional timezone — avoids date-fns format() which ignores timezone.
- * Example: "Montag, 28. März 2026"
+ * Example in en-US: "Saturday, March 28, 2026"
  */
-export function fmtActivityDate(iso: string, timezone?: string | null): string {
+export function fmtActivityDate(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = {
     weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
   }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleDateString('de-DE', opts)
+  return new Date(iso).toLocaleDateString(locale, opts)
 }
 
 /**
- * Format an ISO date string as short weekday+date (de-DE locale).
- * Example: "Mo., 28. Mär. 2026"
+ * Format an ISO date string as short weekday+date.
+ * Example in en-US: "Sat, Mar 28, 2026"
  */
-export function fmtActivityDateShort(iso: string, timezone?: string | null): string {
+export function fmtActivityDateShort(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = {
     weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
   }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleDateString('de-DE', opts)
+  return new Date(iso).toLocaleDateString(locale, opts)
 }
 
 /**
- * Format an ISO date string as date + time (de-DE locale).
- * Example: "28.03.2026, 10:15"
+ * Format an ISO date string as date + time.
+ * Example in en-US: "03/28/2026, 10:15 AM"
  */
-export function fmtDateTime(iso: string, timezone?: string | null): string {
+export function fmtDateTime(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
   }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleString('de-DE', opts)
+  return new Date(iso).toLocaleString(locale, opts)
 }
 
 /**
- * Format an ISO date string as compact numeric date (de-DE locale).
- * Example: "28.03.2026"
+ * Format an ISO date string as compact numeric date.
+ * Example in en-US: "03/28/2026"
  */
-export function fmtDateCompact(iso: string, timezone?: string | null): string {
+export function fmtDateCompact(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleDateString('de-DE', opts)
+  return new Date(iso).toLocaleDateString(locale, opts)
 }
 
 /**
- * Format an ISO date string as medium date with abbreviated month (de-DE locale).
- * Example: "28. Mär. 2026"
+ * Format an ISO date string as medium date with abbreviated month.
+ * Example in en-US: "Mar 28, 2026"
  */
-export function fmtDateMedium(iso: string, timezone?: string | null): string {
+export function fmtDateMedium(iso: string, timezone?: string | null, locale: string = activeLocale()): string {
   const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
   const tz = normTz(timezone)
   if (tz) opts.timeZone = tz
-  return new Date(iso).toLocaleDateString('de-DE', opts)
+  return new Date(iso).toLocaleDateString(locale, opts)
 }
 
 /**
@@ -186,13 +204,13 @@ export function fmtHr(v: number | null | undefined): string {
 }
 
 /** Format a power value in Watts. Returns '—' for null/NaN. */
-export function fmtPower(v: number | null | undefined): string {
+export function fmtPower(v: number | null | undefined, locale: string = activeLocale()): string {
   if (v == null || isNaN(v)) return '\u2014'
-  return `${Math.round(v)} W`
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.round(v))} W`
 }
 
 /** Format an elevation gain value in metres. Returns '—' for null/NaN/zero. */
-export function fmtElevation(v: number | null | undefined): string {
+export function fmtElevation(v: number | null | undefined, locale: string = activeLocale()): string {
   if (v == null || isNaN(v) || v <= 0) return '\u2014'
-  return `${Math.round(v)} m`
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.round(v))} m`
 }

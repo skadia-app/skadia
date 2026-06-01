@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQueries } from '@tanstack/react-query'
 import { fmtDateTime } from '@/lib/format'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -15,10 +18,20 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import type { Activity, StreamPoint } from '@/api/types'
-import { formatDuration, formatDistance } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import type { UnitFormatters } from '@/lib/useUnitFormatters'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  paceToDisplayValue,
+  speedToDisplayValue,
+} from '@/lib/units'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
-import { formatSpeedValue, defaultSpeedMode } from '@/lib/sportFieldLabels'
+import { fieldUnit, formatSpeedValue, defaultSpeedMode } from '@/lib/sportFieldLabels'
 
 import { SportIcon } from '@/components/SportIcon'
 
@@ -97,6 +110,47 @@ function downsamplePairs(xs: number[], ys: number[], maxPoints: number): [number
   return out
 }
 
+function formatDecimalMinutes(value: number): string {
+  const totalSeconds = Math.round(value * 60)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = String(totalSeconds % 60).padStart(2, '0')
+  return `${minutes}:${seconds}`
+}
+
+function formatChartSpeedValue(
+  value: number,
+  speedMode: 'speed' | 'pace',
+  unit: string,
+  unitFormatters: Pick<UnitFormatters, 'options'>,
+): string {
+  if (!isFinite(value) || value <= 0) return '\u2014'
+  if (speedMode === 'pace') {
+    return `${formatDecimalMinutes(value)} ${unit}`
+  }
+  const formatted = new Intl.NumberFormat(unitFormatters.options.locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value)
+  return `${formatted} ${unit}`
+}
+
+function chartSpeedUnit(sportType: string, unitFormatters: Pick<UnitFormatters, 'options'>): string {
+  return fieldUnit('speed', sportType, unitFormatters.options)
+}
+
+function chartSpeedDisplayValue(
+  kmh: number,
+  speedMode: 'speed' | 'pace',
+  speedUnit: string,
+  unitFormatters: Pick<UnitFormatters, 'options'>,
+): number {
+  const speedMs = kmh / 3.6
+  if (speedMode !== 'pace') return speedToDisplayValue(speedMs, unitFormatters.options.units)
+  if (speedUnit === 'min/100m') return speedMs > 0 ? (100 / speedMs) / 60 : NaN
+  if (speedUnit === 'min/500m') return speedMs > 0 ? (500 / speedMs) / 60 : NaN
+  return speedMs > 0 ? paceToDisplayValue(1000 / speedMs, unitFormatters.options.units) : NaN
+}
+
 function formatHr(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return '\u2014'
   return `${Math.round(v)} bpm`
@@ -107,11 +161,6 @@ function formatPower(v: number | null | undefined): string {
   return `${Math.round(v)} W`
 }
 
-function formatElevation(v: number | null | undefined): string {
-  if (v == null || isNaN(v) || v <= 0) return '\u2014'
-  return `${Math.round(v)} m`
-}
-
 function formatCalories(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return '\u2014'
   return `${Math.round(v)} kcal`
@@ -120,71 +169,73 @@ function formatCalories(v: number | null | undefined): string {
 // ── Metric row definitions ───────────────────────────────────────────────────
 
 interface MetricRow {
-  label: string
+  labelKey: string
   getValue: (a: Activity) => string
   getRawValue: (a: Activity) => number | null | undefined
   higherIsBetter?: boolean // defaults to false (lower is better for time/speed)
 }
 
-const METRIC_ROWS: MetricRow[] = [
-  {
-    label: 'Distanz',
-    getValue: a => formatDistance(a.distance_m),
-    getRawValue: a => a.distance_m,
-    higherIsBetter: true,
-  },
-  {
-    label: 'Dauer',
-    getValue: a => formatDuration(a.elapsed_time_s ?? 0),
-    getRawValue: a => a.elapsed_time_s,
-    higherIsBetter: false,
-  },
-  {
-    label: 'Höhenmeter',
-    getValue: a => formatElevation(a.elevation_gain_m),
-    getRawValue: a => a.elevation_gain_m,
-    higherIsBetter: true,
-  },
-  {
-    label: 'Geschwindigkeit',
-    getValue: a => formatSpeedValue(a.avg_speed_ms ?? 0, a.sport_type),
-    getRawValue: a => a.avg_speed_ms,
-    higherIsBetter: true,
-  },
-  {
-    label: 'Herzfrequenz',
-    getValue: a => formatHr(a.avg_heart_rate),
-    getRawValue: a => a.avg_heart_rate,
-  },
-  {
-    label: 'Max. HF',
-    getValue: a => formatHr(a.max_heart_rate),
-    getRawValue: a => a.max_heart_rate,
-  },
-  {
-    label: 'Leistung',
-    getValue: a => formatPower(a.avg_power_w),
-    getRawValue: a => a.avg_power_w,
-    higherIsBetter: true,
-  },
-  {
-    label: 'NP',
-    getValue: a => formatPower(a.normalized_power_w),
-    getRawValue: a => a.normalized_power_w,
-    higherIsBetter: true,
-  },
-  {
-    label: 'TSS',
-    getValue: a => a.tss != null ? `${Math.round(a.tss)}` : '\u2014',
-    getRawValue: a => a.tss,
-  },
-  {
-    label: 'Kalorien',
-    getValue: a => formatCalories(a.total_calories),
-    getRawValue: a => a.total_calories,
-    higherIsBetter: true,
-  },
-]
+function metricRows(unitFormatters: Pick<UnitFormatters, 'formatDistance' | 'formatElevation' | 'options'>): MetricRow[] {
+  return [
+    {
+      labelKey: 'distance',
+      getValue: a => unitFormatters.formatDistance(a.distance_m),
+      getRawValue: a => a.distance_m,
+      higherIsBetter: true,
+    },
+    {
+      labelKey: 'duration',
+      getValue: a => formatDuration(a.elapsed_time_s ?? 0),
+      getRawValue: a => a.elapsed_time_s,
+      higherIsBetter: false,
+    },
+    {
+      labelKey: 'elevationGain',
+      getValue: a => unitFormatters.formatElevation(a.elevation_gain_m),
+      getRawValue: a => a.elevation_gain_m,
+      higherIsBetter: true,
+    },
+    {
+      labelKey: 'speed',
+      getValue: a => formatSpeedValue(a.avg_speed_ms ?? 0, a.sport_type, undefined, unitFormatters.options),
+      getRawValue: a => a.avg_speed_ms,
+      higherIsBetter: true,
+    },
+    {
+      labelKey: 'heartRate',
+      getValue: a => formatHr(a.avg_heart_rate),
+      getRawValue: a => a.avg_heart_rate,
+    },
+    {
+      labelKey: 'maxHeartRate',
+      getValue: a => formatHr(a.max_heart_rate),
+      getRawValue: a => a.max_heart_rate,
+    },
+    {
+      labelKey: 'power',
+      getValue: a => formatPower(a.avg_power_w),
+      getRawValue: a => a.avg_power_w,
+      higherIsBetter: true,
+    },
+    {
+      labelKey: 'np',
+      getValue: a => formatPower(a.normalized_power_w),
+      getRawValue: a => a.normalized_power_w,
+      higherIsBetter: true,
+    },
+    {
+      labelKey: 'tss',
+      getValue: a => a.tss != null ? `${Math.round(a.tss)}` : '\u2014',
+      getRawValue: a => a.tss,
+    },
+    {
+      labelKey: 'calories',
+      getValue: a => formatCalories(a.total_calories),
+      getRawValue: a => a.total_calories,
+      higherIsBetter: true,
+    },
+  ]
+}
 
 // ── Chart Tab type ───────────────────────────────────────────────────────────
 
@@ -193,6 +244,9 @@ type ChartTabDef = { key: ChartTab; label: string; unit: string; streamKey: keyo
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export default function ActivityComparisonPage() {
+  const { t, i18n } = useTranslation()
+  const unitFormatters = useUnitFormatters()
+  const language = supportedLanguageFrom(i18n.language)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const idsParam = searchParams.get('ids') ?? ''
@@ -219,6 +273,7 @@ export default function ActivityComparisonPage() {
   const activities = activityQueries.map(q => q.data).filter((a): a is Activity => !!a)
   const streams = streamQueries.map(q => q.data).filter((s): s is StreamPoint[] => !!s)
   const processedStreams = useMemo(() => streams.map(s => processStreams(s)), [streams])
+  const rows = useMemo(() => metricRows(unitFormatters), [unitFormatters])
 
   const primarySport = activities[0]?.sport_type ?? 'generic'
   const speedMode = defaultSpeedMode(primarySport)
@@ -226,29 +281,42 @@ export default function ActivityComparisonPage() {
   const chartTabs = useMemo<ChartTabDef[]>(() => [
     {
       key: 'speed',
-      label: speedMode === 'pace' ? 'Pace' : 'Geschwindigkeit',
-      unit: speedMode === 'pace' ? 'min/km' : 'km/h',
+      label: speedMode === 'pace' ? t('activityComparison.chartTabs.pace') : t('activityComparison.chartTabs.speed'),
+      unit: chartSpeedUnit(primarySport, unitFormatters),
       streamKey: 'speed',
     },
-    { key: 'heartRate', label: 'Herzfrequenz', unit: 'bpm', streamKey: 'heartRate' },
-    { key: 'altitude', label: 'Höhe', unit: 'm', streamKey: 'altitude' },
-    { key: 'power', label: 'Leistung', unit: 'W', streamKey: 'power' },
-  ], [speedMode])
+    { key: 'heartRate', label: t('activityComparison.chartTabs.heartRate'), unit: 'bpm', streamKey: 'heartRate' },
+    { key: 'altitude', label: t('activityComparison.chartTabs.altitude'), unit: elevationInputUnit(unitFormatters.options.units), streamKey: 'altitude' },
+    { key: 'power', label: t('activityComparison.chartTabs.power'), unit: 'W', streamKey: 'power' },
+  ], [primarySport, speedMode, t, unitFormatters])
 
   const isLoading = activityQueries.some(q => q.isLoading) || streamQueries.some(q => q.isLoading)
   const hasError = activityQueries.some(q => q.isError) || streamQueries.some(q => q.isError)
+  const bestIdxMap = useMemo(() =>
+    rows.map(row => {
+      const values = activities.map(a => row.getRawValue(a))
+      const validIdxs = values.map((v, i) => ({ v, i })).filter(({ v }) => v != null && !isNaN(v as number))
+      if (validIdxs.length < 2) return null
+      const higherIsBetter = row.higherIsBetter ?? false
+      return validIdxs.reduce((best, curr) =>
+        higherIsBetter
+          ? ((curr.v as number) > (best.v as number) ? curr : best)
+          : ((curr.v as number) < (best.v as number) ? curr : best),
+      ).i
+    }),
+  [activities, rows])
 
   if (ids.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <p className="text-neutral-500 dark:text-neutral-400">
-          Mindestens 2 Aktivitäten zum Vergleichen auswählen.
+          {t('activityComparison.selectAtLeastTwo')}
         </p>
         <button
           onClick={() => navigate('/activities')}
           className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium cursor-pointer"
         >
-          Zur Aktivitätenliste
+          {t('activityComparison.backToActivities')}
         </button>
       </div>
     )
@@ -265,31 +333,16 @@ export default function ActivityComparisonPage() {
   if (hasError || activities.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <p className="text-red-500">Fehler beim Laden der Aktivitäten.</p>
+        <p className="text-red-500">{t('activityComparison.loadError')}</p>
         <button
           onClick={() => navigate('/activities')}
           className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
         >
-          Zurück
+          {t('common.back')}
         </button>
       </div>
     )
   }
-
-  // Find best values for highlighting — memoized to avoid recomputing on every render
-  const bestIdxMap = useMemo(() =>
-    METRIC_ROWS.map(row => {
-      const values = activities.map(a => row.getRawValue(a))
-      const validIdxs = values.map((v, i) => ({ v, i })).filter(({ v }) => v != null && !isNaN(v as number))
-      if (validIdxs.length < 2) return null
-      const higherIsBetter = row.higherIsBetter ?? false
-      return validIdxs.reduce((best, curr) =>
-        higherIsBetter
-          ? ((curr.v as number) > (best.v as number) ? curr : best)
-          : ((curr.v as number) < (best.v as number) ? curr : best),
-      ).i
-    }),
-  [activities])
 
   return (
     <div className="space-y-6">
@@ -304,9 +357,9 @@ export default function ActivityComparisonPage() {
           </svg>
         </button>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Aktivitäten vergleichen
+          {t('activityComparison.title')}
         </h1>
-        <span className="text-sm text-neutral-400">{activities.length} Aktivitäten</span>
+        <span className="text-sm text-neutral-400">{t('activityComparison.activityCount', { count: activities.length })}</span>
       </div>
 
       {/* Section A: Metrics Table */}
@@ -315,7 +368,7 @@ export default function ActivityComparisonPage() {
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
               <th className="text-left px-4 py-3 font-medium text-neutral-500 dark:text-neutral-400 w-36">
-                Metrik
+                {t('activityComparison.metric')}
               </th>
               {activities.map((a, i) => (
                 <th key={a.id} className="text-left px-4 py-3">
@@ -327,7 +380,7 @@ export default function ActivityComparisonPage() {
                     <SportIcon sport={a.sport_type} subType={a.sub_type} isElectric={a.is_electric} className="w-4 h-4 flex-shrink-0" />
                     <div className="min-w-0">
                       <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                        {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
+                        {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type, { language }))}
                       </div>
                       <div className="text-xs text-neutral-400 dark:text-neutral-500">
                         {fmtDateTime(a.started_at, a.timezone)}
@@ -339,12 +392,12 @@ export default function ActivityComparisonPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-            {METRIC_ROWS.map((row, rowIndex) => {
+            {rows.map((row, rowIndex) => {
               const bestIdx = bestIdxMap[rowIndex]
               return (
-                <tr key={row.label}>
+                <tr key={row.labelKey}>
                   <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 font-medium">
-                    {row.label}
+                    {t(`activityComparison.metrics.${row.labelKey}`)}
                   </td>
                   {activities.map((a, i) => (
                     <td
@@ -392,7 +445,7 @@ export default function ActivityComparisonPage() {
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
             >
-              Nach Distanz
+              {t('activityComparison.xMode.distance')}
             </button>
             <button
               onClick={() => setXMode('time')}
@@ -402,7 +455,7 @@ export default function ActivityComparisonPage() {
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
             >
-              Nach Zeit
+              {t('activityComparison.xMode.time')}
             </button>
           </div>
         </div>
@@ -414,6 +467,8 @@ export default function ActivityComparisonPage() {
           chartTabs={chartTabs}
           primarySport={primarySport}
           speedMode={speedMode}
+          unitFormatters={unitFormatters}
+          language={language}
         />
       </div>
 
@@ -422,6 +477,8 @@ export default function ActivityComparisonPage() {
         <ComparisonMap
           activities={activities}
           streams={streams}
+          noGpsLabel={t('activityComparison.noGpsData')}
+          language={language}
         />
       </div>
     </div>
@@ -438,6 +495,8 @@ function ComparisonChart({
   chartTabs,
   primarySport,
   speedMode,
+  unitFormatters,
+  language,
 }: {
   activities: Activity[]
   processedStreams: ProcessedStream[]
@@ -446,6 +505,8 @@ function ComparisonChart({
   chartTabs: ChartTabDef[]
   primarySport: string
   speedMode: 'speed' | 'pace'
+  unitFormatters: Pick<UnitFormatters, 'options'>
+  language: SupportedLanguage
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
@@ -470,6 +531,7 @@ function ComparisonChart({
     const isDark = document.documentElement.classList.contains('dark')
     const textColor = isDark ? '#a3a3a3' : '#737373'
     const gridColor = isDark ? '#404040' : '#e5e5e5'
+    const speedUnit = chartSpeedUnit(primarySport, unitFormatters)
 
     const series = activities.map((a, i) => {
       const ps = processedStreams[i]
@@ -480,10 +542,19 @@ function ComparisonChart({
 
       if (!hasValidData(yDataRaw)) return null
 
-      const data = downsamplePairs(xDataRaw, yDataRaw, 1000)
+      const xData = xMode === 'distance'
+        ? xDataRaw.map(km => distanceToDisplayValue(km * 1000, unitFormatters.options.units))
+        : xDataRaw
+      const yData = tab === 'speed'
+        ? yDataRaw.map(kmh => chartSpeedDisplayValue(kmh, speedMode, speedUnit, unitFormatters))
+        : tab === 'altitude'
+          ? yDataRaw.map(meters => elevationToDisplayValue(meters, unitFormatters.options.units))
+          : yDataRaw
+
+      const data = downsamplePairs(xData, yData, 1000)
 
       return {
-        name: displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type)),
+        name: displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type, { language })),
         type: 'line' as const,
         data,
         showSymbol: false,
@@ -511,13 +582,10 @@ function ComparisonChart({
               const items = params as { seriesName: string; value: [number, number]; color: string }[]
               if (!items || items.length === 0) return ''
               const xLabel = xMode === 'distance'
-                ? `${items[0].value[0].toFixed(2)} km`
+                ? `${items[0].value[0].toFixed(2)} ${distanceInputUnit(unitFormatters.options.units)}`
                 : `${items[0].value[0].toFixed(1)} min`
-              const lines = items.map((item, idx) => {
-                const kmhValue = item.value[1]
-                const speedMs = kmhValue / 3.6
-                const sportForActivity = activities[idx]?.sport_type ?? primarySport
-                const formatted = formatSpeedValue(speedMs, sportForActivity, defaultSpeedMode(sportForActivity))
+              const lines = items.map((item) => {
+                const formatted = formatChartSpeedValue(item.value[1], speedMode, speedUnit, unitFormatters)
                 return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:4px;"></span>${item.seriesName}: <b>${formatted}</b>`
               })
               return `${xLabel}<br/>${lines.join('<br/>')}`
@@ -530,7 +598,7 @@ function ComparisonChart({
       },
       xAxis: {
         type: 'value',
-        name: xMode === 'distance' ? 'km' : 'min',
+        name: xMode === 'distance' ? distanceInputUnit(unitFormatters.options.units) : 'min',
         nameTextStyle: { color: textColor },
         axisLabel: { color: textColor },
         splitLine: { lineStyle: { color: gridColor } },
@@ -538,7 +606,11 @@ function ComparisonChart({
       },
       yAxis: {
         type: 'value',
-        name: tabDef.unit,
+        name: tab === 'speed'
+          ? speedUnit
+          : tab === 'altitude'
+            ? elevationInputUnit(unitFormatters.options.units)
+            : tabDef.unit,
         nameTextStyle: { color: textColor },
         axisLabel: { color: textColor },
         splitLine: { lineStyle: { color: gridColor } },
@@ -551,7 +623,7 @@ function ComparisonChart({
       ],
       series,
     }, true)
-  }, [activities, processedStreams, tab, xMode, tabDef, primarySport, speedMode, chartTabs])
+  }, [activities, processedStreams, tab, xMode, tabDef, primarySport, speedMode, chartTabs, unitFormatters, language])
 
   return <div ref={chartRef} className="w-full h-80" />
 }
@@ -561,9 +633,13 @@ function ComparisonChart({
 function ComparisonMap({
   activities,
   streams,
+  noGpsLabel,
+  language,
 }: {
   activities: Activity[]
   streams: StreamPoint[][]
+  noGpsLabel: string
+  language: SupportedLanguage
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -651,7 +727,7 @@ function ComparisonMap({
   if (gpsActivities.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-400 dark:text-neutral-500">
-        Keine GPS-Daten vorhanden.
+        {noGpsLabel}
       </div>
     )
   }
@@ -671,7 +747,7 @@ function ComparisonMap({
                 style={{ backgroundColor: COMPARE_COLORS[i] }}
               />
               <span className="text-neutral-700 dark:text-neutral-300 truncate max-w-[200px]">
-                {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
+                {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type, { language }))}
               </span>
             </div>
           )

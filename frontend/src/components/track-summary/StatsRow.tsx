@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Building2, Droplet, Mountain, Shield, TreePine } from 'lucide-react'
 import { labels } from '@/lib/trackSummaryLabels'
 import { SymbolListPopover } from './SymbolListPopover'
@@ -92,6 +93,7 @@ export function StatsRow({
   onScaleHover,
   onScalePin,
 }: StatsRowProps) {
+  const { t: translate } = useTranslation()
   const t = labels.trackSummary
   const tuple = sportType ? normalizeSportTuple(sportType, subType) : null
   const showScales = tuple != null && (
@@ -114,7 +116,7 @@ export function StatsRow({
     >
       {/* Item 3: tooltip text matches route-planner (RouteProfileChart.tsx:432,435). */}
       {showForest && (
-        <span title="Waldanteil auf der Route">
+        <span title={translate('trackSummary.tooltips.forestPct')}>
           <ItemChip>
             <TreePine className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{t.forestPctTpl(forestPct!)}</span>
@@ -123,7 +125,7 @@ export function StatsRow({
       )}
 
       {showProtected && (
-        <span title="Anteil durch Schutzgebiet auf der Route">
+        <span title={translate('trackSummary.tooltips.protectedPct')}>
           <ItemChip>
             <Shield className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{t.protectedPctTpl(protectedPct!)}</span>

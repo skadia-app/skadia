@@ -86,7 +86,7 @@ export function useECharts(
         }
       }
     }
-  }, deps) // eslint-disable-line react-hooks/exhaustive-deps — NICHT ENTFERNEN: deps werden vom Caller übergeben, getOption ist absichtlich ausgeschlossen (sonst infinite Re-Renders bei inline Arrows)
+  }, deps) // eslint-disable-line react-hooks/exhaustive-deps -- keep deps caller-controlled; getOption is excluded intentionally to avoid infinite re-renders with inline arrows.
 
   return containerRef
 }
