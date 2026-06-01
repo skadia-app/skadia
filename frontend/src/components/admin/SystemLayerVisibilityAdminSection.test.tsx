@@ -14,6 +14,34 @@ const mockFetchMapLayers = vi.fn()
 const mockFetchSystemLayerKeys = vi.fn()
 const mockPatchSystemLayerVisibility = vi.fn()
 
+vi.mock('react-i18next', async importOriginal => {
+  const actual = await importOriginal<typeof import('react-i18next')>()
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string, values?: Record<string, unknown>) => {
+        const labels: Record<string, string> = {
+          'mapLayersAdmin.systemVisibility.groupVector': 'Vector tiles',
+          'mapLayersAdmin.systemVisibility.groupCoverage': 'Coverage layers',
+          'mapLayersAdmin.systemVisibility.colEnabled': 'Enabled',
+          'mapLayersAdmin.systemVisibility.colDefaultNew': 'Default for new users',
+          'mapLayersAdmin.systemVisibility.colOpacity': 'Default opacity (%)',
+          'mapLayersAdmin.systemVisibility.colLabel': 'Label override',
+          'mapLayersAdmin.systemVisibility.colOpacityAndLabel': 'Default opacity (%) / Label override',
+          'mapLayersAdmin.systemVisibility.placeholderLabel': '(Default label)',
+          'mapLayersAdmin.systemVisibility.unavailable': 'Unavailable',
+          'mapLayersAdmin.systemVisibility.unavailableWithReason': `Unavailable: ${values?.reason}`,
+          'mapLayersAdmin.systemVisibility.enabledAria': `${values?.label} — Enabled`,
+          'mapLayersAdmin.systemVisibility.defaultNewAria': `${values?.label} — Default for new users`,
+          'mapLayersAdmin.systemVisibility.opacityAria': `${values?.label} — Default opacity (%)`,
+          'mapLayersAdmin.systemVisibility.labelAria': `${values?.label} — Label override`,
+        }
+        return labels[key] ?? key
+      },
+    }),
+  }
+})
+
 vi.mock('@/api/mapLayers', async () => {
   const actual = await vi.importActual<typeof import('@/api/mapLayers')>('@/api/mapLayers')
   return {
@@ -93,9 +121,9 @@ describe('SystemLayerVisibilityAdminSection', () => {
   it('renders vector and coverage groups', async () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => {
-      expect(screen.getByText('Vektorkacheln')).toBeInTheDocument()
+      expect(screen.getByText('Vector tiles')).toBeInTheDocument()
     })
-    expect(screen.getByText('Abdeckungs-Layer')).toBeInTheDocument()
+    expect(screen.getByText('Coverage layers')).toBeInTheDocument()
     expect(screen.getByText('Wanderwege')).toBeInTheDocument()
     expect(screen.getByText('Abdeckungs-Heatmap')).toBeInTheDocument()
   })
@@ -105,7 +133,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
     const enabledCheckbox = screen.getByRole('checkbox', {
-      name: /Wanderwege.*Aktiv/i,
+      name: /Wanderwege.*Enabled/i,
     })
     fireEvent.click(enabledCheckbox)
 
@@ -121,7 +149,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Abdeckungs-Heatmap')).toBeInTheDocument())
 
     const opacitySlider = screen.getByRole('slider', {
-      name: /Abdeckungs-Heatmap.*Deckkraft/i,
+      name: /Abdeckungs-Heatmap.*opacity/i,
     })
     expect(opacitySlider).toBeInTheDocument()
   })
@@ -130,7 +158,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
-    const sliders = screen.queryAllByRole('slider', { name: /Wanderwege.*Deckkraft/i })
+    const sliders = screen.queryAllByRole('slider', { name: /Wanderwege.*opacity/i })
     expect(sliders).toHaveLength(0)
   })
 
@@ -144,7 +172,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
     const enabledCheckbox = screen.getByRole('checkbox', {
-      name: /Wanderwege.*Aktiv/i,
+      name: /Wanderwege.*Enabled/i,
     })
     expect(enabledCheckbox).toBeDisabled()
     fireEvent.click(enabledCheckbox)
@@ -155,7 +183,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
-    const labelInput = screen.getByRole('textbox', { name: /Wanderwege.*Label/i })
+    const labelInput = screen.getByRole('textbox', { name: /Wanderwege.*Label override/i })
     expect(labelInput).toHaveAttribute('maxlength', '100')
   })
 })

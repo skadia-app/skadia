@@ -1,23 +1,25 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
 import { connectionTypeLabel, deviceTypeBadgeLabel, cleanDisplayName } from '@/lib/deviceUtils'
 
 function DeviceCard({ device }: { device: Device }) {
+  const { t, i18n } = useTranslation()
   const manufacturer = cleanDisplayName(device.manufacturer)
   const productName = cleanDisplayName(device.product_name)
-  const name = device.custom_name || productName || manufacturer || 'Unbekanntes Gerät'
+  const name = device.custom_name || productName || manufacturer || t('devicePages.unknownDevice')
   const connType = connectionTypeLabel(device.source_type)
   const connBadgeStyle = device.source_type === 'antplus'
     ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
     : 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
 
   const firstSeen = device.first_seen_at
-    ? new Date(device.first_seen_at).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
+    ? new Date(device.first_seen_at).toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' })
     : null
   const lastSeen = device.last_seen_at
-    ? new Date(device.last_seen_at).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
+    ? new Date(device.last_seen_at).toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' })
     : null
 
   return (
@@ -51,7 +53,7 @@ function DeviceCard({ device }: { device: Device }) {
               key={type_}
               className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
             >
-              {deviceTypeBadgeLabel(type_)}
+              {deviceTypeBadgeLabel(type_, t)}
             </span>
           ))}
         </div>
@@ -61,7 +63,7 @@ function DeviceCard({ device }: { device: Device }) {
       <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
         {device.activity_count}{' '}
         <span className="text-sm font-normal text-neutral-500 dark:text-neutral-400">
-          {device.activity_count === 1 ? 'Aktivität' : 'Aktivitäten'}
+          {t('devicePages.activityCount', { count: device.activity_count })}
         </span>
       </div>
 
@@ -73,8 +75,8 @@ function DeviceCard({ device }: { device: Device }) {
           </div>
         )}
         <div className="flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
-          {firstSeen && <span>Zuerst: {firstSeen}</span>}
-          {lastSeen && <span>Zuletzt: {lastSeen}</span>}
+          {firstSeen && <span>{t('devicePages.firstSeenShort', { date: firstSeen })}</span>}
+          {lastSeen && <span>{t('devicePages.lastSeenShort', { date: lastSeen })}</span>}
         </div>
       </div>
     </Link>
@@ -82,6 +84,7 @@ function DeviceCard({ device }: { device: Device }) {
 }
 
 export default function DeviceListPage() {
+  const { t } = useTranslation()
   const { type } = useParams<{ type: string }>()
   const effectiveType = type ?? 'recorder'
 
@@ -90,7 +93,7 @@ export default function DeviceListPage() {
     queryFn: () => fetchDevices(effectiveType),
   })
 
-  const title = effectiveType === 'recorder' ? 'Aufzeichnungsgeräte' : 'Sensoren'
+  const title = effectiveType === 'recorder' ? t('devicePages.recorders') : t('devicePages.sensors')
 
   return (
     <div className="space-y-6">
@@ -99,13 +102,13 @@ export default function DeviceListPage() {
           to="/gear"
           className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
         >
-          ← Ausrüstung
+          ← {t('devicePages.gearBack')}
         </Link>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{title}</h1>
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center h-64 text-neutral-400">Lade {title}...</div>
+        <div className="flex items-center justify-center h-64 text-neutral-400">{t('devicePages.loadingList', { title })}</div>
       ) : devices && devices.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {devices.map(device => (
@@ -114,7 +117,7 @@ export default function DeviceListPage() {
         </div>
       ) : (
         <div className="text-center py-16 text-neutral-400">
-          Noch keine {title} vorhanden.
+          {t('devicePages.emptyList', { title })}
         </div>
       )}
     </div>

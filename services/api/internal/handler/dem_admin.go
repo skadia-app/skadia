@@ -36,7 +36,12 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 
 	// Guard
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "dem_download"); running {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "DEM download already running"})
+		httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse("DEM download already running", adminJobI18n{
+			MessageCode: "admin.dem.download.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "dem.download",
+			Params:      map[string]any{"job_type": "dem_download"},
+		}))
 		return
 	}
 
@@ -102,9 +107,21 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 	entityName := fmt.Sprintf("DEM Download (%d Kacheln)", len(allCells))
 	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID, "dem_download", nil, &entityName, int64(len(allCells)))
 	if err != nil || !created {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "DEM download already running"})
+		httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse("DEM download already running", adminJobI18n{
+			MessageCode: "admin.dem.download.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "dem.download",
+			Params:      map[string]any{"job_type": "dem_download"},
+		}))
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.dem.download.started",
+		StatusCode:  "started",
+		EntityKey:   "dem.download",
+		Params:      map[string]any{"tile_count": len(allCells)},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		result, err := dem.DownloadMissingTiles(ctx, cfg, allCells, func(completed, total int64) {
@@ -112,6 +129,12 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			slog.Error("dem download failed", "error", err)
+			h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+				MessageCode: "admin.dem.download.failed",
+				StatusCode:  "failed",
+				EntityKey:   "dem.download",
+				Params:      map[string]any{"error": err.Error()},
+			})
 			h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
 			return
 		}
@@ -123,16 +146,38 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 			// More than 50% non-ocean failures = mark as failed
 			nonOcean := len(allCells) - result.OceanSkip - result.Skipped
 			if nonOcean > 0 && result.Failed > nonOcean/2 {
+				h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+					MessageCode: "admin.dem.download.failed",
+					StatusCode:  "failed",
+					EntityKey:   "dem.download",
+					Params: map[string]any{
+						"downloaded": result.Downloaded,
+						"skipped":    result.Skipped,
+						"ocean":      result.OceanSkip,
+						"failed":     result.Failed,
+					},
+				})
 				h.DB.CompleteBackgroundJob(ctx, jobID, true, msg)
 				return
 			}
 		}
 		slog.Info("dem download complete", "downloaded", result.Downloaded, "skipped", result.Skipped,
 			"ocean", result.OceanSkip, "failed", result.Failed)
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.dem.download.completed",
+			StatusCode:  "completed",
+			EntityKey:   "dem.download",
+			Params: map[string]any{
+				"downloaded": result.Downloaded,
+				"skipped":    result.Skipped,
+				"ocean":      result.OceanSkip,
+				"failed":     result.Failed,
+			},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, false, msg)
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, nil, jobMeta))
 }
 
 // GetDEMRegionStatus returns DEM coverage per imported region + disk space info.

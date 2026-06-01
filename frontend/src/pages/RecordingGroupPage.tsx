@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup, type RecordingGroupSportPayload } from '@/api/recordingGroups'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
@@ -14,24 +15,22 @@ import ComparisonSummaryTable from '@/components/comparison/ComparisonSummaryTab
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
-import { formatDistance, formatDuration } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { useToast } from '@/lib/toast'
 import SportConflictBanner, { type SportConflictChoice } from '@/components/fusion/SportConflictBanner'
+import { isSupportedLanguage } from '@/i18n/languages'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   const d = new Date(iso)
-  return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatFileFormat(fmt: string | null | undefined): string {
   if (!fmt) return '—'
   return fmt.toUpperCase()
-}
-
-function formatFieldCount(n: number): string {
-  return n === 1 ? '1 Feld' : `${n} Felder`
 }
 
 // ── Source Card ───────────────────────────────────────────────────────────────
@@ -71,9 +70,12 @@ function SourceCard({
   onSetPrimary,
   isSettingPrimary,
 }: SourceCardProps) {
+  const { t, i18n } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
   const parts: string[] = []
   if (fileFormat) parts.push(formatFileFormat(fileFormat))
-  if (fieldCount > 0) parts.push(formatFieldCount(fieldCount))
+  if (fieldCount > 0) parts.push(t('workshopOperations.recordingGroup.fieldCount', { count: fieldCount }))
   if (distanceM != null && distanceM > 0) parts.push(formatDistance(distanceM))
   if (durationS != null && durationS > 0) parts.push(formatDuration(durationS))
 
@@ -102,7 +104,7 @@ function SourceCard({
         </Link>
         {isPrimary ? (
           <span className="ml-auto flex-shrink-0 text-xs bg-accent-DEFAULT/10 text-accent-DEFAULT px-2 py-0.5 rounded-full font-semibold">
-            ★ Primär
+            {t('workshopOperations.recordingGroup.primaryBadge')}
           </span>
         ) : (
           <button
@@ -110,7 +112,7 @@ function SourceCard({
             onClick={e => { e.preventDefault(); onSetPrimary() }}
             disabled={isSettingPrimary}
           >
-            Primär setzen
+            {t('workshopOperations.recordingGroup.setPrimary')}
           </button>
         )}
       </div>
@@ -120,9 +122,9 @@ function SourceCard({
         {parts.join(' · ')}
       </p>
       <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
-        Sportart:{' '}
+        {t('workshopOperations.recordingGroup.sportLabel')}{' '}
         <span className="text-neutral-600 dark:text-neutral-300">
-          {sportDetailLabel(sportType, subType)}
+          {sportDetailLabel(sportType, subType, language)}
           {(isElectric || isIndoor || isVirtual) && (
             <span className="ml-1 text-[10px] uppercase">{isElectric ? 'E' : isIndoor ? 'I' : 'V'}</span>
           )}
@@ -135,6 +137,8 @@ function SourceCard({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function RecordingGroupPage() {
+  const { t, i18n } = useTranslation()
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
   const { groupId } = useParams<{ groupId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -170,12 +174,12 @@ export default function RecordingGroupPage() {
     if (!group) return []
     return (group.members ?? []).map((m, i) => ({
       id: m.activity_id,
-      label: m.source_device ?? m.source ?? `Quelle ${i + 1}`,
+      label: m.source_device ?? m.source ?? t('workshopOperations.recordingGroup.sourceNumber', { number: i + 1 }),
       color: getSourceColor(i),
       activity: activityQueries[i]?.data,
       streams: streamQueries[i]?.data,
     }))
-  }, [group, activityQueries, streamQueries])
+  }, [group, activityQueries, streamQueries, t])
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -210,13 +214,13 @@ export default function RecordingGroupPage() {
       return { previous }
     },
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Primäre Aufnahme gesetzt' })
+      addToast({ type: 'success', title: t('workshopOperations.recordingGroup.toasts.primarySet') })
     },
     onError: (_err, _vars, context) => {
       if (context?.previous !== undefined) {
         queryClient.setQueryData(['recording-group', groupId], context.previous)
       }
-      addToast({ type: 'error', title: 'Fehler beim Setzen der primären Aufnahme', duration: 0 })
+      addToast({ type: 'error', title: t('workshopOperations.recordingGroup.toasts.primarySetFailed'), duration: 0 })
     },
     onSettled: () => {
       setSettingPrimaryId(null)
@@ -229,21 +233,21 @@ export default function RecordingGroupPage() {
     mutationFn: (sport: RecordingGroupSportPayload) => setGroupSportType(groupId!, sport),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recording-group', groupId] })
-      addToast({ type: 'success', title: 'Sportart aktualisiert' })
+      addToast({ type: 'success', title: t('workshopOperations.recordingGroup.toasts.sportUpdated') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Speichern der Sportart', duration: 0 })
+      addToast({ type: 'error', title: t('workshopOperations.recordingGroup.toasts.sportSaveFailed'), duration: 0 })
     },
   })
 
   const dissolveMutation = useMutation({
     mutationFn: () => dissolveRecordingGroup(groupId!),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Gruppe aufgelöst' })
+      addToast({ type: 'success', title: t('workshopOperations.recordingGroup.toasts.groupDissolved') })
       navigate('/activities')
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', duration: 0 })
+      addToast({ type: 'error', title: t('workshopOperations.recordingGroup.toasts.groupDissolveFailed'), duration: 0 })
     },
   })
 
@@ -295,10 +299,10 @@ export default function RecordingGroupPage() {
     return (
       <div className="max-w-4xl mx-auto px-6 py-8">
         <p className="text-red-600 dark:text-red-400">
-          Gruppe konnte nicht geladen werden.
+          {t('workshopOperations.recordingGroup.loadFailed')}
         </p>
         <Link to="/activities" className="text-accent-DEFAULT text-sm hover:underline mt-2 inline-block">
-          ← Zurück zu Aktivitäten
+          {t('workshopOperations.recordingGroup.backToActivities')}
         </Link>
       </div>
     )
@@ -316,18 +320,18 @@ export default function RecordingGroupPage() {
           to="/activities"
           className="text-accent-DEFAULT text-sm hover:underline"
         >
-          ← Aktivitäten
+          {t('workshopOperations.recordingGroup.activities')}
         </Link>
 
         {/* Header */}
         <div className="flex items-center gap-3 mt-2 mb-6 flex-wrap">
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
             {primaryMember
-              ? `${sportDetailLabel(primaryMember.sport_type, primaryMember.sub_type)} · ${formatDate(primaryMember.started_at)}`
-              : 'Aufnahmegruppe'}
+              ? `${sportDetailLabel(primaryMember.sport_type, primaryMember.sub_type, language)} · ${formatDate(primaryMember.started_at, i18n.language)}`
+              : t('workshopOperations.recordingGroup.title')}
           </h1>
           <span className="text-xs bg-accent-DEFAULT/10 text-accent-DEFAULT px-2.5 py-1 rounded-full font-semibold">
-            {memberCount === 1 ? '1 Aufnahme' : `${memberCount} Aufnahmen`}
+            {t('workshopOperations.recordingGroup.recordingCount', { count: memberCount })}
           </span>
         </div>
 
@@ -362,7 +366,7 @@ export default function RecordingGroupPage() {
                 activityId={member.activity_id}
                 color={getSourceColor(i)}
                 isPrimary={member.activity_id === group.primary_activity_id}
-                deviceName={member.recording_device_name ?? member.source_device ?? member.source ?? `Quelle ${i + 1}`}
+                deviceName={member.recording_device_name ?? member.source_device ?? member.source ?? t('workshopOperations.recordingGroup.sourceNumber', { number: i + 1 })}
                 fileFormat={member.original_file_format}
                 fieldCount={member.field_richness}
                 distanceM={member.distance_m}
@@ -397,13 +401,13 @@ export default function RecordingGroupPage() {
               headerRight={
                 <button
                   onClick={openFullscreen}
-                  title="Karte & Streams maximieren"
+                  title={t('workshopOperations.recordingGroup.maximizeTitle')}
                   className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 border border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 rounded px-2.5 py-1 transition-colors cursor-pointer"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
                     <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
                   </svg>
-                  Maximieren
+                  {t('workshopOperations.recordingGroup.maximize')}
                 </button>
               }
             />
@@ -423,7 +427,7 @@ export default function RecordingGroupPage() {
               {/* Close button floating over map */}
               <button
                 onClick={closeFullscreen}
-                title="Schließen (Esc)"
+                title={t('workshopOperations.recordingGroup.closeEsc')}
                 className="absolute top-3 right-14 z-10 flex items-center justify-center w-9 h-9 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm text-neutral-700 dark:text-neutral-200 shadow-md hover:bg-white dark:hover:bg-neutral-700 transition-colors cursor-pointer"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -441,7 +445,7 @@ export default function RecordingGroupPage() {
 
         {/* Summary table */}
         <div className="mb-8">
-          <ComparisonSummaryTable metricColumnLabel="Metrik" />
+          <ComparisonSummaryTable metricColumnLabel={t('workshopOperations.recordingGroup.metric')} />
         </div>
 
         {/* Actions */}
@@ -451,25 +455,25 @@ export default function RecordingGroupPage() {
             onClick={() => navigate(`/fusion?group=${groupId}`)}
             className="bg-accent-DEFAULT hover:bg-accent-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
           >
-            Aktivitäten fusionieren
+            {t('workshopOperations.fusion.title')}
           </button>
 
           {/* Dissolve group button (right, red outline + inline confirm) */}
           {dissolveConfirm ? (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-neutral-600 dark:text-neutral-400">Wirklich auflösen?</span>
+              <span className="text-sm text-neutral-600 dark:text-neutral-400">{t('workshopOperations.recordingGroup.confirmDissolve')}</span>
               <button
                 onClick={() => { dissolveMutation.mutate(); setDissolveConfirm(false) }}
                 disabled={dissolveMutation.isPending}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
-                {dissolveMutation.isPending ? 'Wird aufgelöst…' : 'Ja, auflösen'}
+                {dissolveMutation.isPending ? t('workshopOperations.recordingGroup.dissolving') : t('workshopOperations.recordingGroup.confirmDissolveYes')}
               </button>
               <button
                 onClick={() => setDissolveConfirm(false)}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
             </div>
           ) : (
@@ -477,7 +481,7 @@ export default function RecordingGroupPage() {
               className="border border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 dark:text-red-400 dark:border-red-700 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
               onClick={() => setDissolveConfirm(true)}
             >
-              Gruppe auflösen
+              {t('workshopOperations.recordingGroup.dissolveGroup')}
             </button>
           )}
         </div>

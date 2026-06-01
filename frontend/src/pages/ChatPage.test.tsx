@@ -21,6 +21,10 @@ vi.mock('@/lib/auth', () => ({
   redirectToLogin: vi.fn(),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
+
 const sessions = [
   {
     id: 'session-1',
@@ -251,7 +255,7 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('(Fehler)')).toBeInTheDocument()
     expect(screen.getAllByText(/Zeitlimit erreicht/).length).toBeGreaterThan(0)
-    expect(screen.getByText('Assistenten-Fehler')).toBeInTheDocument()
+    expect(screen.getByText('Assistant-Fehler')).toBeInTheDocument()
   })
 
   it('preserves an active newly-created session when the initial list resolves later', async () => {

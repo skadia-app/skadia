@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useUser } from '@/providers/UserProvider'
+import { useTranslation } from 'react-i18next'
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -8,7 +9,7 @@ function formatCount(n: number): string {
   return String(n)
 }
 import { RefreshCw, Check, X } from 'lucide-react'
-import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
+import { getJobMessageLabel, getJobPhaseLabel, getJobStatusLabel, getJobTypeLabel } from '@/lib/jobLabels'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import type { ActiveJob } from '@/lib/useActiveJobs'
 import { useJobStream } from '@/lib/useJobStream'
@@ -17,26 +18,28 @@ import {
   ENRICHMENT_MODULES,
   type EnrichmentActivityProgress,
 } from '@/lib/useEnrichmentProgress'
+import { getEnrichmentModuleLabel } from '@/lib/enrichmentModuleLabels'
 
-function formatElapsed(startedAt: string): string {
+function formatElapsed(startedAt: string, t: (key: string, options?: Record<string, unknown>) => string): string {
   const diff = Date.now() - new Date(startedAt).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'gerade gestartet'
+  if (mins < 1) return t('jobs.elapsed.justStarted')
   const hours = Math.floor(mins / 60)
   const remainMins = mins % 60
-  if (hours === 0) return `seit ${mins}min`
-  return `seit ${hours}h ${remainMins.toString().padStart(2, '0')}min`
+  if (hours === 0) return t('jobs.elapsed.minutes', { count: mins })
+  return t('jobs.elapsed.hoursMinutes', { hours, minutes: remainMins.toString().padStart(2, '0') })
 }
 
 function JobRow({ job }: { job: ActiveJob }) {
+  const { t } = useTranslation()
   const isOSMJob = job.job_type === 'osm_import' || job.job_type === 'osm_enrichment'
   const isDataImport = job.job_type === 'garmin_import' || job.job_type === 'strava_import' || job.job_type === 'komoot_import'
   const isGDPRImport = job.job_type === 'data_import'
   const isSegmentRecalculation = job.job_type === 'segment_recompute' || job.job_type === 'segment_recalculation'
 
   const label = isSegmentRecalculation
-    ? `Segment „${job.entity_name ?? 'Segment'}"`
-    : JOB_TYPE_LABELS[job.job_type] ?? job.entity_name ?? job.job_type
+    ? t('jobs.segmentEntity', { name: job.entity_name ?? t('jobs.segmentFallback') })
+    : getJobTypeLabel(job.job_type)
 
   const isEnrichmentWithProgress = job.job_type === 'osm_enrichment' && job.progress_total > 100
   const pct =
@@ -47,24 +50,24 @@ function JobRow({ job }: { job: ActiveJob }) {
   const subLabel =
     !isOSMJob && !isDataImport && job.status === 'running' && job.progress_total > 0
       ? isSegmentRecalculation
-        ? `${job.progress_current} / ${job.progress_total} Aktivitäten neu berechnen`
+        ? t('jobs.progress.activitiesRecompute', { current: job.progress_current, total: job.progress_total })
         : job.job_type === 'photo_preview_recompute' || job.job_type === 'photo_thumb_recompute'
-        ? `${job.progress_current} / ${job.progress_total} Fotos verarbeitet`
+        ? t('jobs.progress.photosProcessed', { current: job.progress_current, total: job.progress_total })
         : job.job_type === 'photo_clip_embed' || job.job_type === 'photo_embed_backfill'
-        ? `${job.progress_current} / ${job.progress_total} Fotos indexiert`
+        ? t('jobs.progress.photosIndexed', { current: job.progress_current, total: job.progress_total })
         : job.job_type === 'phash_backfill'
-        ? `${job.progress_current} / ${job.progress_total} Fotos analysiert`
+        ? t('jobs.progress.photosAnalyzed', { current: job.progress_current, total: job.progress_total })
         : job.job_type === 'tile_build'
         ? job.phase?.startsWith('landmarks:')
-          ? job.phase
-          : `${job.progress_current} / ${job.progress_total} Tiles`
+          ? getJobPhaseLabel(job.phase)
+          : t('jobs.progress.tiles', { current: job.progress_current, total: job.progress_total })
         : job.job_type === 'activity_recompute_all' || job.job_type === 'activity_recompute' || job.job_type === 'fusion_queue_compute'
-        ? `${job.progress_current} / ${job.progress_total} Aktivitäten`
+        ? t('jobs.progress.activities', { current: job.progress_current, total: job.progress_total })
         : `${Math.round((job.progress_current / job.progress_total) * 100)}%`
       : (job.job_type === 'garmin_import' || job.job_type === 'strava_import') && job.status === 'running' && job.progress_total > 0
-      ? `${job.progress_current} / ${job.progress_total} Kategorien`
+      ? t('jobs.progress.categories', { current: job.progress_current, total: job.progress_total })
       : job.job_type === 'komoot_import' && job.status === 'running' && job.progress_total > 0
-      ? `${job.progress_current} / ${job.progress_total} Touren`
+      ? t('jobs.progress.tours', { current: job.progress_current, total: job.progress_total })
       : null
 
   const downloadPct =
@@ -73,22 +76,20 @@ function JobRow({ job }: { job: ActiveJob }) {
       : null
 
   const isEnrichmentJob = job.job_type === 'osm_enrichment'
+  const structuredMessage = getJobMessageLabel(job)
 
-  // Enrichment subLabel: show formatted progress (e.g., "4.4k / 4.5M Ways")
+  // Enrichment subLabel: show formatted progress (e.g., "4.4k / 4.5M ways")
   const enrichmentSubLabel = isEnrichmentWithProgress
-    ? `${formatCount(job.progress_current)} / ${formatCount(job.progress_total)} Ways`
+    ? t('jobs.progress.ways', { current: formatCount(job.progress_current), total: formatCount(job.progress_total) })
     : null
 
-  const phaseLabel = isEnrichmentJob
-    ? (job.phase === 'enrichment'  ? 'Phase 1/2 — Anreichern' :
-       job.phase === 'splitting'   ? 'Phase 2/2 — Aufteilen' : null)
-    : (job.phase === 'download'          ? 'Herunterladen' :
-       job.phase === 'filter'            ? 'Filtern' :
-       job.phase === 'import'            ? 'Importieren' :
-       job.phase === 'merge'             ? 'Zusammenführen' :
-       job.phase === 'analyze'           ? 'Analysieren' :
-       job.phase === 'brouter_segments'  ? 'BRouter-Segmente' :
-       job.phase?.startsWith('region_')  ? `Region ${job.phase.split('_')[1]}` : null)
+  const phaseLabel = structuredMessage ?? (isEnrichmentJob
+    ? job.phase
+      ? getJobPhaseLabel(job.phase)
+      : null
+    : job.phase
+    ? getJobPhaseLabel(job.phase)
+    : null)
 
   return (
     <div className="flex items-center gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
@@ -111,7 +112,7 @@ function JobRow({ job }: { job: ActiveJob }) {
           )}
         </p>
 
-        {/* OSM-Import/Enrichment: Phasen-Anzeige */}
+        {/* OSM import/enrichment phase display. */}
         {isOSMJob && job.status === 'running' && (
           <>
             {phaseLabel && (
@@ -121,7 +122,7 @@ function JobRow({ job }: { job: ActiveJob }) {
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{enrichmentSubLabel}</p>
             )}
             <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-              {formatElapsed(job.started_at)}
+              {formatElapsed(job.started_at, t)}
             </p>
             {(downloadPct !== null || pct !== null) ? (
               <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
@@ -138,12 +139,12 @@ function JobRow({ job }: { job: ActiveJob }) {
           </>
         )}
 
-        {/* GDPR Data Import: Phase-basierter Fortschritt */}
+        {/* GDPR data import phase progress. */}
         {isGDPRImport && job.status === 'running' && (
           <>
             {job.phase && (
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {job.phase}
+                {phaseLabel ?? t('jobs.phase.generic')}
               </p>
             )}
             <div className="mt-1 h-1 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
@@ -157,12 +158,12 @@ function JobRow({ job }: { job: ActiveJob }) {
               )}
             </div>
             <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-              {`Phase ${job.progress_current + 1} / ${job.progress_total} · ${formatElapsed(job.started_at)}`}
+              {t('jobs.phaseProgress', { current: job.progress_current + 1, total: job.progress_total, elapsed: formatElapsed(job.started_at, t) })}
             </p>
           </>
         )}
 
-        {/* Normale Jobs: Fortschrittsbalken + SubLabel */}
+        {/* Standard job progress bar and sub-label. */}
         {!isOSMJob && !isGDPRImport && (
           <>
             {job.status === 'running' && (
@@ -179,20 +180,20 @@ function JobRow({ job }: { job: ActiveJob }) {
             )}
             <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
               {job.status === 'running'
-                ? (subLabel ? `${subLabel} · ${formatElapsed(job.started_at)}` : formatElapsed(job.started_at))
+                ? (subLabel ? t('jobs.progressWithElapsed', { progress: subLabel, elapsed: formatElapsed(job.started_at, t) }) : structuredMessage ?? formatElapsed(job.started_at, t))
                 : job.status === 'completed'
-                ? 'Abgeschlossen'
+                ? structuredMessage ?? getJobStatusLabel('completed')
                 : job.status === 'failed'
-                ? 'Fehler'
-                : null}
+                ? structuredMessage ?? getJobStatusLabel('failed')
+                : getJobStatusLabel(job.status)}
             </p>
           </>
         )}
 
-        {/* Abgeschlossen/Fehler für OSM */}
+        {/* Completed/error state for OSM jobs. */}
         {isOSMJob && job.status !== 'running' && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-            {job.status === 'completed' ? 'Abgeschlossen' : 'Fehler'}
+            {structuredMessage ?? getJobStatusLabel(job.status)}
           </p>
         )}
       </div>
@@ -208,7 +209,7 @@ function JobRow({ job }: { job: ActiveJob }) {
             }
           }}
           className="flex-shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-neutral-400 hover:text-red-500 cursor-pointer transition-colors"
-          title="Import abbrechen"
+          title={t('jobs.cancelImport')}
         >
           <X size={12} />
         </button>
@@ -218,6 +219,7 @@ function JobRow({ job }: { job: ActiveJob }) {
 }
 
 function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
+  const { t } = useTranslation()
   const doneCount = Object.values(entry.modules).filter((s) => s === 'done').length
   const errorCount = Object.values(entry.modules).filter((s) => s === 'error').length
   const total = ENRICHMENT_MODULES.length
@@ -240,7 +242,7 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
-          Enrichment #{entry.activityId.slice(0, 8)}
+          {t('jobs.enrichment.activityTitle', { id: entry.activityId.slice(0, 8) })}
         </p>
         <div className="flex flex-wrap gap-0.5 mt-1">
           {ENRICHMENT_MODULES.map((m) => {
@@ -257,7 +259,7 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
                     ? 'bg-red-500'
                     : 'bg-neutral-300 dark:bg-neutral-600'
                 }`}
-                title={`${m}: ${s}`}
+                title={`${getEnrichmentModuleLabel(m)}: ${t(`jobs.enrichment.status.${s}`)}`}
               />
             )
           })}
@@ -271,11 +273,15 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
         <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
           {allDone
             ? errorCount > 0
-              ? `Fertig (${errorCount} Fehler)`
-              : 'Abgeschlossen'
+              ? t('jobs.enrichment.doneWithErrors', { count: errorCount })
+              : getJobStatusLabel('completed')
             : currentModule
-            ? `${doneCount}/${total} — ${currentModule}`
-            : `${doneCount}/${total} Module`}
+            ? t('jobs.enrichment.currentModule', {
+                done: doneCount,
+                total,
+                module: getEnrichmentModuleLabel(currentModule),
+              })
+            : t('jobs.enrichment.moduleProgress', { done: doneCount, total })}
         </p>
       </div>
     </div>
@@ -283,6 +289,7 @@ function EnrichmentRow({ entry }: { entry: EnrichmentActivityProgress }) {
 }
 
 export default function ActiveJobsIndicator() {
+  const { t } = useTranslation()
   const { user } = useUser()
   useJobStream(user?.user_id ?? '')
   const { jobs, isAnyActive } = useActiveJobs()
@@ -297,10 +304,10 @@ export default function ActiveJobsIndicator() {
     return vals.some((s) => s === 'running' || s === 'pending') && vals.some((s) => s !== 'pending')
   }).length
 
-  // Schließen bei Klick außerhalb
+  // Close on outside click.
   useClickOutside(ref, () => setOpen(false), open)
 
-  // Nicht rendern wenn keine Jobs vorhanden (auch keine kürzlich abgeschlossenen)
+  // Hide when there are no active or recently completed jobs.
   if (!isAnyActive && jobs.length === 0 && !hasEnrichment) return null
 
   const runningJobCount = jobs.filter(j => j.status === 'running').length
@@ -311,7 +318,7 @@ export default function ActiveJobsIndicator() {
       <button
         onClick={() => setOpen(prev => !prev)}
         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-xs"
-        title="Laufende Jobs"
+        title={t('jobs.runningJobs')}
       >
         <RefreshCw
           size={14}
@@ -331,7 +338,7 @@ export default function ActiveJobsIndicator() {
       {open && (
         <div className="absolute right-0 top-full mt-1 w-64 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-50 p-3">
           <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-            Jobs
+            {t('jobs.panelTitle')}
           </p>
 
           {enrichmentEntries.map((entry) => (
@@ -344,7 +351,7 @@ export default function ActiveJobsIndicator() {
 
           {jobs.length === 0 && !hasEnrichment && (
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Keine laufenden Jobs
+              {t('jobs.noneRunning')}
             </p>
           )}
         </div>

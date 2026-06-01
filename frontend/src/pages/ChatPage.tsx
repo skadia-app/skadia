@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { Plus, Trash2, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,8 @@ import { getToken, refreshToken, clearToken, redirectToLogin } from '@/lib/auth'
 import { API_BASE } from '@/api/client'
 import ChatMessageList, { type StreamMessage } from '@/components/chat/ChatMessageList'
 import ChatInput from '@/components/chat/ChatInput'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { localeForLanguage } from '@/i18n/languages'
 
 function generateId(): string {
   return crypto.randomUUID()
@@ -29,6 +32,8 @@ function chatMessageToStream(msg: ChatMessage): StreamMessage {
 }
 
 export default function ChatPage() {
+  const { t, i18n } = useTranslation()
+  const locale = localeForLanguage(supportedLanguageFrom(i18n.language))
   const { addToast } = useToast()
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
@@ -72,7 +77,7 @@ export default function ChatPage() {
         }
       })
       .catch(() => {
-        addToast({ type: 'error', title: 'Sitzungen konnten nicht geladen werden', duration: 0 })
+        addToast({ type: 'error', title: t('chatPage.toasts.sessionsLoadFailed'), duration: 0 })
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -101,7 +106,7 @@ export default function ChatPage() {
       })
       .catch(() => {
         if (cancelled || activeSessionIdRef.current !== sessionId) return
-        addToast({ type: 'error', title: 'Nachrichten konnten nicht geladen werden', duration: 0 })
+        addToast({ type: 'error', title: t('chatPage.toasts.messagesLoadFailed'), duration: 0 })
       })
     return () => {
       cancelled = true
@@ -122,17 +127,17 @@ export default function ChatPage() {
     setMessages(prev =>
       prev.map(m =>
         m.isStreaming
-          ? { ...m, isStreaming: false, content: m.content || '(Abgebrochen)' }
+          ? { ...m, isStreaming: false, content: m.content || t('chatPage.inline.abortedBracket') }
           : m.confirmRequest?.status === 'pending'
             ? {
                 ...m,
-                content: 'Abgebrochen',
+                content: t('chatPage.inline.aborted'),
                 confirmRequest: { ...m.confirmRequest, status: 'declined', reason: 'cancelled' },
               }
           : m,
       ),
     )
-  }, [])
+  }, [t])
 
   const handleNewSession = useCallback(async () => {
     abortActiveStream()
@@ -143,9 +148,9 @@ export default function ChatPage() {
       setActiveSessionId(session.id)
       setMessages([])
     } catch {
-      addToast({ type: 'error', title: 'Neue Sitzung konnte nicht erstellt werden', duration: 0 })
+      addToast({ type: 'error', title: t('chatPage.toasts.newSessionFailed'), duration: 0 })
     }
-  }, [abortActiveStream, addToast])
+  }, [abortActiveStream, addToast, t])
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     if (sessionId === activeSessionIdRef.current) {
@@ -164,9 +169,9 @@ export default function ChatPage() {
         return next
       })
     } catch {
-      addToast({ type: 'error', title: 'Sitzung konnte nicht gelöscht werden', duration: 0 })
+      addToast({ type: 'error', title: t('chatPage.toasts.deleteSessionFailed'), duration: 0 })
     }
-  }, [abortActiveStream, activeSessionId, addToast])
+  }, [abortActiveStream, activeSessionId, addToast, t])
 
   const handleSend = useCallback(async (text: string) => {
     if (isStreaming) return
@@ -183,7 +188,7 @@ export default function ChatPage() {
         setActiveSessionId(session.id)
         sessionId = session.id
       } catch {
-        addToast({ type: 'error', title: 'Sitzung konnte nicht erstellt werden', duration: 0 })
+        addToast({ type: 'error', title: t('chatPage.toasts.createSessionFailed'), duration: 0 })
         return
       }
     }
@@ -252,9 +257,9 @@ export default function ChatPage() {
       if (!response.ok) {
         const errText = await response.text()
         if (response.status === 429) {
-          addToast({ type: 'warning', title: 'Zu viele Anfragen', message: 'Bitte warte einen Moment (10/min Limit)', duration: 0 })
+          addToast({ type: 'warning', title: t('chatPage.toasts.rateLimitTitle'), message: t('chatPage.toasts.rateLimitMessage'), duration: 0 })
         } else {
-          addToast({ type: 'error', title: 'Fehler beim Senden', message: errText, duration: 0 })
+          addToast({ type: 'error', title: t('chatPage.toasts.sendFailed'), message: errText, duration: 0 })
         }
         removeOptimisticUserMessage()
         setIsStreaming(false)
@@ -264,7 +269,7 @@ export default function ChatPage() {
 
       const reader = response.body?.getReader()
       if (!reader) {
-        addToast({ type: 'error', title: 'Streaming nicht verfügbar', duration: 0 })
+        addToast({ type: 'error', title: t('chatPage.toasts.streamingUnavailable'), duration: 0 })
         removeOptimisticUserMessage()
         setIsStreaming(false)
         return
@@ -339,11 +344,11 @@ export default function ChatPage() {
 
           switch (evt.type) {
             case 'chat.thinking':
-              setThinking(evt.step ?? 'Denke nach')
+              setThinking(evt.step ?? t('chatPage.thinking.default'))
               break
 
             case 'chat.progress':
-              setThinking(evt.delta ?? evt.step ?? 'Der Assistent arbeitet noch')
+              setThinking(evt.delta ?? evt.step ?? t('chatPage.thinking.progress'))
               break
 
             case 'chat.tools_loaded':
@@ -434,7 +439,7 @@ export default function ChatPage() {
                       tool: evt.tool ?? 'unknown',
                       args: evt.args,
                       preview: evt.preview,
-                      summary: evt.summary ?? 'Aktion bestätigen',
+                      summary: evt.summary ?? t('chatPage.inline.confirmAction'),
                       expiresAtISO: evt.expires_at_iso ?? new Date(Date.now() + 5 * 60_000).toISOString(),
                       sessionID: streamSessionId,
                       status: 'pending',
@@ -454,7 +459,9 @@ export default function ChatPage() {
                     if (msg.id !== confirmMessageID || !msg.confirmRequest) return msg
                     return {
                       ...msg,
-                      content: evt.type === 'chat.tool_confirmed' ? 'Bestätigt - wird ausgeführt...' : `Abgelehnt (${evt.reason ?? 'user'})`,
+                      content: evt.type === 'chat.tool_confirmed'
+                        ? t('chatPage.inline.confirmedRunning')
+                        : t('chatPage.inline.declinedWithReason', { reason: evt.reason ?? 'user' }),
                       confirmRequest: {
                         ...msg.confirmRequest,
                         status: evt.type === 'chat.tool_confirmed' ? 'confirmed' : 'declined',
@@ -474,7 +481,7 @@ export default function ChatPage() {
                   m.id === assistantId
                     ? {
                         ...m,
-                        content: evt.question ?? 'Der Assistent benötigt eine Rückfrage.',
+                        content: evt.question ?? t('chatPage.inline.needsClarification'),
                         isStreaming: false,
                       }
                     : m,
@@ -504,12 +511,12 @@ export default function ChatPage() {
 
             case 'chat.error':
               {
-                const errorMessage = evt.error ?? 'Unbekannter Fehler'
-                const inlineError = `(Fehler)\n\n${errorMessage}`
+                const errorMessage = evt.error ?? t('chatPage.inline.unknownError')
+                const inlineError = `${t('chatPage.inline.errorHeading')}\n\n${errorMessage}`
                 setThinking(null)
                 addToast({
                   type: 'error',
-                  title: 'Assistenten-Fehler',
+                  title: t('chatPage.toasts.assistantError'),
                   message: errorMessage,
                   duration: 0,
                 })
@@ -531,7 +538,7 @@ export default function ChatPage() {
       updateStreamMessages(prev =>
         prev.map(m =>
           m.id === assistantId && m.isStreaming
-            ? { ...m, isStreaming: false, content: m.content || '(Keine Antwort)' }
+            ? { ...m, isStreaming: false, content: m.content || t('chatPage.inline.noAnswer') }
             : m,
         ),
       )
@@ -542,14 +549,14 @@ export default function ChatPage() {
       }
       addToast({
         type: 'error',
-        title: 'Verbindungsfehler',
-        message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+        title: t('chatPage.toasts.connectionError'),
+        message: err instanceof Error ? err.message : t('chatPage.inline.unknownError'),
         duration: 0,
       })
       updateStreamMessages(prev =>
         prev.map(m =>
           m.id === assistantId
-            ? { ...m, isStreaming: false, content: m.content || '(Verbindungsfehler)' }
+            ? { ...m, isStreaming: false, content: m.content || t('chatPage.inline.connectionError') }
             : m,
         ),
       )
@@ -560,9 +567,13 @@ export default function ChatPage() {
         streamAbortRef.current = null
       }
     }
-  }, [activeSessionId, isStreaming, addToast])
+  }, [activeSessionId, isStreaming, addToast, t])
 
   const activeSession = sessions.find(s => s.id === activeSessionId)
+  const formatSessionTitle = (session: ChatSession) =>
+    session.title ?? t('chatPage.session.fallback', {
+      date: new Date(session.created_at).toLocaleDateString(locale),
+    })
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem-3rem)] min-h-0">
@@ -575,8 +586,8 @@ export default function ChatPage() {
           >
             <span className="truncate text-neutral-700 dark:text-neutral-300">
               {activeSession
-                ? activeSession.title ?? `Sitzung ${new Date(activeSession.created_at).toLocaleDateString('de-DE')}`
-                : 'Keine Sitzung'}
+                ? formatSessionTitle(activeSession)
+                : t('chatPage.session.none')}
             </span>
             <ChevronDown className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
           </button>
@@ -584,7 +595,7 @@ export default function ChatPage() {
           {sessionsOpen && (
             <div className="absolute left-0 top-full mt-1 w-72 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-50 max-h-64 overflow-y-auto">
               {sessions.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-neutral-400">Keine Sitzungen</p>
+                <p className="px-3 py-2 text-sm text-neutral-400">{t('chatPage.session.empty')}</p>
               ) : (
                 sessions.map(session => (
                   <div
@@ -603,7 +614,7 @@ export default function ChatPage() {
                     }}
                   >
                     <span className="flex-1 truncate text-sm text-neutral-700 dark:text-neutral-300">
-                      {session.title ?? `Sitzung ${new Date(session.created_at).toLocaleDateString('de-DE')}`}
+                      {formatSessionTitle(session)}
                     </span>
                     <button
                       onClick={e => {
@@ -611,7 +622,7 @@ export default function ChatPage() {
                         handleDeleteSession(session.id)
                       }}
                       className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0"
-                      title="Sitzung löschen"
+                      title={t('chatPage.session.delete')}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -627,7 +638,7 @@ export default function ChatPage() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
-          Neu
+          {t('chatPage.session.new')}
         </button>
       </div>
 
@@ -639,7 +650,7 @@ export default function ChatPage() {
         onSend={handleSend}
         onCancel={abortActiveStream}
         disabled={isStreaming}
-        placeholder={isStreaming ? 'Assistent antwortet…' : 'Frag mich etwas…'}
+        placeholder={isStreaming ? t('chatPage.input.assistantResponding') : t('chatPage.input.placeholder')}
       />
     </div>
   )

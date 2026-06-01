@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchMaintenanceAlerts } from '@/api/gear'
 import type { MaintenanceAlert } from '@/api/types'
 import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 type AlertGroup = {
   gearId: string
@@ -11,6 +13,7 @@ type AlertGroup = {
 }
 
 export default function MaintenanceAlerts() {
+  const { t } = useTranslation()
   const { data: alerts } = useQuery({
     queryKey: ['maintenance-alerts'],
     queryFn: fetchMaintenanceAlerts,
@@ -23,9 +26,9 @@ export default function MaintenanceAlerts() {
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50/80 p-4 shadow-sm shadow-amber-950/5 dark:border-amber-800/70 dark:bg-amber-950/20 dark:shadow-none">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Wartungshinweise</h2>
+        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('activityOperations.maintenance.title')}</h2>
         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-          {alerts.length === 1 ? '1 Eintrag' : `${alerts.length} Einträge`}
+          {t('activityOperations.maintenance.entryCount', { count: alerts.length })}
         </span>
       </div>
       <div className="space-y-3">
@@ -36,7 +39,9 @@ export default function MaintenanceAlerts() {
                 {group.gearName}
               </h3>
               <span className="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-300">
-                {group.alerts.some(alert => alert.is_overdue) ? 'Wartung fällig' : 'Bald fällig'}
+                {group.alerts.some(alert => alert.is_overdue)
+                  ? t('activityOperations.maintenance.due')
+                  : t('activityOperations.maintenance.dueSoon')}
               </span>
             </div>
             <div className="space-y-1">
@@ -52,6 +57,8 @@ export default function MaintenanceAlerts() {
 }
 
 function AlertItem({ alert }: { alert: MaintenanceAlert }) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const pct = alert.threshold_value > 0
     ? Math.round((alert.current_value / alert.threshold_value) * 100)
     : 0
@@ -66,7 +73,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
           {alert.component_name}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {alert.interval_name}: {formatUsageMetricValue(alert.interval_type, alert.current_value)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value)}
+          {alert.interval_name}: {formatUsageMetricValue(alert.interval_type, alert.current_value, unitOptions)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value, unitOptions)}
         </div>
       </div>
       <span
@@ -76,7 +83,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
             : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
         }`}
       >
-        {alert.is_overdue ? `Überfällig (${pct}%)` : `${pct}%`}
+        {alert.is_overdue ? t('activityOperations.maintenance.overduePercent', { pct }) : `${pct}%`}
       </span>
     </Link>
   )

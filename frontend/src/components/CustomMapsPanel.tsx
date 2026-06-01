@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listCustomMaps,
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, onClose }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { openModal } = useModal()
   const { addToast } = useToast()
@@ -88,16 +90,16 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
 
   function handleDeleteMap(map: CustomMap) {
     openModal({
-      title: `Karte "${map.name}" löschen?`,
-      message: 'Löschen ist nicht rückgängig zu machen.',
+      title: t('map.customMapPanel.deleteMapTitle', { name: map.name }),
+      message: t('map.customMapPanel.deleteWarning'),
       buttons: [
         {
-          label: 'Abbrechen',
+          label: t('common.cancel'),
           variant: 'default',
           onClick: () => {}
         },
         {
-          label: 'Löschen',
+          label: t('map.customMapPanel.delete'),
           variant: 'destructive',
           onClick: async () => {
             deleteMapMutation.mutate(map.id)
@@ -110,16 +112,16 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
 
   function handleDeleteMarker(marker: CustomMapMarker) {
     openModal({
-      title: `Marker "${marker.name}" löschen?`,
-      message: 'Löschen ist nicht rückgängig zu machen.',
+      title: t('map.customMapPanel.deleteMarkerTitle', { name: marker.name }),
+      message: t('map.customMapPanel.deleteWarning'),
       buttons: [
         {
-          label: 'Abbrechen',
+          label: t('common.cancel'),
           variant: 'default',
           onClick: () => {}
         },
         {
-          label: 'Löschen',
+          label: t('map.customMapPanel.delete'),
           variant: 'destructive',
           onClick: async () => {
             deleteMarkerMutation.mutate({ mapID: marker.map_id, markerID: marker.id })
@@ -138,7 +140,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
             onClick={() => setCollapsed(!collapsed)}
             className="flex-1 flex items-center justify-between hover:text-accent-DEFAULT cursor-pointer"
           >
-            <span>Eigene Karten</span>
+            <span>{t('map.customMapPanel.title')}</span>
             <svg className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
             </svg>
@@ -146,7 +148,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
           <button
             onClick={onClose}
             className="ml-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer flex-shrink-0"
-            title="Schliessen"
+            title={t('common.close')}
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -176,7 +178,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                   <button
                     onClick={() => toggleVisibilityMutation.mutate({ id: map.id, is_visible: !map.is_visible })}
                     className="p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-                    title={map.is_visible ? 'Ausblenden' : 'Einblenden'}
+                    title={map.is_visible ? t('map.customMapPanel.hide') : t('map.customMapPanel.show')}
                   >
                     {map.is_visible ? (
                       <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -193,7 +195,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                   <button
                     onClick={() => handleDeleteMap(map)}
                     className="p-0.5 text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 cursor-pointer"
-                    title="Karte löschen"
+                    title={t('map.customMapPanel.deleteMap')}
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM12.5 3.75a1.25 1.25 0 00-1.25-1.25h-2.5a1.25 1.25 0 00-1.25 1.25v.19c1.474-.085 2.963-.085 4.437 0v-.19z" clipRule="evenodd" />
@@ -224,7 +226,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                         <button
                           onClick={() => handleDeleteMarker(marker)}
                           className="p-0.5 text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 cursor-pointer"
-                          title="Marker löschen"
+                          title={t('map.customMapPanel.deleteMarker')}
                         >
                           <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -240,7 +242,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                           : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}
                     >
-                      {addMarkerModeMapID === map.id ? '+ Klick auf Karte...' : '+ Marker hinzufügen'}
+                      {addMarkerModeMapID === map.id ? t('map.customMapPanel.clickMap') : t('map.customMapPanel.addMarker')}
                     </button>
                   </div>
                 )}
@@ -254,7 +256,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Kartenname"
+                  placeholder={t('map.customMapPanel.mapNamePlaceholder')}
                   className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
                   autoFocus
                   onKeyDown={(e) => {
@@ -276,13 +278,13 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                     disabled={!newName.trim() || createMapMutation.isPending}
                     className="flex-1 text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    Erstellen
+                    {t('map.customMapPanel.create')}
                   </button>
                   <button
                     onClick={() => setShowNewForm(false)}
                     className="text-xs px-2 py-1 rounded text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
                   >
-                    Abbrechen
+                    {t('common.cancel')}
                   </button>
                 </div>
               </div>
@@ -291,7 +293,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                 onClick={() => setShowNewForm(true)}
                 className="w-full text-left text-xs text-neutral-400 hover:text-accent-DEFAULT cursor-pointer px-1 py-1"
               >
-                + Neue Karte
+                {t('map.customMapPanel.newMap')}
               </button>
             )}
           </div>
@@ -328,20 +330,20 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                 type="text"
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
-                placeholder="Name"
+                placeholder={t('map.customMapPanel.namePlaceholder')}
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
               />
 
               <textarea
                 value={editDescription}
                 onChange={e => setEditDescription(e.target.value)}
-                placeholder="Beschreibung (optional)"
+                placeholder={t('map.customMapPanel.descriptionPlaceholder')}
                 rows={2}
                 className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400 resize-none"
               />
 
               <div className="flex items-center gap-2">
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">Farbe:</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">{t('map.customMapPanel.color')}:</span>
                 <ColorPicker value={editColor} onChange={setEditColor} />
               </div>
 
@@ -359,14 +361,14 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                       queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
                       setEditingMarker(updated)
                     } catch {
-                      addToast({ type: 'error', title: 'Bild-Upload fehlgeschlagen' })
+                      addToast({ type: 'error', title: t('map.customMapPanel.imageUploadFailed') })
                     }
                   }}
                 />
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
                 </svg>
-                {editingMarker.image_file_id ? 'Bild ersetzen' : 'Bild hinzufügen'}
+                {editingMarker.image_file_id ? t('map.customMapPanel.replaceImage') : t('map.customMapPanel.addImage')}
               </label>
 
               <div className="flex gap-2 pt-1">
@@ -383,7 +385,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                       queryClient.invalidateQueries({ queryKey: ['all-custom-map-markers'] })
                       setEditingMarker(null)
                     } catch {
-                      addToast({ type: 'error', title: 'Speichern fehlgeschlagen' })
+                      addToast({ type: 'error', title: t('map.customMapPanel.saveFailed') })
                     } finally {
                       setEditSaving(false)
                     }
@@ -391,7 +393,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                   disabled={editSaving || !editName.trim()}
                   className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  {editSaving ? 'Speichern...' : 'Speichern'}
+                  {editSaving ? t('map.customMapPanel.saving') : t('map.customMapPanel.save')}
                 </button>
                 <button
                   onClick={() => {
@@ -399,7 +401,7 @@ export default function CustomMapsPanel({ onAddMarkerMode, addMarkerModeMapID, o
                     setEditingMarker(null)
                   }}
                   className="text-xs px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer"
-                  title="Marker löschen"
+                  title={t('map.customMapPanel.deleteMarker')}
                 >
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM12.5 3.75a1.25 1.25 0 00-1.25-1.25h-2.5a1.25 1.25 0 00-1.25 1.25v.19c1.474-.085 2.963-.085 4.437 0v-.19z" clipRule="evenodd" />

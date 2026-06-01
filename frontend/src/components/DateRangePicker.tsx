@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { DayPicker, useDayPicker } from 'react-day-picker'
 import { toLocalISO } from '@/lib/dateUtils'
+import { dateFnsLocaleForLanguage } from '@/lib/format'
 import 'react-day-picker/style.css'
 import type { DateRange } from 'react-day-picker'
-import { de } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { localeForLanguage } from '@/i18n/languages'
 
 // ─── Custom Month/Year Caption ─────────────────────────────────────────────────
 
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
-const MONTHS_FULL  = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
-
 export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Date } }) {
   const { goToMonth } = useDayPicker()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const locale = localeForLanguage(language)
   const [mode, setMode] = useState<null | 'month' | 'year'>(null)
   const yearListRef = useRef<HTMLDivElement>(null)
 
@@ -48,7 +51,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
       <div className="flex items-center justify-between gap-1.5 mb-1">
         <button
           type="button"
-          aria-label="Vorheriger Monat"
+          aria-label={t('dateRangePicker.previousMonth')}
           onClick={() => shiftMonth(-1)}
           className="p-1 rounded text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
@@ -59,7 +62,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
             onClick={() => setMode(m => m === 'month' ? null : 'month')}
             className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[var(--color-accent-DEFAULT)] cursor-pointer transition-colors"
           >
-            {MONTHS_FULL[month]}
+            {new Date(year, month, 1).toLocaleDateString(locale, { month: 'long' })}
           </button>
           <button
             onClick={() => setMode(m => m === 'year' ? null : 'year')}
@@ -70,7 +73,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
         </div>
         <button
           type="button"
-          aria-label="Nächster Monat"
+          aria-label={t('dateRangePicker.nextMonth')}
           onClick={() => shiftMonth(1)}
           className="p-1 rounded text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
@@ -81,7 +84,7 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
       {/* Month grid */}
       {mode === 'month' && (
         <div className="absolute top-7 left-0 z-30 grid grid-cols-3 gap-1 p-2 bg-white dark:bg-neutral-900 rounded-xl shadow-xl border border-neutral-200 dark:border-neutral-700 w-44">
-          {MONTHS_SHORT.map((m, i) => (
+          {Array.from({ length: 12 }, (_, i) => new Date(year, i, 1).toLocaleDateString(locale, { month: 'short' })).map((m, i) => (
             <button
               key={m}
               onClick={() => { goToMonth(new Date(year, i)); setMode(null) }}
@@ -125,50 +128,50 @@ export function MonthYearCaption({ calendarMonth }: { calendarMonth: { date: Dat
 
 function today() { return new Date() }
 
-const SHORTCUTS: { label: string; getRange: () => [Date, Date] }[] = [
+const SHORTCUTS: { key: string; getRange: () => [Date, Date] }[] = [
   {
-    label: 'Letzte 30 Tage',
+    key: 'last30Days',
     getRange: () => {
       const to = today(); const from = new Date(to); from.setDate(from.getDate() - 30); return [from, to]
     },
   },
   {
-    label: 'Letzte 365 Tage',
+    key: 'last365Days',
     getRange: () => {
       const to = today(); const from = new Date(to); from.setFullYear(from.getFullYear() - 1); return [from, to]
     },
   },
   {
-    label: 'Diesen Monat',
+    key: 'thisMonth',
     getRange: () => {
       const n = today()
       return [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 0)]
     },
   },
   {
-    label: 'Letzten Monat',
+    key: 'lastMonth',
     getRange: () => {
       const n = today()
       return [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 0)]
     },
   },
   {
-    label: 'Dieses Jahr',
+    key: 'thisYear',
     getRange: () => { const y = today().getFullYear(); return [new Date(y, 0, 1), new Date(y, 11, 31)] },
   },
   {
-    label: 'Letztes Jahr',
+    key: 'lastYear',
     getRange: () => { const y = today().getFullYear() - 1; return [new Date(y, 0, 1), new Date(y, 11, 31)] },
   },
 ]
 
-function formatDisplay(from: string, to: string): string {
-  if (!from && !to) return 'Zeitraum'
+function formatDisplay(from: string, to: string, t: ReturnType<typeof useTranslation>['t'], locale: string): string {
+  if (!from && !to) return t('dateRangePicker.placeholder')
   const fmt = (s: string) =>
-    new Date(s).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    new Date(s).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' })
   if (from && to) return `${fmt(from)} – ${fmt(to)}`
-  if (from) return `Ab ${fmt(from)}`
-  return `Bis ${fmt(to)}`
+  if (from) return t('dateRangePicker.from', { date: fmt(from) })
+  return t('dateRangePicker.to', { date: fmt(to) })
 }
 
 // ─── Public component ──────────────────────────────────────────────────────────
@@ -189,6 +192,10 @@ interface DateRangePickerProps {
 }
 
 export default function DateRangePicker({ dateFrom, dateTo, onChange, defaultOpen, triggerless, onClose }: DateRangePickerProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const locale = localeForLanguage(language)
+  const dateFnsLocale = dateFnsLocaleForLanguage(language)
   const [open, setOpen] = useState(defaultOpen ?? false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -208,7 +215,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, defaultOpe
           }`}
         >
           <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
-          {formatDisplay(dateFrom, dateTo)}
+          {formatDisplay(dateFrom, dateTo, t, locale)}
           {hasFilter && (
             <span
               onClick={e => { e.stopPropagation(); onChange('', '') }}
@@ -226,11 +233,11 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, defaultOpe
           <div className="flex flex-col justify-center gap-0.5 p-2 border-r border-neutral-100 dark:border-neutral-800 min-w-36">
             {SHORTCUTS.map(s => (
               <button
-                key={s.label}
+                key={s.key}
                 onClick={() => { const [f, t] = s.getRange(); onChange(toLocalISO(f), toLocalISO(t)); setOpen(false) }}
                 className="px-3 py-1.5 text-xs text-left rounded-lg text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors whitespace-nowrap"
               >
-                {s.label}
+                {t(`dateRangePicker.shortcuts.${s.key}`)}
               </button>
             ))}
           </div>
@@ -250,7 +257,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange, defaultOpe
               )
               if (range?.from && range?.to) setOpen(false)
             }}
-            locale={de}
+            locale={dateFnsLocale}
             components={{
               MonthCaption: MonthYearCaption as any,
               // Hide default Nav arrows — our custom MonthYearCaption renders prev/next inline.

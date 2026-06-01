@@ -17,6 +17,24 @@ vi.mock('@/lib/toast', () => ({
   useToast: () => ({ addToast: addToastMock }),
 }))
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) => {
+      const labels: Record<string, string> = {
+        'settings.adminStorageLimits.maxUserStorage.label': 'Max. Benutzer-Speicher',
+        'settings.adminStorageLimits.save': 'Speichern',
+        'settings.adminStorageLimits.saveError': 'Speichern fehlgeschlagen',
+        'settings.adminStorageLimits.standard': 'Standard',
+        'settings.adminStorageLimits.validationStorage.title': 'Ungültiger Max Benutzer-Speicher',
+      }
+      if (key === 'settings.adminStorageLimits.lockedHint') {
+        return `Per ${values?.envVar} gesperrt`
+      }
+      return labels[key] ?? key
+    },
+  }),
+}))
+
 function renderSection() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -94,5 +112,33 @@ describe('AdminStorageLimitsSection', () => {
       type: 'error',
       title: 'Ungültiger Max Benutzer-Speicher',
     }))
+  })
+
+  it('does not expose raw technical save errors as toast copy', async () => {
+    vi.mocked(getAdminSettings).mockResolvedValue({
+      limits: {
+        max_upload_bytes: { value: '52428800', source: 'default' },
+        max_user_storage_bytes: { value: '0', source: 'default' },
+        max_activity_photos_per_activity: { value: '100', source: 'default' },
+        max_route_photos_per_route: { value: '10', source: 'default' },
+      },
+      library: {
+        keep_versions: { value: '1', source: 'default' },
+      },
+    })
+    vi.mocked(putAdminSettings).mockRejectedValue(new Error('Failed to update admin settings'))
+
+    renderSection()
+
+    await screen.findByText('Max. Benutzer-Speicher')
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      expect(addToastMock).toHaveBeenCalledWith({
+        type: 'error',
+        title: 'Speichern fehlgeschlagen',
+        duration: 0,
+      })
+    })
   })
 })

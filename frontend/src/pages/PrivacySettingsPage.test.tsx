@@ -30,6 +30,10 @@ vi.mock('@/lib/modal', () => ({
   useModal: () => ({ openModal: vi.fn() }),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'en', units: 'imperial' }),
+}))
+
 vi.mock('maplibre-gl', () => {
   class Map {
     addControl = vi.fn()
@@ -111,6 +115,8 @@ describe('PrivacySettingsPage', () => {
     renderPrivacySettings()
 
     expect(await screen.findByText('Private Zone')).toBeInTheDocument()
+    expect(screen.getByText(/820 ft/)).toBeInTheDocument()
+    expect(screen.queryByText(/250 m/)).not.toBeInTheDocument()
     await waitFor(() => expect(mocks.listPrivacyZones).toHaveBeenCalled())
     expect(fetch).not.toHaveBeenCalled()
   })

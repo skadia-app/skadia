@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   getAdminUsers,
   getAuthConfig,
@@ -22,14 +24,13 @@ import {
   adminSetUserLibraryDir,
   adminRenameUser,
   API_STATUS,
-  FILE_TYPE_LABELS,
 } from '@/api/shadowfs'
-import { LIB_LABELS } from '@/lib/libraryLabels'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
 import { useDebounce } from '@/lib/useDebounce'
 import { useToast } from '@/lib/toast'
+import { i18n } from '@/i18n/i18n'
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
 import {
@@ -58,80 +59,54 @@ import {
   RefreshCw,
 } from 'lucide-react'
 
-// ── Centralized i18n-ready labels ───────────────────────────────────────────
-
-const STATUS_LABELS: Record<string, string> = {
-  active: 'Aktiv',
-  inactive: 'Inaktiv',
-  pending: 'Ausstehend',
-  deleted: 'Gelöscht',
-  all: 'Alle',
-}
-
-const REGISTRATION_SOURCE_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  registration: 'Registrierung',
-  invite: 'Einladung',
-  oauth_google: 'Google',
-  oauth_github: 'GitHub',
-}
-
-const ADMIN_ERROR_LABELS: Record<string, string> = {
-  last_admin: 'Dies ist der letzte aktive Admin — Aktion nicht möglich',
-  cannot_demote_self: 'Du kannst dir selbst die Admin-Rechte nicht entziehen',
-  cannot_delete_self: 'Du kannst deinen eigenen Account nicht löschen',
-  confirmation_mismatch: 'Bestätigung stimmt nicht überein',
-  user_not_found: 'Benutzer nicht gefunden',
-}
-
-const USER_ACTION_LABELS = {
-  promoteToAdmin: 'Zum Admin machen',
-  demoteFromAdmin: 'Adminrechte entziehen',
-  enableHotfolder: 'Hotfolder aktivieren',
-  disableHotfolder: 'Hotfolder deaktivieren',
-}
-
 const PAGE_SIZE = 50
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmtTs = (iso: string | null): string => (iso ? fmtDateTime(iso) : '—')
+const REGISTRATION_SOURCE_KEYS = new Set(['admin', 'registration', 'invite', 'oauth_google', 'oauth_github'])
 
-function getAdminErrorMessage(code: string): string {
-  return ADMIN_ERROR_LABELS[code] ?? getAuthErrorMessage(code)
+function getAdminErrorMessage(code: string, t: TFunction): string {
+  const key = `adminUsers.errors.${code}`
+  if (i18n.exists(key)) return t(key)
+  return getAuthErrorMessage(code)
 }
 
 function StatusBadge({ user }: { user: AdminUser }) {
+  const { t } = useTranslation()
   if (user.deleted_at) {
     return (
       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
-        {STATUS_LABELS.deleted}
+        {t('adminUsers.status.deleted')}
       </span>
     )
   }
   if (!user.is_active && user.pending_approval) {
     return (
       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
-        {STATUS_LABELS.pending}
+        {t('adminUsers.status.pending')}
       </span>
     )
   }
   if (!user.is_active) {
     return (
       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
-        {STATUS_LABELS.inactive}
+        {t('adminUsers.status.inactive')}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400">
-      {STATUS_LABELS.active}
+      {t('adminUsers.status.active')}
     </span>
   )
 }
 
 function SourceBadge({ source }: { source: string }) {
-  const label = REGISTRATION_SOURCE_LABELS[source] ?? source
+  const { t } = useTranslation()
+  const label = REGISTRATION_SOURCE_KEYS.has(source)
+    ? t(`adminUsers.registrationSources.${source}`)
+    : t('adminUsers.registrationSources.unknown')
   return (
     <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
       {label}
@@ -142,6 +117,7 @@ function SourceBadge({ source }: { source: string }) {
 // ── Create User Dialog ──────────────────────────────────────────────────────
 
 function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -162,11 +138,11 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         return
       }
       if (password) {
-        addToast({ type: 'success', title: 'Benutzer erstellt' })
+        addToast({ type: 'success', title: t('adminUsers.create.toasts.created') })
       } else if (data.invite_sent) {
-        addToast({ type: 'success', title: 'Einladungs-Email gesendet' })
+        addToast({ type: 'success', title: t('adminUsers.create.toasts.inviteSent') })
       } else {
-        addToast({ type: 'success', title: 'Benutzer erstellt' })
+        addToast({ type: 'success', title: t('adminUsers.create.toasts.created') })
       }
       onCreated()
       onClose()
@@ -185,48 +161,48 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         }}
         className="space-y-4"
       >
-        <h2 className="text-lg font-semibold">Benutzer erstellen</h2>
+        <h2 className="text-lg font-semibold">{t('adminUsers.create.title')}</h2>
 
         <div className="space-y-3">
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Mail *</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('adminUsers.create.email')} *</label>
             <input
               type="email"
               required
               value={email}
               onChange={e => setEmail(e.target.value)}
               className={AUTH_INPUT_CLASS}
-              placeholder="benutzer@example.com"
+              placeholder={t('adminUsers.create.emailPlaceholder')}
             />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Benutzername *</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('adminUsers.create.username')} *</label>
             <input
               type="text"
               required
               value={username}
               onChange={e => setUsername(e.target.value)}
               className={AUTH_INPUT_CLASS}
-              placeholder="benutzername"
+              placeholder={t('adminUsers.create.usernamePlaceholder')}
             />
           </div>
 
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              {smtpConfigured ? 'Passwort (optional)' : 'Passwort *'}
+              {smtpConfigured ? t('adminUsers.create.passwordOptional') : t('adminUsers.create.passwordRequired')}
             </label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               className={AUTH_INPUT_CLASS}
-              placeholder={smtpConfigured ? 'Leer = Einladungs-Email wird gesendet' : 'Passwort ist erforderlich (kein SMTP konfiguriert)'}
+              placeholder={smtpConfigured ? t('adminUsers.create.passwordInvitePlaceholder') : t('adminUsers.create.passwordRequiredPlaceholder')}
               required={!smtpConfigured}
               minLength={password ? 10 : undefined}
             />
             {password && password.length > 0 && password.length < 10 && (
-              <p className="text-xs text-rose-600 dark:text-rose-400">Mindestens 10 Zeichen erforderlich</p>
+              <p className="text-xs text-rose-600 dark:text-rose-400">{t('adminUsers.passwordMinLength')}</p>
             )}
           </div>
         </div>
@@ -238,7 +214,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             disabled={mutation.isPending}
             className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
@@ -246,7 +222,7 @@ function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; onCreat
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Erstellen
+            {t('adminUsers.create.submit')}
           </button>
         </div>
       </form>
@@ -263,6 +239,7 @@ function ResetPasswordDialog({
   user: AdminUser
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [mode, setMode] = useState<'set' | 'email'>('set')
   const [newPassword, setNewPassword] = useState('')
   const { addToast } = useToast()
@@ -277,9 +254,9 @@ function ResetPasswordDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       if (mode === 'email') {
-        addToast({ type: 'success', title: 'Reset-Email gesendet' })
+        addToast({ type: 'success', title: t('adminUsers.resetPassword.toasts.emailSent') })
       } else {
-        addToast({ type: 'success', title: 'Passwort gesetzt' })
+        addToast({ type: 'success', title: t('adminUsers.resetPassword.toasts.passwordSet') })
       }
       onClose()
     },
@@ -297,9 +274,9 @@ function ResetPasswordDialog({
         }}
         className="space-y-4"
       >
-        <h2 className="text-lg font-semibold">Passwort zurücksetzen</h2>
+        <h2 className="text-lg font-semibold">{t('adminUsers.resetPassword.title')}</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          Passwort für <strong>{user.username}</strong> zurücksetzen.
+          {t('adminUsers.resetPassword.description', { username: user.username })}
         </p>
 
         <div className="space-y-2">
@@ -310,14 +287,14 @@ function ResetPasswordDialog({
               onChange={() => setMode('set')}
               className="h-4 w-4"
             />
-            <span className="text-sm">Passwort setzen</span>
+            <span className="text-sm">{t('adminUsers.resetPassword.setPassword')}</span>
           </label>
           {mode === 'set' && (
             <input
               type="password"
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
-              placeholder="Neues Passwort (min. 10 Zeichen)"
+              placeholder={t('adminUsers.resetPassword.newPasswordPlaceholder')}
               className={`${AUTH_INPUT_CLASS} mt-2`}
               required
               minLength={10}
@@ -330,7 +307,7 @@ function ResetPasswordDialog({
               onChange={() => setMode('email')}
               className="h-4 w-4"
             />
-            <span className="text-sm">Reset-Email senden</span>
+            <span className="text-sm">{t('adminUsers.resetPassword.sendEmail')}</span>
           </label>
         </div>
 
@@ -341,7 +318,7 @@ function ResetPasswordDialog({
             disabled={mutation.isPending}
             className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
@@ -349,7 +326,7 @@ function ResetPasswordDialog({
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Zurücksetzen
+            {t('adminUsers.resetPassword.submit')}
           </button>
         </div>
       </form>
@@ -366,6 +343,7 @@ function SessionsDialog({
   user: AdminUser
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
@@ -377,7 +355,7 @@ function SessionsDialog({
   const revokeMutation = useMutation({
     mutationFn: () => adminRevokeUserSessions(user.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Alle Sitzungen widerrufen' })
+      addToast({ type: 'success', title: t('adminUsers.sessions.toasts.revoked') })
       queryClient.invalidateQueries({ queryKey: ['admin-user-sessions', user.id] })
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
     },
@@ -394,7 +372,7 @@ function SessionsDialog({
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
-            Sitzungen von {user.username}
+            {t('adminUsers.sessions.title', { username: user.username })}
           </h2>
           {activeSessions.length > 0 && (
             <button
@@ -407,7 +385,7 @@ function SessionsDialog({
               ) : (
                 <Ban className="h-3.5 w-3.5" />
               )}
-              Alle widerrufen
+              {t('adminUsers.sessions.revokeAll')}
             </button>
           )}
         </div>
@@ -420,13 +398,13 @@ function SessionsDialog({
 
         {isError && (
           <p className="py-4 text-center text-sm text-red-500">
-            Fehler beim Laden der Sitzungen.
+            {t('adminUsers.sessions.loadError')}
           </p>
         )}
 
         {!isLoading && !isError && sessions.length === 0 && (
           <p className="py-4 text-center text-sm text-neutral-500">
-            Keine aktiven Sitzungen.
+            {t('adminUsers.sessions.empty')}
           </p>
         )}
 
@@ -435,11 +413,11 @@ function SessionsDialog({
             <table className="w-full text-sm">
               <thead className="bg-neutral-50 dark:bg-neutral-900">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Browser</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">{t('adminUsers.sessions.browser')}</th>
                   <th className="px-3 py-2 text-left font-medium text-neutral-500">IP</th>
-                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Erstellt</th>
-                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Ablauf</th>
-                  <th className="px-3 py-2 text-left font-medium text-neutral-500">Status</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">{t('adminUsers.table.created')}</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">{t('adminUsers.sessions.expires')}</th>
+                  <th className="px-3 py-2 text-left font-medium text-neutral-500">{t('adminUsers.table.status')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -462,15 +440,15 @@ function SessionsDialog({
                       <td className="px-3 py-2">
                         {session.revoked ? (
                           <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
-                            Widerrufen
+                            {t('adminUsers.sessions.revoked')}
                           </span>
                         ) : expired ? (
                           <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-neutral-500/10 text-neutral-600 dark:text-neutral-400">
-                            Abgelaufen
+                            {t('adminUsers.sessions.expired')}
                           </span>
                         ) : (
                           <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400">
-                            Aktiv
+                            {t('common.active')}
                           </span>
                         )}
                       </td>
@@ -487,7 +465,7 @@ function SessionsDialog({
             onClick={onClose}
             className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            Schließen
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -506,6 +484,7 @@ function DeleteUserDialog({
   onClose: () => void
   onDeleted: () => void
 }) {
+  const { t } = useTranslation()
   const [step, setStep] = useState<1 | 2>(1)
   const [confirmInput, setConfirmInput] = useState('')
   const { addToast } = useToast()
@@ -513,12 +492,12 @@ function DeleteUserDialog({
   const mutation = useMutation({
     mutationFn: () => adminDeleteUser(user.id, user.username),
     onSuccess: () => {
-      addToast({ type: 'success', title: `Benutzer "${user.username}" gelöscht` })
+      addToast({ type: 'success', title: t('adminUsers.delete.toasts.deleted', { username: user.username }) })
       onDeleted()
       onClose()
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message, t), duration: 0 })
     },
   })
 
@@ -531,19 +510,19 @@ function DeleteUserDialog({
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
             <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
           </div>
-          <h2 className="text-lg font-semibold">Benutzer löschen</h2>
+          <h2 className="text-lg font-semibold">{t('adminUsers.delete.title')}</h2>
         </div>
 
         {step === 1 && (
           <>
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/40 dark:bg-red-900/10">
               <p className="text-sm font-medium text-red-700 dark:text-red-400">
-                Achtung: Diese Aktion kann nicht rückgängig gemacht werden
+                {t('adminUsers.delete.warningTitle')}
               </p>
               <ul className="mt-2 space-y-1 text-sm text-red-600 dark:text-red-300">
-                <li>• Der Benutzer <strong>{user.username}</strong> wird deaktiviert und als gelöscht markiert</li>
-                <li>• Alle Sitzungen werden sofort beendet</li>
-                <li>• Alle Daten werden nach <strong>30 Tagen endgültig gelöscht</strong> — innerhalb dieser Frist ist eine Wiederherstellung möglich</li>
+                <li>{t('adminUsers.delete.warningUser', { username: user.username })}</li>
+                <li>{t('adminUsers.delete.warningSessions')}</li>
+                <li>{t('adminUsers.delete.warningData')}</li>
               </ul>
             </div>
             <div className="flex justify-end gap-2 pt-1">
@@ -551,13 +530,13 @@ function DeleteUserDialog({
                 onClick={onClose}
                 className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => setStep(2)}
                 className="cursor-pointer rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
-                Weiter
+                {t('common.next')}
               </button>
             </div>
           </>
@@ -566,7 +545,7 @@ function DeleteUserDialog({
         {step === 2 && (
           <>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              Tippe <strong className="font-mono text-neutral-800 dark:text-neutral-200">{user.username}</strong> ein um das Löschen zu bestätigen:
+              {t('adminUsers.delete.confirmPrompt', { username: user.username })}
             </p>
             <input
               type="text"
@@ -587,7 +566,7 @@ function DeleteUserDialog({
                 disabled={mutation.isPending}
                 className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Zurück
+                {t('common.back')}
               </button>
               <button
                 onClick={() => mutation.mutate()}
@@ -595,7 +574,7 @@ function DeleteUserDialog({
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Endgültig löschen
+                {t('adminUsers.delete.confirm')}
               </button>
             </div>
           </>
@@ -618,6 +597,7 @@ function UserLibraryDirDialog({
   user: AdminUser
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
@@ -633,29 +613,29 @@ function UserLibraryDirDialog({
     mutationFn: (name: string | null) => adminSetUserLibraryDir(user.id, name),
     onSuccess: (res) => {
       if (res.status === API_STATUS.libraryDirNameTaken) {
-        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirTaken, duration: 0 })
+        addToast({ type: 'warning', title: t('libraryLabels.labels.toastLibraryDirTaken'), duration: 0 })
         return
       }
       if (res.status === API_STATUS.libraryDirNameClashesUUID) {
-        addToast({ type: 'warning', title: LIB_LABELS.toastLibraryDirClashesUUID, duration: 0 })
+        addToast({ type: 'warning', title: t('libraryLabels.labels.toastLibraryDirClashesUUID'), duration: 0 })
         return
       }
       queryClient.invalidateQueries({ queryKey: ['admin-user-library-dir', user.id] })
       setInputValue(null)
-      addToast({ type: 'success', title: LIB_LABELS.toastSaved })
+      addToast({ type: 'success', title: t('libraryLabels.labels.toastSaved') })
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: LIB_LABELS.toastError, message: err.message, duration: 0 })
+      addToast({ type: 'error', title: t('common.error'), message: err.message, duration: 0 })
     },
   })
 
   const renameMutation = useMutation({
     mutationFn: (fileType: string) => adminRenameUser(user.id, fileType),
     onSuccess: () => {
-      addToast({ type: 'success', title: LIB_LABELS.toastRenameStarted })
+      addToast({ type: 'success', title: t('libraryLabels.labels.toastRenameStarted') })
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: LIB_LABELS.toastError, message: err.message, duration: 0 })
+      addToast({ type: 'error', title: t('common.error'), message: err.message, duration: 0 })
     },
   })
 
@@ -672,7 +652,7 @@ function UserLibraryDirDialog({
             <FolderEdit className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">{LIB_LABELS.editLibraryDirMenuItem}</h2>
+            <h2 className="text-lg font-semibold">{t('libraryLabels.labels.editLibraryDirMenuItem')}</h2>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">{user.username}</p>
           </div>
         </div>
@@ -684,7 +664,7 @@ function UserLibraryDirDialog({
         )}
 
         {isError && (
-          <p className="py-2 text-sm text-red-500">{LIB_LABELS.loadLibraryDirErrorTitle}</p>
+          <p className="py-2 text-sm text-red-500">{t('libraryLabels.labels.loadLibraryDirErrorTitle')}</p>
         )}
 
         {!isLoading && !isError && data && (
@@ -692,7 +672,7 @@ function UserLibraryDirDialog({
             {/* Library-Dir-Name edit */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                {LIB_LABELS.libraryDirPrefix}
+                {t('libraryLabels.labels.libraryDirPrefix')}
               </label>
               <div className="flex gap-2">
                 <input
@@ -711,18 +691,18 @@ function UserLibraryDirDialog({
                   {setDirMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : null}
-                  {LIB_LABELS.saveButton}
+                  {t('common.save')}
                 </button>
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                {LIB_LABELS.effectiveLabel}{' '}
+                {t('libraryLabels.labels.effectiveLabel')}{' '}
                 <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800">
                   {inputValue != null && inputValue.trim() ? inputValue.trim() : data.effective_name}
                 </code>
               </p>
               {!current.trim() && data.library_dir_name && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  {LIB_LABELS.resetToUUIDHint}
+                  {t('libraryLabels.labels.resetToUUIDHint')}
                 </p>
               )}
             </div>
@@ -730,7 +710,7 @@ function UserLibraryDirDialog({
             {/* Rename buttons per file type */}
             <div className="space-y-2">
               <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                {LIB_LABELS.executeRenameButton}
+                {t('libraryLabels.labels.executeRenameButton')}
               </p>
               <div className="flex flex-wrap gap-2">
                 {FILE_TYPES_FOR_RENAME.map(ft => (
@@ -745,12 +725,12 @@ function UserLibraryDirDialog({
                     ) : (
                       <RefreshCw className="h-3 w-3" />
                     )}
-                    {FILE_TYPE_LABELS[ft] ?? ft}
+                    {t(`fileTypes.${ft}`)}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                {LIB_LABELS.renameJobBackgroundHint}
+                {t('libraryLabels.labels.renameJobBackgroundHint')}
               </p>
             </div>
           </>
@@ -761,7 +741,7 @@ function UserLibraryDirDialog({
             onClick={onClose}
             className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            {LIB_LABELS.closeButton}
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -782,6 +762,7 @@ function UserActionsMenu({
   hotfolderGlobalMode: string
   onAction: (action: 'activate' | 'deactivate' | 'reset-password' | 'sessions' | 'revoke-sessions' | 'set-admin' | 'delete' | 'toggle-hotfolder' | 'library-dir') => void
 }) {
+  const { t } = useTranslation()
   const isDeleted = user.deleted_at != null
   const isSelf = user.id === currentUserId
   const hotfolderAvailable = hotfolderGlobalMode !== 'disabled'
@@ -791,7 +772,7 @@ function UserActionsMenu({
       <DropdownMenuTrigger asChild>
         <button
           className="cursor-pointer rounded p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          title="Aktionen"
+          title={t('adminUsers.table.actions')}
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
@@ -802,12 +783,12 @@ function UserActionsMenu({
             {user.is_active ? (
               <DropdownMenuItem onClick={() => onAction('deactivate')} className="gap-2">
                 <ShieldOff className="h-4 w-4 text-amber-500" />
-                Deaktivieren
+                {t('adminUsers.actions.deactivate')}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem onClick={() => onAction('activate')} className="gap-2">
                 <Shield className="h-4 w-4 text-green-500" />
-                Aktivieren
+                {t('adminUsers.actions.activate')}
               </DropdownMenuItem>
             )}
 
@@ -817,15 +798,15 @@ function UserActionsMenu({
                 onClick={() => !isSelf && onAction('set-admin')}
                 disabled={isSelf}
                 className="gap-2"
-                title={isSelf ? ADMIN_ERROR_LABELS.cannot_demote_self : undefined}
+                title={isSelf ? t('adminUsers.errors.cannot_demote_self') : undefined}
               >
                 <ShieldX className="h-4 w-4 text-violet-500" />
-                <span className={isSelf ? 'opacity-50' : ''}>{USER_ACTION_LABELS.demoteFromAdmin}</span>
+                <span className={isSelf ? 'opacity-50' : ''}>{t('adminUsers.actions.demoteFromAdmin')}</span>
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem onClick={() => onAction('set-admin')} className="gap-2">
                 <ShieldCheck className="h-4 w-4 text-violet-500" />
-                {USER_ACTION_LABELS.promoteToAdmin}
+                {t('adminUsers.actions.promoteToAdmin')}
               </DropdownMenuItem>
             )}
 
@@ -835,12 +816,12 @@ function UserActionsMenu({
                 {user.hotfolder_enabled ? (
                   <>
                     <FolderX className="h-4 w-4 text-orange-500" />
-                    {USER_ACTION_LABELS.disableHotfolder}
+                    {t('adminUsers.actions.disableHotfolder')}
                   </>
                 ) : (
                   <>
                     <FolderOpen className="h-4 w-4 text-orange-500" />
-                    {USER_ACTION_LABELS.enableHotfolder}
+                    {t('adminUsers.actions.enableHotfolder')}
                   </>
                 )}
               </DropdownMenuItem>
@@ -848,19 +829,19 @@ function UserActionsMenu({
 
             <DropdownMenuItem onClick={() => onAction('reset-password')} className="gap-2">
               <KeyRound className="h-4 w-4 text-amber-500" />
-              Passwort zurücksetzen
+              {t('adminUsers.actions.resetPassword')}
             </DropdownMenuItem>
 
             <DropdownMenuItem onClick={() => onAction('library-dir')} className="gap-2">
               <FolderEdit className="h-4 w-4 text-blue-500" />
-              {LIB_LABELS.editLibraryDirMenuItem}
+              {t('libraryLabels.labels.editLibraryDirMenuItem')}
             </DropdownMenuItem>
           </>
         )}
 
         <DropdownMenuItem onClick={() => onAction('sessions')} className="gap-2">
           <Monitor className="h-4 w-4 text-blue-500" />
-          Sitzungen anzeigen
+          {t('adminUsers.actions.showSessions')}
         </DropdownMenuItem>
 
         {!isDeleted && (
@@ -869,7 +850,7 @@ function UserActionsMenu({
             className="gap-2 text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
           >
             <Ban className="h-4 w-4" />
-            Alle Sitzungen widerrufen
+            {t('adminUsers.actions.revokeSessions')}
           </DropdownMenuItem>
         )}
 
@@ -881,7 +862,7 @@ function UserActionsMenu({
               className="gap-2 text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
             >
               <Trash2 className="h-4 w-4" />
-              Benutzer löschen...
+              {t('adminUsers.actions.delete')}
             </DropdownMenuItem>
           </>
         )}
@@ -893,6 +874,7 @@ function UserActionsMenu({
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
+  const { t } = useTranslation()
   const [searchInput, setSearchInput] = useState('')
   const debouncedSearch = useDebounce(searchInput, 300)
   const [statusFilter, setStatusFilter] = useState('active')
@@ -967,28 +949,28 @@ export default function AdminUsersPage() {
         setConfirmAction(null)
       },
       onError: (err: Error) => {
-        addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+        addToast({ type: 'error', title: getAdminErrorMessage(err.message, t), duration: 0 })
         setConfirmAction(null)
       },
     })
   }
 
-  const activateMutation = useConfirmMutation(adminActivateUser, 'Benutzer aktiviert')
-  const deactivateMutation = useConfirmMutation(adminDeactivateUser, 'Benutzer deaktiviert')
-  const revokeSessionsMutation = useConfirmMutation(adminRevokeUserSessions, 'Alle Sitzungen widerrufen')
+  const activateMutation = useConfirmMutation(adminActivateUser, t('adminUsers.toasts.activated'))
+  const deactivateMutation = useConfirmMutation(adminDeactivateUser, t('adminUsers.toasts.deactivated'))
+  const revokeSessionsMutation = useConfirmMutation(adminRevokeUserSessions, t('adminUsers.sessions.toasts.revoked'))
 
   const setAdminMutation = useMutation({
     mutationFn: ({ id, isAdmin }: { id: string; isAdmin: boolean }) => adminSetUserAdmin(id, isAdmin),
     onSuccess: (_data, vars) => {
       addToast({
         type: 'success',
-        title: vars.isAdmin ? 'Admin-Rechte vergeben' : 'Admin-Rechte entzogen',
+        title: vars.isAdmin ? t('adminUsers.toasts.adminGranted') : t('adminUsers.toasts.adminRevoked'),
       })
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       setConfirmAction(null)
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message, t), duration: 0 })
       setConfirmAction(null)
     },
   })
@@ -998,13 +980,13 @@ export default function AdminUsersPage() {
     onSuccess: (_data, vars) => {
       addToast({
         type: 'success',
-        title: vars.enabled ? 'Hotfolder aktiviert' : 'Hotfolder deaktiviert',
+        title: vars.enabled ? t('adminUsers.toasts.hotfolderEnabled') : t('adminUsers.toasts.hotfolderDisabled'),
       })
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       setConfirmAction(null)
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: getAdminErrorMessage(err.message), duration: 0 })
+      addToast({ type: 'error', title: getAdminErrorMessage(err.message, t), duration: 0 })
       setConfirmAction(null)
     },
   })
@@ -1075,35 +1057,35 @@ export default function AdminUsersPage() {
 
   const CONFIRM_CONFIG: Record<string, { title: string; message: string; label: string; cls?: string }> = {
     activate: {
-      title: 'Benutzer aktivieren',
-      message: `Soll "${confirmAction?.user.username}" aktiviert werden? Der Benutzer kann sich danach wieder anmelden.`,
-      label: 'Aktivieren',
+      title: t('adminUsers.confirm.activate.title'),
+      message: t('adminUsers.confirm.activate.message', { username: confirmAction?.user.username }),
+      label: t('adminUsers.actions.activate'),
       cls: 'bg-green-600 hover:bg-green-700',
     },
     deactivate: {
-      title: 'Benutzer deaktivieren',
-      message: `Soll "${confirmAction?.user.username}" deaktiviert werden? Der Benutzer kann sich danach nicht mehr anmelden.`,
-      label: 'Deaktivieren',
+      title: t('adminUsers.confirm.deactivate.title'),
+      message: t('adminUsers.confirm.deactivate.message', { username: confirmAction?.user.username }),
+      label: t('adminUsers.actions.deactivate'),
     },
     'revoke-sessions': {
-      title: 'Alle Sitzungen widerrufen',
-      message: `Alle aktiven Sitzungen von "${confirmAction?.user.username}" werden sofort beendet. Der Benutzer muss sich neu anmelden.`,
-      label: 'Widerrufen',
+      title: t('adminUsers.confirm.revokeSessions.title'),
+      message: t('adminUsers.confirm.revokeSessions.message', { username: confirmAction?.user.username }),
+      label: t('adminUsers.confirm.revokeSessions.label'),
     },
     'set-admin': {
-      title: confirmAction?.user.is_admin ? USER_ACTION_LABELS.demoteFromAdmin : USER_ACTION_LABELS.promoteToAdmin,
+      title: confirmAction?.user.is_admin ? t('adminUsers.actions.demoteFromAdmin') : t('adminUsers.actions.promoteToAdmin'),
       message: confirmAction?.user.is_admin
-        ? `Sollen die Admin-Rechte von "${confirmAction?.user.username}" entzogen werden? Alle aktiven Sitzungen werden beendet.`
-        : `Soll "${confirmAction?.user.username}" zum Admin gemacht werden? Alle aktiven Sitzungen werden beendet, damit neue Berechtigungen greifen.`,
-      label: confirmAction?.user.is_admin ? 'Entziehen' : USER_ACTION_LABELS.promoteToAdmin,
+        ? t('adminUsers.confirm.setAdmin.demoteMessage', { username: confirmAction?.user.username })
+        : t('adminUsers.confirm.setAdmin.promoteMessage', { username: confirmAction?.user.username }),
+      label: confirmAction?.user.is_admin ? t('adminUsers.confirm.setAdmin.demoteLabel') : t('adminUsers.actions.promoteToAdmin'),
       cls: confirmAction?.user.is_admin ? undefined : 'bg-violet-600 hover:bg-violet-700',
     },
     'toggle-hotfolder': {
-      title: confirmAction?.user.hotfolder_enabled ? USER_ACTION_LABELS.disableHotfolder : USER_ACTION_LABELS.enableHotfolder,
+      title: confirmAction?.user.hotfolder_enabled ? t('adminUsers.actions.disableHotfolder') : t('adminUsers.actions.enableHotfolder'),
       message: confirmAction?.user.hotfolder_enabled
-        ? `Hotfolder für "${confirmAction?.user.username}" deaktivieren?`
-        : `Hotfolder für "${confirmAction?.user.username}" aktivieren?`,
-      label: confirmAction?.user.hotfolder_enabled ? 'Deaktivieren' : 'Aktivieren',
+        ? t('adminUsers.confirm.hotfolder.disableMessage', { username: confirmAction?.user.username })
+        : t('adminUsers.confirm.hotfolder.enableMessage', { username: confirmAction?.user.username }),
+      label: confirmAction?.user.hotfolder_enabled ? t('adminUsers.actions.deactivate') : t('adminUsers.actions.activate'),
       cls: confirmAction?.user.hotfolder_enabled ? undefined : 'bg-orange-600 hover:bg-orange-700',
     },
   }
@@ -1120,19 +1102,19 @@ export default function AdminUsersPage() {
             className="flex cursor-pointer items-center gap-2 h-9 rounded-lg bg-accent-DEFAULT px-4 text-sm font-medium text-white hover:bg-accent-600 transition-colors"
           >
             <Plus className="h-4 w-4" />
-            Erstellen
+            {t('adminUsers.create.submit')}
           </button>
         </div>
         {/* Search */}
         <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-          <label className="text-xs font-medium text-neutral-500">Suche</label>
+          <label className="text-xs font-medium text-neutral-500">{t('adminUsers.filters.search')}</label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
             <input
               type="text"
               value={searchInput}
               onChange={e => handleSearchChange(e.target.value)}
-              placeholder="Name, E-Mail oder ID..."
+              placeholder={t('adminUsers.filters.searchPlaceholder')}
               className="h-9 w-full rounded border border-neutral-300 bg-white pl-9 pr-3 text-sm dark:border-neutral-600 dark:bg-neutral-800"
             />
           </div>
@@ -1140,17 +1122,17 @@ export default function AdminUsersPage() {
 
         {/* Status filter */}
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Status</label>
+          <label className="text-xs font-medium text-neutral-500">{t('adminUsers.table.status')}</label>
           <select
             value={statusFilter}
             onChange={e => handleStatusChange(e.target.value)}
             className="h-9 rounded border border-neutral-300 bg-white px-2 text-sm dark:border-neutral-600 dark:bg-neutral-800"
           >
-            <option value="active">{STATUS_LABELS.active}</option>
-            <option value="inactive">{STATUS_LABELS.inactive}</option>
-            <option value="pending">{STATUS_LABELS.pending}</option>
-            <option value="deleted">{STATUS_LABELS.deleted}</option>
-            <option value="all">{STATUS_LABELS.all}</option>
+            <option value="active">{t('adminUsers.status.active')}</option>
+            <option value="inactive">{t('adminUsers.status.inactive')}</option>
+            <option value="pending">{t('adminUsers.status.pending')}</option>
+            <option value="deleted">{t('adminUsers.status.deleted')}</option>
+            <option value="all">{t('adminUsers.status.all')}</option>
           </select>
         </div>
       </div>
@@ -1160,13 +1142,13 @@ export default function AdminUsersPage() {
         <table className="w-full text-sm">
           <thead className="bg-neutral-50 dark:bg-neutral-900">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">Benutzer</th>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">E-Mail</th>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">Quelle</th>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">Letzter Login</th>
-              <th className="px-4 py-3 text-left font-medium text-neutral-500">Erstellt</th>
-              <th className="px-4 py-3 text-right font-medium text-neutral-500">Aktionen</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.user')}</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.email')}</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.status')}</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.source')}</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.lastLogin')}</th>
+              <th className="px-4 py-3 text-left font-medium text-neutral-500">{t('adminUsers.table.created')}</th>
+              <th className="px-4 py-3 text-right font-medium text-neutral-500">{t('adminUsers.table.actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -1175,7 +1157,7 @@ export default function AdminUsersPage() {
                 <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
                   <div className="flex items-center justify-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Lade Benutzer...
+                    {t('adminUsers.table.loading')}
                   </div>
                 </td>
               </tr>
@@ -1183,14 +1165,14 @@ export default function AdminUsersPage() {
             {isError && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-red-500">
-                  Fehler beim Laden der Benutzer.
+                  {t('adminUsers.table.loadError')}
                 </td>
               </tr>
             )}
             {!isLoading && !isError && users.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-neutral-500">
-                  Keine Benutzer gefunden.
+                  {t('adminUsers.table.empty')}
                 </td>
               </tr>
             )}
@@ -1209,23 +1191,23 @@ export default function AdminUsersPage() {
                       </span>
                       {user.is_admin && (
                         <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                          Admin
+                          {t('adminUsers.badges.admin')}
                         </span>
                       )}
                       {!user.email_verified && !isDeleted && (
                         <span
                           className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                          title="E-Mail nicht verifiziert"
+                          title={t('adminUsers.badges.emailUnverified')}
                         >
-                          Unverifiziert
+                          {t('adminUsers.badges.unverified')}
                         </span>
                       )}
                       {user.hotfolder_enabled && !isDeleted && (
                         <span
                           className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                          title="Hotfolder aktiv"
+                          title={t('adminUsers.badges.hotfolderActive')}
                         >
-                          Hotfolder
+                          {t('adminUsers.badges.hotfolder')}
                         </span>
                       )}
                     </div>
@@ -1261,7 +1243,7 @@ export default function AdminUsersPage() {
                     {fmtTs(user.created_at)}
                     {isDeleted && (
                       <div className="text-red-500 mt-0.5">
-                        Gelöscht: {fmtTs(user.deleted_at)}
+                        {t('adminUsers.table.deletedAt', { date: fmtTs(user.deleted_at) })}
                       </div>
                     )}
                   </td>
@@ -1286,8 +1268,8 @@ export default function AdminUsersPage() {
       <div className="flex items-center justify-between text-sm text-neutral-600 dark:text-neutral-400">
         <span>
           {total > 0
-            ? `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} von ${total} Benutzern`
-            : 'Keine Benutzer'}
+            ? t('adminUsers.pagination.range', { start: offset + 1, end: Math.min(offset + PAGE_SIZE, total), total })
+            : t('adminUsers.pagination.none')}
         </span>
         <div className="flex items-center gap-2">
           <button
@@ -1295,17 +1277,17 @@ export default function AdminUsersPage() {
             disabled={offset === 0}
             className="cursor-pointer rounded-lg border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
-            Zurück
+            {t('common.back')}
           </button>
           <span>
-            Seite {currentPage} / {totalPages}
+            {t('adminUsers.pagination.page', { current: currentPage, total: totalPages })}
           </span>
           <button
             onClick={() => setOffset(offset + PAGE_SIZE)}
             disabled={offset + PAGE_SIZE >= total}
             className="cursor-pointer rounded-lg border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-600 dark:hover:bg-neutral-800"
           >
-            Weiter
+            {t('common.next')}
           </button>
         </div>
       </div>

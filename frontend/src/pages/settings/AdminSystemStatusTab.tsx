@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { BuildInfo, ComponentStatus, SystemStatusState } from '@/api/systemStatus'
 import { downloadSystemStatusExport, fetchSystemStatus } from '@/api/systemStatus'
 import { SettingsSection } from '@/components/ui/SettingsSection'
@@ -8,6 +10,7 @@ import { useToast } from '@/lib/toast'
 import { triggerBlobDownload } from '@/lib/utils'
 
 export default function AdminSystemStatusTab() {
+  const { t, i18n } = useTranslation()
   const { addToast } = useToast()
   const [exporting, setExporting] = useState(false)
   const [featureSearch, setFeatureSearch] = useState('')
@@ -18,8 +21,8 @@ export default function AdminSystemStatusTab() {
     staleTime: 15_000,
   })
 
-  if (isLoading) return <div className="text-sm text-neutral-500">Status wird geladen…</div>
-  if (isError || !data) return <div className="text-sm text-red-500">Systemstatus konnte nicht geladen werden.</div>
+  if (isLoading) return <div className="text-sm text-neutral-500">{t('settings.adminSystemStatus.loading')}</div>
+  if (isError || !data) return <div className="text-sm text-red-500">{t('settings.adminSystemStatus.loadError')}</div>
 
   const build = {
     ...data.build,
@@ -27,9 +30,9 @@ export default function AdminSystemStatusTab() {
   }
   const featureRows = data.feature_matrix
     ? Object.values(data.feature_matrix)
-      .filter((component) => matchesFeatureSearch(component, featureSearch))
+      .filter((component) => matchesFeatureSearch(component, featureSearch, t))
       .filter((component) => matchesFeatureFilter(component, featureFilter))
-      .sort((a, b) => featureLabel(a.key, a.label).localeCompare(featureLabel(b.key, b.label), 'de'))
+      .sort((a, b) => featureLabel(a.key, a.label, t).localeCompare(featureLabel(b.key, b.label, t), i18n.language))
     : []
 
   async function handleExport() {
@@ -38,12 +41,12 @@ export default function AdminSystemStatusTab() {
     try {
       const { blob, filename } = await downloadSystemStatusExport()
       triggerBlobDownload(blob, filename || 'skadia-system-status.json')
-      addToast({ type: 'success', title: 'Diagnose exportiert' })
+      addToast({ type: 'success', title: t('settings.adminSystemStatus.exportSuccess') })
     } catch {
       addToast({
         type: 'error',
-        title: 'Diagnose-Export fehlgeschlagen',
-        message: 'Der Systemstatus konnte nicht exportiert werden.',
+        title: t('settings.adminSystemStatus.exportErrorTitle'),
+        message: t('settings.adminSystemStatus.exportErrorMessage'),
         duration: 0,
       })
     } finally {
@@ -53,54 +56,54 @@ export default function AdminSystemStatusTab() {
 
   return (
     <div className="space-y-6">
-      <SettingsSection title="Systemstatus" description="Laufzeitstatus, Build-Herkunft und Diagnosehinweise.">
+      <SettingsSection title={t('settings.adminSystemStatus.title')} description={t('settings.adminSystemStatus.description')}>
         <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-neutral-600 dark:text-neutral-400">Gesamtstatus</span>
-              <StatusBadge state={data.overall} />
+              <span className="text-neutral-600 dark:text-neutral-400">{t('settings.adminSystemStatus.overallStatus')}</span>
+              <StatusBadge state={data.overall} t={t} />
             </div>
-            <BuildTable build={build} />
+            <BuildTable build={build} t={t} />
           </div>
           <button type="button" onClick={handleExport} disabled={exporting} className="rounded border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900">
-            {exporting ? 'Export läuft…' : 'Diagnose exportieren'}
+            {exporting ? t('settings.adminSystemStatus.exporting') : t('settings.adminSystemStatus.export')}
           </button>
         </div>
       </SettingsSection>
-      <SettingsSection title="Datenebene" description="Datenbank, Speicher, Jobverarbeitung und DSGVO-Artefakte.">
+      <SettingsSection title={t('settings.adminSystemStatus.sections.data.title')} description={t('settings.adminSystemStatus.sections.data.description')}>
         <StatusGrid items={[
-          ['Datenbank', data.components.db],
-          ['TimescaleDB-Kompression', data.components.timescale_compression],
-          ['Speicher', data.components.storage],
-          ['Jobs', data.components.jobs],
-          ['DSGVO-Artefakte', data.components.gdpr_artifacts],
-        ]} />
+          [t('settings.adminSystemStatus.components.db'), data.components.db],
+          [t('settings.adminSystemStatus.components.timescale_compression'), data.components.timescale_compression],
+          [t('settings.adminSystemStatus.components.storage'), data.components.storage],
+          [t('settings.adminSystemStatus.components.jobs'), data.components.jobs],
+          [t('settings.adminSystemStatus.components.gdpr_artifacts'), data.components.gdpr_artifacts],
+        ]} t={t} />
       </SettingsSection>
-      <SettingsSection title="Dienste und Nachrichten" description="API-nahe Dienste, ML und Queue-Verarbeitung.">
+      <SettingsSection title={t('settings.adminSystemStatus.sections.services.title')} description={t('settings.adminSystemStatus.sections.services.description')}>
         <StatusGrid items={[
           ['API', data.components.api],
-          ['ML-Dienst', data.components.ml],
+          [t('settings.adminSystemStatus.components.ml'), data.components.ml],
           ['NATS / JetStream', data.components.nats],
-        ]} />
+        ]} t={t} />
       </SettingsSection>
-      <SettingsSection title="Routing und Geodaten" description="Routing-Engines, lokale Geodaten, Höhenmodell, Coverage und Kartendateien.">
+      <SettingsSection title={t('settings.adminSystemStatus.sections.routing.title')} description={t('settings.adminSystemStatus.sections.routing.description')}>
         <StatusGrid items={[
           ['BRouter', data.components.brouter],
           ['BadRouter-Routinggraph', data.components.badrouter],
-          ['OSM-Geodaten', data.components.osm],
-          ['Höhendaten', data.components.dem],
-          ['Coverage', data.components.coverage],
-          ['Offline-Karte (PMTiles)', data.components.tiles],
-        ]} />
+          [t('settings.adminSystemStatus.components.osm'), data.components.osm],
+          [t('settings.adminSystemStatus.components.dem'), data.components.dem],
+          [t('settings.adminSystemStatus.components.coverage'), data.components.coverage],
+          [t('settings.adminSystemStatus.components.tiles'), data.components.tiles],
+        ]} t={t} />
       </SettingsSection>
       {data.feature_matrix && (
-        <SettingsSection title="Feature-Matrix" description="Konfigurierte und aktuell verfügbare Funktionsbereiche.">
+        <SettingsSection title={t('settings.adminSystemStatus.sections.features.title')} description={t('settings.adminSystemStatus.sections.features.description')}>
           <div className="mb-4 flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/40 lg:flex-row lg:items-center">
             <input
               type="search"
               value={featureSearch}
               onChange={(event) => setFeatureSearch(event.target.value)}
-              placeholder="Feature suchen..."
+              placeholder={t('settings.adminSystemStatus.featureSearchPlaceholder')}
               className="min-h-10 flex-1 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-accent-DEFAULT dark:border-neutral-700 dark:bg-neutral-950"
             />
             <select
@@ -108,14 +111,14 @@ export default function AdminSystemStatusTab() {
               onChange={(event) => setFeatureFilter(event.target.value as 'all' | 'attention' | 'disabled')}
               className="min-h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-accent-DEFAULT dark:border-neutral-700 dark:bg-neutral-950"
             >
-              <option value="all">Alle Status</option>
-              <option value="attention">Aufmerksamkeit</option>
-              <option value="disabled">Deaktiviert</option>
+              <option value="all">{t('settings.adminSystemStatus.filters.all')}</option>
+              <option value="attention">{t('settings.adminSystemStatus.filters.attention')}</option>
+              <option value="disabled">{t('settings.adminSystemStatus.filters.disabled')}</option>
             </select>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {featureRows.map((component) => (
-              <StatusCard key={component.key} title={featureLabel(component.key, component.label)} component={component} compact />
+              <StatusCard key={component.key} title={featureLabel(component.key, component.label, t)} component={component} compact t={t} />
             ))}
           </div>
         </SettingsSection>
@@ -124,17 +127,17 @@ export default function AdminSystemStatusTab() {
   )
 }
 
-function StatusGrid({ items }: { items: Array<[string, ComponentStatus | undefined]> }) {
+function StatusGrid({ items, t }: { items: Array<[string, ComponentStatus | undefined]>; t: TFunction }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {items.map(([title, component]) => (
-        <StatusCard key={title} title={title} component={component} />
+        <StatusCard key={title} title={title} component={component} t={t} />
       ))}
     </div>
   )
 }
 
-function StatusCard({ title, component, compact = false }: { title: string; component?: ComponentStatus; compact?: boolean }) {
+function StatusCard({ title, component, compact = false, t }: { title: string; component?: ComponentStatus; compact?: boolean; t: TFunction }) {
   const state = component?.state ?? 'unknown'
   const reason = component?.reason_code
   const details = component?.details ? Object.entries(component.details).slice(0, compact ? 2 : 3) : []
@@ -143,16 +146,16 @@ function StatusCard({ title, component, compact = false }: { title: string; comp
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
-          {reason && <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">{reasonLabel(reason)}</p>}
+          {reason && <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">{reasonLabel(reason, t)}</p>}
         </div>
-        <StatusBadge state={state} />
+        <StatusBadge state={state} t={t} />
       </div>
       {details.length > 0 && (
         <dl className="mt-4 grid gap-1 text-xs text-neutral-500 dark:text-neutral-400">
           {details.map(([key, value]) => (
             <div key={key} className="flex min-w-0 justify-between gap-3">
-              <dt className="truncate">{detailLabel(key)}</dt>
-              <dd className="truncate text-right font-mono text-neutral-700 dark:text-neutral-300">{detailValue(value)}</dd>
+              <dt className="truncate">{detailLabel(key, t)}</dt>
+              <dd className="truncate text-right font-mono text-neutral-700 dark:text-neutral-300">{detailValue(value, t)}</dd>
             </div>
           ))}
         </dl>
@@ -161,17 +164,17 @@ function StatusCard({ title, component, compact = false }: { title: string; comp
   )
 }
 
-function StatusBadge({ state }: { state: SystemStatusState }) {
+function StatusBadge({ state, t }: { state: SystemStatusState; t: TFunction }) {
   const color = stateTone(state)
   return (
     <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${color.container}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
-      {stateLabel(state)}
+      {stateLabel(state, t)}
     </span>
   )
 }
 
-function BuildTable({ build }: { build: Record<string, BuildInfo> }) {
+function BuildTable({ build, t }: { build: Record<string, BuildInfo>; t: TFunction }) {
   const rows = ['api', 'frontend', 'ml']
     .map((key) => build[key])
     .filter((row): row is BuildInfo => Boolean(row))
@@ -181,21 +184,21 @@ function BuildTable({ build }: { build: Record<string, BuildInfo> }) {
       <table className="min-w-full border-separate border-spacing-x-4 border-spacing-y-1">
         <thead>
           <tr className="text-left">
-            <th>Dienst</th>
+            <th>{t('settings.adminSystemStatus.build.service')}</th>
             <th>Commit</th>
-            <th>Commit-Zeit</th>
-            <th>Build-Zeit</th>
-            <th>Konfiguration</th>
+            <th>{t('settings.adminSystemStatus.build.commitTime')}</th>
+            <th>{t('settings.adminSystemStatus.build.buildTime')}</th>
+            <th>{t('settings.adminSystemStatus.build.config')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.service}>
               <td>{serviceLabel(row.service)}</td>
-              <td className="font-mono">{shortValue(row.git_commit)}</td>
-              <td>{fallbackValue(row.commit_time)}</td>
-              <td>{fallbackValue(row.build_time)}</td>
-              <td>{fallbackValue(row.config_version)}</td>
+              <td className="font-mono">{shortValue(row.git_commit, t)}</td>
+              <td>{fallbackValue(row.commit_time, t)}</td>
+              <td>{fallbackValue(row.build_time, t)}</td>
+              <td>{fallbackValue(row.config_version, t)}</td>
             </tr>
           ))}
         </tbody>
@@ -204,132 +207,22 @@ function BuildTable({ build }: { build: Record<string, BuildInfo> }) {
   )
 }
 
-const STATE_LABELS: Record<SystemStatusState, string> = {
-  ok: 'OK',
-  degraded: 'Eingeschränkt',
-  unavailable: 'Nicht erreichbar',
-  disabled: 'Deaktiviert',
-  not_configured: 'Nicht konfiguriert',
-  missing_artifacts: 'Daten fehlen',
-  blocked: 'Blockiert',
-  unknown: 'Unbekannt',
+function translateKnown(t: TFunction, key: string, unknownKey: string): string {
+  const translated = t(key)
+  if (translated !== key) return translated
+  return t(unknownKey)
 }
 
-const FEATURE_LABELS: Record<string, string> = {
-  activity_track_summary_geo: 'Geodaten in Aktivitäten',
-  activity_track_summary_surface: 'Wege und Oberflächen',
-  ai_agent: 'KI-Assistent',
-  badrouter: 'BadRouter-Routinggraph',
-  brouter: 'BRouter',
-  brouter_segment_build: 'BRouter-Segmente erzeugen',
-  brouter_segment_download: 'BRouter-Segmente herunterladen',
-  coverage: 'Coverage',
-  coverage_tiles: 'Coverage-Kacheln',
-  dem_correction: 'Höhenkorrektur',
-  deployment_profile: 'Installationsprofil',
-  direct_upload_lifecycle: 'Direkter Upload',
-  document_ml: 'Dokumentverarbeitung',
-  gdpr_artifacts: 'DSGVO-Transferdateien',
-  geo_poi_enrichment: 'Geo-/POI-Anreicherung',
-  import_path_enabled: 'Import aus Serverpfaden',
-  isochrone: 'Isochronen',
-  library_paths: 'Dateipfade in der Bibliothek',
-  library_schemas: 'Dateischemata',
-  library_sync: 'Bibliotheks-Synchronisierung',
-  local_poi_search: 'Lokale Ortssuche',
-  ml_service: 'ML-Dienst',
-  offline_map: 'Offline-Karte',
-  osm_enrichment: 'OSM-Anreicherung',
-  osm_import: 'OSM-Import',
-  osm_lift_snap: 'Lift-Snap über OSM',
-  photo_embedding_storage_access: 'Foto-Speicherzugriff',
-  photo_embeddings: 'Foto-Indexierung',
-  route_photo_media: 'Routenfotos',
-  route_suggestion: 'Routenvorschläge',
-  routing: 'Lokales Routing',
-  routing_tiles: 'Routing-Kacheln',
-  segment_enrichment_suggest: 'Segmentvorschläge',
-  segment_osm_lift_import: 'Lift-Segmente aus OSM',
-  segment_publish: 'Segment-Veröffentlichung',
-  segment_recompute: 'Segment-Neuberechnung',
-  segments: 'Segmente',
-  storage_backend: 'Speicher-Backend',
-  storage_mode: 'Speichermodus',
-  surface_enrichment: 'Oberflächen-Anreicherung',
-  system_layers_coverage: 'Coverage-Systemlayer',
-  system_layers_vector: 'Vektor-Systemlayer',
+function featureLabel(key: string, _backendLabel: string | undefined, t: TFunction): string {
+  return translateKnown(t, `settings.adminSystemStatus.features.${key}`, 'settings.adminSystemStatus.features.unknown')
 }
 
-const REASON_LABELS: Record<string, string> = {
-  artifact_store_probe_failed: 'Artefakt-Speicher konnte nicht geprüft werden.',
-  brouter_segments_missing: 'BRouter-Segmente fehlen.',
-  brouter_unreachable: 'BRouter ist nicht erreichbar.',
-  consumer_lag: 'Queue-Verarbeitung hängt zurück.',
-  core_profile: 'Im Core-Profil deaktiviert.',
-  coverage_corrupt_cells: 'Coverage-Daten enthalten beschädigte Zellen.',
-  coverage_missing: 'Coverage-Daten fehlen.',
-  db_extension_missing: 'Eine erforderliche Datenbankerweiterung fehlt.',
-  db_not_configured: 'Datenbank ist nicht konfiguriert.',
-  db_unreachable: 'Datenbank ist nicht erreichbar.',
-  dem_tiles_missing: 'Höhendaten fehlen.',
-  expired_artifact_backlog: 'Abgelaufene DSGVO-Artefakte warten auf Bereinigung.',
-  file_presence_only: 'Nur Dateipräsenz geprüft.',
-  incomplete_multipart_backlog: 'Unvollständige Multipart-Uploads vorhanden.',
-  jetstream_consumers_missing: 'JetStream-Consumer fehlen.',
-  jetstream_introspection_unavailable: 'JetStream-Details konnten nicht gelesen werden.',
-  jetstream_stream_missing: 'JetStream-Stream fehlt.',
-  local_storage_not_replica_safe: 'Lokaler Speicher ist für mehrere API-Replikas nicht freigegeben.',
-  migration_dirty: 'Datenbankmigration ist als dirty markiert.',
-  migration_status_unreadable: 'Migrationsstatus konnte nicht gelesen werden.',
-  missing_artifacts: 'Erforderliche lokale Daten fehlen.',
-  missing_profiles: 'Erforderliche Profile sind nicht aktiv.',
-  missing_service: 'Erforderlicher Dienst läuft nicht.',
-  ml_disabled: 'ML-Dienst ist deaktiviert.',
-  ml_not_ready: 'ML-Dienst ist noch nicht bereit.',
-  ml_roles_unavailable: 'ML-Rollen sind nicht vollständig verfügbar.',
-  ml_status_unavailable: 'Interner ML-Status ist nicht erreichbar.',
-  ml_unreachable: 'ML-Dienst ist nicht erreichbar.',
-  nats_not_configured: 'NATS ist nicht konfiguriert.',
-  nats_unavailable: 'NATS ist nicht erreichbar.',
-  not_configured: 'Nicht konfiguriert.',
-  osm_regions_failed: 'Mindestens eine OSM-Region ist fehlgeschlagen.',
-  osm_regions_importing: 'Mindestens eine OSM-Region importiert noch.',
-  osm_regions_need_redownload: 'Mindestens eine OSM-Region muss erneut geladen werden.',
-  pmtiles_missing: 'Kartendateien fehlen.',
-  pmtiles_dir_missing: 'PMTiles-Verzeichnis ist nicht eingebunden.',
-  postgis_missing: 'PostGIS ist nicht verfügbar.',
-  replica_count_unknown: 'Replikationssicherheit konnte nicht bewertet werden.',
-  routing_tiles_missing: 'Routing-Kacheln fehlen.',
-  s3_storage: 'Bei S3-Speicher nicht verfügbar.',
-  s3_bucket_unreachable: 'S3-Bucket ist nicht erreichbar.',
-  s3_list_prefix_probe_failed: 'S3-Listenprüfung ist fehlgeschlagen.',
-  s3_multipart_abort_probe_failed: 'S3-Multipart-Prüfung ist fehlgeschlagen.',
-  s3_write_delete_probe_failed: 'S3-Schreib-/Löschprüfung ist fehlgeschlagen.',
-  stuck_jobs: 'Jobs hängen fest.',
-  storage_unavailable: 'Speicher ist nicht verfügbar.',
-  timescale_compression_disabled: 'TimescaleDB-Kompression ist deaktiviert.',
-  timescale_compression_option_drift: 'TimescaleDB-Kompression weicht von der Soll-Konfiguration ab.',
-  timescale_compression_policy_missing: 'TimescaleDB-Kompressionsrichtlinie fehlt.',
-  timescale_compression_setting_drift: 'TimescaleDB-Kompression und Einstellung widersprechen sich.',
-  timescale_compression_toggle_failed: 'Letzte Kompressionsumschaltung ist fehlgeschlagen.',
-}
-
-function featureLabel(key: string, backendLabel?: string): string {
-  if (FEATURE_LABELS[key]) return FEATURE_LABELS[key]
-  if (backendLabel && backendLabel !== key && !backendLabel.includes('_')) return backendLabel
-  return key
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
-function matchesFeatureSearch(component: ComponentStatus, query: string): boolean {
+function matchesFeatureSearch(component: ComponentStatus, query: string, t: TFunction): boolean {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return true
   return [
-    featureLabel(component.key, component.label),
-    reasonLabel(component.reason_code ?? ''),
+    featureLabel(component.key, component.label, t),
+    reasonLabel(component.reason_code ?? '', t),
   ].some((value) => value.toLowerCase().includes(normalized))
 }
 
@@ -372,66 +265,22 @@ function stateTone(state: SystemStatusState): { container: string; dot: string }
   }
 }
 
-function stateLabel(state: SystemStatusState): string {
-  return STATE_LABELS[state] ?? state
+function stateLabel(state: SystemStatusState, t: TFunction): string {
+  return translateKnown(t, `settings.adminSystemStatus.states.${state}`, 'settings.adminSystemStatus.states.unknown')
 }
 
-function reasonLabel(reason: string): string {
-  return REASON_LABELS[reason] ?? reason
+function reasonLabel(reason: string, t: TFunction): string {
+  if (!reason) return ''
+  return translateKnown(t, `settings.adminSystemStatus.reasons.${reason}`, 'settings.adminSystemStatus.reasons.unknown')
 }
 
-const DETAIL_LABELS: Record<string, string> = {
-  active_exports_count: 'Aktive Exporte',
-  active_imports_count: 'Aktive Importe',
-  artifact_counter_error_count: 'Artefakt-Zählfehler',
-  available: 'Verfügbar',
-  backend: 'Backend',
-  compressed_chunks_count: 'Komprimierte Chunks',
-  configured: 'Konfiguriert',
-  corrupt_cell_count: 'Beschädigte Zellen',
-  directory_present: 'Verzeichnis eingebunden',
-  disabled_consumer_count: 'Deaktivierte Consumer',
-  extension_fuzzystrmatch: 'Erweiterung fuzzystrmatch',
-  extension_pg_trgm: 'Erweiterung pg_trgm',
-  extension_pgcrypto: 'Erweiterung pgcrypto',
-  failed_last_24h_count: 'Fehler letzte 24 h',
-  failed_region_count: 'Fehlgeschlagene Regionen',
-  imported_region_count: 'Importierte Regionen',
-  importing_region_count: 'Laufende Importe',
-  layer_count: 'Layer',
-  llm_broker_status: 'LLM-Broker',
-  metrics_available: 'Metriken verfügbar',
-  missing_role_count: 'Fehlende Rollen',
-  mode: 'Modus',
-  oldest_pending_age_seconds: 'Ältester Rückstand (s)',
-  pending_message_count: 'Offene Nachrichten',
-  pmtiles_file_count: 'PMTiles-Dateien',
-  profile_count: 'Profile',
-  redelivered_count: 'Erneute Zustellungen',
-  region_count: 'Regionen',
-  replica_count: 'Replikas',
-  running_count: 'Offene Jobs',
-  segment_count: 'Segmente',
-  state: 'Status',
-  status_accessible: 'Status erreichbar',
-  stale_region_count: 'Neu zu ladende Regionen',
-  tile_count: 'Tiles',
-  uncompressed_chunks_count: 'Unkomprimierte Chunks',
-  version: 'Version',
+function detailLabel(key: string, t: TFunction): string {
+  return translateKnown(t, `settings.adminSystemStatus.details.${key}`, 'settings.adminSystemStatus.details.unknown')
 }
 
-function detailLabel(key: string): string {
-  if (DETAIL_LABELS[key]) return DETAIL_LABELS[key]
-  return key
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
-function detailValue(value: string): string {
-  if (value === 'true') return 'Ja'
-  if (value === 'false') return 'Nein'
+function detailValue(value: string, t: TFunction): string {
+  if (value === 'true') return t('common.yes')
+  if (value === 'false') return t('common.no')
   return value
 }
 
@@ -442,13 +291,13 @@ function serviceLabel(service: string): string {
   return service
 }
 
-function shortValue(value?: string): string {
-  const raw = fallbackValue(value)
-  if (raw === 'unbekannt') return raw
+function shortValue(value: string | undefined, t: TFunction): string {
+  const raw = fallbackValue(value, t)
+  if (raw === t('common.unknown')) return raw
   return raw.length > 12 ? raw.slice(0, 12) : raw
 }
 
-function fallbackValue(value?: string): string {
-  if (!value || value === 'unknown') return 'unbekannt'
+function fallbackValue(value: string | undefined, t: TFunction): string {
+  if (!value || value === 'unknown') return t('common.unknown')
   return value
 }

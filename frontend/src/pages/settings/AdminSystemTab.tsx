@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
@@ -39,6 +40,13 @@ function isLocked(settings: SettingsResponse | null, section: string, key: strin
   return getField(settings, section, key).locked === true
 }
 
+function translateKnownTemplate(t: ReturnType<typeof useTranslation>['t'], key: string): string {
+  const translationKey = `settings.adminSystem.emailTemplates.labels.${key}`
+  const translated = t(translationKey)
+  if (translated !== translationKey) return translated
+  return t('settings.adminSystem.emailTemplates.labels.unknown')
+}
+
 const STATUS_BADGE_GREEN = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
 const STATUS_BADGE_GRAY = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
 const STATUS_DOT_GREEN = 'h-2 w-2 rounded-full bg-emerald-500'
@@ -75,10 +83,11 @@ interface LockedHintProps {
 }
 
 function LockedHint({ fieldKey }: LockedHintProps) {
+  const { t } = useTranslation()
   const varName = ENV_VAR_NAMES[fieldKey] ?? fieldKey.toUpperCase().replace(/\./g, '_')
   return (
     <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
-      Gesetzt per Umgebungsvariable — entferne <code className="font-mono">{varName}</code> aus .env um hier zu konfigurieren
+      {t('settings.adminSystem.lockedHint.before')} <code className="font-mono">{varName}</code> {t('settings.adminSystem.lockedHint.after')}
     </p>
   )
 }
@@ -146,13 +155,14 @@ interface SectionActionsProps {
 }
 
 function SectionActions({ onSave, onReset, saving }: SectionActionsProps) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center justify-between pt-2">
       <button type="button" onClick={onReset} className={RESET_LINK_CLASS}>
-        Auf Standard zurücksetzen
+        {t('settings.adminSystem.actions.reset')}
       </button>
       <button type="button" onClick={onSave} disabled={saving} className={SAVE_BTN_CLASS}>
-        {saving ? 'Speichern…' : 'Speichern'}
+        {saving ? t('common.saving') : t('common.save')}
       </button>
     </div>
   )
@@ -166,6 +176,7 @@ interface SmtpSectionProps {
 }
 
 function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [host, setHost] = useState('')
   const [port, setPort] = useState('587')
@@ -199,10 +210,10 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
         'smtp.from': from || null,
         'smtp.tls': tlsMode || null,
       })
-      addToast({ type: 'success', title: 'Einstellungen gespeichert' })
+      addToast({ type: 'success', title: t('settings.adminSystem.toasts.saved') })
       onSaved()
     } catch (err) {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.toasts.saveFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setSaving(false)
     }
@@ -221,9 +232,9 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
     setTestingEmail(true)
     try {
       await sendTestEmail()
-      addToast({ type: 'success', title: 'Test-E-Mail gesendet', message: 'Überprüfe deinen Posteingang' })
+      addToast({ type: 'success', title: t('settings.adminSystem.smtp.testSent'), message: t('settings.adminSystem.smtp.checkInbox') })
     } catch (err) {
-      addToast({ type: 'error', title: 'Test-E-Mail fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.smtp.testFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setTestingEmail(false)
     }
@@ -231,13 +242,13 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
 
   return (
     <SettingsSection
-      title="E-Mail (SMTP)"
-      description="Ausgehende E-Mails für Verifizierung, Einladungen und Benachrichtigungen."
+      title={t('settings.adminSystem.smtp.title')}
+      description={t('settings.adminSystem.smtp.description')}
     >
       <div className="flex items-center justify-between">
         <span className={smtpConfigured ? STATUS_BADGE_GREEN : STATUS_BADGE_GRAY}>
           <span className={smtpConfigured ? STATUS_DOT_GREEN : STATUS_DOT_GRAY} />
-          {smtpConfigured ? 'Konfiguriert' : 'Nicht konfiguriert'}
+          {smtpConfigured ? t('common.configured') : t('common.notConfigured')}
         </span>
         <button
           type="button"
@@ -245,13 +256,13 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           disabled={!smtpConfigured || testingEmail}
           className="text-sm text-accent-500 hover:text-accent-600 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {testingEmail ? 'Senden…' : 'Test-E-Mail senden'}
+          {testingEmail ? t('settings.adminSystem.smtp.sending') : t('settings.adminSystem.smtp.sendTest')}
         </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <LabeledInput
-          label="Host"
+          label={t('settings.adminSystem.smtp.host')}
           value={host}
           onChange={setHost}
           placeholder="smtp.example.com"
@@ -260,7 +271,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           lockedHint
         />
         <LabeledInput
-          label="Port"
+          label={t('settings.adminSystem.smtp.port')}
           type="number"
           value={port}
           onChange={setPort}
@@ -270,7 +281,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           lockedHint
         />
         <LabeledInput
-          label="Benutzername"
+          label={t('settings.adminSystem.smtp.username')}
           value={username}
           onChange={setUsername}
           placeholder="user@example.com"
@@ -279,7 +290,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           lockedHint
         />
         <LabeledInput
-          label="Passwort"
+          label={t('settings.adminSystem.smtp.password')}
           type="password"
           value={password}
           onChange={setPassword}
@@ -289,7 +300,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           lockedHint
         />
         <LabeledInput
-          label="Absender (From)"
+          label={t('settings.adminSystem.smtp.from')}
           type="email"
           value={from}
           onChange={setFrom}
@@ -299,7 +310,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           lockedHint
         />
         <LabeledSelect
-          label="TLS-Modus"
+          label={t('settings.adminSystem.smtp.tlsMode')}
           value={tlsMode}
           onChange={setTlsMode}
           disabled={isLocked(settings, 'smtp', 'tls')}
@@ -307,7 +318,7 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
           options={[
             { value: 'starttls', label: 'STARTTLS' },
             { value: 'ssl', label: 'SSL/TLS' },
-            { value: 'none', label: 'Keine Verschlüsselung' },
+            { value: 'none', label: t('settings.adminSystem.smtp.noEncryption') },
           ]}
         />
       </div>
@@ -317,23 +328,14 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
   )
 }
 
-// ── Section 2 — E-Mail Templates ──────────────────────────────────────────────
-
-const EMAIL_TEMPLATE_LABELS: Record<string, string> = {
-  verify_email: 'E-Mail verifizieren',
-  reset_password: 'Passwort zurücksetzen',
-  invite_user: 'Einladung',
-  change_email: 'E-Mail-Adresse ändern',
-  account_deletion: 'Account-Löschung',
-  admin_approval_needed: 'Admin-Freigabe',
-  test_email: 'SMTP-Test',
-}
+// ── Section 2 — Email templates ──────────────────────────────────────────────
 
 interface EmailTemplatesSectionProps {
   smtpConfigured: boolean
 }
 
 function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { data: templates = [], isLoading } = useQuery({
@@ -368,9 +370,9 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
     try {
       await saveEmailTemplate(selected.key, { subject, html, text, enabled: true })
       await queryClient.invalidateQueries({ queryKey: ['admin-email-templates'] })
-      addToast({ type: 'success', title: 'E-Mail-Template gespeichert' })
+      addToast({ type: 'success', title: t('settings.adminSystem.emailTemplates.toasts.saved') })
     } catch (err) {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.toasts.saveFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setBusy(false)
     }
@@ -383,7 +385,7 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
       const rendered = await previewEmailTemplate(selected.key, { subject, html, text, enabled: true })
       setPreview(rendered)
     } catch (err) {
-      addToast({ type: 'error', title: 'Vorschau fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.emailTemplates.toasts.previewFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setBusy(false)
     }
@@ -394,9 +396,9 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
     setBusy(true)
     try {
       await sendEmailTemplateTest(selected.key)
-      addToast({ type: 'success', title: 'Test-E-Mail gesendet' })
+      addToast({ type: 'success', title: t('settings.adminSystem.smtp.testSent') })
     } catch (err) {
-      addToast({ type: 'error', title: 'Test-E-Mail fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.smtp.testFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setBusy(false)
     }
@@ -408,9 +410,9 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
     try {
       await resetEmailTemplate(selected.key)
       await queryClient.invalidateQueries({ queryKey: ['admin-email-templates'] })
-      addToast({ type: 'success', title: 'Standard wiederhergestellt' })
+      addToast({ type: 'success', title: t('settings.adminSystem.emailTemplates.toasts.defaultRestored') })
     } catch (err) {
-      addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.emailTemplates.toasts.resetFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setBusy(false)
     }
@@ -426,11 +428,11 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
 
   return (
     <SettingsSection
-      title="E-Mail-Texte"
-      description="Betreff, HTML und Textversion der ausgehenden System-E-Mails."
+      title={t('settings.adminSystem.emailTemplates.title')}
+      description={t('settings.adminSystem.emailTemplates.description')}
     >
       {isLoading || !selected ? (
-        <div className="py-8 text-sm text-neutral-500">Templates werden geladen…</div>
+        <div className="py-8 text-sm text-neutral-500">{t('settings.adminSystem.emailTemplates.loading')}</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
           <div className="space-y-2">
@@ -445,15 +447,15 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
                 }`}
               >
-                <span className="block font-medium">{EMAIL_TEMPLATE_LABELS[template.key] ?? template.key}</span>
-                <span className="text-xs text-neutral-500">{template.source === 'db' ? 'Angepasst' : 'Standard'}</span>
+                <span className="block font-medium">{translateKnownTemplate(t, template.key)}</span>
+                <span className="text-xs text-neutral-500">{template.source === 'db' ? t('settings.adminSystem.emailTemplates.customized') : t('settings.adminSystem.emailTemplates.standard')}</span>
               </button>
             ))}
           </div>
 
           <div className="space-y-4">
             <LabeledInput
-              label="Betreff"
+              label={t('settings.adminSystem.emailTemplates.subject')}
               value={subject}
               onChange={setSubject}
               fieldKey="email.subject"
@@ -467,10 +469,10 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
               <textarea value={text} onChange={handleTextChange} rows={6} className={`${AUTH_INPUT_CLASS} font-mono text-xs min-h-36`} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={handleSave} disabled={busy} className={SAVE_BTN_CLASS}>Speichern</button>
-              <button type="button" onClick={handlePreview} disabled={busy} className={SECONDARY_BTN_CLASS}>Vorschau</button>
-              <button type="button" onClick={handleTest} disabled={busy || !smtpConfigured} className={SECONDARY_BTN_CLASS}>Test senden</button>
-              <button type="button" onClick={handleReset} disabled={busy || selected.source !== 'db'} className={RESET_LINK_CLASS}>Auf Standard zurücksetzen</button>
+              <button type="button" onClick={handleSave} disabled={busy} className={SAVE_BTN_CLASS}>{t('common.save')}</button>
+              <button type="button" onClick={handlePreview} disabled={busy} className={SECONDARY_BTN_CLASS}>{t('settings.adminSystem.emailTemplates.preview')}</button>
+              <button type="button" onClick={handleTest} disabled={busy || !smtpConfigured} className={SECONDARY_BTN_CLASS}>{t('settings.adminSystem.emailTemplates.sendTest')}</button>
+              <button type="button" onClick={handleReset} disabled={busy || selected.source !== 'db'} className={RESET_LINK_CLASS}>{t('settings.adminSystem.actions.reset')}</button>
             </div>
             {preview && (
               <div className="space-y-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
@@ -485,7 +487,7 @@ function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
   )
 }
 
-// ── Section 3 — Registrierung & App ──────────────────────────────────────────
+// ── Section 3 — Registration and app ─────────────────────────────────────────
 
 interface RegistrationSectionProps {
   settings: SettingsResponse | null
@@ -494,6 +496,7 @@ interface RegistrationSectionProps {
 }
 
 function RegistrationSection({ settings, smtpConfigured, onSaved }: RegistrationSectionProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [registrationMode, setRegistrationMode] = useState('invite')
   const [appName, setAppName] = useState('')
@@ -520,11 +523,11 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
         'app.name': appName || null,
         'app.url': appUrl || null,
       })
-      addToast({ type: 'success', title: 'Einstellungen gespeichert' })
+      addToast({ type: 'success', title: t('settings.adminSystem.toasts.saved') })
       setOriginalAppUrl(appUrl)
       onSaved()
     } catch (err) {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.toasts.saveFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setSaving(false)
     }
@@ -537,18 +540,18 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
   }
 
   const REGISTRATION_MODES = [
-    { value: 'invite', label: 'Einladung', description: 'Nur per Einladungslink registrieren' },
-    { value: 'open', label: 'Offen', description: 'Jeder kann sich registrieren' },
-    { value: 'approval', label: 'Genehmigung', description: 'Registrierung erfordert Admin-Freigabe' },
+    { value: 'invite', label: t('settings.adminSystem.registration.modes.invite.label'), description: t('settings.adminSystem.registration.modes.invite.description') },
+    { value: 'open', label: t('settings.adminSystem.registration.modes.open.label'), description: t('settings.adminSystem.registration.modes.open.description') },
+    { value: 'approval', label: t('settings.adminSystem.registration.modes.approval.label'), description: t('settings.adminSystem.registration.modes.approval.description') },
   ]
 
   return (
     <SettingsSection
-      title="Registrierung & App"
-      description="Kontrolliere wie neue Benutzer Zugang erhalten und grundlegende App-Einstellungen."
+      title={t('settings.adminSystem.registration.title')}
+      description={t('settings.adminSystem.registration.description')}
     >
       <div className="space-y-3">
-        <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Registrierungsmodus</label>
+        <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('settings.adminSystem.registration.modeLabel')}</label>
         <div className="space-y-2">
           {REGISTRATION_MODES.map(mode => (
             <label
@@ -582,7 +585,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
             <span className="text-amber-500 flex-shrink-0 mt-0.5">⚠</span>
             <p className="text-sm text-amber-700 dark:text-amber-400">
-              Offene Registrierung erfordert E-Mail-Verifizierung — SMTP zuerst konfigurieren
+              {t('settings.adminSystem.registration.openNeedsSmtp')}
             </p>
           </div>
         )}
@@ -590,7 +593,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
         <LabeledInput
-          label="App-Name"
+          label={t('settings.adminSystem.registration.appName')}
           value={appName}
           onChange={setAppName}
           placeholder="Skadia"
@@ -599,7 +602,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
           lockedHint
         />
         <div className="space-y-1">
-          <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">App-URL</label>
+          <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('settings.adminSystem.registration.appUrl')}</label>
           <input
             type="text"
             value={appUrl}
@@ -613,7 +616,7 @@ function RegistrationSection({ settings, smtpConfigured, onSaved }: Registration
             <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 mt-1">
               <span className="text-amber-500 flex-shrink-0">⚠</span>
               <p className="text-xs text-amber-700 dark:text-amber-400">
-                OAuth-Redirect-URIs bei Strava/Google aktualisieren
+                {t('settings.adminSystem.registration.oauthRedirectHint')}
               </p>
             </div>
           )}
@@ -650,6 +653,7 @@ function ProviderBlock({
   clientIdLocked,
   clientSecretLocked,
 }: ProviderBlockProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const active = clientId.trim() !== '' && clientSecret.trim() !== '' && clientSecret !== '***' || (clientId.trim() !== '' && clientSecret === '***')
 
@@ -664,7 +668,7 @@ function ProviderBlock({
         <div className="flex items-center gap-3">
           <span className={active ? STATUS_BADGE_GREEN : STATUS_BADGE_GRAY}>
             <span className={active ? STATUS_DOT_GREEN : STATUS_DOT_GRAY} />
-            {active ? 'Aktiv' : 'Inaktiv'}
+            {active ? t('common.active') : t('common.inactive')}
           </span>
           <span className={`text-neutral-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
         </div>
@@ -707,6 +711,7 @@ interface SocialLoginSectionProps {
 }
 
 function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [stravaClientId, setStravaClientId] = useState('')
   const [stravaClientSecret, setStravaClientSecret] = useState('***')
@@ -732,10 +737,10 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
         'social.google_client_id': googleClientId || null,
         'social.google_client_secret': googleClientSecret === '***' ? '***' : (googleClientSecret || null),
       })
-      addToast({ type: 'success', title: 'Einstellungen gespeichert' })
+      addToast({ type: 'success', title: t('settings.adminSystem.toasts.saved') })
       onSaved()
     } catch (err) {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.toasts.saveFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setSaving(false)
     }
@@ -750,13 +755,13 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
 
   return (
     <SettingsSection
-      title="Social Login"
-      description="OAuth-Provider für die Anmeldung mit externen Konten."
+      title={t('settings.adminSystem.social.title')}
+      description={t('settings.adminSystem.social.description')}
     >
       <div className="space-y-3">
         {!oauthEncryptionConfigured && (
           <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-            OAUTH_ENCRYPTION_KEY fehlt. Social Login bleibt deaktiviert, bis der Server-Schlüssel gesetzt ist.
+            {t('settings.adminSystem.social.missingEncryptionKey')}
           </div>
         )}
         <ProviderBlock
@@ -788,7 +793,7 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
   )
 }
 
-// ── Section 4 — Dateisystem & Datenbank ──────────────────────────────────────
+// ── Section 4 — Filesystem and database ──────────────────────────────────────
 
 interface FilesystemSectionProps {
   settings: SettingsResponse | null
@@ -796,6 +801,7 @@ interface FilesystemSectionProps {
 }
 
 function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [hotfolderMode, setHotfolderMode] = useState('disabled')
   const [librarySync, setLibrarySync] = useState(false)
@@ -829,10 +835,10 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
         'library.sync_auto_import': String(librarySyncAutoImport),
         'timescale.compression': String(timescaleCompression),
       })
-      addToast({ type: 'success', title: 'Einstellungen gespeichert' })
+      addToast({ type: 'success', title: t('settings.adminSystem.toasts.saved') })
       onSaved()
     } catch (err) {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+      addToast({ type: 'error', title: t('settings.adminSystem.toasts.saveFailed'), message: err instanceof Error ? err.message : undefined, duration: 0 })
     } finally {
       setSaving(false)
     }
@@ -847,13 +853,13 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
 
   return (
     <SettingsSection
-      title="Dateisystem & Datenbank"
-      description="Hotfolder-Verhalten, Bibliotheks-Sync und Datenbank-Optimierungen."
+      title={t('settings.adminSystem.filesystem.title')}
+      description={t('settings.adminSystem.filesystem.description')}
     >
       {showDecompressConfirm && (
         <div className="p-4 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 space-y-3">
           <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
-            Dekomprimierung kann bei großen Datenmengen sehr lange dauern. Fortfahren?
+            {t('settings.adminSystem.filesystem.decompressWarning')}
           </p>
           <div className="flex gap-2">
             <button
@@ -861,29 +867,29 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
               onClick={() => { setTimescaleCompression(false); setShowDecompressConfirm(false) }}
               className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium cursor-pointer transition-colors"
             >
-              Ja, deaktivieren
+              {t('settings.adminSystem.filesystem.confirmDisable')}
             </button>
             <button
               type="button"
               onClick={() => setShowDecompressConfirm(false)}
               className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm font-medium cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
           </div>
         </div>
       )}
 
       <LabeledSelect
-        label="Hotfolder-Modus"
+        label={t('settings.adminSystem.filesystem.hotfolderMode')}
         value={hotfolderMode}
         onChange={setHotfolderMode}
         disabled={isLocked(settings, 'hotfolder', 'mode')}
         fieldKey="hotfolder.mode"
         options={[
-          { value: 'disabled', label: 'Deaktiviert' },
-          { value: 'admin-only', label: 'Nur Admin' },
-          { value: 'self-service', label: 'Self-Service' },
+          { value: 'disabled', label: t('common.disabled') },
+          { value: 'admin-only', label: t('settings.adminSystem.filesystem.adminOnly') },
+          { value: 'self-service', label: t('settings.adminSystem.filesystem.selfService') },
         ]}
       />
 
@@ -894,10 +900,10 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
             <>
               <div className="flex items-center justify-between gap-4 py-1">
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Library Sync</span>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Bibliotheksverzeichnis auf Dateiänderungen überwachen</p>
+                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.adminSystem.filesystem.librarySync')}</span>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.adminSystem.filesystem.librarySyncDescription')}</p>
                   {isS3 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Nur bei lokalem Storage verfügbar (S3 aktiv)</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{t('settings.adminSystem.filesystem.localStorageOnly')}</p>
                   )}
                   {isLocked(settings, 'library', 'sync_enabled') && (
                     <LockedHint fieldKey="library.sync_enabled" />
@@ -907,18 +913,18 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
                   checked={librarySync}
                   onChange={setLibrarySync}
                   disabled={isS3 || isLocked(settings, 'library', 'sync_enabled')}
-                  aria-label="Library Sync aktivieren"
+                  aria-label={t('settings.adminSystem.filesystem.enableLibrarySync')}
                 />
               </div>
 
               <div className="flex items-center justify-between gap-4 py-1 pl-4 border-l-2 border-neutral-200 dark:border-neutral-700">
                 <div className="min-w-0 flex-1">
                   <span className={`text-sm font-medium ${(!librarySync || isS3) ? 'text-neutral-400 dark:text-neutral-600' : 'text-neutral-900 dark:text-neutral-100'}`}>
-                    Library Sync Auto-Import
+                    {t('settings.adminSystem.filesystem.librarySyncAutoImport')}
                   </span>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Neue Dateien im Bibliotheksverzeichnis automatisch importieren</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.adminSystem.filesystem.librarySyncAutoImportDescription')}</p>
                   {isS3 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Nur bei lokalem Storage verfügbar (S3 aktiv)</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{t('settings.adminSystem.filesystem.localStorageOnly')}</p>
                   )}
                   {isLocked(settings, 'library', 'sync_auto_import') && (
                     <LockedHint fieldKey="library.sync_auto_import" />
@@ -928,7 +934,7 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
                   checked={librarySyncAutoImport}
                   onChange={setLibrarySyncAutoImport}
                   disabled={isS3 || !librarySync || isLocked(settings, 'library', 'sync_auto_import')}
-                  aria-label="Library Sync Auto-Import aktivieren"
+                  aria-label={t('settings.adminSystem.filesystem.enableLibrarySyncAutoImport')}
                 />
               </div>
             </>
@@ -937,8 +943,8 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
 
         <div className="flex items-center justify-between gap-4 py-1">
           <div className="min-w-0 flex-1">
-            <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">TimescaleDB-Kompression</span>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitätsstreams komprimieren (empfohlen bei großen Datenmengen)</p>
+            <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.adminSystem.filesystem.timescaleCompression')}</span>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.adminSystem.filesystem.timescaleDescription')}</p>
             {isLocked(settings, 'timescale', 'compression') && (
               <LockedHint fieldKey="timescale.compression" />
             )}
@@ -947,7 +953,7 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
             checked={timescaleCompression}
             onChange={handleTimescaleToggle}
             disabled={isLocked(settings, 'timescale', 'compression')}
-            aria-label="TimescaleDB-Kompression aktivieren"
+            aria-label={t('settings.adminSystem.filesystem.enableTimescaleCompression')}
           />
         </div>
       </div>
@@ -960,6 +966,7 @@ function FilesystemSection({ settings, onSaved }: FilesystemSectionProps) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function AdminSystemTab() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { data: settings, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin-settings'],
@@ -982,7 +989,7 @@ export default function AdminSystemTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-neutral-400 text-sm">
-        Einstellungen werden geladen…
+        {t('settings.adminSystem.loading')}
       </div>
     )
   }
@@ -990,13 +997,13 @@ export default function AdminSystemTab() {
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <p className="text-red-500 text-sm">{error instanceof Error ? error.message : 'Laden fehlgeschlagen'}</p>
+        <p className="text-red-500 text-sm">{error instanceof Error ? error.message : t('settings.adminSystem.loadFailed')}</p>
         <button
           type="button"
           onClick={() => refetch()}
           className="text-sm text-accent-500 hover:text-accent-600 cursor-pointer transition-colors"
         >
-          Erneut versuchen
+          {t('common.retry')}
         </button>
       </div>
     )

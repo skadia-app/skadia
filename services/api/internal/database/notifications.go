@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -21,13 +22,46 @@ func (db *DB) CreateNotification(ctx context.Context, userID, category, title, b
 	return nil
 }
 
+// CreateNotificationWithData inserts a notification with structured UI metadata.
+func (db *DB) CreateNotificationWithData(ctx context.Context, userID, category, title, body string, data map[string]any) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal notification data: %w", err)
+	}
+	_, err = db.Pool.Exec(ctx,
+		"INSERT INTO notifications (user_id, category, title, body, data) VALUES ($1, $2, $3, $4, $5)",
+		userID, category, title, body, payload,
+	)
+	if err != nil {
+		return fmt.Errorf("create notification: %w", err)
+	}
+	return nil
+}
+
+func structuredNotificationData(messageKey string, params map[string]any) map[string]any {
+	if params == nil {
+		params = map[string]any{}
+	}
+	return map[string]any{
+		"key":            messageKey,
+		"message_key":    messageKey,
+		"params":         params,
+		"message_params": params,
+	}
+}
+
+// CreateNotificationKeyed inserts a notification with a stable frontend message key.
+func (db *DB) CreateNotificationKeyed(ctx context.Context, userID, category, title, body, messageKey string, params map[string]any) error {
+	return db.CreateNotificationWithData(ctx, userID, category, title, body, structuredNotificationData(messageKey, params))
+}
+
 // ListNotifications returns up to limit recent notifications for a user, newest first.
 func (db *DB) ListNotifications(ctx context.Context, userID string, limit int) ([]model.Notification, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, category, title, body, read, created_at
+		SELECT id, user_id, category, title, body, COALESCE(data, '{}'::jsonb), read, created_at
 		FROM notifications
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -41,8 +75,14 @@ func (db *DB) ListNotifications(ctx context.Context, userID string, limit int) (
 	var results []model.Notification
 	for rows.Next() {
 		var n model.Notification
-		if err := rows.Scan(&n.ID, &n.UserID, &n.Category, &n.Title, &n.Body, &n.Read, &n.CreatedAt); err != nil {
+		var data []byte
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Category, &n.Title, &n.Body, &data, &n.Read, &n.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan notification: %w", err)
+		}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &n.Data); err != nil {
+				return nil, fmt.Errorf("unmarshal notification data: %w", err)
+			}
 		}
 		results = append(results, n)
 	}
@@ -89,7 +129,7 @@ func (db *DB) MarkAllRead(ctx context.Context, userID string) error {
 	return nil
 }
 
-// DeleteNotification löscht eine einzelne Benachrichtigung (Ownership-Check via user_id).
+// DeleteNotification deletes one notification after checking ownership.
 func (db *DB) DeleteNotification(ctx context.Context, notifID, userID string) error {
 	tag, err := db.Pool.Exec(ctx,
 		"DELETE FROM notifications WHERE id = $1 AND user_id = $2",
@@ -104,7 +144,7 @@ func (db *DB) DeleteNotification(ctx context.Context, notifID, userID string) er
 	return nil
 }
 
-// DeleteAllNotifications löscht alle Benachrichtigungen eines Users.
+// DeleteAllNotifications deletes all notifications for a user.
 func (db *DB) DeleteAllNotifications(ctx context.Context, userID string) error {
 	_, err := db.Pool.Exec(ctx,
 		"DELETE FROM notifications WHERE user_id = $1",

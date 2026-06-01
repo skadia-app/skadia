@@ -1,7 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import '@/i18n/i18n'
 import type { Activity, LiftCandidate } from '@/api/types'
 import { apiFetch } from '@/lib/auth'
 import { getNetActivityTotals } from '@/lib/netActivityTotals'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 type ActivityLiftProps = Pick<
   Activity,
@@ -36,6 +39,8 @@ async function throwOnError(res: Response): Promise<Response> {
 }
 
 export default function LiftSection({ activity, onToggleExclude, onOpenReview }: LiftSectionProps) {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const activityId = activity.id
   const liftCount = activity.lift_count ?? 0
   const liftDistanceM = activity.lift_distance_m
@@ -103,23 +108,23 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
 
   return (
     <section className="space-y-3">
-      <h3 className="font-semibold text-sm">Liftfahrten</h3>
+      <h3 className="font-semibold text-sm">{t('liftSection.title')}</h3>
 
       {showReviewBanner && (
         <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-3 py-2 flex items-center justify-between text-sm">
           <span className="text-amber-800 dark:text-amber-200">
             {detectionDisabledForActivity
-              ? 'Lift-Erkennung für diese Aktivität deaktiviert'
+              ? t('liftSection.detectionDisabled')
               : unreviewedCandidateCount === 1
-                ? '1 Liftfahrt unbestätigt'
-                : `${unreviewedCandidateCount} Liftfahrten unbestätigt`}
+                ? t('liftSection.unconfirmedCount', { count: unreviewedCandidateCount })
+                : t('liftSection.unconfirmedCount', { count: unreviewedCandidateCount })}
           </span>
           {onOpenReview && (
             <button
               onClick={onOpenReview}
               className="cursor-pointer ml-3 rounded bg-amber-600 hover:bg-amber-700 px-3 py-1 text-xs font-medium text-white transition-colors"
             >
-              Prüfen
+              {t('liftSection.review')}
             </button>
           )}
         </div>
@@ -129,22 +134,22 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 space-y-2 text-sm">
           {/* Headline row: count + combined elevation */}
           <div className="text-sm font-medium">
-            {liftCount === 1 ? '1 Liftfahrt' : `${liftCount} Liftfahrten`}
+            {t('liftSection.rideCount', { count: liftCount })}
             {' · '}
-            {`+${Math.round(liftAscentM ?? 0)} / −${Math.round(liftDescentM ?? 0)} m`}
+            {`+${formatElevation(liftAscentM ?? 0)} / −${formatElevation(liftDescentM ?? 0)}`}
           </div>
 
           <div className="flex justify-between">
-            <span className="text-neutral-500 dark:text-neutral-400">{liftCount} Fahrten</span>
-            <span>{((liftDistanceM ?? 0) / 1000).toFixed(1)} km · {Math.round(liftDurationS ? liftDurationS / 60 : 0)} min</span>
+            <span className="text-neutral-500 dark:text-neutral-400">{t('liftSection.tripCount', { count: liftCount })}</span>
+            <span>{formatDistance(liftDistanceM ?? 0)} · {Math.round(liftDurationS ? liftDurationS / 60 : 0)} min</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-500 dark:text-neutral-400">Lift ↑ / ↓</span>
-            <span>{Math.round(liftAscentM ?? 0)} / {Math.round(liftDescentM ?? 0)} m</span>
+            <span className="text-neutral-500 dark:text-neutral-400">{t('liftSection.liftElevation')}</span>
+            <span>{formatElevation(liftAscentM ?? 0)} / {formatElevation(liftDescentM ?? 0)}</span>
           </div>
           <div className="border-t border-neutral-200 dark:border-neutral-800 pt-2 flex justify-between font-medium">
-            <span>Netto</span>
-            <span>{(net.distanceM / 1000).toFixed(1)} km · {Math.round(net.elevationGainM)} m↑</span>
+            <span>{t('liftSection.net')}</span>
+            <span>{formatDistance(net.distanceM)} · {formatElevation(net.elevationGainM)}↑</span>
           </div>
           <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 cursor-pointer">
             <input
@@ -153,7 +158,7 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
               onChange={e => onToggleExclude(e.target.checked)}
               className="rounded"
             />
-            Lifte herausrechnen deaktivieren
+            {t('liftSection.disableSubtraction')}
           </label>
 
           {/* Heuristic candidates — confirm/unconfirm list */}
@@ -163,17 +168,17 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
                 const start = new Date(c.started_at)
                 const hhmm = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`
                 const ascentDesc = c.descent_m && c.descent_m > 0
-                  ? `+${Math.round(c.ascent_m)} / −${Math.round(c.descent_m)} m`
-                  : `+${Math.round(c.ascent_m)} m`
+                  ? `+${formatElevation(c.ascent_m)} / −${formatElevation(c.descent_m)}`
+                  : `+${formatElevation(c.ascent_m)}`
 
                 return (
                   <div key={c.id} className="flex items-center gap-2 rounded border border-neutral-200 dark:border-neutral-800 p-2 text-sm">
                     <span className="flex-1">
                       {hhmm} · {ascentDesc} · {Math.round(c.duration_s / 60)} min
-                      {c.confidence === 'high' && <span className="ml-1 text-xs text-green-600 dark:text-green-400">(sicher)</span>}
+                      {c.confidence === 'high' && <span className="ml-1 text-xs text-green-600 dark:text-green-400">{t('liftSection.highConfidence')}</span>}
                       {' '}
                       <span className={`text-xs font-medium ${c.confirmed ? 'text-green-700 dark:text-green-400' : 'text-neutral-400'}`}>
-                        {c.confirmed ? 'bestätigt' : 'offen'}
+                        {c.confirmed ? t('liftSection.confirmed') : t('liftSection.open')}
                       </span>
                     </span>
                     {!c.confirmed ? (
@@ -183,24 +188,24 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
                           disabled={confirm.isPending}
                           className="text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          ✓ Bestätigen
+                          ✓ {t('liftSection.confirm')}
                         </button>
                         <button
                           onClick={() => reject.mutate(c.id)}
                           disabled={reject.isPending}
                           className="text-xs px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          ✗ Verwerfen
+                          ✗ {t('liftSection.reject')}
                         </button>
                       </>
                     ) : (
                       <button
                         onClick={() => unconfirm.mutate(c.id)}
                         disabled={unconfirm.isPending}
-                        title="Bestätigte Liftfahrten zählen in den Aktivitäts- und Gesamtstatistiken. Rückgängig macht den Confirm zurück — der Kandidat bleibt erhalten und kann erneut bestätigt werden."
+                        title={t('liftSection.undoTitle')}
                         className="text-xs px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        ↶ Rückgängig
+                        {t('liftSection.undo')}
                       </button>
                     )}
                   </div>
@@ -214,19 +219,19 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
       {unconfirmed.length > 0 && liftCount === 0 && (
         <div className="space-y-2">
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            {unconfirmed.length} erkannte Fahrten — bitte bestätigen:
+            {t('liftSection.detectedPrompt', { count: unconfirmed.length })}
           </p>
           {unconfirmed.map(c => {
             const start = new Date(c.started_at)
             const hhmm = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`
             const ascentDesc = c.descent_m && c.descent_m > 0
-              ? `+${Math.round(c.ascent_m)} / −${Math.round(c.descent_m)} m`
-              : `+${Math.round(c.ascent_m)} m`
+              ? `+${formatElevation(c.ascent_m)} / −${formatElevation(c.descent_m)}`
+              : `+${formatElevation(c.ascent_m)}`
             return (
               <div key={c.id} className="flex items-center gap-2 rounded border border-neutral-200 dark:border-neutral-800 p-2 text-sm">
                 <span className="flex-1">
                   {hhmm} · {ascentDesc} · {Math.round(c.duration_s / 60)} min
-                  {c.confidence === 'high' && <span className="ml-1 text-xs text-green-600 dark:text-green-400">(sicher)</span>}
+                  {c.confidence === 'high' && <span className="ml-1 text-xs text-green-600 dark:text-green-400">{t('liftSection.highConfidence')}</span>}
                 </span>
                 <button
                   onClick={() => confirm.mutate(c.id)}

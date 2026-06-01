@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchTags } from '@/api/tags'
 
 export type TagFilterState = 'include' | 'exclude'
@@ -19,7 +20,8 @@ interface Props {
   compact?: boolean
 }
 
-export default function TagFilterInput({ value, onChange, placeholder = 'Tag suchen...', compact }: Props) {
+export default function TagFilterInput({ value, onChange, placeholder, compact }: Props) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -70,14 +72,14 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('tagFilter.title')}</span>
         {hasActive && !compact && (
           <button
             type="button"
             onClick={() => onChange([])}
             className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            Zurücksetzen
+            {t('tagFilter.reset')}
           </button>
         )}
       </div>
@@ -93,7 +95,7 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
           }}
           onClick={handleOpen}
           onFocus={handleOpen}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('tagFilter.placeholder')}
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent placeholder-neutral-400 dark:placeholder-neutral-500"
         />
         {search && (
@@ -140,13 +142,13 @@ export default function TagFilterInput({ value, onChange, placeholder = 'Tag suc
 
       {listOpen && search.trim() !== '' && filtered.length === 0 && (
         <div className="mt-1.5 px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Tags gefunden
+          {t('tagFilter.empty')}
         </div>
       )}
 
       {hasActive && !compact && (
         <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-1.5">
-          Klick: einschließen &rarr; ausschließen &rarr; entfernen
+          {t('tagFilter.hint')}
         </p>
       )}
     </div>

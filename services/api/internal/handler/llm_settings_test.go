@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 )
 
@@ -504,6 +504,87 @@ func TestLLMBackendHostBlockedAllowsLocalLLMServiceHosts(t *testing.T) {
 	}
 	if !llmBackendHostBlocked("127.0.0.1") {
 		t.Fatal("127.0.0.1 was allowed without translation, want blocked")
+	}
+}
+
+func TestLLMConnectionReturnsStructuredMessageCodes(t *testing.T) {
+	h := &Handler{}
+	body := []byte(`{"backend_type":"openai","api_base":"https://llm.invalid/v1","model_name":"tool-model"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm-config/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.TestLLMConnection(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Success     bool   `json:"success"`
+		Message     string `json:"message"`
+		MessageCode string `json:"message_code"`
+		Warning     string `json:"warning"`
+		WarningCode string `json:"warning_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.MessageCode != "connection_failed" {
+		t.Fatalf("message_code = %q, want connection_failed; body=%s", got.MessageCode, rec.Body.String())
+	}
+	if strings.Contains(got.Message, "Verbindung fehlgeschlagen") || strings.Contains(got.Warning, "localhost wurde") {
+		t.Fatalf("response contains localized backend text: %#v", got)
+	}
+}
+
+func TestLLMConnectionReturnsStructuredInvalidURLCode(t *testing.T) {
+	h := &Handler{}
+	body := []byte(`{"backend_type":"openai","api_base":"http://[::1","model_name":"tool-model"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm-config/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.TestLLMConnection(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Message     string `json:"message"`
+		MessageCode string `json:"message_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.MessageCode != "invalid_url" {
+		t.Fatalf("message_code = %q, want invalid_url; body=%s", got.MessageCode, rec.Body.String())
+	}
+	if strings.Contains(got.Message, "Ungueltige URL") || strings.Contains(got.Message, "Ungültige URL") {
+		t.Fatalf("response contains localized backend text: %#v", got)
+	}
+}
+
+func TestLLMConnectionReturnsStructuredLocalhostRewriteWarning(t *testing.T) {
+	h := &Handler{}
+	body := []byte(`{"backend_type":"llama_server","api_base":"http://localhost:8000","model_name":"tool-model"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/llm-config/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.TestLLMConnection(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Warning     string `json:"warning"`
+		WarningCode string `json:"warning_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.WarningCode != "localhost_rewritten_for_container" {
+		t.Fatalf("warning_code = %q, want localhost_rewritten_for_container; body=%s", got.WarningCode, rec.Body.String())
+	}
+	if strings.Contains(got.Warning, "localhost wurde") {
+		t.Fatalf("response contains localized backend warning: %#v", got)
 	}
 }
 

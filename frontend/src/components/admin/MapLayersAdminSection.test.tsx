@@ -9,6 +9,7 @@ import { ToastContainer } from '@/components/Toast'
 import { MapLayersAdminSection } from './MapLayersAdminSection'
 import type { MapLayer } from '@/api/mapLayers'
 import { ApiError } from '@/api/client'
+import { i18n } from '@/i18n/i18n'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,8 @@ function makeWrapper() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('MapLayersAdminSection', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
     vi.clearAllMocks()
     mockFetchMapLayers.mockResolvedValue(MOCK_RESPONSE)
     mockFetchAdminMapLayers.mockResolvedValue(MOCK_RESPONSE)
@@ -126,6 +128,19 @@ describe('MapLayersAdminSection', () => {
       expect(screen.getByText('OSM Standard')).toBeInTheDocument()
     })
     expect(screen.getByText('Mein Overlay')).toBeInTheDocument()
+  })
+
+  it('localizes visible admin layer controls in English', async () => {
+    await i18n.changeLanguage('en')
+
+    render(<MapLayersAdminSection />, { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(screen.getByText('OSM Standard')).toBeInTheDocument())
+    expect(screen.getByText('Map layers (admin)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add layer' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Delete' }).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Karten-Layer (Admin)')).not.toBeInTheDocument()
   })
 
   it('Delete button is disabled for is_system=true rows', async () => {

@@ -1,12 +1,14 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
 import ColorPicker from '@/components/ColorPicker'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
-import { circlePolygon, formatRadius, clampToCircle, pointInPolygon, centroid, haversineM } from '@/lib/geoUtils'
+import { circlePolygon, clampToCircle, pointInPolygon, centroid, haversineM } from '@/lib/geoUtils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   zone: PrivacyZone | null
@@ -30,7 +32,7 @@ function circleToPolygonPoints(center: [number, number], radiusM: number, steps 
   return pts
 }
 
-// ── Cursor helpers (CSS-Klassen schlagen MapLibres inline cursor) ──────────────
+// ── Cursor helpers (CSS classes override MapLibre's inline cursor) ─────────────
 function injectPZECursorStyles() {
   if (document.getElementById('pze-cursor-styles')) return
   const style = document.createElement('style')
@@ -47,15 +49,17 @@ function setPZECursorClass(el: HTMLElement, cursor: 'crosshair' | 'grabbing' | '
 }
 
 export default function PrivacyZoneEditor({ zone, onClose }: Props) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)   // circle center or polygon polygon
   const pinMarkerRef = useRef<maplibregl.Marker | null>(null) // offset pin (blue)
-  // Polygon-Vertex-Marker-Liste
+  // Polygon vertex marker list
   const polyMarkersRef = useRef<maplibregl.Marker[]>([])
-  // true während ein Vertex gerade gezogen wird → kein Marker-Recreate im useEffect
+  // true while a vertex is being dragged; do not recreate markers in useEffect
   const isDraggingVertexRef = useRef(false)
 
   const initialMode: ZoneMode = zone?.zone_type === 'polygon' ? 'polygon' : 'circle'
@@ -77,13 +81,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const [pinLat, setPinLat] = useState(zone?.lat ?? 51.16)
   const [pinLng, setPinLng] = useState(zone?.lng ?? 10.45)
 
-  // Polygon-Punkte: beim Bearbeiten einer Polygon-Zone initial aus GeoJSON laden
+  // Polygon points: load initial values from GeoJSON when editing a polygon zone
   const parseInitialPolygon = (): [number, number][] => {
     if (zone?.zone_type === 'polygon' && zone.polygon) {
       try {
         const parsed = JSON.parse(zone.polygon) as GeoJSON.Polygon
         const ring = parsed.coordinates[0]
-        // Letzten Punkt weglassen (gleich erstem bei geschlossenem Polygon)
+        // Omit the last point (same as the first in a closed polygon)
         return ring.slice(0, -1) as [number, number][]
       } catch {
         return []
@@ -95,7 +99,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>(parseInitialPolygon)
   const [polygonClosed, setPolygonClosed] = useState(zone?.zone_type === 'polygon' && (zone.polygon ?? '').length > 0)
 
-  // Refs für Werte, die im MapLibre-Event-Handler benötigt werden
+  // Refs for values needed by MapLibre event handlers
   const zoneModeRef = useRef<ZoneMode>(initialMode)
   const polygonClosedRef = useRef(polygonClosed)
   const colorRef = useRef(color)
@@ -121,11 +125,11 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     mutationFn: createPrivacyZone,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['privacy-zones'] })
-      addToast({ type: 'success', title: 'Zone erstellt' })
+      addToast({ type: 'success', title: t('privacyZones.editor.created') })
       onClose()
     },
     onError: (error) => {
-      addToast({ type: 'error', title: 'Zone konnte nicht erstellt werden', message: error instanceof Error ? error.message : 'Unbekannter Fehler' })
+      addToast({ type: 'error', title: t('privacyZones.editor.createFailed'), message: error instanceof Error ? error.message : t('common.unknownError') })
     },
   })
 
@@ -134,16 +138,16 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       updatePrivacyZone(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['privacy-zones'] })
-      addToast({ type: 'success', title: 'Zone aktualisiert' })
+      addToast({ type: 'success', title: t('privacyZones.editor.updated') })
       onClose()
     },
     onError: (error) => {
-      addToast({ type: 'error', title: 'Zone konnte nicht aktualisiert werden', message: error instanceof Error ? error.message : 'Unbekannter Fehler' })
+      addToast({ type: 'error', title: t('privacyZones.editor.updateFailed'), message: error instanceof Error ? error.message : t('common.unknownError') })
     },
   })
 
   function buildPolygonGeoJSON(points: [number, number][]): string {
-    // GeoJSON Polygon braucht geschlossenen Ring: erster == letzter Punkt
+    // GeoJSON polygons need a closed ring: first point == last point
     const ring = [...points, points[0]]
     return JSON.stringify({ type: 'Polygon', coordinates: [ring] })
   }
@@ -184,7 +188,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         }
       }
     } else {
-      // Polygon-Modus
+      // Polygon mode
       if (polygonPoints.length < 3 || !polygonClosed) return
       const polygonGeoJSON = buildPolygonGeoJSON(polygonPoints)
       // If no offset pin, use centroid as the stored lat/lng
@@ -216,7 +220,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     }
   }
 
-  // Polygon-Layer-Daten aktualisieren
+  // Update polygon layer data
   const updatePolygonLayer = useCallback((map: maplibregl.Map, points: [number, number][], closed: boolean, c: string) => {
     const source = map.getSource('zone-polygon') as maplibregl.GeoJSONSource | undefined
     if (!source) return
@@ -246,9 +250,9 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     }
   }, [])
 
-  // Vertex-Marker aktualisieren
+  // Update vertex markers
   const updateVertexMarkers = useCallback((map: maplibregl.Map, points: [number, number][], c: string) => {
-    // Alte Marker entfernen
+    // Remove old markers
     polyMarkersRef.current.forEach(m => m.remove())
     polyMarkersRef.current = []
 
@@ -318,7 +322,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:grab;
       display:flex;align-items:center;justify-content:center;
     `
-    el.title = 'Genauer Pin (wahre Position)'
+    el.title = t('privacyZones.editor.precisePinTitle')
     const marker = new maplibregl.Marker({ element: el, draggable: true })
       .setLngLat(lngLat)
       .addTo(map)
@@ -405,7 +409,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // ── Kreis-Layer ──────────────────────────────────────────────────────
+      // ── Circle layer ─────────────────────────────────────────────────────
       map.addSource('zone-circle', {
         type: 'geojson',
         data: circlePolygon([lng, lat], radius),
@@ -425,7 +429,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         layout: { visibility: zoneModeRef.current === 'circle' ? 'visible' : 'none' },
       })
 
-      // ── Polygon-Layer ─────────────────────────────────────────────────────
+      // ── Polygon layer ────────────────────────────────────────────────────
       map.addSource('zone-polygon', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -446,7 +450,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         layout: { visibility: zoneModeRef.current === 'polygon' ? 'visible' : 'none' },
       })
 
-      // Marker für Kreismodus
+      // Marker for circle mode
       if (hasInitialPosition && zoneModeRef.current === 'circle') {
         const marker = new maplibregl.Marker({ color: colorRef.current, draggable: true })
           .setLngLat([lng, lat])
@@ -455,13 +459,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         markerRef.current = marker
       }
 
-      // Initial-Polygon rendern wenn Bearbeitung einer Polygon-Zone
+      // Render initial polygon when editing a polygon zone
       if (zoneModeRef.current === 'polygon') {
         const initPts = parseInitialPolygon()
         if (initPts.length >= 3) {
           updatePolygonLayer(map, initPts, true, colorRef.current)
           updateVertexMarkers(map, initPts, colorRef.current)
-          // Bounds anpassen
+          // Fit bounds
           const bounds = new maplibregl.LngLatBounds()
           initPts.forEach(p => bounds.extend(p))
           map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 })
@@ -469,7 +473,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       }
     })
 
-    // Klick-Handler: unterschiedlich je nach Modus
+    // Click handler: mode-specific behavior
     map.on('click', (e) => {
       if (zoneModeRef.current === 'circle') {
         const newLat = e.lngLat.lat
@@ -495,10 +499,10 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           syncPinMarker(map, [newLng, newLat])
         }
       } else {
-        // Polygon-Modus: Punkt nur hinzufügen wenn noch nicht geschlossen
+        // Polygon mode: only add points while still open
         if (polygonClosedRef.current) return
         const pts = polygonPointsRef.current
-        // Klick nahe am ersten Punkt (≥3 Punkte) → Polygon automatisch schließen
+        // Click near the first point (>=3 points) to close the polygon automatically
         if (pts.length >= 3) {
           const firstPx = map.project(pts[0])
           const clickPx = map.project([e.lngLat.lng, e.lngLat.lat])
@@ -526,10 +530,10 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       }
     })
 
-    // Doppelklick schließt Polygon
+    // Double-click closes the polygon
     map.on('dblclick', (e) => {
       if (zoneModeRef.current !== 'polygon' || polygonClosedRef.current) return
-      e.preventDefault() // Zoom verhindern
+      e.preventDefault() // Prevent zoom
       setPolygonPoints(prev => {
         if (prev.length < 3) return prev
         polygonClosedRef.current = true
@@ -552,7 +556,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
     mapRef.current = map
 
-    // Cursor-Management via CSS-Klassen (MapLibre überschreibt canvas.style.cursor intern).
+    // Cursor management via CSS classes (MapLibre overrides canvas.style.cursor internally).
     injectPZECursorStyles()
     const container = mapContainerRef.current!
     let isMouseDown = false
@@ -581,7 +585,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Sync zoneMode-Ref und Sichtbarkeit der Layer
+  // Sync zoneMode ref and layer visibility
   useEffect(() => {
     zoneModeRef.current = zoneMode
     const map = mapRef.current
@@ -598,13 +602,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       if (map.getLayer('zone-polygon-line')) map.setLayoutProperty('zone-polygon-line', 'visibility', polyVis)
 
       if (zoneMode === 'circle') {
-        // Polygon-Marker entfernen
+        // Remove polygon markers
         polyMarkersRef.current.forEach(m => m.remove())
         polyMarkersRef.current = []
       } else {
-        // Kreis-Marker entfernen
+        // Remove circle marker
         if (markerRef.current) { markerRef.current.remove(); markerRef.current = null }
-        // Bestehende Polygon-Punkte anzeigen
+        // Show existing polygon points
         updatePolygonLayer(map, polygonPoints, polygonClosed, color)
         updateVertexMarkers(map, polygonPoints, color)
       }
@@ -626,7 +630,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         updateCircle(map, [lng, lat], radius, color)
       } else {
         updatePolygonLayer(map, polygonPoints, polygonClosed, color)
-        // Farbe der Vertex-Marker aktualisieren
+        // Update vertex marker color
         updateVertexMarkers(map, polygonPoints, color)
       }
     }
@@ -635,15 +639,15 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [radius, lat, lng, color])
 
-  // Polygon-Punkte aktualisieren → Layer + Marker neu zeichnen
+  // Update polygon points; redraw layer and markers
   useEffect(() => {
     const map = mapRef.current
     if (!map || zoneMode !== 'polygon') return
 
     const apply = () => {
       updatePolygonLayer(map, polygonPoints, polygonClosed, color)
-      // Marker nicht neu erstellen während ein Vertex gezogen wird —
-      // das würde den aktiven Drag-Marker zerstören
+      // Do not recreate markers while a vertex is being dragged;
+      // that would destroy the active drag marker
       if (!isDraggingVertexRef.current) {
         updateVertexMarkers(map, polygonPoints, color)
       }
@@ -653,7 +657,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [polygonPoints, polygonClosed])
 
-  // polygonClosed-Ref synchron halten
+  // Keep polygonClosed ref in sync
   useEffect(() => { polygonClosedRef.current = polygonClosed }, [polygonClosed])
 
   // Handle offset-pin toggle
@@ -734,7 +738,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Modus-Toggle */}
+      {/* Mode toggle */}
       <div className="flex gap-2">
         <button
           onClick={() => setZoneMode('circle')}
@@ -744,7 +748,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
           }`}
         >
-          Kreis
+          {t('privacyZones.editor.circle')}
         </button>
         <button
           onClick={() => setZoneMode('polygon')}
@@ -754,7 +758,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
               : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
           }`}
         >
-          Polygon
+          {t('privacyZones.editor.polygon')}
         </button>
       </div>
 
@@ -763,22 +767,22 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
         <div ref={mapContainerRef} className="h-[400px] w-full" />
       </div>
 
-      {/* Hinweis je nach Modus */}
+      {/* Mode-specific hint */}
       {zoneMode === 'circle' ? (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Klicke auf die Karte, um das Zentrum der Zone festzulegen. Den Marker kannst du auch verschieben.
+          {t('privacyZones.editor.circleHint')}
         </p>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           {polygonClosed
-            ? 'Polygon fertig. Eckpunkte lassen sich per Drag-and-Drop verschieben.'
+            ? t('privacyZones.editor.polygonDone')
             : polygonPoints.length < 3
-            ? `Klicke auf die Karte, um Eckpunkte hinzuzufügen (${polygonPoints.length} von mind. 3).`
-            : `${polygonPoints.length} Eckpunkte gesetzt. Klicke auf "Schließen" oder doppelklicke um das Polygon zu schließen.`}
+            ? t('privacyZones.editor.addVerticesHint', { count: polygonPoints.length })
+            : t('privacyZones.editor.closePolygonHint', { count: polygonPoints.length })}
         </p>
       )}
 
-      {/* Polygon-Steuerung */}
+      {/* Polygon controls */}
       {zoneMode === 'polygon' && (
         <div className="flex gap-2">
           <button
@@ -786,17 +790,17 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             disabled={polygonPoints.length < 3 || polygonClosed}
             className="px-3 py-1.5 rounded-lg text-sm font-medium border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
           >
-            Polygon schliessen
+            {t('privacyZones.editor.closePolygon')}
           </button>
           <button
             onClick={handleResetPolygon}
             disabled={polygonPoints.length === 0}
             className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
           >
-            Zurücksetzen
+            {t('privacyZones.editor.reset')}
           </button>
           <span className="ml-auto self-center text-sm text-neutral-400 tabular-nums">
-            {polygonPoints.length} Eckpunkte
+            {t('privacyZones.editor.vertexCount', { count: polygonPoints.length })}
           </span>
         </div>
       )}
@@ -804,25 +808,25 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       {/* Name */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-          Name
+          {t('privacyZones.editor.name')}
         </label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="z.B. Zuhause, Arbeitsplatz"
+          placeholder={t('privacyZones.editor.namePlaceholder')}
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
       </div>
 
-      {/* Radius-Slider (nur im Kreis-Modus) */}
+      {/* Radius slider (circle mode only) */}
       {zoneMode === 'circle' && (
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Radius
+              {t('privacyZones.editor.radius')}
             </label>
-            <span className="text-sm text-neutral-500 tabular-nums">{formatRadius(radius)}</span>
+            <span className="text-sm text-neutral-500 tabular-nums">{formatDistanceCompact(radius)}</span>
           </div>
           <input
             type="range"
@@ -834,8 +838,8 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
           />
           <div className="flex justify-between text-xs text-neutral-400 mt-1">
-            <span>100 m</span>
-            <span>1 km</span>
+            <span>{formatDistanceCompact(100)}</span>
+            <span>{formatDistanceCompact(1000)}</span>
           </div>
         </div>
       )}
@@ -847,23 +851,23 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
             checked={offsetPinEnabled}
             onChange={() => setOffsetPinEnabled(v => !v)}
             color="#3B82F6"
-            aria-label="Versetzten Pin aktivieren"
+            aria-label={t('privacyZones.editor.enableOffsetPin')}
           />
-          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Versetzter Pin</span>
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('privacyZones.editor.offsetPin')}</span>
         </div>
         {offsetPinEnabled ? (
           <div className="space-y-1">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-400 mr-1 relative top-px" />
-              <strong>Pin</strong> = genaue Position (für Regeln). Verschiebe den blauen Punkt auf der Karte.
+              <strong>{t('privacyZones.editor.pin')}</strong> = {t('privacyZones.editor.pinDescription')}
             </p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 mr-1 relative top-px" />
-              <strong>Zone</strong> = Maskierungsbereich (unsichtbar in öffentlicher Heatmap).
+              <strong>{t('privacyZones.editor.zone')}</strong> = {t('privacyZones.editor.zoneDescription')}
             </p>
             {!pinInsideZone && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                Pin liegt ausserhalb der Zone — beim Speichern wird er automatisch zur Zone-Mitte zurückgesetzt.
+                {t('privacyZones.editor.pinOutside')}
               </p>
             )}
             <p className="text-xs text-neutral-400 tabular-nums">
@@ -872,7 +876,7 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           </div>
         ) : (
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Aktiviere diese Option, um den genauen Standort (Pin) vom Maskierungsbereich (Zone) zu trennen.
+            {t('privacyZones.editor.offsetPinDisabledHint')}
           </p>
         )}
       </div>
@@ -880,12 +884,12 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
       {/* Color picker */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Zonenfarbe
+          {t('privacyZones.editor.zoneColor')}
         </label>
         <ColorPicker value={color} onChange={setColor} />
       </div>
 
-      {/* Koordinaten (nur Kreis-Modus, kein Offset) */}
+      {/* Coordinates (circle mode only, no offset) */}
       {zoneMode === 'circle' && !offsetPinEnabled && (
         <div className="text-xs text-neutral-400 tabular-nums">
           {lat.toFixed(5)}, {lng.toFixed(5)}
@@ -899,13 +903,13 @@ export default function PrivacyZoneEditor({ zone, onClose }: Props) {
           disabled={!canSave || isSaving}
           className="bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
         >
-          {isSaving ? 'Speichern...' : 'Speichern'}
+          {isSaving ? t('common.saving') : t('common.save')}
         </button>
         <button
           onClick={onClose}
           className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors cursor-pointer"
         >
-          Abbrechen
+          {t('common.cancel')}
         </button>
       </div>
     </div>

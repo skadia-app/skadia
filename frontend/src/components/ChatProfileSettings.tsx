@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { apiFetch } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
 import Toggle from '@/components/Toggle'
@@ -67,11 +68,11 @@ function resolveProfile(setting: ChatUserSetting, presets: ChatProfileDefaults['
   return { ...base, ...setting.overrides }
 }
 
-function validateChatProfileSetting(setting: ChatUserSetting): string | null {
+function validateChatProfileSetting(setting: ChatUserSetting, t: (key: string, options?: Record<string, unknown>) => string): string | null {
   const value = setting.overrides.max_context_tokens
   if (value === undefined) return null
   if (!Number.isInteger(value) || value < CONTEXT_WINDOW_MIN || value > CONTEXT_WINDOW_MAX) {
-    return `Max. Kontext-Tokens muss zwischen ${CONTEXT_WINDOW_MIN} und ${CONTEXT_WINDOW_MAX} liegen.`
+    return t('components.chatProfile.validation.contextTokens', { min: CONTEXT_WINDOW_MIN, max: CONTEXT_WINDOW_MAX })
   }
   return null
 }
@@ -243,6 +244,7 @@ function CollapsibleSection({ title, children, defaultOpen = false }: Collapsibl
 // -----------------------------------------------------------------------
 
 export default function ChatProfileSettings() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { addToast } = useToast()
 
@@ -305,17 +307,17 @@ export default function ChatProfileSettings() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ml-user-settings'] })
       setLocal(null)
-      addToast({ type: 'success', title: 'AI-Agent-Einstellungen gespeichert' })
+      addToast({ type: 'success', title: t('components.chatProfile.toasts.saved') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Speichern', duration: 0 })
+      addToast({ type: 'error', title: t('components.chatProfile.toasts.saveFailed'), duration: 0 })
     },
   })
 
   const isDirty = local !== null
 
   const handleSave = () => {
-    const validationError = validateChatProfileSetting(setting)
+    const validationError = validateChatProfileSetting(setting, t)
     if (validationError) {
       addToast({ type: 'error', title: validationError, duration: 0 })
       return
@@ -326,8 +328,8 @@ export default function ChatProfileSettings() {
   if (defaultsLoading || settingsLoading) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">Agent-Einstellungen werden geladen…</p>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('components.chatProfile.title')}</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{t('components.chatProfile.loading')}</p>
       </section>
     )
   }
@@ -335,8 +337,8 @@ export default function ChatProfileSettings() {
   if (settingsError) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
-        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Agent-Einstellungen konnten nicht geladen werden.</p>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('components.chatProfile.title')}</h2>
+        <p className="text-sm text-red-600 dark:text-red-400 mt-1">{t('components.chatProfile.loadError')}</p>
       </section>
     )
   }
@@ -344,8 +346,8 @@ export default function ChatProfileSettings() {
   if (defaultsError || !profileDefaults || !profile) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
-        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Profil-Defaults konnten nicht geladen werden.</p>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('components.chatProfile.title')}</h2>
+        <p className="text-sm text-red-600 dark:text-red-400 mt-1">{t('components.chatProfile.defaultsError')}</p>
       </section>
     )
   }
@@ -355,9 +357,9 @@ export default function ChatProfileSettings() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('components.chatProfile.title')}</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Verhalten, Tool-Nutzung und Antwortumfang konfigurieren.
+            {t('components.chatProfile.description')}
           </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -367,7 +369,7 @@ export default function ChatProfileSettings() {
               onClick={() => setLocal(null)}
               className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline cursor-pointer transition-colors"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
           )}
           <button
@@ -376,7 +378,7 @@ export default function ChatProfileSettings() {
             disabled={!isDirty || saveMutation.isPending}
             className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            {saveMutation.isPending ? 'Speichern…' : 'Speichern'}
+            {saveMutation.isPending ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>
@@ -384,12 +386,12 @@ export default function ChatProfileSettings() {
       {/* Grundeinstellungen */}
       <div className="space-y-3">
         <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Grundeinstellungen
+          {t('components.chatProfile.sections.basic')}
         </p>
 
         <ToggleRow
-          label="Aktiviert"
-          description="Neue Chat-Antworten erlauben"
+          label={t('components.chatProfile.enabled.label')}
+          description={t('components.chatProfile.enabled.description')}
           value={setting.enabled}
           onChange={v => patchSetting({ enabled: v })}
           disabled={false}
@@ -397,7 +399,7 @@ export default function ChatProfileSettings() {
 
         <div className="flex items-center justify-between gap-4">
           <label className="text-sm text-neutral-700 dark:text-neutral-300 flex-1">
-            Agent-Profil
+            {t('components.chatProfile.profile.label')}
           </label>
           <div className="flex items-center gap-2">
             <select
@@ -405,18 +407,18 @@ export default function ChatProfileSettings() {
               onChange={e => handlePresetChange(e.target.value as ProfilePreset)}
               className="text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1"
             >
-              <option value="tiny">Kompakt</option>
-              <option value="small">Standard</option>
-              <option value="medium">Robust</option>
-              <option value="large">Maximal / API</option>
-              <option value="custom">Benutzerdefiniert</option>
+              <option value="tiny">{t('components.chatProfile.profile.options.tiny')}</option>
+              <option value="small">{t('components.chatProfile.profile.options.small')}</option>
+              <option value="medium">{t('components.chatProfile.profile.options.medium')}</option>
+              <option value="large">{t('components.chatProfile.profile.options.large')}</option>
+              <option value="custom">{t('components.chatProfile.profile.options.custom')}</option>
             </select>
             {!isCustom && setting.base_profile in profileDefaults.presets && (
               <button
                 type="button"
                 onClick={handleResetToPreset}
                 className="cursor-pointer text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
-                title="Auf Preset-Standardwerte zurücksetzen"
+                title={t('components.chatProfile.profile.resetTitle')}
               >
                 ↺
               </button>
@@ -426,22 +428,22 @@ export default function ChatProfileSettings() {
 
         {!isCustom && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500 italic">
-            Presets steuern Agent-Verhalten, nicht die Modellqualität. Für individuelle Anpassung auf „Benutzerdefiniert" wechseln.
+            {t('components.chatProfile.profile.hint')}
           </p>
         )}
       </div>
 
       {/* Tools & Routing */}
-      <CollapsibleSection title="Tools & Routing">
+      <CollapsibleSection title={t('components.chatProfile.sections.tools')}>
         <ToggleRow
-          label="Semantic Routing"
-          description="Intent-basierte Tool-Auswahl"
+          label={t('components.chatProfile.semanticRouting.label')}
+          description={t('components.chatProfile.semanticRouting.description')}
           value={profile.use_router}
           onChange={v => patchProfile({ use_router: v })}
           disabled={!isCustom}
         />
         <SliderRow
-          label="Tool-Aufrufe pro Antwort"
+          label={t('components.chatProfile.maxToolsPerTurn')}
           value={profile.max_tools_per_turn}
           min={1}
           max={5}
@@ -449,7 +451,7 @@ export default function ChatProfileSettings() {
           disabled={!isCustom}
         />
         <SliderRow
-          label="Tool-Ergebnis-Limit"
+          label={t('components.chatProfile.toolResultLimit')}
           value={profile.tool_result_limit}
           min={3}
           max={50}
@@ -459,10 +461,10 @@ export default function ChatProfileSettings() {
       </CollapsibleSection>
 
       {/* Schema & SQL */}
-      <CollapsibleSection title="Schema & SQL">
+      <CollapsibleSection title={t('components.chatProfile.sections.schema')}>
         <ToggleRow
-          label="SQL-Agent"
-          description="Direkte DB-Abfragen erlauben"
+          label={t('components.chatProfile.sqlAgent.label')}
+          description={t('components.chatProfile.sqlAgent.description')}
           value={profile.enable_sql_agent}
           onChange={v => patchProfile({ enable_sql_agent: v })}
           disabled={!isCustom}
@@ -470,9 +472,9 @@ export default function ChatProfileSettings() {
       </CollapsibleSection>
 
       {/* Prompt & Kontext */}
-      <CollapsibleSection title="Prompt & Kontext">
+      <CollapsibleSection title={t('components.chatProfile.sections.prompt')}>
         <SliderRow
-          label="Few-Shot-Beispiele"
+          label={t('components.chatProfile.fewShotCount')}
           value={profile.few_shot_count}
           min={0}
           max={5}
@@ -480,18 +482,18 @@ export default function ChatProfileSettings() {
           disabled={!isCustom}
         />
         <SelectRow
-          label="System-Prompt-Modus"
+          label={t('components.chatProfile.systemPromptMode.label')}
           value={profile.system_prompt_mode}
           options={[
-            { value: 'compact', label: 'Kompakt (wenige Token)' },
-            { value: 'standard', label: 'Standard' },
-            { value: 'rich', label: 'Ausführlich (mehr Kontext)' },
+            { value: 'compact', label: t('components.chatProfile.systemPromptMode.options.compact') },
+            { value: 'standard', label: t('components.chatProfile.systemPromptMode.options.standard') },
+            { value: 'rich', label: t('components.chatProfile.systemPromptMode.options.rich') },
           ]}
           onChange={v => patchProfile({ system_prompt_mode: v })}
           disabled={!isCustom}
         />
         <NumberRow
-	          label="Max. Kontext-Tokens"
+	          label={t('components.chatProfile.maxContextTokens')}
 	          value={profile.max_context_tokens}
 	          min={CONTEXT_WINDOW_MIN}
 	          max={CONTEXT_WINDOW_MAX}
@@ -500,7 +502,7 @@ export default function ChatProfileSettings() {
           disabled={!isCustom}
         />
         <SliderRow
-          label="Chat-History (Nachrichten)"
+          label={t('components.chatProfile.historyMessages')}
           value={profile.history_messages}
           min={5}
           max={30}
@@ -509,9 +511,9 @@ export default function ChatProfileSettings() {
         />
       </CollapsibleSection>
 
-      <CollapsibleSection title="Antwortumfang">
+      <CollapsibleSection title={t('components.chatProfile.sections.response')}>
         <SliderRow
-          label="Max. Antwort-Tokens"
+          label={t('components.chatProfile.maxResponseTokens')}
           value={profile.max_response_tokens}
           min={500}
           max={16000}
@@ -520,13 +522,13 @@ export default function ChatProfileSettings() {
           disabled={!isCustom}
         />
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Höher wählen, wenn der Agent längere Regeln, strukturierte Vorschläge oder ausführliche Tool-Zusammenfassungen erzeugen soll.
+          {t('components.chatProfile.responseHint')}
         </p>
       </CollapsibleSection>
 
       {isCustom && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
-          Alle Parameter frei konfigurierbar. Änderungen gelten für neue Chat-Sitzungen.
+          {t('components.chatProfile.customHint')}
         </p>
       )}
     </section>

@@ -1,13 +1,14 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 
 export interface ColorPickerProps {
   value: string
   onChange: (hex: string) => void
-  /** Optional: wenn gesetzt, erscheint ein "Speichern"-Button im Popover.
-   *  onChange liefert nur eine Live-Vorschau; onConfirm übernimmt den Wert dauerhaft. */
+  /** Optional: when set, shows a save button in the popover.
+   *  onChange only provides a live preview; onConfirm commits the value. */
   onConfirm?: (hex: string) => void
-  /** Wird aufgerufen wenn das Popover ohne Speichern geschlossen wird (Revert-Signal). */
+  /** Called when the popover closes without saving. */
   onCancel?: () => void
   className?: string
 }
@@ -63,6 +64,7 @@ const GH = 150 // gradient height
  * - Click: opens a popover with hue/saturation gradient, hue slider and hex input.
  */
 function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorPickerProps) {
+  const { t } = useTranslation()
   const confirmMode = !!onConfirm
   const swatchRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -247,7 +249,7 @@ function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorP
             placeholder="#RRGGBB"
           />
 
-          {/* Confirm mode: Speichern / Abbrechen buttons */}
+          {/* Confirm mode: save/cancel buttons */}
           {confirmMode && (
             <div className="flex gap-2 pt-1">
               <button
@@ -258,7 +260,7 @@ function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorP
                 }}
                 className="flex-1 py-1 text-xs rounded bg-[color:var(--color-accent-DEFAULT,#F97316)] text-white font-medium hover:opacity-90 transition-opacity cursor-pointer"
               >
-                Speichern
+                {t('common.save')}
               </button>
               <button
                 type="button"
@@ -268,7 +270,7 @@ function ColorPicker({ value, onChange, onConfirm, onCancel, className }: ColorP
                 }}
                 className="flex-1 py-1 text-xs rounded border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
             </div>
           )}

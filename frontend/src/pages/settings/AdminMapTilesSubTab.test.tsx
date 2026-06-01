@@ -121,4 +121,46 @@ describe('AdminMapTilesSubTab capability gates', () => {
     expect(screen.getByText('Import-Assistent')).toBeInTheDocument()
     expect(screen.queryByText('Lift-Segmente importieren')).not.toBeInTheDocument()
   })
+
+  it('uses a generic label for unknown OSM status categories', async () => {
+    useCapabilities.mockReturnValue({
+      isLoading: false,
+      data: {
+        features: {
+          osm_import: { configured: true, available: true },
+          dem_correction: { configured: false, available: false, reason: 'core_profile' },
+          offline_map: { configured: false, available: false, reason: 'core_profile' },
+          routing_tiles: { configured: false, available: false, reason: 'core_profile' },
+          system_layers_vector: { configured: false, available: false, reason: 'core_profile' },
+          segment_osm_lift_import: { configured: false, available: false, reason: 'core_profile' },
+        },
+      },
+    })
+    fetchOSMStatus.mockResolvedValue({
+      has_data: true,
+      categories: {
+        summit: 2,
+        custom_osm_key: 1,
+      },
+      lifts: 0,
+      pistes: 0,
+      ways: 0,
+      routes: 0,
+      railways: 0,
+      waterways: 0,
+      forests: 0,
+      glaciers: 0,
+      wetlands: 0,
+      boundaries: 0,
+      landuse: 0,
+    })
+    fetchOSMRegionStatus.mockResolvedValue({ regions: [] })
+
+    render(<AdminMapTilesSubTab />, { wrapper: wrapper() })
+
+    expect(await screen.findByText('Gipfel')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannte Kategorie')).toBeInTheDocument()
+    expect(screen.queryByText('custom osm key')).not.toBeInTheDocument()
+    expect(screen.queryByText('custom_osm_key')).not.toBeInTheDocument()
+  })
 })

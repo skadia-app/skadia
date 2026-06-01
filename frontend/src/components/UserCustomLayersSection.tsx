@@ -1,6 +1,7 @@
 // User-managed custom tile-URL layers section in Settings → Karte tab.
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useToast } from '@/lib/toast'
 import { useUserMapLayers, useUserMapLayersMutations } from '@/hooks/useUserMapLayers'
 import { useSettingsLimits } from '@/hooks/useSettingsLimits'
@@ -11,60 +12,63 @@ import { ApiError } from '@/api/client'
 
 // ── i18n-ready labels ─────────────────────────────────────────────────────────
 
-const LABELS = {
-  title: 'Eigene Karten-Layer',
-  description: 'Eigene Tile-Server als zusätzliche Layer hinzufügen.',
-  limitDisplay: (used: number, max: number) => `${used} / ${max} verwendet`,
-  addButton: 'Layer hinzufügen',
-  editButton: 'Bearbeiten',
-  deleteButton: 'Löschen',
-  upButton: 'Nach oben',
-  downButton: 'Nach unten',
-  modalAddTitle: 'Layer hinzufügen',
-  modalEditTitle: 'Layer bearbeiten',
-  modalSave: 'Speichern',
-  modalSaving: 'Speichere…',
-  modalCancel: 'Abbrechen',
-  fieldName: 'Name',
-  fieldRole: 'Typ',
-  fieldRoleBase: 'Karte (Basis)',
-  fieldRoleBaseHint: 'Ersetzt die Hintergrundkarte.',
-  fieldRoleOverlay: 'Overlay',
-  fieldRoleOverlayHint: 'Legt sich über die Hintergrundkarte.',
-  fieldSourceKind: 'Format',
-  fieldUrlTemplate: 'Tile-URL-Vorlage',
-  fieldUrlTemplatePlaceholder: 'https://example.com/{z}/{x}/{y}.png',
-  fieldStyleUrl: 'Style-URL',
-  fieldStyleUrlPlaceholder: 'https://example.com/style.json',
-  fieldUrlEmptyHint: 'URL darf nicht leer sein.',
-  fieldAttribution: 'Attribution',
-  fieldMinZoom: 'Min. Zoom',
-  fieldMaxZoom: 'Max. Zoom',
-  fieldDefaultOpacity: 'Standard-Deckkraft (%)',
-  privacyTitle: 'Hinweise zum Datenschutz',
-  privacyLine1:
-    'Kacheln werden direkt von deinem Browser beim eingetragenen Tile-Server geladen. Dieser sieht dabei deine IP-Adresse und die Koordinaten der besuchten Kartenausschnitte.',
-  privacyLine3:
-    'Trage daher nur Server ein, denen du vertraust.',
-  deleteConfirmTitle: 'Layer löschen?',
-  deleteConfirmMsg: (name: string) => `Soll "${name}" dauerhaft gelöscht werden?`,
-  deleteConfirmLabel: 'Löschen',
-  toastCreated: 'Layer hinzugefügt',
-  toastUpdated: 'Layer gespeichert',
-  toastDeleted: 'Layer gelöscht',
-  toastError: 'Fehler',
-  toast422PrivateIP: 'Private Adressen sind nicht erlaubt',
-  toast409Duplicate: 'Name bereits vergeben',
-  toastFieldImmutable: 'Diese Felder lassen sich nach dem Anlegen nicht mehr ändern',
-  toast422LimitReached: (used: number, max: number) => `Limit erreicht (${used} von ${max})`,
-  toast429RateLimit: (retryAfter: string) => `Zu viele Anfragen, Retry-After: ${retryAfter}s`,
-  limitReachedHint: 'Limit erreicht — vorhandene Layer löschen, um Platz zu schaffen.',
-  toggleActiveLabel: (name: string) => `${name} — Aktiv`,
-  badgeBase: 'Karte',
-  badgeOverlay: 'Overlay',
-  badgeRaster: 'Raster',
-  badgeVector: 'Vector',
-  loading: 'Lade Layer…',
+function useCustomLayerLabels() {
+  const { t } = useTranslation()
+  return {
+    title: t('components.userCustomLayers.title'),
+    description: t('components.userCustomLayers.description'),
+    limitDisplay: (used: number, max: number) => t('components.userCustomLayers.limitDisplay', { used, max }),
+    addButton: t('components.userCustomLayers.addButton'),
+    editButton: t('components.userCustomLayers.editButton'),
+    deleteButton: t('common.delete'),
+    upButton: t('components.userCustomLayers.moveUp'),
+    downButton: t('components.userCustomLayers.moveDown'),
+    modalAddTitle: t('components.userCustomLayers.modal.addTitle'),
+    modalEditTitle: t('components.userCustomLayers.modal.editTitle'),
+    modalSave: t('common.save'),
+    modalSaving: t('components.userCustomLayers.modal.saving'),
+    modalCancel: t('common.cancel'),
+    fieldName: t('components.userCustomLayers.fields.name'),
+    fieldRole: t('components.userCustomLayers.fields.role'),
+    fieldRoleBase: t('components.userCustomLayers.roles.base'),
+    fieldRoleBaseHint: t('components.userCustomLayers.roles.baseHint'),
+    fieldRoleOverlay: t('components.userCustomLayers.roles.overlay'),
+    fieldRoleOverlayHint: t('components.userCustomLayers.roles.overlayHint'),
+    fieldSourceKind: t('components.userCustomLayers.fields.sourceKind'),
+    fieldUrlTemplate: t('components.userCustomLayers.fields.urlTemplate'),
+    fieldUrlTemplatePlaceholder: t('components.userCustomLayers.placeholders.urlTemplate'),
+    fieldStyleUrl: t('components.userCustomLayers.fields.styleUrl'),
+    fieldStyleUrlPlaceholder: t('components.userCustomLayers.placeholders.styleUrl'),
+    fieldUrlEmptyHint: t('components.userCustomLayers.validation.urlRequired'),
+    fieldAttribution: t('components.userCustomLayers.fields.attribution'),
+    fieldMinZoom: t('components.userCustomLayers.fields.minZoom'),
+    fieldMaxZoom: t('components.userCustomLayers.fields.maxZoom'),
+    fieldDefaultOpacity: t('components.userCustomLayers.fields.defaultOpacity'),
+    privacyTitle: t('components.userCustomLayers.privacy.title'),
+    privacyLine1: t('components.userCustomLayers.privacy.line1'),
+    privacyLine3: t('components.userCustomLayers.privacy.line2'),
+    deleteConfirmTitle: t('components.userCustomLayers.deleteConfirm.title'),
+    deleteConfirmMsg: (name: string) => t('components.userCustomLayers.deleteConfirm.message', { name }),
+    deleteConfirmLabel: t('common.delete'),
+    toastCreated: t('components.userCustomLayers.toasts.created'),
+    toastUpdated: t('components.userCustomLayers.toasts.updated'),
+    toastDeleted: t('components.userCustomLayers.toasts.deleted'),
+    toastError: t('common.error'),
+    toast422PrivateIP: t('components.userCustomLayers.toasts.privateIp'),
+    toast409Duplicate: t('components.userCustomLayers.toasts.duplicate'),
+    toastFieldImmutable: t('components.userCustomLayers.toasts.fieldImmutable'),
+    toast422LimitReached: (used: number, max: number) => t('components.userCustomLayers.toasts.limitReached', { used, max }),
+    toast429RateLimit: (retryAfter: string) => t('components.userCustomLayers.toasts.rateLimit', { retryAfter }),
+    limitReachedHint: t('components.userCustomLayers.limitReachedHint'),
+    toggleActiveLabel: (name: string) => t('components.userCustomLayers.toggleActive', { name }),
+    badgeBase: t('components.userCustomLayers.badges.base'),
+    badgeOverlay: t('components.userCustomLayers.badges.overlay'),
+    badgeRaster: t('components.userCustomLayers.badges.raster'),
+    badgeVector: t('components.userCustomLayers.badges.vector'),
+    sourceRaster: t('components.userCustomLayers.sourceKinds.raster'),
+    sourceVector: t('components.userCustomLayers.sourceKinds.vector'),
+    loading: t('components.userCustomLayers.loading'),
+  }
 }
 
 // ── Form state ────────────────────────────────────────────────────────────────
@@ -205,6 +209,7 @@ interface LayerModalProps {
 }
 
 function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
+  const LABELS = useCustomLayerLabels()
   const { addToast } = useToast()
   const qc = useQueryClient()
   const mutations = useUserMapLayersMutations()
@@ -355,8 +360,8 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
             }}
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
           >
-            <option value="raster_tiles">Raster-Tiles (XYZ-URL)</option>
-            <option value="vector_style">Vector Style (MapLibre Style-URL)</option>
+            <option value="raster_tiles">{LABELS.sourceRaster}</option>
+            <option value="vector_style">{LABELS.sourceVector}</option>
           </select>
         </div>
 
@@ -483,6 +488,7 @@ function LayerModal({ layer, usedCount, maxCount, onClose }: LayerModalProps) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function UserCustomLayersSection() {
+  const LABELS = useCustomLayerLabels()
   const { addToast } = useToast()
   const qc = useQueryClient()
   const mutations = useUserMapLayersMutations()

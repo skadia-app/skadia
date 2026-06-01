@@ -1,7 +1,8 @@
 import { useState, useRef, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Capabilities } from '@/api/routes'
-import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, GEO_SCOPE_DESCRIPTIONS, scopeAvailable, type AnyReprocessKey } from '@/lib/reprocessScopes'
-import { scopeRequiresML } from '@/lib/enrichmentModuleCatalog'
+import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, scopeAvailable, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { ANALYSIS_MODULES, scopeRequiresML, type EnrichmentModuleName } from '@/lib/enrichmentModuleCatalog'
 
 interface CheckboxItemProps {
   label: string
@@ -65,18 +66,48 @@ interface Props {
   capabilities?: Capabilities | null
 }
 
+const ANALYSIS_MODULE_BY_SCOPE = new Map<string, EnrichmentModuleName>(
+  ANALYSIS_MODULES.flatMap(module =>
+    module.reprocess.type === 'standalone' || module.reprocess.type === 'coveredBy'
+      ? [[module.reprocess.scope, module.name] as const]
+      : [],
+  ),
+)
+
+export function analysisModuleNameForScope(key: string): EnrichmentModuleName | 'unknown' {
+  return ANALYSIS_MODULE_BY_SCOPE.get(key) ?? 'unknown'
+}
+
+export function analysisModuleLabelKeyForScope(key: string): string {
+  return `settingsPage.analysis.modules.${analysisModuleNameForScope(key)}.label`
+}
+
+export function analysisModuleDescriptionKeyForScope(key: string): string {
+  return `settingsPage.analysis.modules.${analysisModuleNameForScope(key)}.description`
+}
+
 export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical', capabilities }: Props) {
+  const { t, i18n } = useTranslation()
   const isInline = layout === 'inline'
   const visibleReprocessScopes = REPROCESS_SCOPES.filter(([key]) => scopeAvailable(capabilities, key))
   const visibleGeoScopes = GEO_SCOPE_KEYS.filter(key => scopeAvailable(capabilities, key))
+  const scopeLabel = (key: string) => {
+    const scopeKey = `reprocessScopes.items.${key}.label`
+    return t(i18n.exists(scopeKey) ? scopeKey : analysisModuleLabelKeyForScope(key))
+  }
+  const scopeDescription = (key: string) => {
+    const scopeKey = `reprocessScopes.items.${key}.description`
+    const moduleKey = analysisModuleDescriptionKeyForScope(key)
+    return t(i18n.exists(scopeKey) ? scopeKey : moduleKey)
+  }
 
   return (
     <div className={isInline ? 'flex flex-wrap gap-x-5 gap-y-1.5' : 'space-y-2'}>
-      {visibleReprocessScopes.map(([key, label, description]) => (
+      {visibleReprocessScopes.map(([key]) => (
         <CheckboxItem
           key={key}
-          label={label}
-          description={description}
+          label={scopeLabel(key)}
+          description={scopeDescription(key)}
           checked={selected.has(key)}
           onChange={() => onToggle(key)}
           isInline={isInline}
@@ -86,13 +117,13 @@ export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical', cap
         ? 'w-full pt-1 text-xs text-neutral-400 dark:text-neutral-500'
         : 'pt-1 text-xs text-neutral-400 dark:text-neutral-500'
       }>
-        Geo-Anreicherung (asynchron)
+        {t('reprocessScopes.geoAsync')}
       </p>
       {visibleGeoScopes.map(key => (
         <CheckboxItem
           key={key}
-          label={GEO_SCOPE_LABELS[key]}
-          description={GEO_SCOPE_DESCRIPTIONS[key]}
+          label={scopeLabel(key)}
+          description={scopeDescription(key)}
           checked={selected.has(key)}
           onChange={() => onToggle(key)}
           isInline={isInline}

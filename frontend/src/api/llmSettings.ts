@@ -23,7 +23,9 @@ export interface OllamaModel {
 export interface LLMTestResult {
   success: boolean
   message: string
+  message_code?: string
   warning?: string
+  warning_code?: string
   latency_ms?: number
 }
 

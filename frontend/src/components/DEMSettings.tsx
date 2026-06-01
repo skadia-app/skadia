@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getDEMRegionStatus, downloadDEM, type DEMStatusResponse } from '@/api/osm'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 
 export function DEMSettings() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { jobs } = useActiveJobs()
@@ -18,10 +20,10 @@ export function DEMSettings() {
     mutationFn: () => downloadDEM(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dem-region-status'] })
-      addToast({ type: 'info', title: 'DEM-Download gestartet' })
+      addToast({ type: 'info', title: t('map.dem.toasts.downloadStarted') })
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: 'DEM-Download fehlgeschlagen', message: err.message, duration: 0 })
+      addToast({ type: 'error', title: t('map.dem.toasts.downloadFailed'), message: err.message, duration: 0 })
     },
   })
 
@@ -34,10 +36,10 @@ export function DEMSettings() {
 
   const downloadDisabled = !!activeDEMJob || demDownloadMut.isPending
   const downloadLabel = activeDEMJob
-    ? 'Download läuft…'
+    ? t('map.dem.downloadRunning')
     : allComplete
-      ? 'DEM-Kacheln aktualisieren'
-      : 'DEM-Kacheln herunterladen'
+      ? t('map.dem.updateTiles')
+      : t('map.dem.downloadTiles')
 
   return (
     <div className="space-y-3">
@@ -45,7 +47,7 @@ export function DEMSettings() {
       {hasImportedRegions ? (
         <div className="space-y-2">
           <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            <span className="font-medium">{hgtPresent.toLocaleString()}</span> HGT-Kacheln
+            <span className="font-medium">{hgtPresent.toLocaleString()}</span> {t('map.dem.hgtTiles')}
             <span className="text-neutral-400 ml-1">(GLO-30, 30m)</span>
           </p>
           <div className="flex flex-wrap gap-2">
@@ -80,14 +82,14 @@ export function DEMSettings() {
           {!allComplete && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               {regions.some(r => r.tiles_needed < 0)
-                ? 'DEM-Status unbekannt — einmal herunterladen um Abdeckung zu ermitteln'
-                : 'DEM-Daten unvollständig — für Routing-Tiles erforderlich'}
+                ? t('map.dem.statusUnknown')
+                : t('map.dem.incomplete')}
             </p>
           )}
         </div>
       ) : (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Keine importierten Regionen. DEM-Kacheln werden nach dem OSM-Import verfügbar.
+          {t('map.dem.noImportedRegions')}
         </p>
       )}
 
@@ -95,15 +97,15 @@ export function DEMSettings() {
       {sources.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100">
-            Elevation-Datenquellen ({data?.total_tiles.toLocaleString()} DB-Raster-Kacheln)
+            {t('map.dem.sourcesSummary', { count: data?.total_tiles.toLocaleString() })}
           </summary>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-neutral-500 dark:text-neutral-400 text-xs">
-                  <th className="text-left pb-2 pr-4">Quelle</th>
-                  <th className="text-left pb-2 pr-4">Auflösung</th>
-                  <th className="text-left pb-2">Kacheln</th>
+                  <th className="text-left pb-2 pr-4">{t('map.dem.source')}</th>
+                  <th className="text-left pb-2 pr-4">{t('map.dem.resolution')}</th>
+                  <th className="text-left pb-2">{t('map.dem.tiles')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,40 +137,40 @@ export function DEMSettings() {
 
       <details className="text-xs">
         <summary className="cursor-pointer text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100">
-          Datenquellen &amp; Import-Anleitung
+          {t('map.dem.importGuide')}
         </summary>
         <div className="mt-2 space-y-3 pl-2 border-l-2 border-neutral-200 dark:border-neutral-800">
           <div>
-            <p className="font-medium">Copernicus EEA-10 (10m — empfohlen für Alpen)</p>
-            <p className="text-neutral-500 dark:text-neutral-400">Zugang beantragen: dataspace.copernicus.eu</p>
+            <p className="font-medium">{t('map.dem.eea10Title')}</p>
+            <p className="text-neutral-500 dark:text-neutral-400">{t('map.dem.requestAccess')}: dataspace.copernicus.eu</p>
             <code className="block bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded mt-1">
               ./scripts/dem-import.sh eea10 ./data/dem/eea10/ 10
             </code>
           </div>
           <div>
-            <p className="font-medium">LiDAR Österreich (0.5-1m)</p>
-            <p className="text-neutral-500 dark:text-neutral-400">data.bev.gv.at (kostenlos)</p>
+            <p className="font-medium">{t('map.dem.lidarAtTitle')}</p>
+            <p className="text-neutral-500 dark:text-neutral-400">data.bev.gv.at ({t('map.dem.free')})</p>
             <code className="block bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded mt-1">
               ./scripts/dem-import.sh lidar_at ./data/dem/lidar_at/ 1
             </code>
           </div>
           <div>
-            <p className="font-medium">Sonny's 4lima LiDAR .hgt (DACH ~1.5 GB, BRouter-kompatibel)</p>
+            <p className="font-medium">{t('map.dem.sonnyTitle')}</p>
             <p className="text-neutral-500 dark:text-neutral-400">
               <a href="https://sonny.4lima.de" target="_blank" rel="noopener noreferrer" className="text-accent-DEFAULT hover:underline">
                 sonny.4lima.de
-              </a> — direkt als srtm-dir für BRouter-Segmentbuild nutzbar
+              </a> — {t('map.dem.sonnyDescription')}
             </p>
           </div>
           <div>
-            <p className="font-medium">Copernicus GLO-30 (30m — Fallback)</p>
-            <p className="text-neutral-500 dark:text-neutral-400">Sofort verfügbar (AWS S3), zu grob für Alpenregionen</p>
+            <p className="font-medium">{t('map.dem.glo30Title')}</p>
+            <p className="text-neutral-500 dark:text-neutral-400">{t('map.dem.glo30Description')}</p>
             <code className="block bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded mt-1">
               ./scripts/dem-import.sh copernicus30 ./data/dem/copernicus30/ 30
             </code>
           </div>
           <p className="text-neutral-500 dark:text-neutral-400 mt-2">
-            DEM verbessert Höhenprofile, Routing-Kosten und Stage-1-Enrichment.
+            {t('map.dem.benefit')}
           </p>
         </div>
       </details>

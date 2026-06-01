@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import MaintenanceAlerts from './MaintenanceAlerts'
 import { fetchMaintenanceAlerts } from '@/api/gear'
 
+const userPrefs = vi.hoisted(() => ({ locale: 'en', units: 'imperial' as 'metric' | 'imperial' }))
+
 vi.mock('@/api/gear', () => ({
   fetchMaintenanceAlerts: vi.fn(() => Promise.resolve([
     {
@@ -36,6 +38,10 @@ vi.mock('@/api/gear', () => ({
   ])),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
+}))
+
 function renderAlerts() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -59,7 +65,7 @@ describe('MaintenanceAlerts', () => {
     expect(group).toBeInTheDocument()
     expect(swapLink).toHaveAttribute('href', '/gear/g1?tab=components&component=c1')
     expect(checkLink).toHaveAttribute('href', '/gear/g1?tab=components&component=c2')
-    expect(screen.getByText('Tauschen: 450 km / 500 km')).toBeInTheDocument()
+    expect(screen.getByText('Tauschen: 279.6 mi / 310.7 mi')).toBeInTheDocument()
     expect(screen.getByText('Prüfen: 12 h / 10 h')).toBeInTheDocument()
   })
 })

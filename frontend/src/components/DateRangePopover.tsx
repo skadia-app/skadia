@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { de } from 'date-fns/locale'
+import { startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
+import { localeForLanguage } from '@/i18n/languages'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 interface DateRangePopoverProps {
   /** The anchor date (typically Monday of the week to display) */
@@ -17,6 +19,9 @@ export default function DateRangePopover({
   onSelect,
   tab,
 }: DateRangePopoverProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const locale = localeForLanguage(language)
   const [isOpen, setIsOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
@@ -29,11 +34,8 @@ export default function DateRangePopover({
   const weekStart = startOfWeek(anchorDate, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(anchorDate, { weekStartsOn: 1 })
 
-  // Format: "7.–13. März 2026"
-  const startDay = format(weekStart, 'd', { locale: de })
-  const endDay = format(weekEnd, 'd', { locale: de })
-  const month = format(weekEnd, 'LLLL yyyy', { locale: de })
-  const dateLabel = `${startDay}–${endDay}. ${month}`
+  const dateFormatter = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
+  const dateLabel = `${dateFormatter.format(weekStart)} – ${dateFormatter.format(weekEnd)}`
 
   function handleToday() {
     const today = startOfWeek(new Date(), { weekStartsOn: 1 })
@@ -77,7 +79,7 @@ export default function DateRangePopover({
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
-            Heute
+            {t('dateRangePopover.today')}
           </button>
           <button
             onClick={handleNextWeek}
@@ -85,7 +87,7 @@ export default function DateRangePopover({
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
-            Nächste Woche
+            {t('dateRangePopover.nextWeek')}
           </button>
           <button
             onClick={handleLastWeek}
@@ -93,7 +95,7 @@ export default function DateRangePopover({
                        text-neutral-700 dark:text-neutral-300
                        hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
-            Letzte Woche
+            {t('dateRangePopover.lastWeek')}
           </button>
         </div>
       )}

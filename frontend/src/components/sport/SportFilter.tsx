@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { fetchSportTypeStats } from '@/api/stats'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { filterToExistingSports, getAllSportKeys, getOptionKey, type SportOption } from '@/lib/sportOptions'
 import { sportFilterOptionsForPreset, type SportFilterPreset } from '@/lib/sportFilterPresets'
 import { modifierKeysForCapability, modifierLabel } from '@/lib/sportModifiers'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 export interface SportFilterValue {
   sportTypes: string[] | null
@@ -37,10 +39,6 @@ interface SportFilterProps {
   dateRange?: { from?: string; to?: string }
 }
 
-const MODIFIER_LABELS: Record<ModifierKey, string> = Object.fromEntries(
-  modifierKeysForCapability('modifier_filter').map((key) => [key, modifierLabel(key)]),
-) as Record<ModifierKey, string>
-
 export function SportFilter({
   preset,
   value,
@@ -51,6 +49,14 @@ export function SportFilter({
   hideUnused: hideUnusedOverride,
   dateRange,
 }: SportFilterProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const modifierLabels = useMemo(
+    () => Object.fromEntries(
+      modifierKeysForCapability('modifier_filter').map((key) => [key, modifierLabel(key, language)]),
+    ) as Record<ModifierKey, string>,
+    [language],
+  )
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const { hideUnused: hideUnusedGlobal } = useGlobalSportSettings()
   const hideUnused = hideUnusedOverride ?? hideUnusedGlobal
@@ -60,7 +66,7 @@ export function SportFilter({
     queryFn: () => fetchSportTypeStats(dateRange),
     enabled: hideUnused,
   })
-  const baseOptions = useMemo(() => sportFilterOptionsForPreset(preset), [preset])
+  const baseOptions = useMemo(() => sportFilterOptionsForPreset(preset, language), [language, preset])
   const existingSportKeys = useMemo(() => new Set((statsData ?? []).map((s) => s.sub_type ? `${s.sport_type}:${s.sub_type}` : s.sport_type)), [statsData])
   const options = useMemo(() => {
     if (hideUnused && existingSportKeys.size > 0) {
@@ -74,7 +80,7 @@ export function SportFilter({
 
   function emit(next: Set<string>) {
     // null = "all selected, no filter applied" (default state)
-    // []   = "explicitly none selected" (after Alle abwählen)
+    // []   = "explicitly none selected" (after deselect all)
     // [..] = "specific subset selected"
     // Existing consumers (ActivityFilters, MapFilters, SportOnlyFilterBar)
     // collapse null and [] to the same Set on input, so this distinction
@@ -121,18 +127,18 @@ export function SportFilter({
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('sportFilter.sportType')}</span>
         <button
           type="button"
           onClick={toggleAll}
           className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
         >
-          {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
+          {allSelected ? t('sportFilter.deselectAll') : t('sportFilter.selectAll')}
         </button>
       </div>
       <div className="space-y-1.5">
         {options.map((opt) => (
-          <div key={opt.label}>
+          <div key={opt.groupKey ?? opt.value}>
             {opt.children && opt.groupKey ? (
               <div>
                 <div className="flex items-center gap-2">
@@ -209,9 +215,14 @@ export function SportFilter({
           {modifierKeys.map((key) => (
             <ModifierSelect
               key={key}
-              label={MODIFIER_LABELS[key]}
+              label={modifierLabels[key]}
               value={value.modifiers?.[key]}
               onChange={(v) => setModifier(key, v)}
+              options={{
+                all: t('common.all'),
+                only: t('sportFilter.only'),
+                without: t('sportFilter.without'),
+              }}
             />
           ))}
         </div>
@@ -220,7 +231,21 @@ export function SportFilter({
   )
 }
 
-function ModifierSelect({ label, value, onChange }: { label: string; value?: boolean; onChange: (value: boolean | undefined) => void }) {
+function ModifierSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value?: boolean
+  options: {
+    all: string
+    only: string
+    without: string
+  }
+  onChange: (value: boolean | undefined) => void
+}) {
   return (
     <label className="text-xs text-neutral-500 dark:text-neutral-400">
       <span className="block mb-1">{label}</span>
@@ -229,9 +254,9 @@ function ModifierSelect({ label, value, onChange }: { label: string; value?: boo
         onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value === 'true')}
         className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 text-xs text-neutral-800 dark:text-neutral-200"
       >
-        <option value="">Alle</option>
-        <option value="true">Nur</option>
-        <option value="false">Ohne</option>
+        <option value="">{options.all}</option>
+        <option value="true">{options.only}</option>
+        <option value="false">{options.without}</option>
       </select>
     </label>
   )

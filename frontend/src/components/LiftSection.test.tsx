@@ -10,6 +10,10 @@ vi.mock('@/lib/auth', () => ({
   apiFetch: vi.fn(),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
+
 import { apiFetch } from '@/lib/auth'
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>
 
@@ -88,8 +92,8 @@ describe('LiftSection', () => {
     )
 
     // Wait for candidates to load
-    const item = await screen.findByText(/\+200 \/ −180 m/)
-    expect(item).toBeTruthy()
+    const items = await screen.findAllByText((_content, element) => element?.textContent?.includes('+200 m / −180 m') ?? false)
+    expect(items.length).toBeGreaterThan(0)
   })
 
   it('shows only heuristic candidates in sub-list, not OSM', async () => {

@@ -22,7 +22,7 @@ export interface ScanResult {
   privacy_zones?: CategoryStats
   health?: CategoryStats
   monitoring?: CategoryStats
-  [key: string]: CategoryStats | undefined  // für weitere Kategorien
+  [key: string]: CategoryStats | undefined  // for additional categories
 }
 
 export interface ImportSettings {
@@ -95,7 +95,7 @@ export interface FusionQueueEntry {
   title_b: string
   started_at_a: string
   started_at_b: string
-  sport_type_a: string   // können verschieden sein! (z.B. "cycling" vs "hiking")
+  sport_type_a: string   // may differ, e.g. "cycling" vs "hiking"
   sport_type_b: string
   sub_type_a: string
   sub_type_b: string
@@ -139,7 +139,7 @@ export async function dismissFusionCandidate(activityIdA: string, activityIdB: s
   })
 }
 
-// Gear Merge API (ergänzend zu gear.ts)
+// Gear merge API, complementary to gear.ts.
 export async function getGearDuplicateCandidates(): Promise<[string, string][]> {
   return apiClient<[string, string][]>('/gear/duplicate-candidates')
 }

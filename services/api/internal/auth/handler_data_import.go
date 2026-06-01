@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 var multipartFilesPartNameRE = regexp.MustCompile(`^files-[0-9]{4}\.zip$`)
@@ -1043,13 +1043,7 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 			"bytes_imported":    ev.BytesImported,
 			"message":           ev.Message,
 		})
-		// Phase-based progress: Phase 0–10, PhasesTotal = 11.
-		var phaseName *string
-		if ev.PhaseName != "" {
-			phaseName = &ev.PhaseName
-		} else if ev.Table != "" {
-			phaseName = &ev.Table
-		}
+		phaseName := dataImportJobPhaseName(ev)
 		h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs
 			 SET progress_current = $2, progress_total = $3,
@@ -1101,6 +1095,32 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 		"entities_skipped", result.EntitiesSkipped,
 		"entities_failed", result.EntitiesFailed,
 	)
+}
+
+func dataImportJobPhaseName(ev dataimport.ProgressEvent) *string {
+	var key string
+	switch ev.PhaseName {
+	case "files":
+		key = "data_import_files"
+	case "profile":
+		key = "data_import_profile"
+	case "activities":
+		key = "data_import_activities"
+	default:
+		switch ev.Phase {
+		case 0:
+			key = "data_import_files"
+		case 1:
+			key = "data_import_profile"
+		case 5:
+			key = "data_import_activities"
+		case 7:
+			key = "data_import_health"
+		default:
+			key = fmt.Sprintf("data_import_phase_%d", ev.Phase)
+		}
+	}
+	return &key
 }
 
 func (h *Handler) openImportJobSource(ctx context.Context, jobID, fallbackPath string) (dataimport.Source, *gdprartifacts.Artifact, string, error) {
