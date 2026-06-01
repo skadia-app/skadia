@@ -30,6 +30,10 @@ vi.mock('@/api/activities', async () => {
   }
 })
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
+
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return (

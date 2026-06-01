@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Capabilities } from '@/api/routes'
 import {
   availableReprocessScopeKeys,
@@ -20,6 +21,7 @@ function ReprocessScopeModal({
   isPending: boolean
   capabilities?: Capabilities | null
 }) {
+  const { t } = useTranslation()
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
   const availableScopeKeys = availableReprocessScopeKeys(capabilities)
   const selectedScopeKeys = toBackendScope(scope, availableScopeKeys)
@@ -29,14 +31,15 @@ function ReprocessScopeModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
         <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          Neu verarbeiten — Details auswählen
+          {t('reprocessModal.selectDetailsTitle')}
         </h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Wähle, welche Teile dieser Aktivität neu verarbeitet werden sollen.
-          Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten.
+          {t('reprocessModal.selectDetailsDescription')}
+          {' '}
+          {t('reprocessModal.preservation')}
           {reprocessesTags
-            ? ' Tags werden durch Regeln und Systemlogik neu ausgewertet.'
-            : ' Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
+            ? t('reprocessModal.tagsReprocessed')
+            : t('reprocessModal.tagsPreserved')}
         </p>
 
         <ScopeCheckboxList
@@ -54,7 +57,7 @@ function ReprocessScopeModal({
                        hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer
                        disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             onClick={() => onConfirm(selectedScopeKeys)}
@@ -63,7 +66,7 @@ function ReprocessScopeModal({
                        hover:bg-accent-600 transition-colors cursor-pointer
                        disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isPending ? 'Verarbeite...' : 'Starten'}
+            {isPending ? t('reprocessModal.processing') : t('reprocessModal.start')}
           </button>
         </div>
       </div>

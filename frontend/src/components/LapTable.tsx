@@ -1,5 +1,8 @@
+import { useTranslation } from 'react-i18next'
 import type { Lap } from '@/api/types'
-import { fmtDuration, fmtDist } from '@/lib/format'
+import { fmtDuration } from '@/lib/format'
+import { formatShortLength } from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { formatSpeedValue, fieldLabel, fieldUnit, swimStrokeLabel } from '@/lib/sportFieldLabels'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 
@@ -13,6 +16,8 @@ const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
 export default function LapTable({ laps, sportType, speedMode }: Props) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const segGroup = getSegmentGroup(sportType)
   const effectiveMode = speedMode ?? (segGroup === 'foot' || segGroup === 'swim' ? 'pace' : 'speed')
   const showPace = effectiveMode === 'pace'
@@ -25,25 +30,25 @@ export default function LapTable({ laps, sportType, speedMode }: Props) {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Runden</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('activities.laps.title')}</h2>
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
               <th className={thClass}>#</th>
-              <th className={thClass}>Dauer</th>
-              <th className={thClass}>Distanz</th>
-              <th className={thClass}>{showPace ? 'Tempo' : 'Geschw.'}</th>
+              <th className={thClass}>{t('activities.laps.headers.duration')}</th>
+              <th className={thClass}>{t('activities.table.distance')}</th>
+              <th className={thClass}>{showPace ? t('activities.laps.headers.pace') : t('activities.laps.headers.speed')}</th>
               {showHR && <th className={thClass}>HR</th>}
-              {showPower && <th className={thClass}>Power</th>}
+              {showPower && <th className={thClass}>{t('colorMetricLabels.metrics.power')}</th>}
               {showNP && <th className={thClass}>NP</th>}
               {showCadence && <th className={thClass}>{fieldLabel('cadence', sportType)}</th>}
-              {showRunDynamics && <th className={thClass}>Vert. Osz.</th>}
-              {showRunDynamics && <th className={thClass}>Bodenkontakt</th>}
-              {showRunDynamics && <th className={thClass}>Schrittl.</th>}
-              {showSwim && <th className={thClass}>Bahnen</th>}
-              {showSwim && <th className={thClass}>Stil</th>}
-              {showSwim && <th className={thClass}>Schlagdist.</th>}
+              {showRunDynamics && <th className={thClass}>{t('activities.laps.headers.verticalOscillation')}</th>}
+              {showRunDynamics && <th className={thClass}>{t('activities.laps.headers.groundContact')}</th>}
+              {showRunDynamics && <th className={thClass}>{t('activities.laps.headers.stepLength')}</th>}
+              {showSwim && <th className={thClass}>{t('activities.laps.headers.lengths')}</th>}
+              {showSwim && <th className={thClass}>{t('activities.laps.headers.style')}</th>}
+              {showSwim && <th className={thClass}>{t('activities.laps.headers.strokeDistance')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -54,18 +59,18 @@ export default function LapTable({ laps, sportType, speedMode }: Props) {
               >
                 <td className={tdClass}>{lap.lap_index != null ? lap.lap_index + 1 : '--'}</td>
                 <td className={tdClass}>{fmtDuration(lap.timer_time_s ?? lap.elapsed_time_s)}</td>
-                <td className={tdClass}>{fmtDist(lap.distance_m)}</td>
-                <td className={tdClass}>{formatSpeedValue(lap.avg_speed_ms, sportType, speedMode)}</td>
+                <td className={tdClass}>{unitFormatters.formatDistance(lap.distance_m)}</td>
+                <td className={tdClass}>{formatSpeedValue(lap.avg_speed_ms, sportType, effectiveMode, unitFormatters.options)}</td>
                 {showHR && <td className={tdClass}>{lap.avg_heart_rate != null ? `${Math.round(lap.avg_heart_rate)} bpm` : '--'}</td>}
                 {showPower && <td className={tdClass}>{lap.avg_power_w != null ? `${Math.round(lap.avg_power_w)} W` : '--'}</td>}
                 {showNP && <td className={tdClass}>{lap.normalized_power_w != null ? `${Math.round(lap.normalized_power_w)} W` : '--'}</td>}
                 {showCadence && <td className={tdClass}>{lap.avg_cadence != null ? `${Math.round(lap.avg_cadence)} ${fieldUnit('cadence', sportType)}` : '--'}</td>}
                 {showRunDynamics && <td className={tdClass}>{lap.avg_vertical_oscillation_mm != null ? `${(lap.avg_vertical_oscillation_mm / 10).toFixed(1)} cm` : '--'}</td>}
                 {showRunDynamics && <td className={tdClass}>{lap.avg_stance_time_ms != null ? `${Math.round(lap.avg_stance_time_ms)} ms` : '--'}</td>}
-                {showRunDynamics && <td className={tdClass}>{lap.avg_step_length_mm != null ? `${(lap.avg_step_length_mm / 10).toFixed(0)} cm` : '--'}</td>}
+                {showRunDynamics && <td className={tdClass}>{lap.avg_step_length_mm != null ? formatShortLength(lap.avg_step_length_mm / 1000, unitFormatters.options) : '--'}</td>}
                 {showSwim && <td className={tdClass}>{lap.num_lengths ?? '--'}</td>}
                 {showSwim && <td className={tdClass}>{swimStrokeLabel(lap.swim_stroke)}</td>}
-                {showSwim && <td className={tdClass}>{lap.avg_stroke_distance_m != null ? `${lap.avg_stroke_distance_m.toFixed(2)} m` : '--'}</td>}
+                {showSwim && <td className={tdClass}>{lap.avg_stroke_distance_m != null ? formatShortLength(lap.avg_stroke_distance_m, unitFormatters.options) : '--'}</td>}
               </tr>
             ))}
           </tbody>
@@ -74,4 +79,3 @@ export default function LapTable({ laps, sportType, speedMode }: Props) {
     </div>
   )
 }
-

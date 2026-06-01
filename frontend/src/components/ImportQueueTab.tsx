@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   fetchImportQueue,
   assignQueueItem,
@@ -15,8 +17,19 @@ import { fetchActivities } from '@/api/activities'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { fmtDateCompact } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { isSupportedLanguage, localeForLanguage, type SupportedLanguage } from '@/i18n/languages'
 import { useToast } from '@/lib/toast'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
+
+const KNOWN_ITEM_TYPES: readonly ImportQueueItem['item_type'][] = [
+  'image_no_exif',
+  'image_ambiguous',
+  'image_no_match',
+  'pdf_untyped',
+  'duplicate',
+  'import_error',
+  'sport_conflict',
+]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,17 +42,18 @@ function formatBytes(bytes?: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function itemTypeLabel(type: ImportQueueItem['item_type']): string {
-  const labels: Record<ImportQueueItem['item_type'], string> = {
-    image_no_exif: 'Kein Aufnahmedatum',
-    image_ambiguous: 'Bild – mehrere Aktivitäten',
-    image_no_match: 'Bild ohne Aktivität',
-    pdf_untyped: 'PDF ohne Kategorie',
-    duplicate: 'Mögliches Duplikat',
-    import_error: 'Importfehler',
-    sport_conflict: 'Sport-Typ-Konflikt',
-  }
-  return labels[type] ?? type
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
+}
+
+function isKnownItemType(type: string): type is ImportQueueItem['item_type'] {
+  return KNOWN_ITEM_TYPES.includes(type as ImportQueueItem['item_type'])
+}
+
+function itemTypeLabel(type: ImportQueueItem['item_type'], t: TFunction): string {
+  const key = isKnownItemType(type) ? `importQueue.itemTypes.${type}` : 'importQueue.itemTypes.unknown'
+  return t(key)
 }
 
 function itemTypeBadgeColor(type: ImportQueueItem['item_type']): string {
@@ -72,6 +86,9 @@ interface ActivitySearchDropdownProps {
 }
 
 function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearchDropdownProps) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
+  const locale = localeForLanguage(language)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
 
@@ -91,7 +108,7 @@ function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearch
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder ?? 'Aktivität suchen…'}
+        placeholder={placeholder ?? t('importQueue.activitySearchPlaceholder')}
         className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
       />
       {open && activities.length > 0 && (
@@ -101,15 +118,15 @@ function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearch
               key={a.id}
               type="button"
               onMouseDown={() => {
-                onChange(a.id, displayActivityTitle(a, sportLabel(a.sport_type)))
+                onChange(a.id, displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type, { language })))
                 setQuery('')
                 setOpen(false)
               }}
               className="cursor-pointer w-full px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 truncate"
             >
-              {displayActivityTitle(a, sportLabel(a.sport_type))}
+              {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type, { language }))}
               <span className="ml-2 text-xs text-neutral-400">
-                {a.started_at ? fmtDateCompact(a.started_at, a.timezone) : ''}
+                {a.started_at ? fmtDateCompact(a.started_at, a.timezone, locale) : ''}
               </span>
             </button>
           ))}
@@ -129,6 +146,7 @@ interface ItemProps {
 }
 
 function QueueImagePreview({ item }: { item: ImportQueueItem }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const thumbUrl = `/api/v1/import-queue/${item.id}/thumb`
   const previewUrl = `/api/v1/import-queue/${item.id}/preview`
@@ -139,7 +157,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
         type="button"
         onClick={() => setOpen(true)}
         className="group flex w-full flex-col gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-left transition-colors hover:border-accent-DEFAULT/70 hover:bg-orange-50/40 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-accent-DEFAULT/70 dark:hover:bg-orange-950/10 sm:w-64"
-        aria-label={`Bildvorschau von ${item.filename} vergrößern`}
+        aria-label={t('importQueue.imagePreview.enlargeLabel', { filename: item.filename })}
       >
         <span className="flex h-40 w-full items-center justify-center overflow-hidden rounded-md bg-white dark:bg-neutral-900">
           <AuthenticatedImage
@@ -149,7 +167,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
           />
         </span>
         <span className="text-xs font-medium text-accent-DEFAULT group-hover:underline">
-          Bild vergrößern
+          {t('importQueue.imagePreview.enlarge')}
         </span>
       </button>
 
@@ -158,7 +176,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Bildvorschau"
+          aria-label={t('importQueue.imagePreview.dialogLabel')}
           onClick={(event) => {
             if (event.target === event.currentTarget) setOpen(false)
           }}
@@ -173,7 +191,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
                 onClick={() => setOpen(false)}
                 className="cursor-pointer rounded-lg border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
               >
-                Schließen
+                {t('common.close')}
               </button>
             </div>
             <div className="flex min-h-0 items-center justify-center overflow-auto rounded-md bg-neutral-50 dark:bg-neutral-900">
@@ -192,6 +210,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
 }
 
 function ImageNoExifItem({ item, onRefresh }: ItemProps) {
+  const { t } = useTranslation()
   const [selectedActivityId, setSelectedActivityId] = useState('')
   const [selectedActivityTitle, setSelectedActivityTitle] = useState('')
 
@@ -215,7 +234,7 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
           )}
           {item.item_type === 'image_no_exif' && (
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              Das EXIF-Aufnahmedatum fehlt; wähle die passende Aktivität manuell aus.
+              {t('importQueue.messages.missingExif')}
             </p>
           )}
         </div>
@@ -223,7 +242,7 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
       <ActivitySearchDropdown
         value={selectedActivityTitle}
         onChange={(id, title) => { setSelectedActivityId(id); setSelectedActivityTitle(title) }}
-        placeholder="Aktivität auswählen…"
+        placeholder={t('importQueue.selectActivityPlaceholder')}
       />
       <div className="flex gap-2">
         <button
@@ -231,19 +250,19 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
           disabled={!selectedActivityId || assignMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {assignMutation.isPending ? 'Wird zugeordnet…' : 'Zuordnen'}
+          {assignMutation.isPending ? t('importQueue.actions.assigning') : t('importQueue.actions.assign')}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Verwerfen
+          {t('importQueue.actions.discard')}
         </button>
       </div>
       {assignMutation.isError && (
         <p className="text-xs text-red-600 dark:text-red-400">
-          {assignMutation.error instanceof Error ? assignMutation.error.message : 'Fehler beim Zuordnen'}
+          {assignMutation.error instanceof Error ? assignMutation.error.message : t('importQueue.errors.assignFailed')}
         </p>
       )}
     </div>
@@ -251,6 +270,8 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
 }
 
 function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
+  const { t, i18n } = useTranslation()
+  const locale = localeForLanguage(currentLanguage(i18n.language))
   const [selectedActivityId, setSelectedActivityId] = useState('')
   const [selectedActivityTitle, setSelectedActivityTitle] = useState('')
 
@@ -276,7 +297,7 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
       </div>
       {candidates.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">Mögliche Aktivitäten:</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('importQueue.possibleActivities')}</p>
           {candidates.map(c => (
             <button
               key={c.activity_id}
@@ -290,7 +311,7 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
             >
               {c.activity_title}
               <span className="ml-2 text-neutral-400">
-                {new Date(c.started_at).toLocaleDateString('de-DE')}
+                {new Date(c.started_at).toLocaleDateString(locale)}
               </span>
             </button>
           ))}
@@ -308,29 +329,26 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
           disabled={!selectedActivityId || assignMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {assignMutation.isPending ? 'Wird zugeordnet…' : 'Zuordnen'}
+          {assignMutation.isPending ? t('importQueue.actions.assigning') : t('importQueue.actions.assign')}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Verwerfen
+          {t('importQueue.actions.discard')}
         </button>
       </div>
     </div>
   )
 }
 
-const PDF_TYPES = [
-  { value: 'receipt', label: 'Beleg' },
-  { value: 'invoice', label: 'Rechnung' },
-  { value: 'other', label: 'Sonstiges' },
-] as const
+const PDF_TYPES = ['receipt', 'invoice', 'other'] as const
 
-type PdfType = typeof PDF_TYPES[number]['value']
+type PdfType = typeof PDF_TYPES[number]
 
 function PdfUntypedItem({ item, onRefresh }: ItemProps) {
+  const { t } = useTranslation()
   const [pdfType, setPdfType] = useState<PdfType>('other')
   const [gearId, setGearId] = useState('')
 
@@ -357,21 +375,21 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
     <div className="space-y-3">
       <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{item.filename}</p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Wähle die Dokumentart und die Ausrüstung, an der das PDF abgelegt werden soll.
+        {t('importQueue.messages.pdfUntyped')}
       </p>
       <div className="flex gap-2 flex-wrap">
-        {PDF_TYPES.map(t => (
+        {PDF_TYPES.map(type => (
           <button
-            key={t.value}
+            key={type}
             type="button"
-            onClick={() => setPdfType(t.value)}
+            onClick={() => setPdfType(type)}
             className={`cursor-pointer px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              pdfType === t.value
+              pdfType === type
                 ? 'bg-accent-DEFAULT text-white'
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            {t.label}
+            {t(`importQueue.pdfTypes.${type}`)}
           </button>
         ))}
       </div>
@@ -381,7 +399,7 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
         disabled={isLoadingGear}
         className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <option value="">{isLoadingGear ? 'Ausrüstung wird geladen…' : 'Ausrüstung wählen…'}</option>
+        <option value="">{isLoadingGear ? t('importQueue.gearLoading') : t('activityGear.choose')}</option>
         {activeGear.map(gear => (
           <option key={gear.id} value={gear.id}>
             {gear.name}
@@ -394,14 +412,14 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
           disabled={categorizeMutation.isPending || !gearId}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {categorizeMutation.isPending ? 'Wird gespeichert…' : 'Kategorisieren'}
+          {categorizeMutation.isPending ? t('importQueue.actions.saving') : t('importQueue.actions.categorize')}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Verwerfen
+          {t('importQueue.actions.discard')}
         </button>
       </div>
     </div>
@@ -409,6 +427,7 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
 }
 
 function DuplicateItem({ item, onRefresh }: ItemProps) {
+  const { t } = useTranslation()
   const dismissMutation = useMutation({
     mutationFn: () => patchQueueItem(item.id, { status: 'dismissed' }),
     onSuccess: onRefresh,
@@ -425,7 +444,7 @@ function DuplicateItem({ item, onRefresh }: ItemProps) {
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{item.filename}</p>
         {item.metadata?.duplicate_of_title && (
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Mögliches Duplikat von{' '}
+            {t('importQueue.duplicateOf')}{' '}
             {item.metadata.duplicate_of ? (
               <Link
                 to={`/activities/${item.metadata.duplicate_of}`}
@@ -445,14 +464,14 @@ function DuplicateItem({ item, onRefresh }: ItemProps) {
           disabled={dismissMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Behalten
+          {t('importQueue.actions.keep')}
         </button>
         <button
           onClick={() => deleteMutation.mutate()}
           disabled={deleteMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {deleteMutation.isPending ? 'Wird gelöscht…' : 'Löschen'}
+          {deleteMutation.isPending ? t('importQueue.actions.deleting') : t('importQueue.actions.delete')}
         </button>
       </div>
     </div>
@@ -460,6 +479,7 @@ function DuplicateItem({ item, onRefresh }: ItemProps) {
 }
 
 function ImportErrorItem({ item, onRefresh }: ItemProps) {
+  const { t } = useTranslation()
   const retryMutation = useMutation({
     mutationFn: () => patchQueueItem(item.id, { status: 'pending', retry: true }),
     onSuccess: onRefresh,
@@ -484,14 +504,14 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
           disabled={retryMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {retryMutation.isPending ? 'Wird gestartet…' : 'Erneut versuchen'}
+          {retryMutation.isPending ? t('importQueue.actions.starting') : t('common.retry')}
         </button>
         <button
           onClick={() => dismissMutation.mutate()}
           disabled={dismissMutation.isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Verwerfen
+          {t('importQueue.actions.discard')}
         </button>
       </div>
     </div>
@@ -503,6 +523,8 @@ function ImportErrorItem({ item, onRefresh }: ItemProps) {
 // ---------------------------------------------------------------------------
 
 function SportConflictItem({ item, onRefresh }: ItemProps) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const { addToast } = useToast()
   const activityId = item.metadata?.activity_id
   const platformSport = item.metadata?.platform_sport
@@ -519,7 +541,12 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
       }
     },
     onSuccess: onRefresh,
-    onError: (err) => addToast({ type: 'error', title: 'Konflikt konnte nicht aufgelöst werden', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 }),
+    onError: (err) => addToast({
+      type: 'error',
+      title: t('importQueue.errors.resolveConflictFailed'),
+      message: err instanceof Error ? err.message : t('activityActions.toasts.unknownError'),
+      duration: 0,
+    }),
   })
 
   const isPending = resolveMutation.isPending
@@ -530,11 +557,11 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
   // Build choice labels: sport label + source hint
   const sourceLabel = (src?: string) => {
     if (!src) return ''
-    if (src === 'fit') return 'FIT-Datei'
+    if (src === 'fit') return t('importQueue.sources.fitFile')
     if (src === 'strava') return 'Strava'
     if (src === 'garmin') return 'Garmin'
     if (src === 'komoot') return 'Komoot'
-    return src
+    return t('importQueue.sources.unknownCode', { code: src })
   }
 
   return (
@@ -542,26 +569,26 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
       <div>
         {isSameType ? (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Kein echter Konflikt — beide Quellen melden{' '}
-            <span className="font-medium text-neutral-700 dark:text-neutral-200">{sportLabel(platformSport)}</span>
+            {t('importQueue.messages.noRealConflict')}{' '}
+            <span className="font-medium text-neutral-700 dark:text-neutral-200">{sportLabel(platformSport, null, { language })}</span>
           </p>
         ) : platformSport && fileSport ? (
           <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            <span className="font-medium">{sportLabel(platformSport)}</span>
+            <span className="font-medium">{sportLabel(platformSport, null, { language })}</span>
             {platformSource ? <span className="text-neutral-400"> ({sourceLabel(platformSource)})</span> : null}
-            {' vs '}
-            <span className="font-medium">{sportLabel(fileSport)}</span>
+            <span className="text-neutral-400"> {t('importQueue.messages.sportConflictSeparator')} </span>
+            <span className="font-medium">{sportLabel(fileSport, null, { language })}</span>
             {fileSource ? <span className="text-neutral-400"> ({sourceLabel(fileSource)})</span> : null}
           </p>
         ) : (
-          <p className="text-sm text-neutral-700 dark:text-neutral-300">Sport-Typ-Konflikt</p>
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">{t('importQueue.itemTypes.sport_conflict')}</p>
         )}
         {activityId && (
           <Link
             to={`/activities/${activityId}`}
             className="text-xs text-accent-DEFAULT hover:underline mt-0.5 inline-block"
           >
-            Zur Aktivität →
+            {t('importQueue.actions.openActivity')}
           </Link>
         )}
       </div>
@@ -572,7 +599,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
           disabled={isPending}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {isPending ? 'Wird aufgelöst…' : 'Auflösen'}
+          {isPending ? t('importQueue.actions.resolving') : t('importQueue.actions.resolve')}
         </button>
       ) : (
         <div className="flex gap-2 flex-wrap">
@@ -582,7 +609,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
               disabled={isPending}
               className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isPending ? '…' : sportLabel(platformSport)}
+              {isPending ? '...' : sportLabel(platformSport, null, { language })}
             </button>
           )}
           {fileSport && fileSport !== platformSport && (
@@ -591,7 +618,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
               disabled={isPending}
               className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isPending ? '…' : sportLabel(fileSport)}
+              {isPending ? '...' : sportLabel(fileSport, null, { language })}
             </button>
           )}
           <button
@@ -599,7 +626,7 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
             disabled={isPending}
             className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Verwerfen
+            {t('importQueue.actions.discard')}
           </button>
         </div>
       )}
@@ -611,17 +638,8 @@ function SportConflictItem({ item, onRefresh }: ItemProps) {
 // Fallback for unrecognised item types (e.g. blob-dragged images, future types)
 // ---------------------------------------------------------------------------
 
-const KNOWN_ITEM_TYPES: string[] = [
-  'image_no_exif',
-  'image_ambiguous',
-  'image_no_match',
-  'pdf_untyped',
-  'duplicate',
-  'import_error',
-  'sport_conflict',
-]
-
 function FallbackItem({ item, onRefresh }: ItemProps) {
+  const { t } = useTranslation()
   const dismissMutation = useMutation({
     mutationFn: () => deleteQueueItem(item.id),
     onSuccess: onRefresh,
@@ -634,17 +652,17 @@ function FallbackItem({ item, onRefresh }: ItemProps) {
           {item.filename}
         </p>
       ) : (
-        <p className="text-xs text-neutral-400 italic">Kein Dateiname verfügbar</p>
+        <p className="text-xs text-neutral-400 italic">{t('importQueue.noFilename')}</p>
       )}
       <p className="text-xs text-neutral-500">
-        Dieser Eintrag kann nicht automatisch verarbeitet werden.
+        {t('importQueue.messages.unsupportedItem')}
       </p>
       <button
         onClick={() => dismissMutation.mutate()}
         disabled={dismissMutation.isPending}
         className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {dismissMutation.isPending ? 'Wird verworfen…' : 'Verwerfen'}
+        {dismissMutation.isPending ? t('importQueue.actions.discarding') : t('importQueue.actions.discard')}
       </button>
     </div>
   )
@@ -655,14 +673,16 @@ function FallbackItem({ item, onRefresh }: ItemProps) {
 // ---------------------------------------------------------------------------
 
 function QueueItemCard({ item, onRefresh }: ItemProps) {
+  const { t, i18n } = useTranslation()
+  const locale = localeForLanguage(currentLanguage(i18n.language))
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-3">
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${itemTypeBadgeColor(item.item_type)}`}>
-          {itemTypeLabel(item.item_type)}
+          {itemTypeLabel(item.item_type, t)}
         </span>
         <span className="text-xs text-neutral-400 ml-auto">
-          {new Date(item.created_at).toLocaleDateString('de-DE')}
+          {new Date(item.created_at).toLocaleDateString(locale)}
         </span>
       </div>
 
@@ -687,7 +707,7 @@ function QueueItemCard({ item, onRefresh }: ItemProps) {
           {item.item_type === 'sport_conflict' && (
             <SportConflictItem item={item} onRefresh={onRefresh} />
           )}
-          {!KNOWN_ITEM_TYPES.includes(item.item_type as string) && (
+          {!isKnownItemType(item.item_type) && (
             <FallbackItem item={item} onRefresh={onRefresh} />
           )}
         </div>
@@ -701,6 +721,7 @@ function QueueItemCard({ item, onRefresh }: ItemProps) {
 // ---------------------------------------------------------------------------
 
 export default function ImportQueueTab() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const { data: items = [], isLoading, isError, refetch } = useQuery({
@@ -717,7 +738,7 @@ export default function ImportQueueTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12 text-neutral-400 text-sm">
-        Lade Warteschlange…
+        {t('importQueue.loading')}
       </div>
     )
   }
@@ -725,8 +746,8 @@ export default function ImportQueueTab() {
   if (isError) {
     return (
       <div className="flex items-center justify-center py-12 text-red-500 text-sm">
-        Fehler beim Laden der Warteschlange.
-        <button onClick={() => refetch()} className="cursor-pointer ml-2 underline">Erneut versuchen</button>
+        {t('importQueue.errors.loadFailed')}
+        <button onClick={() => refetch()} className="cursor-pointer ml-2 underline">{t('common.retry')}</button>
       </div>
     )
   }
@@ -737,8 +758,8 @@ export default function ImportQueueTab() {
         <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <p className="text-sm font-medium">Keine offenen Einträge</p>
-        <p className="text-xs">Alle Dateien wurden verarbeitet.</p>
+        <p className="text-sm font-medium">{t('importQueue.emptyTitle')}</p>
+        <p className="text-xs">{t('importQueue.emptyDescription')}</p>
       </div>
     )
   }
@@ -746,7 +767,7 @@ export default function ImportQueueTab() {
   return (
     <div className="space-y-3">
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        {items.length} {items.length === 1 ? 'Eintrag' : 'Einträge'} warten auf Bearbeitung.
+        {t('importQueue.pendingCount', { count: items.length })}
       </p>
       {items.map(item => (
         <QueueItemCard key={item.id} item={item} onRefresh={onRefresh} />

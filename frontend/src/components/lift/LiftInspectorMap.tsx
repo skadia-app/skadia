@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { HelpCircle, Flame } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -10,6 +11,9 @@ import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmap
 import { useCurrentUserId } from '@/providers/UserProvider'
 import type { MapLayer } from '@/api/mapLayers'
 import type { LiftCandidate, StreamPoint } from '@/api/types'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { localeForLanguage } from '@/i18n/languages'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { liftDisplayLabel } from './liftLabel'
 
 // Pause gaps longer than this threshold are treated as hard breaks — no lift
@@ -126,11 +130,11 @@ export function pickDefaultBase(
  * Exported so LiftReviewModal can share the same lookup without duplication.
  */
 export const CONFIDENCE_LABEL = {
-  osm:      'OSM-Treffer',
-  high:     'Heuristik (Speed + Steigung)',
-  medium:   'Heuristik (Höhenrate)',
-  bidir:    'Heuristik (bidirektional)',
-  rejected: 'Abgelehnt',
+  osm:      'OSM match',
+  high:     'Heuristic (speed + gradient)',
+  medium:   'Heuristic (vertical rate)',
+  bidir:    'Heuristic (bidirectional)',
+  rejected: 'Rejected',
 } as const
 
 /**
@@ -140,15 +144,15 @@ export const CONFIDENCE_LABEL = {
  */
 export const CONFIDENCE_DESCRIPTIONS: Record<keyof typeof CONFIDENCE_LABEL, string> = {
   osm:
-    'Geometrie-Match gegen einen OSM-Lift-Eintrag (Methode A). Zählt sofort, ohne Review.',
+    'Geometry match against an OSM lift entry. Counts immediately without review.',
   high:
-    'Heuristik-Detektor: stabile Geschwindigkeit + ausreichend steiler Gradient — klares Lift-Signal aus den Sensordaten.',
+    'Heuristic detector: stable speed plus enough gradient, a clear lift signal from sensor data.',
   medium:
-    'Heuristik-Detektor ohne brauchbares Speed-Signal — nur über Höhenmeter pro Sekunde erkannt (typisch bei Smart-Recording).',
+    'Heuristic detector without a usable speed signal, recognized by vertical meters per second.',
   bidir:
-    'Lift mit U- oder ∩-förmigem Höhenprofil — das Cable bewegt sich während dieser einen Fahrt sowohl auf- als auch abwärts. „Bidirektional" bezieht sich auf die Höhenbewegung der Cable, nicht auf die Richtung des Nutzers (kein Hin-und-zurück).',
+    'Lift with a U-shaped elevation profile. Bidirectional refers to cable elevation movement, not the user direction.',
   rejected:
-    'Per Soft-Reject ausgeblendet — wird nicht in Lifetime-Stats gezählt; "Wiederherstellen" macht es rückgängig.',
+    'Hidden by soft reject. It is not counted in lifetime stats; restore makes it visible again.',
 }
 
 /**
@@ -202,18 +206,18 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c])
 }
 
-function formatTimeHMS(iso: string): string {
-  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function formatTimeHMS(iso: string, locale: string): string {
+  return new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 /**
  * Builds the HTML body for the popup that appears when the user clicks on a
  * lift polyline or one of its endpoint markers. Layout:
  *
- *   L01 · Start            (or "L01 · Ende", or just "L01" for line clicks)
+ *   L01 · Start            (or "L01 · End", or just "L01" for line clicks)
  *   example chairlift · Sessellift
- *   ● OSM-Treffer · bestätigt
- *   1.3 km · +280m · −5m
+ *   ● OSM match · confirmed
+ *   1.3 km · +280 m · −5 m
  *   14:29:01 → 14:43:31 · 870s
  *
  * All inputs go through escapeHtml() so user-provided strings (osm_name)
@@ -224,19 +228,25 @@ function buildLiftPopupHTML(
   idLabel: string,
   label: { name?: string; type?: string },
   origin: 'start' | 'end' | 'line',
+  text: {
+    confidenceLabel: string
+    status: string
+    start: string
+    end: string
+    locale: string
+    distance: string
+    ascent: string
+    descentPart: string
+  },
 ): string {
-  const detection = CONFIDENCE_LABEL[getConfidenceKey(c)]
-  const status = c.rejected_by_user ? 'abgelehnt' : (c.confirmed ? 'bestätigt' : 'offen')
-  const distance = c.distance_m == null
-    ? '–'
-    : c.distance_m >= 1000 ? `${(c.distance_m / 1000).toFixed(1)} km` : `${Math.round(c.distance_m)} m`
+  const detection = text.confidenceLabel
+  const status = text.status
   const heading = origin === 'start'
-    ? `${idLabel} · Start`
+    ? `${idLabel} · ${text.start}`
     : origin === 'end'
-    ? `${idLabel} · Ende`
+    ? `${idLabel} · ${text.end}`
     : idLabel
   const nameAndType = [label.name, label.type].filter(Boolean).join(' · ')
-  const descPart = (c.descent_m ?? 0) > 0 ? ` · −${Math.round(c.descent_m!)} m` : ''
   return [
     '<div style="font-size:12px; line-height:1.5; min-width:180px;">',
     `  <div style="font-weight:600; color:#171717;">${escapeHtml(heading)}</div>`,
@@ -244,8 +254,8 @@ function buildLiftPopupHTML(
       ? `  <div style="color:#525252; margin-bottom:4px;">${escapeHtml(nameAndType)}</div>`
       : '',
     `  <div style="color:#525252;">${escapeHtml(detection)} · ${escapeHtml(status)}</div>`,
-    `  <div style="margin-top:4px; color:#171717;">${escapeHtml(distance)} · +${Math.round(c.ascent_m)} m${escapeHtml(descPart)}</div>`,
-    `  <div style="color:#525252; margin-top:2px;">${escapeHtml(formatTimeHMS(c.started_at))} → ${escapeHtml(formatTimeHMS(c.ended_at))} · ${c.duration_s}s</div>`,
+    `  <div style="margin-top:4px; color:#171717;">${escapeHtml(text.distance)} · ${escapeHtml(text.ascent)}${escapeHtml(text.descentPart)}</div>`,
+    `  <div style="color:#525252; margin-top:2px;">${escapeHtml(formatTimeHMS(c.started_at, text.locale))} → ${escapeHtml(formatTimeHMS(c.ended_at, text.locale))} · ${c.duration_s}s</div>`,
     '</div>',
   ].join('\n')
 }
@@ -257,6 +267,9 @@ export default function LiftInspectorMap({
   onCandidateClick,
   onOpenHelp,
 }: LiftInspectorMapProps) {
+  const { t, i18n } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
+  const locale = localeForLanguage(supportedLanguageFrom(i18n.language))
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const initMapRef = useRef<(() => void) | null>(null)
@@ -274,6 +287,8 @@ export default function LiftInspectorMap({
   // per layer add) to look up the current state for popup rendering.
   const candidatesRef = useRef<LiftCandidate[]>([])
   candidatesRef.current = candidates
+  const popupTextRef = useRef({ t, locale, formatDistanceCompact, formatElevation })
+  popupTextRef.current = { t, locale, formatDistanceCompact, formatElevation }
 
   // Single popup helper — closes the previous one and opens a new one at the
   // given location with the candidate's metadata. Reuses one Popup instance
@@ -288,9 +303,23 @@ export default function LiftInspectorMap({
     if (popupRef.current) {
       popupRef.current.remove()
     }
+    const popupText = popupTextRef.current
     popupRef.current = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: false, maxWidth: '260px' })
       .setLngLat(lngLat)
-      .setHTML(buildLiftPopupHTML(c, idLabel, liftDisplayLabel(c), origin))
+      .setHTML(buildLiftPopupHTML(c, idLabel, liftDisplayLabel(c), origin, {
+        confidenceLabel: popupText.t(`lift.review.confidence.${getConfidenceKey(c)}.label`),
+        status: c.rejected_by_user
+          ? popupText.t('lift.inspector.status.rejected')
+          : c.confirmed
+            ? popupText.t('lift.review.status.confirmed')
+            : popupText.t('lift.review.status.open'),
+        start: popupText.t('lift.inspector.popup.start'),
+        end: popupText.t('lift.inspector.popup.end'),
+        locale: popupText.locale,
+        distance: popupText.formatDistanceCompact(c.distance_m),
+        ascent: `+${popupText.formatElevation(c.ascent_m)}`,
+        descentPart: (c.descent_m ?? 0) > 0 ? ` · −${popupText.formatElevation(c.descent_m)}` : '',
+      }))
       .addTo(m)
   }
   // Refs for track coords — updated each render so addTrackLayer closures always
@@ -829,8 +858,8 @@ export default function LiftInspectorMap({
 
       const startEl = createEndpointMarkerEl(ENDPOINT_COLOR_START)
       const endEl = createEndpointMarkerEl(ENDPOINT_COLOR_END)
-      startEl.title = 'Start des Lifts'
-      endEl.title = 'Ende des Lifts'
+      startEl.title = t('lift.inspector.endpoint.start')
+      endEl.title = t('lift.inspector.endpoint.end')
 
       const handleEndpointClick = (origin: 'start' | 'end', coord: [number, number]) => (ev: MouseEvent) => {
         ev.stopPropagation()
@@ -889,7 +918,7 @@ export default function LiftInspectorMap({
       {!hasStream && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none rounded-lg bg-neutral-100/70 dark:bg-neutral-900/70">
           <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center px-4">
-            Karte nicht verfügbar — fehlender Stream
+            {t('lift.inspector.noStreamMap')}
           </p>
         </div>
       )}
@@ -919,7 +948,7 @@ export default function LiftInspectorMap({
         <div className="flex items-center gap-1 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
           <button
             onClick={() => setShowHeatmap(v => !v)}
-            title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+            title={showHeatmap ? t('lift.inspector.hideHeatmap') : t('lift.inspector.showHeatmap')}
             data-testid="heatmap-toggle"
             className={[
               'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
@@ -929,7 +958,7 @@ export default function LiftInspectorMap({
             ].join(' ')}
           >
             <Flame className="w-3.5 h-3.5" aria-hidden="true" />
-            Heatmap
+            {t('lift.inspector.heatmap')}
           </button>
         </div>
       </div>
@@ -938,14 +967,14 @@ export default function LiftInspectorMap({
           opens LiftHelpModal. */}
       <div
         className="absolute top-3 left-3 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2 text-xs space-y-1 pointer-events-auto"
-        aria-label="Kartenlegende"
+        aria-label={t('lift.inspector.legend.aria')}
       >
         <div className="flex items-center justify-between gap-2 mb-0.5">
-          <span className="text-neutral-500 dark:text-neutral-400 font-medium text-[11px] uppercase tracking-wide">Legende</span>
+          <span className="text-neutral-500 dark:text-neutral-400 font-medium text-[11px] uppercase tracking-wide">{t('lift.inspector.legend.title')}</span>
           {onOpenHelp && (
             <button
               onClick={onOpenHelp}
-              aria-label="Hilfe zur Lifterkennungslegende öffnen"
+              aria-label={t('lift.inspector.legend.openHelp')}
               className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
             >
               <HelpCircle className="w-4 h-4" aria-hidden="true" />
@@ -956,7 +985,7 @@ export default function LiftInspectorMap({
           <div
             key={entry.key}
             className="flex items-center gap-1.5"
-            title={CONFIDENCE_DESCRIPTIONS[entry.key]}
+            title={t(`lift.review.confidence.${entry.key}.description`)}
           >
             <span
               aria-hidden="true"
@@ -971,7 +1000,7 @@ export default function LiftInspectorMap({
                   : {}),
               }}
             />
-            <span className="text-neutral-700 dark:text-neutral-300">{CONFIDENCE_LABEL[entry.key]}</span>
+            <span className="text-neutral-700 dark:text-neutral-300">{t(`lift.review.confidence.${entry.key}.label`)}</span>
           </div>
         ))}
       </div>

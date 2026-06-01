@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import type { Activity } from '@/api/types'
+import { i18n } from '@/i18n/i18n'
 import ActivityGearSection from './ActivityGearSection'
 
 const addActivityGearAssignment = vi.fn()
@@ -42,7 +43,8 @@ function renderSection() {
 }
 
 describe('ActivityGearSection', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
     vi.clearAllMocks()
     fetchGear.mockResolvedValue([
       { id: 'gear-1', name: 'Propain Tyee 2020', type: 'bike.mtb.enduro', is_retired: false },
@@ -60,6 +62,21 @@ describe('ActivityGearSection', () => {
     expect(addActivityGearAssignment).toHaveBeenCalledWith('activity-1', 'gear-1')
     expect(await screen.findByText('Ausrüstung konnte nicht hinzugefügt werden.')).toBeInTheDocument()
     expect(screen.getByText('Der API-Endpunkt ist im laufenden Backend noch nicht verfügbar.')).toBeInTheDocument()
+  })
+
+  it('localizes visible assignment controls and errors in English', async () => {
+    await i18n.changeLanguage('en')
+    addActivityGearAssignment.mockRejectedValue(new ApiError(404, 'not found'))
+    const { user } = renderSection()
+
+    expect(screen.getByText('No gear')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add gear' }))
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Choose gear' }), 'gear-1')
+
+    expect(await screen.findByText('Gear could not be added.')).toBeInTheDocument()
+    expect(screen.getByText('The API endpoint is not available in the running backend yet.')).toBeInTheDocument()
+    expect(screen.queryByText('Ausrüstung konnte nicht hinzugefügt werden.')).not.toBeInTheDocument()
   })
 
   it('refreshes the activity after a successful assignment', async () => {

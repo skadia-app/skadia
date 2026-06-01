@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { generateActivityFilterOptions, getAllSportKeys } from '@/lib/sportOptions'
 import { sportLabel } from '@/lib/sportTaxonomy'
@@ -9,6 +10,7 @@ import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import { modifierKeysForCapability, modifierLabel } from '@/lib/sportModifiers'
 import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState, DeviceFilter } from '@/components/GearFilterInput'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
@@ -156,6 +158,8 @@ interface Props {
 }
 
 export default function ActivityFilters({ filters, onChange }: Props) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const [open, setOpen] = useState(false)
   const countryCodesValue = filters.countryCodes.join(', ')
   const [countryInput, setCountryInput] = useState(countryCodesValue)
@@ -204,41 +208,41 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.sportTypes !== null && filters.sportTypes.size < ALL_SPORT_KEYS.length) {
     const labels = [...filters.sportTypes].map(k => {
       const [sport, sub] = k.split(':')
-      return sportLabel(sport, sub || undefined)
+      return sportLabel(sport, sub || undefined, { language })
     })
-    const display = labels.length <= 3 ? labels.join(', ') : `${labels.length} Sportarten`
+    const display = labels.length <= 3 ? labels.join(', ') : t('activityOperations.filters.sportCount', { count: labels.length })
     chips.push({ label: display, onRemove: () => onChange({ ...filters, sportTypes: null }) })
   }
   if (filters.dateFrom) {
-    chips.push({ label: `Ab ${filters.dateFrom}`, onRemove: () => onChange({ ...filters, dateFrom: '' }) })
+    chips.push({ label: t('activityOperations.filters.fromDate', { date: filters.dateFrom }), onRemove: () => onChange({ ...filters, dateFrom: '' }) })
   }
   if (filters.dateTo) {
-    chips.push({ label: `Bis ${filters.dateTo}`, onRemove: () => onChange({ ...filters, dateTo: '' }) })
+    chips.push({ label: t('activityOperations.filters.toDate', { date: filters.dateTo }), onRemove: () => onChange({ ...filters, dateTo: '' }) })
   }
   if (filters.hasGPS !== null) {
-    chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
+    chips.push({ label: filters.hasGPS ? t('activityOperations.filters.withGps') : t('activityOperations.filters.withoutGps'), onRemove: () => onChange({ ...filters, hasGPS: null }) })
   }
   if (filters.isIndoor !== null) {
-    chips.push({ label: filters.isIndoor ? `Nur ${modifierLabel('is_indoor')}` : `Ohne ${modifierLabel('is_indoor')}`, onRemove: () => onChange({ ...filters, isIndoor: null }) })
+    chips.push({ label: filters.isIndoor ? t('activityOperations.filters.onlyModifier', { modifier: modifierLabel('is_indoor', language) }) : t('activityOperations.filters.withoutModifier', { modifier: modifierLabel('is_indoor', language) }), onRemove: () => onChange({ ...filters, isIndoor: null }) })
   }
   if (filters.isElectric !== null) {
-    chips.push({ label: filters.isElectric ? `Nur ${modifierLabel('is_electric')}` : `Ohne ${modifierLabel('is_electric')}`, onRemove: () => onChange({ ...filters, isElectric: null }) })
+    chips.push({ label: filters.isElectric ? t('activityOperations.filters.onlyModifier', { modifier: modifierLabel('is_electric', language) }) : t('activityOperations.filters.withoutModifier', { modifier: modifierLabel('is_electric', language) }), onRemove: () => onChange({ ...filters, isElectric: null }) })
   }
   if (filters.isVirtual !== null) {
-    chips.push({ label: filters.isVirtual ? `Nur ${modifierLabel('is_virtual')}` : `Ohne ${modifierLabel('is_virtual')}`, onRemove: () => onChange({ ...filters, isVirtual: null }) })
+    chips.push({ label: filters.isVirtual ? t('activityOperations.filters.onlyModifier', { modifier: modifierLabel('is_virtual', language) }) : t('activityOperations.filters.withoutModifier', { modifier: modifierLabel('is_virtual', language) }), onRemove: () => onChange({ ...filters, isVirtual: null }) })
   }
   if (filters.isCommute !== null) {
-    chips.push({ label: filters.isCommute ? `Nur ${modifierLabel('is_commute')}` : `Ohne ${modifierLabel('is_commute')}`, onRemove: () => onChange({ ...filters, isCommute: null }) })
+    chips.push({ label: filters.isCommute ? t('activityOperations.filters.onlyModifier', { modifier: modifierLabel('is_commute', language) }) : t('activityOperations.filters.withoutModifier', { modifier: modifierLabel('is_commute', language) }), onRemove: () => onChange({ ...filters, isCommute: null }) })
   }
   if (filters.liftReviewPending) {
-    chips.push({ label: 'Liftprüfung offen', onRemove: () => onChange({ ...filters, liftReviewPending: false }) })
+    chips.push({ label: t('activityOperations.filters.liftReviewPending'), onRemove: () => onChange({ ...filters, liftReviewPending: false }) })
   }
   if (filters.gearId) {
-    chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
+    chips.push({ label: t('activityOperations.gear.title'), onRemove: () => onChange({ ...filters, gearId: '' }) })
   }
   if (filters.countryCodes.length) {
     chips.push({
-      label: filters.countryCodes.length <= 3 ? filters.countryCodes.join(', ') : `${filters.countryCodes.length} Länder`,
+      label: filters.countryCodes.length <= 3 ? filters.countryCodes.join(', ') : t('activityOperations.filters.countryCount', { count: filters.countryCodes.length }),
       onRemove: () => onChange({ ...filters, countryCodes: [] }),
     })
   }
@@ -258,7 +262,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
         </svg>
-        Filter
+        {t('activityOperations.filters.trigger')}
         {activeCount > 0 && (
           <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-accent-DEFAULT text-white">
             {activeCount}
@@ -299,10 +303,10 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
             {/* Zeitraum */}
             <div>
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">{t('activityOperations.filters.period')}</div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] text-neutral-400 mb-0.5 block">Von</label>
+                  <label className="text-[10px] text-neutral-400 mb-0.5 block">{t('activityOperations.filters.from')}</label>
                   <input
                     type="date"
                     value={filters.dateFrom}
@@ -311,7 +315,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-neutral-400 mb-0.5 block">Bis</label>
+                  <label className="text-[10px] text-neutral-400 mb-0.5 block">{t('activityOperations.filters.to')}</label>
                   <input
                     type="date"
                     value={filters.dateTo}
@@ -323,7 +327,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2 block">Länder</label>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2 block">{t('activityOperations.filters.countries')}</label>
               <input
                 value={countryInput}
                 onChange={e => {
@@ -339,12 +343,12 @@ export default function ActivityFilters({ filters, onChange }: Props) {
             {/* GPS */}
             <div>
               <div>
-                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">GPS</div>
+                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">{t('automationRules.summary.fields.has_gps')}</div>
                 <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
                   {([
-                    [null, 'Alle'],
-                    [true, 'Ja'],
-                    [false, 'Nein'],
+                    [null, t('common.all')],
+                    [true, t('common.yes')],
+                    [false, t('common.no')],
                   ] as [boolean | null, string][]).map(([val, label]) => (
                     <button
                       key={String(val)}
@@ -371,7 +375,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   onChange={e => onChange({ ...filters, liftReviewPending: e.target.checked })}
                   className="rounded border-neutral-300 text-accent-DEFAULT focus:ring-accent-400"
                 />
-                Liftprüfung offen
+                {t('activityOperations.filters.liftReviewPending')}
               </label>
             </div>
 
@@ -399,7 +403,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 onClick={resetFilters}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer py-1"
               >
-                Filter zurücksetzen
+                {t('activityOperations.filters.reset')}
               </button>
             )}
           </div>
@@ -415,7 +419,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               size="sm"
               active={true}
               onClick={chip.onRemove}
-              ariaLabel={`Filter entfernen: ${chip.label}`}
+              ariaLabel={t('activityOperations.filters.removeFilter', { label: chip.label })}
             >
               {chip.label}
               <span className="ml-1 opacity-60 text-xs">&times;</span>

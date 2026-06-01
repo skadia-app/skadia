@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useTransition, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { assignActivitiesToTag, unassignActivitiesFromTag } from '@/api/tags'
@@ -37,6 +38,7 @@ interface GeoSearchInlineProps {
 }
 
 function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoSearchResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
@@ -128,7 +130,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setIsOpen(true) }}
-          placeholder="Ort suchen..."
+          placeholder={t('activityLocationTags.searchPlacePlaceholder')}
           className="w-full px-3 py-1.5 pr-8 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         {isLoading && (
@@ -140,7 +142,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
           <button
             onClick={() => { setQuery(''); setResults([]); setIsOpen(false) }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-            aria-label="Suche leeren"
+            aria-label={t('activityLocationTags.clearSearch')}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -180,6 +182,7 @@ interface LocationPickerMapProps {
 }
 
 function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
+  const { t } = useTranslation()
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -255,7 +258,7 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
   return (
     <div className="mt-3 space-y-2">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Ort suchen oder auf die Karte klicken, um einen Standort zu setzen.
+        {t('activityLocationTags.mapHint')}
       </p>
       <GeoSearchInline mapRef={mapRef} onSelect={handleGeoSelect} />
       <div
@@ -265,7 +268,10 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
       />
       {pendingCoords && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          Gewählt: {pendingCoords.lat.toFixed(5)}, {pendingCoords.lng.toFixed(5)}
+          {t('activityLocationTags.selectedCoords', {
+            lat: pendingCoords.lat.toFixed(5),
+            lng: pendingCoords.lng.toFixed(5),
+          })}
         </p>
       )}
       <div className="flex gap-2">
@@ -274,13 +280,13 @@ function LocationPickerMap({ onConfirm, onCancel }: LocationPickerMapProps) {
           disabled={!pendingCoords}
           className="px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
-          Standort speichern
+          {t('activityLocationTags.saveLocation')}
         </button>
         <button
           onClick={onCancel}
           className="px-3 py-1.5 text-xs rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
-          Abbrechen
+          {t('common.cancel')}
         </button>
       </div>
     </div>
@@ -312,6 +318,7 @@ export default function ActivityLocationTagSection({
   locationLng,
   onUpdate,
 }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [showPicker, setShowPicker] = useState(false)
@@ -372,7 +379,7 @@ export default function ActivityLocationTagSection({
       }
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Standort konnte nicht gespeichert werden', duration: 0 })
+      addToast({ type: 'error', title: t('activityLocationTags.toasts.saveLocationFailed'), duration: 0 })
     },
   })
 
@@ -407,10 +414,10 @@ export default function ActivityLocationTagSection({
           onUpdate()
           setSaveAsTag(false)
           setNewTagName('')
-          addToast({ type: 'success', title: 'Standort-Tag erstellt und zugewiesen' })
+          addToast({ type: 'success', title: t('activityLocationTags.toasts.createAssigned') })
         },
         onError: () => {
-          addToast({ type: 'error', title: 'Standort-Tag konnte nicht erstellt werden', duration: 0 })
+          addToast({ type: 'error', title: t('activityLocationTags.toasts.createFailed'), duration: 0 })
         },
       }
     )
@@ -434,18 +441,18 @@ export default function ActivityLocationTagSection({
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
         <div className="flex items-center gap-2 mb-2">
           {locationIcon}
-          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Standort</h3>
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('activityLocationTags.title')}</h3>
         </div>
 
         {!hasLocation && !showMapPicker && (
           <div className="space-y-2">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Kein Standort gesetzt.{' '}
+              {t('activityLocationTags.noLocationSet')}{' '}
               <button
                 onClick={() => setShowMapPicker(true)}
                 className="text-accent-DEFAULT hover:underline cursor-pointer"
               >
-                Standort auf Karte setzen
+                {t('activityLocationTags.setOnMap')}
               </button>
             </p>
           </div>
@@ -461,14 +468,14 @@ export default function ActivityLocationTagSection({
         {hasLocation && !showMapPicker && (
           <div className="space-y-2">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Standort: {locationLat!.toFixed(5)}, {locationLng!.toFixed(5)}
+              {t('activityLocationTags.locationCoords', { lat: locationLat!.toFixed(5), lng: locationLng!.toFixed(5) })}
             </p>
             {!saveAsTag && (
               <button
                 onClick={() => setSaveAsTag(true)}
                 className="text-xs text-accent-DEFAULT hover:underline cursor-pointer"
               >
-                Als Standort-Tag speichern
+                {t('activityLocationTags.saveAsLocationTag')}
               </button>
             )}
             {saveAsTag && (
@@ -479,7 +486,7 @@ export default function ActivityLocationTagSection({
                     type="text"
                     value={newTagName}
                     onChange={e => setNewTagName(e.target.value)}
-                    placeholder="Name des Standort-Tags"
+                    placeholder={t('activityLocationTags.locationTagNamePlaceholder')}
                     className="flex-1 px-2 py-1 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
                   />
                 </div>
@@ -489,13 +496,13 @@ export default function ActivityLocationTagSection({
                     disabled={!newTagName.trim() || createLocationTagMut.isPending}
                     className="px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                   >
-                    {createLocationTagMut.isPending ? 'Speichern…' : 'Tag erstellen'}
+                    {createLocationTagMut.isPending ? t('activityLocationTags.saving') : t('activityLocationTags.createTag')}
                   </button>
                   <button
                     onClick={() => setSaveAsTag(false)}
                     className="px-3 py-1.5 text-xs rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
                   >
-                    Abbrechen
+                    {t('common.cancel')}
                   </button>
                 </div>
               </div>
@@ -515,14 +522,14 @@ export default function ActivityLocationTagSection({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {locationIcon}
-          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Standort</h3>
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('activityLocationTags.title')}</h3>
         </div>
         {availableTags.length > 0 && !showPicker && !showMapPicker && (
           <button
             onClick={() => setShowPicker(true)}
             className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            + Standort zuweisen
+            {t('activityLocationTags.assignLocation')}
           </button>
         )}
       </div>
@@ -549,7 +556,7 @@ export default function ActivityLocationTagSection({
                 onClick={() => removeMutation.mutate(tag.id)}
                 disabled={removeMutation.isPending}
                 className="opacity-60 hover:opacity-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30 ml-0.5"
-                title="Standort entfernen"
+                title={t('activityLocationTags.removeLocation')}
               >
                 <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -563,21 +570,21 @@ export default function ActivityLocationTagSection({
       {/* State: no assigned tag, no location yet — show map picker option */}
       {!hasStandortTag && !hasLocation && !showPicker && !showMapPicker && (
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Kein Standort zugeordnet.{' '}
+          {t('activityLocationTags.noLocationAssigned')}{' '}
           <button
             onClick={() => setShowMapPicker(true)}
             className="text-accent-DEFAULT hover:underline cursor-pointer"
           >
-            Auf Karte setzen
+            {t('activityLocationTags.setOnMapShort')}
           </button>
           {availableTags.length > 0 && (
             <>
-              {' '}oder{' '}
+              {' '}{t('activityLocationTags.or')}{' '}
               <button
                 onClick={() => setShowPicker(true)}
                 className="text-accent-DEFAULT hover:underline cursor-pointer"
               >
-                aus bestehenden Tags wählen
+                {t('activityLocationTags.chooseExistingTags')}
               </button>
             </>
           )}
@@ -588,21 +595,21 @@ export default function ActivityLocationTagSection({
       {!hasStandortTag && hasLocation && !showPicker && !showMapPicker && !saveAsTag && (
         <div className="space-y-1">
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Standort: {locationLat!.toFixed(5)}, {locationLng!.toFixed(5)}
+            {t('activityLocationTags.locationCoords', { lat: locationLat!.toFixed(5), lng: locationLng!.toFixed(5) })}
           </p>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             <button
               onClick={() => setSaveAsTag(true)}
               className="text-xs text-accent-DEFAULT hover:underline cursor-pointer"
             >
-              Als Standort-Tag speichern
+              {t('activityLocationTags.saveAsLocationTag')}
             </button>
             {availableTags.length > 0 && (
               <button
                 onClick={() => setShowPicker(true)}
                 className="text-xs text-accent-DEFAULT hover:underline cursor-pointer"
               >
-                Vorhandenen Tag zuweisen
+                {t('activityLocationTags.assignExistingTag')}
               </button>
             )}
           </div>
@@ -618,7 +625,7 @@ export default function ActivityLocationTagSection({
               type="text"
               value={newTagName}
               onChange={e => setNewTagName(e.target.value)}
-              placeholder="Name des Standort-Tags"
+              placeholder={t('activityLocationTags.locationTagNamePlaceholder')}
               className="flex-1 px-2 py-1 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
             />
           </div>
@@ -628,13 +635,13 @@ export default function ActivityLocationTagSection({
               disabled={!newTagName.trim() || createLocationTagMut.isPending}
               className="px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              {createLocationTagMut.isPending ? 'Speichern…' : 'Tag erstellen'}
+              {createLocationTagMut.isPending ? t('activityLocationTags.saving') : t('activityLocationTags.createTag')}
             </button>
             <button
               onClick={() => setSaveAsTag(false)}
               className="px-3 py-1.5 text-xs rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -651,7 +658,7 @@ export default function ActivityLocationTagSection({
       {/* Location picker dropdown (assign existing tag) */}
       {showPicker && (
         <div className="mt-2 space-y-2">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">Standort-Tag zuweisen:</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('activityLocationTags.assignLocationTag')}</div>
           <div className="flex flex-wrap gap-1.5">
             {availableTags.map(tag => (
               <button
@@ -670,13 +677,13 @@ export default function ActivityLocationTagSection({
               onClick={() => setShowPicker(false)}
               className="text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
             <button
               onClick={() => { setShowPicker(false); setShowMapPicker(true) }}
               className="text-xs text-accent-DEFAULT hover:underline cursor-pointer"
             >
-              Neuen Standort setzen
+              {t('activityLocationTags.setNewLocation')}
             </button>
           </div>
         </div>

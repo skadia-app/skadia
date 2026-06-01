@@ -3,9 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Activity } from '@/api/types'
 import { reprocessActivity } from '@/api/activities'
+import { i18n } from '@/i18n/i18n'
 import ActivityActionBar from './ActivityActionBar'
 
 const mockReprocessActivity = reprocessActivity as ReturnType<typeof vi.fn>
@@ -74,6 +75,10 @@ function activity(): Activity {
 }
 
 describe('ActivityActionBar', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
   it('keeps smoothing and restore actions in the overflow menu', async () => {
     render(<ActivityActionBar activity={activity()} />, { wrapper })
 
@@ -102,6 +107,20 @@ describe('ActivityActionBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Bereiche neu berechnen...' }))
 
     expect(screen.getByText('Scope modal')).toBeInTheDocument()
+  })
+
+  it('localizes visible action labels in English', async () => {
+    await i18n.changeLanguage('en')
+
+    render(<ActivityActionBar activity={{ ...activity(), sport_conflict_pending: true } as Activity} />, { wrapper })
+
+    expect(screen.getByRole('button', { name: /Sport conflict/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.getByRole('button', { name: 'Smooth speed' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Recompute selected areas...' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Geschwindigkeit glätten' })).not.toBeInTheDocument()
   })
 
   it('keeps fusion revert and multisport ungroup actions in the overflow menu', () => {

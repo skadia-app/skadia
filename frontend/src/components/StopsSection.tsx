@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchStops } from '@/api/enrichment'
 import { fmtDuration, fmtTime } from '@/lib/format'
 import type { ActivityStop } from '@/api/types'
@@ -160,50 +161,15 @@ function PoiIcon({ poiType }: { poiType?: string }) {
   )
 }
 
-const POI_TYPE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurant',
-  fast_food: 'Schnellrestaurant',
-  food_court: 'Food Court',
-  cafe: 'Café',
-  biergarten: 'Biergarten',
-  bar: 'Bar',
-  pub: 'Pub',
-  ice_cream: 'Eisdiele',
-  alpine_hut: 'Almhütte',
-  wilderness_hut: 'Schutzhütte',
-  guest_house: 'Pension',
-  hostel: 'Hostel',
-  hotel: 'Hotel',
-  kiosk: 'Kiosk',
-  bakery: 'Bäckerei',
-  butcher: 'Metzgerei',
-  peak: 'Gipfel',
-  summit: 'Gipfel',
-  saddle: 'Sattel',
-  mountain_pass: 'Bergpass',
-  viewpoint: 'Aussichtspunkt',
-  observation_tower: 'Aussichtsturm',
-  shelter: 'Unterstand',
-  drinking_water: 'Trinkwasser',
-  spring: 'Quelle',
-  camp_site: 'Campingplatz',
-  picnic_site: 'Rastplatz',
-  bbq: 'Grillplatz',
-  firepit: 'Feuerstelle',
-  waterfall: 'Wasserfall',
-  church: 'Kirche',
-  bus_stop: 'Bushaltestelle',
-  station: 'Bahnhof',
-}
-
-function getStopTitle(stop: ActivityStop): string {
+function getStopTitle(stop: ActivityStop, poiTypeLabels: Record<string, string>, fallback: string): string {
   if (stop.poi_name) return stop.poi_name
-  if (stop.poi_type && POI_TYPE_LABELS[stop.poi_type]) return POI_TYPE_LABELS[stop.poi_type]
+  if (stop.poi_type && poiTypeLabels[stop.poi_type]) return poiTypeLabels[stop.poi_type]
   if (stop.name) return stop.name
-  return 'Rast'
+  return fallback
 }
 
 export default function StopsSection({ activityId, timezone }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: stops = [], isLoading, isError } = useQuery({
@@ -228,7 +194,7 @@ export default function StopsSection({ activityId, timezone }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Stopps
+          {t('activityOperations.stops.title')}
         </h2>
         <span className="text-sm text-neutral-400">({stops.length})</span>
       </button>
@@ -236,7 +202,7 @@ export default function StopsSection({ activityId, timezone }: Props) {
       {!collapsed && (
         <div className="space-y-1.5">
           {stops.map(stop => {
-            const title = getStopTitle(stop)
+            const title = getStopTitle(stop, t('activityOperations.stops.poiTypes', { returnObjects: true }) as Record<string, string>, t('activityOperations.stops.fallbackTitle'))
             const isFallback = !stop.poi_name && !stop.name
             return (
               <div
@@ -253,7 +219,7 @@ export default function StopsSection({ activityId, timezone }: Props) {
                   </span>
                   {stop.confidence === 'speed_fallback' && stop.poi_type && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500">
-                      Pause
+                      {t('activityOperations.stops.pause')}
                     </span>
                   )}
                 </div>

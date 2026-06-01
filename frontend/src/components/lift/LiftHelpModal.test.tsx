@@ -9,11 +9,16 @@
  * - Phase 11.10: heading is "Heuristik (bidirektional)" (reverted from Talquerung).
  * - Phase 11.10: "Wichtig:" altitude-vs-direction clarification is rendered.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { i18n } from '@/i18n/i18n'
 import LiftHelpModal from './LiftHelpModal'
 
 describe('LiftHelpModal', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
   it('renders nothing when open=false', () => {
     const { container } = render(
       <LiftHelpModal open={false} onClose={() => {}} />,

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { createCommuteRule } from '@/api/rules'
 import { listPrivacyZones } from '@/api/privacy'
@@ -12,6 +13,7 @@ interface CommuteModalProps {
 }
 
 export default function CommuteModal({ activityId, isRoundTrip, onClose }: CommuteModalProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [selectedZone, setSelectedZone] = useState('')
 
@@ -29,18 +31,18 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
     onSuccess: (result) => {
       addToast({
         type: 'success',
-        title: result.created ? 'Pendel-Regel erstellt' : 'Pendel-Route hinzugefügt',
+        title: result.created ? t('activityDetail.commute.toasts.ruleCreated') : t('activityDetail.commute.toasts.routeAdded'),
       })
       onClose()
     },
     onError: (error: unknown) => {
       const apiErr = error as { status?: number } | null
       if (apiErr?.status === 409) {
-        addToast({ type: 'info', title: 'Strecke bereits in Pendel-Regel vorhanden' })
+        addToast({ type: 'info', title: t('activityDetail.commute.toasts.routeAlreadyExists') })
         onClose()
         return
       }
-      addToast({ type: 'error', title: 'Fehler beim Erstellen der Regel', duration: 0 })
+      addToast({ type: 'error', title: t('activityDetail.commute.toasts.createFailed'), duration: 0 })
       onClose()
     },
   })
@@ -50,10 +52,10 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
       {isRoundTrip ? (
         <>
           <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Pendel-Rundtour — Wo liegt dein Ziel?
+            {t('activityDetail.commute.roundTripTitle')}
           </h3>
           <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-3">
-            Diese Aktivität startet und endet am selben Ort. Wähle dein Ziel (z.B. Arbeitsplatz), damit Rundtouren mit einem Aufenthalt dort als Pendeln erkannt werden:
+            {t('activityDetail.commute.roundTripDescription')}
           </p>
           {zones && zones.length > 0 ? (
             <select
@@ -61,7 +63,7 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
               onChange={e => setSelectedZone(e.target.value)}
               className="mt-3 w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             >
-              <option value="">Zone wählen...</option>
+              <option value="">{t('activityDetail.commute.chooseZone')}</option>
               {zones.map(z => (
                 <option key={z.id} value={z.id}>{z.name}</option>
               ))}
@@ -69,16 +71,16 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
           ) : (
             <>
               <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-                Erstelle zuerst Zonen unter{' '}
+                {t('activityDetail.commute.createZonesPrefix')}{' '}
                 <a href="/settings/privacy" className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
-                  Einstellungen → Privatsphäre
+                  {t('activityDetail.commute.privacySettingsLink')}
                 </a>
               </p>
               <button
                 onClick={onClose}
                 className="w-full mt-4 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
             </>
           )}
@@ -89,13 +91,13 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
                 disabled={!selectedZone || createMut.isPending}
                 className="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
               >
-                {createMut.isPending ? 'Wird erstellt...' : 'Pendel-Regel erstellen'}
+                {createMut.isPending ? t('activityDetail.commute.creating') : t('activityDetail.commute.createRule')}
               </button>
               <button
                 onClick={onClose}
                 className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
             </div>
           )}
@@ -103,10 +105,10 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
       ) : (
         <>
           <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Pendel-Route erstellen?
+            {t('activityDetail.commute.routeTitle')}
           </h3>
           <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-3">
-            Sollen Aktivitäten mit diesem Start- und Endpunkt zukünftig automatisch als Pendeln getaggt werden?
+            {t('activityDetail.commute.routeDescription')}
           </p>
           <div className="flex gap-3 mt-4">
             <button
@@ -114,21 +116,21 @@ export default function CommuteModal({ activityId, isRoundTrip, onClose }: Commu
               disabled={createMut.isPending}
               className="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
             >
-              {createMut.isPending ? 'Wird erstellt...' : 'Ja, automatisch taggen'}
+              {createMut.isPending ? t('activityDetail.commute.creating') : t('activityDetail.commute.autoTag')}
             </button>
             <button
               onClick={onClose}
               className="flex-1 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg cursor-pointer transition-colors"
             >
-              Nein, nur dieses Mal
+              {t('activityDetail.commute.onlyThisTime')}
             </button>
           </div>
           <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-3">
-            Du kannst unter{' '}
+            {t('activityDetail.commute.rulesHintPrefix')}{' '}
             <a href="/workshop/rules" className="underline hover:text-neutral-600 dark:hover:text-neutral-300">
-              Regeln
+              {t('activityDetail.commute.rulesLink')}
             </a>{' '}
-            bei der Regel &quot;Pendeln&quot; den Backfill-Button drücken, um bestehende Aktivitäten nachträglich zu taggen.
+            {t('activityDetail.commute.rulesHintSuffix')}
           </p>
         </>
       )}
