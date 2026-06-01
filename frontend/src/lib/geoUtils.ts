@@ -1,4 +1,6 @@
 import type { Tag } from '@/api/tags'
+import { formatDistanceCompact } from '@/lib/units'
+import type { UnitFormatOptions } from '@/lib/units'
 
 // ── Haversine-Distanz in Metern ───────────────────────────────────────────
 export function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -45,8 +47,9 @@ export function circlePolygon(
   }
 }
 
-/** Format metres as "200 m" or "1.5 km" */
-export function formatRadius(m: number): string {
+/** Format metres as a display radius. */
+export function formatRadius(m: number, unitOptions?: UnitFormatOptions): string {
+  if (unitOptions) return formatDistanceCompact(m, unitOptions)
   if (m >= 1000) return `${(m / 1000).toFixed(1).replace('.0', '')} km`
   return `${m} m`
 }

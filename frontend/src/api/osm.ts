@@ -77,10 +77,10 @@ export interface OSMImportRegion {
   import_duration_s: number | null
   categories: string[]
   status: 'importing' | 'imported' | 'failed' | 'needs_redownload'
-  data_date: string | null        // Datum der OSM-Kartendaten
+  data_date: string | null        // OSM map data date
   update_interval: string         // 'manual' | 'weekly' | 'monthly'
-  replication_url: string | null  // Replication-URL für Updates
-  last_updated_at: string | null  // Letzter erfolgreicher Patch/Import
+  replication_url: string | null  // Replication URL for updates
+  last_updated_at: string | null  // Last successful patch/import
 }
 
 export interface OSMDiskUsage {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import maplibregl from 'maplibre-gl'
@@ -52,6 +53,7 @@ export default function PhotoGeoAssignmentOverlay({
   positionedPhotos = [],
   onClose,
 }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -123,7 +125,7 @@ export default function PhotoGeoAssignmentOverlay({
       queryClient.invalidateQueries({ queryKey: ['activity-photos', activityId] })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Position konnte nicht gespeichert werden', duration: 0 })
+      addToast({ type: 'error', title: t('photoGeoAssignment.savePositionFailed'), duration: 0 })
     },
   })
 
@@ -373,33 +375,33 @@ export default function PhotoGeoAssignmentOverlay({
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-neutral-100">
-            Fotos &amp; Videos auf Karte zuweisen
+            {t('photoGeoAssignment.title')}
           </span>
           {pending.length > 0 && (
             <span className="text-xs text-neutral-400">
-              {pending.length} {pending.length === 1 ? 'Medium' : 'Medien'} ohne Position
+              {t('photoGeoAssignment.pendingCount', { count: pending.length })}
             </span>
           )}
           {patchMutation.isPending && (
-            <span className="text-xs text-accent-DEFAULT animate-pulse">Speichern...</span>
+            <span className="text-xs text-accent-DEFAULT animate-pulse">{t('common.saving')}</span>
           )}
         </div>
         <div className="flex items-center gap-2">
           {assigned.length > 0 && (
             <span className="text-xs text-green-400">
-              {assigned.length} {assigned.length === 1 ? 'Medium' : 'Medien'} positioniert
+              {t('photoGeoAssignment.assignedCount', { count: assigned.length })}
             </span>
           )}
           <button
             onClick={onClose}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors cursor-pointer"
           >
-            Fertig
+            {t('photoGeoAssignment.done')}
           </button>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-neutral-700 text-neutral-400 hover:text-neutral-100 transition-colors cursor-pointer"
-            title="Schliessen (Esc)"
+            title={t('common.closeEsc')}
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -413,7 +415,7 @@ export default function PhotoGeoAssignmentOverlay({
         {/* Map area: mapContainerRef IS the flex item so MapLibre gets definite dimensions */}
         {!hasTrack ? (
           <div className="flex-1 flex items-center justify-center">
-            <span className="text-neutral-500 text-sm">Kein GPS-Track vorhanden</span>
+            <span className="text-neutral-500 text-sm">{t('photoGeoAssignment.noTrack')}</span>
           </div>
         ) : (
           <div
@@ -444,7 +446,7 @@ export default function PhotoGeoAssignmentOverlay({
             {pending.length > 0 && (
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none z-10">
                 <div className="px-3 py-1.5 rounded-lg bg-black/60 text-white text-xs backdrop-blur-sm">
-                  Foto hierher ziehen, um Position zu setzen
+                  {t('photoGeoAssignment.dragHint')}
                 </div>
               </div>
             )}
@@ -456,7 +458,7 @@ export default function PhotoGeoAssignmentOverlay({
 
           {/* "Ohne Position" section */}
           <div className="px-3 pt-3 pb-2 text-xs font-medium text-neutral-400 uppercase tracking-wider shrink-0">
-            Ohne Position
+            {t('photoGeoAssignment.unpositioned')}
           </div>
 
           {pending.length === 0 ? (
@@ -464,7 +466,7 @@ export default function PhotoGeoAssignmentOverlay({
               <svg className="w-4 h-4 text-green-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
-              <span className="text-xs text-neutral-400">Alle positioniert</span>
+              <span className="text-xs text-neutral-400">{t('photoGeoAssignment.allPositioned')}</span>
             </div>
           ) : (
             <div className="px-2 pb-2 space-y-2">
@@ -484,7 +486,7 @@ export default function PhotoGeoAssignmentOverlay({
           {assigned.length > 0 && (
             <>
               <div className="px-3 pt-3 pb-2 text-xs font-medium text-neutral-400 uppercase tracking-wider shrink-0 border-t border-neutral-800">
-                Positioniert
+                {t('photoGeoAssignment.positioned')}
               </div>
               <div className="px-2 pb-3 space-y-2">
                 {assigned.map(photo => (
@@ -517,6 +519,7 @@ interface SidebarTileProps {
 }
 
 function SidebarTile({ photo, positioned, saving, onDragStart, onDragEnd }: SidebarTileProps) {
+  const { t } = useTranslation()
   const isVid = isVideoPhoto(photo)
   return (
     <div
@@ -528,7 +531,9 @@ function SidebarTile({ photo, positioned, saving, onDragStart, onDragEnd }: Side
           ? 'border-green-700/50 hover:border-green-500/70 opacity-80 hover:opacity-100'
           : 'border-neutral-700 hover:border-accent-DEFAULT'
       }`}
-      title={positioned ? `${photo.original_filename} — auf Karte ziehen zum Verschieben` : `${photo.original_filename} — auf Karte ziehen`}
+      title={positioned
+        ? t('photoGeoAssignment.dragToMoveTitle', { filename: photo.original_filename })
+        : t('photoGeoAssignment.dragToAssignTitle', { filename: photo.original_filename })}
     >
       <AuthenticatedImage
         src={photo.thumb_url}

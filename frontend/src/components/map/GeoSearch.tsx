@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type ChangeEvent, type KeyboardEvent } from 'react'
 import type maplibregl from 'maplibre-gl'
 import { apiFetch } from '@/lib/auth'
+import { useTranslation } from 'react-i18next'
 
 interface GeoSearchResult {
   name: string
@@ -16,6 +17,7 @@ interface GeoSearchResponse {
 }
 
 export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObject<maplibregl.Map | null>, embedded?: boolean }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeoSearchResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
@@ -125,7 +127,7 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setIsOpen(true) }}
-          placeholder="Ort suchen..."
+          placeholder={t('mapEditor.geoSearch.placeholder')}
           className="w-full px-3 py-2 pr-8 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         {isLoading && (
@@ -137,7 +139,7 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
           <button
             onClick={handleClear}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-            aria-label="Suche leeren"
+            aria-label={t('mapEditor.geoSearch.clear')}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />

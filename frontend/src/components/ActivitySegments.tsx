@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchActivitySegments } from '@/api/segments'
 import type { StreamPoint } from '@/api/types'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
@@ -19,6 +20,7 @@ interface Props {
 
 
 export default function ActivitySegments({ activityId, streams }: Props) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [collapsed, setCollapsed] = useState(false)
@@ -69,7 +71,7 @@ export default function ActivitySegments({ activityId, streams }: Props) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-            Segmente
+            {t('activitySegments.title')}
           </h2>
           {efforts.length > 0 && (
             <span className="text-sm text-neutral-400">({efforts.length})</span>
@@ -85,12 +87,12 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                        hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:border-orange-300 dark:hover:border-orange-700
                        hover:text-accent-600 dark:hover:text-orange-400
                        cursor-pointer transition-colors"
-            title="Segment aus dem Track dieser Aktivitaet erstellen"
+            title={t('activitySegments.createSegmentTitle')}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
-            Segment erstellen
+            {t('activitySegments.createSegment')}
           </button>
         )}
       </div>
@@ -118,7 +120,7 @@ export default function ActivitySegments({ activityId, streams }: Props) {
       )}
 
       {!collapsed && efforts.length === 0 && !showEditor && (
-        <p className="text-sm text-neutral-400 dark:text-neutral-500">Keine Segment-Treffer</p>
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">{t('activitySegments.empty')}</p>
       )}
 
       {!collapsed && efforts.length > 0 && (
@@ -126,11 +128,11 @@ export default function ActivitySegments({ activityId, streams }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
-                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Segment</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeit</th>
-                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Rang</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activitySegments.table.segment')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activitySegments.table.time')}</th>
+                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activitySegments.table.rank')}</th>
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">PB</th>
-                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Richtung</th>
+                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activitySegments.table.direction')}</th>
               </tr>
             </thead>
             <tbody>
@@ -145,11 +147,11 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                         onClick={() => navigate('/segments/' + effort.segment_id)}
                         className="text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT cursor-pointer transition-colors text-left"
                       >
-                        {effort.segment_name ?? 'Unbenannt'}
+                        {effort.segment_name ?? t('activitySegments.unnamed')}
                       </button>
                       {effort.course_kind === 'checkpoint_sequence' && (
                         <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                          Checkpoint-Kurs absolviert
+                          {t('activitySegments.checkpointCourseCompleted')}
                         </span>
                       )}
                       {effort.segment_type_meta && (
@@ -184,10 +186,18 @@ export default function ActivitySegments({ activityId, streams }: Props) {
                   </td>
                   <td className="px-3 py-2 text-center">
                     <span
-                      title={effort.course_kind === 'checkpoint_sequence' ? 'Checkpoint-Kurs absolviert' : effort.is_reverse ? 'Umgekehrte Richtung' : 'Referenzrichtung'}
+                      title={effort.course_kind === 'checkpoint_sequence'
+                        ? t('activitySegments.checkpointCourseCompleted')
+                        : effort.is_reverse
+                          ? t('activitySegments.reverseDirection')
+                          : t('activitySegments.referenceDirection')}
                       className={`text-xs font-medium ${effort.is_reverse ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}
                     >
-                      {effort.course_kind === 'checkpoint_sequence' ? 'Absolviert' : effort.is_reverse ? '← Umgekehrt' : '→ Normal'}
+                      {effort.course_kind === 'checkpoint_sequence'
+                        ? t('activitySegments.completed')
+                        : effort.is_reverse
+                          ? t('activitySegments.reverseShort')
+                          : t('activitySegments.normalShort')}
                     </span>
                   </td>
                 </tr>

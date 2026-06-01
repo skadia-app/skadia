@@ -1,5 +1,5 @@
 // frontend/src/components/segment-editor/ColorSwatch.tsx
-// Kleiner farbiger Swatch für SAC/MTB-Difficulty neben Select-Optionen.
+// Small color swatch for SAC/MTB difficulty next to select options.
 interface ColorSwatchProps {
   color: 'blue' | 'red' | 'black'
   size?: number

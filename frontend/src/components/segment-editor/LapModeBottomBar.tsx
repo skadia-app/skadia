@@ -1,5 +1,6 @@
 // frontend/src/components/segment-editor/LapModeBottomBar.tsx
 import { Flag } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 export interface LapModeBottomBarProps {
@@ -9,6 +10,7 @@ export interface LapModeBottomBarProps {
 }
 
 export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave }: LapModeBottomBarProps) {
+  const { t } = useTranslation()
   const hasLaps = detectedLaps >= 1
 
   return (
@@ -18,10 +20,10 @@ export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave }: LapM
         <Flag className={cn('size-3.5 shrink-0', hasLaps ? 'text-accent-DEFAULT' : 'text-neutral-400 dark:text-neutral-600')} />
         {hasLaps ? (
           <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-            {detectedLaps} {detectedLaps === 1 ? 'Runde erkannt' : 'Runden erkannt'}
+            {t('segmentEditor.lap.detected', { count: detectedLaps })}
           </span>
         ) : (
-          <span className="text-xs text-neutral-400 dark:text-neutral-500">Auf Track klicken — Start/Ziel setzen</span>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500">{t('segmentEditor.lap.clickTrackHint')}</span>
         )}
       </div>
 
@@ -38,7 +40,7 @@ export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave }: LapM
           'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
         )}
       >
-        Zurück
+        {t('common.back')}
       </button>
 
       {/* Primary CTA — orange accent */}
@@ -53,7 +55,7 @@ export function LapModeBottomBar({ detectedLaps, onBack, onPreviewOrSave }: LapM
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
-        Speichern
+        {t('common.save')}
       </button>
     </div>
   )

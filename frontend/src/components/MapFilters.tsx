@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateRange } from 'react-day-picker'
 import { MonthYearCaption } from '@/components/DateRangePicker'
-import { de } from 'date-fns/locale'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { filterToExistingSports, getAllSportKeys, getOptionKey, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
@@ -18,13 +18,12 @@ import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
+import { dateFnsLocaleForLanguage } from '@/lib/format'
 import { SportFilter } from '@/components/sport/SportFilter'
 import { HeatmapApplicableModifierKeys } from '@/lib/generatedHeatmapApplicableModifiers'
 import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/map/SegmentsOverlay'
 import { DEFAULT_SEGMENT_COLORS } from '@/components/map/SegmentsOverlay'
-
-const MAP_FILTER_OPTIONS = sportFilterOptionsForPreset('MAP_PANEL_GPS')
-const ALL_SPORT_KEYS = getAllSportKeys(MAP_FILTER_OPTIONS)
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 function uniqueSportTypes(options: SportOption[]): string[] {
   const types = new Set<string>()
@@ -64,6 +63,11 @@ interface Props {
 }
 
 function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked = false, showSegmentsOverlay, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange }: Props) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const dateLocale = dateFnsLocaleForLanguage(language)
+  const mapFilterOptions = useMemo(() => sportFilterOptionsForPreset('MAP_PANEL_GPS', language), [language])
+  const allSportKeys = useMemo(() => getAllSportKeys(mapFilterOptions), [mapFilterOptions])
   const [collapsed, setCollapsed] = useState(false)
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -83,11 +87,11 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
   )
   const visibleOptions = useMemo(() => {
     if (hideUnused && existingSportKeys.size > 0) {
-      return filterToExistingSports(MAP_FILTER_OPTIONS, existingSportKeys)
+      return filterToExistingSports(mapFilterOptions, existingSportKeys)
     }
-    return MAP_FILTER_OPTIONS
-  }, [existingSportKeys, hideUnused])
-  const allSelected = filters.sportTypes === null || ALL_SPORT_KEYS.every(k => filters.sportTypes!.has(k))
+    return mapFilterOptions
+  }, [existingSportKeys, hideUnused, mapFilterOptions])
+  const allSelected = filters.sportTypes === null || allSportKeys.every(k => filters.sportTypes!.has(k))
 
   function setOptionColor(opt: SportOption, hex: string) {
     const sportTypes = uniqueSportTypes(optionLeaves(opt))
@@ -132,7 +136,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 
   return (
     <div className={docked ? `h-full w-full${forceDark ? ' dark' : ''}` : `absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
-      {/* DayPicker-Popup – links vom Panel, außerhalb overflow-hidden */}
+      {/* DayPicker popup: left of the panel, outside overflow-hidden. */}
       {datePickerOpen && (
         <div className="absolute top-0 right-full mr-2 z-50 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-xl overflow-hidden">
           <DayPicker
@@ -150,7 +154,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
               })
               if (range?.from && range?.to) setDatePickerOpen(false)
             }}
-            locale={de}
+            locale={dateLocale}
             components={{ MonthCaption: MonthYearCaption as any }}
             className="p-3 text-sm"
           />
@@ -165,7 +169,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
           onClick={() => setCollapsed(!collapsed)}
           className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
         >
-          <span>Filter</span>
+          <span>{t('map.filters.title')}</span>
           <svg
             className={`w-4 h-4 text-neutral-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
             viewBox="0 0 20 20"
@@ -177,7 +181,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 
         {!collapsed && (
           <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-4 border-t border-neutral-100 dark:border-neutral-800">
-            {/* Aktivitäts-Filter — in Terra Incognita nicht relevant */}
+            {/* Activity filters: not relevant in Terra Incognita. */}
             {viewMode !== 'terra_incognita' && <>
             <div className="pt-3">
               <SportFilter
@@ -201,7 +205,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 
             {/* Date range */}
             <div>
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Zeitraum</div>
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">{t('map.filters.dateRange')}</div>
               <div className="space-y-2">
                 <input
                   type="date"
@@ -224,7 +228,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                     : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-neutral-300 dark:hover:border-neutral-600'
                 }`}
               >
-                <span>Zeitraum wählen...</span>
+                <span>{t('map.filters.chooseDateRange')}</span>
                 {(filters.dateFrom || filters.dateTo) && (
                   <span
                     onClick={e => {
@@ -239,7 +243,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
             </div>
 
             <div>
-              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">Länder</label>
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1 block">{t('map.filters.countries')}</label>
               <input
                 value={countryInput}
                 onChange={e => {
@@ -312,7 +316,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                     ))}
                   </div>
                   <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                    Klick: einschließen → ausschließen → entfernen
+                    {t('map.filters.chipCycleHint')}
                   </p>
                 </div>
               )}
@@ -331,7 +335,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
             {/* Opacity slider */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Deckkraft</span>
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('map.layers.opacity')}</span>
                 <span className="text-xs text-neutral-400 tabular-nums">{filters.opacity}%</span>
               </div>
               <input
@@ -344,20 +348,20 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
               />
             </div>
 
-            {/* Track-Farben / Heatmap-Farbe */}
+            {/* Track colors / Heatmap color */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Farben</span>
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('map.filters.colors')}</span>
               </div>
 
               {viewMode === 'heatmap' ? (
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Heatmap-Farbe</label>
+                  <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{t('map.filters.heatmapColor')}</label>
                   {filters.heatmapColor !== '#F97316' && (
                     <button
                       onClick={() => onChange({ ...filters, heatmapColor: '#F97316' })}
                       className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
-                      title="Auf Standard zurücksetzen"
+                      title={t('map.filters.resetDefault')}
                     >
                       ↺
                     </button>
@@ -369,25 +373,25 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                 </div>
               ) : (
                 <>
-                  {/* Toggle: Einheitlich / Nach Sportart */}
+                  {/* Toggle: uniform / by sport type */}
                   <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs mb-2">
                     <button
                       onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'uniform' } })}
                       className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'uniform' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
-                      Einheitlich
+                      {t('map.filters.uniform')}
                     </button>
                     <button
                       onClick={() => onChange({ ...filters, colorConfig: { ...filters.colorConfig, mode: 'per-type' } })}
                       className={`flex-1 py-1 transition-colors cursor-pointer ${filters.colorConfig.mode === 'per-type' ? 'bg-accent-DEFAULT text-white' : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'}`}
                     >
-                      Nach Sportart
+                      {t('map.filters.bySport')}
                     </button>
                   </div>
 
                   {filters.colorConfig.mode === 'uniform' && (
                     <div className="flex items-center gap-2">
-                      <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">Track-Farbe</label>
+                      <label className="text-xs text-neutral-600 dark:text-neutral-400 flex-1">{t('map.filters.trackColor')}</label>
                       <ColorPicker
                         value={filters.colorConfig.uniformColor}
                         onChange={(c) => onChange({ ...filters, colorConfig: { ...filters.colorConfig, uniformColor: c } })}
@@ -431,7 +435,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                                     next.has(opt.value) ? next.delete(opt.value) : next.add(opt.value)
                                     return next
                                   })}
-                                  aria-label={isExpanded ? 'Farbgruppe einklappen' : 'Farbgruppe ausklappen'}
+                                  aria-label={isExpanded ? t('map.filters.collapseColorGroup') : t('map.filters.expandColorGroup')}
                                   aria-expanded={isExpanded}
                                   className="p-0.5 text-neutral-400 hover:text-neutral-600 cursor-pointer"
                                 >
@@ -469,7 +473,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                           onClick={resetVisibleColors}
                           className="flex-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
                         >
-                          Zurücksetzen
+                          {t('map.filters.reset')}
                         </button>
                       </div>
                     </div>
@@ -478,7 +482,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
               )}
             </div>
 
-            {/* Standorte anzeigen */}
+            {/* Show locations */}
             <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
@@ -488,26 +492,26 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1 mt-0.5 flex-shrink-0"
                 />
                 <div>
-                  <span className="text-sm text-neutral-700 dark:text-neutral-300">Standort-Pins</span>
-                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">Manuell zugewiesene Standorte</p>
+                  <span className="text-sm text-neutral-700 dark:text-neutral-300">{t('map.filters.locationPins')}</span>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">{t('map.filters.locationPinsHint')}</p>
                 </div>
               </label>
             </div>
-            </> /* Ende: Aktivitäts-Filter */}
+            </> /* End: activity filters */}
 
-            {/* Segment-Konfiguration */}
+            {/* Segment configuration */}
             {showSegmentsOverlay && segmentFilters && onSegmentFiltersChange && segmentColors && onSegmentColorsChange && (
               <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3 space-y-2">
-                <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Segment-Konfiguration</span>
+                <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">{t('map.filters.segments.title')}</span>
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Typ:</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('map.filters.segments.type')}:</div>
                   <div className="flex flex-wrap gap-1">
                     {([
-                      { id: 'standard', label: 'Standard' },
-                      { id: 'trail', label: 'Trail' },
-                      { id: 'lift', label: 'Lift' },
-                      { id: 'wintersport', label: 'Winter' },
-                      { id: 'wassersport', label: 'Wasser' },
+                      { id: 'standard', label: t('map.filters.segments.terrain.standard') },
+                      { id: 'trail', label: t('map.filters.segments.terrain.trail') },
+                      { id: 'lift', label: t('map.filters.segments.terrain.lift') },
+                      { id: 'wintersport', label: t('map.filters.segments.terrain.winter') },
+                      { id: 'wassersport', label: t('map.filters.segments.terrain.water') },
                     ] as const).map(({ id, label }) => (
                       <button
                         key={id}
@@ -529,11 +533,11 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kurse:</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('map.filters.segments.courses')}:</div>
                   <div className="flex flex-wrap gap-1">
                     {([
-                      { id: 'line', label: 'Linien' },
-                      { id: 'checkpoint_sequence', label: 'Checkpoint-Kurse' },
+                      { id: 'line', label: t('map.filters.segments.course.line') },
+                      { id: 'checkpoint_sequence', label: t('map.filters.segments.course.checkpointSequence') },
                     ] as const).map(({ id, label }) => (
                       <button
                         key={id}
@@ -560,21 +564,21 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                 </div>
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                   <input type="checkbox" checked={segmentFilters.riddenOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, riddenOnly: e.target.checked })} className="rounded" />
-                  <span>Nur gefahrene</span>
+                  <span>{t('map.filters.segments.riddenOnly')}</span>
                 </label>
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                   <input type="checkbox" checked={segmentFilters.favoritesOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, favoritesOnly: e.target.checked })} className="rounded" />
-                  <span>Nur Favoriten</span>
+                  <span>{t('map.filters.segments.favoritesOnly')}</span>
                 </label>
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart:</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('map.filters.segments.sport')}:</div>
                   <div className="flex flex-wrap gap-1">
                     {([
-                      { id: 'bike', label: 'Rad' },
-                      { id: 'foot', label: 'Lauf' },
-                      { id: 'ski', label: 'Winter' },
-                      { id: 'paddle', label: 'Wasser' },
-                      { id: 'generic', label: 'Sonstig' },
+                      { id: 'bike', label: t('map.filters.segments.sportGroups.bike') },
+                      { id: 'foot', label: t('map.filters.segments.sportGroups.foot') },
+                      { id: 'ski', label: t('map.filters.segments.sportGroups.ski') },
+                      { id: 'paddle', label: t('map.filters.segments.sportGroups.paddle') },
+                      { id: 'generic', label: t('map.filters.segments.sportGroups.generic') },
                     ] as const).map(({ id, label }) => (
                       <button
                         key={id}
@@ -596,17 +600,17 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('map.filters.colors')}:</div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                     {([
-                      { key: 'standard', label: 'Standard' },
-                      { key: 'trail', label: 'Trail' },
-                      { key: 'lift', label: 'Lift' },
-                      { key: 'wintersport', label: 'Winter' },
-                      { key: 'wassersport', label: 'Wasser' },
-                      { key: 'checkpoint', label: 'Checkpoint' },
-                      { key: 'ridden', label: 'Gefahren' },
-                      { key: 'favorite', label: 'Favoriten' },
+                      { key: 'standard', label: t('map.filters.segments.color.standard') },
+                      { key: 'trail', label: t('map.filters.segments.color.trail') },
+                      { key: 'lift', label: t('map.filters.segments.color.lift') },
+                      { key: 'wintersport', label: t('map.filters.segments.color.winter') },
+                      { key: 'wassersport', label: t('map.filters.segments.color.water') },
+                      { key: 'checkpoint', label: t('map.filters.segments.color.checkpoint') },
+                      { key: 'ridden', label: t('map.filters.segments.color.ridden') },
+                      { key: 'favorite', label: t('map.filters.segments.color.favorite') },
                     ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
                       <div key={key} className="flex items-center gap-1.5 text-xs">
                         <ColorPicker
@@ -645,7 +649,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >
-                Filter zurücksetzen
+                {t('map.filters.resetFilters')}
               </button>
             )}
           </div>

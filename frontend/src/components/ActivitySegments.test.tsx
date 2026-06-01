@@ -23,6 +23,8 @@ vi.mock('@/components/SegmentEditorModal', () => ({
   ),
 }))
 
+import '@/i18n/i18n'
+
 describe('ActivitySegments', () => {
   afterEach(() => {
     vi.useRealTimers()

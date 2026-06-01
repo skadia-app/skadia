@@ -1,6 +1,7 @@
 // frontend/src/components/segment-editor/DrawModeBottomBar.tsx
 import { useState } from 'react'
 import { Undo2, ArrowLeftRight, Trash2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 export interface DrawModeBottomBarProps {
@@ -13,6 +14,7 @@ export interface DrawModeBottomBarProps {
 }
 
 export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
+  const { t } = useTranslation()
   const { pointCount, onUndo, onClear, onReverse, onReset, onPreviewOrSave } = props
   const [confirmClear, setConfirmClear] = useState(false)
 
@@ -28,7 +30,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
     <div className="flex h-[52px] items-center gap-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3">
       {/* Point counter badge */}
       <span className="shrink-0 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 font-mono text-xs text-neutral-600 dark:text-neutral-300">
-        {pointCount} {pointCount === 1 ? 'Punkt' : 'Punkte'}
+        {t('segmentEditor.draw.points', { count: pointCount })}
       </span>
 
       <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-700 shrink-0" />
@@ -38,7 +40,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         type="button"
         onClick={onUndo}
         disabled={pointCount === 0}
-        title="Letzten Punkt rückgängig"
+        title={t('segmentEditor.draw.undoTitle')}
         className={cn(
           'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
           'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
@@ -48,26 +50,26 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         )}
       >
         <Undo2 className="size-3.5" />
-        <span>Undo</span>
+        <span>{t('segmentEditor.draw.undo')}</span>
       </button>
 
       {/* Clear / Confirm clear */}
       {confirmClear ? (
         <span className="flex items-center gap-1 text-xs">
-          <span className="shrink-0 text-neutral-600 dark:text-neutral-300">Alle Punkte löschen?</span>
+          <span className="shrink-0 text-neutral-600 dark:text-neutral-300">{t('segmentEditor.draw.clearConfirm')}</span>
           <button
             type="button"
             onClick={() => { setConfirmClear(false); onClear() }}
             className="rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/40 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/60"
           >
-            Ja
+            {t('common.yes')}
           </button>
           <button
             type="button"
             onClick={() => setConfirmClear(false)}
             className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
           >
-            Nein
+            {t('common.no')}
           </button>
         </span>
       ) : (
@@ -75,7 +77,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           type="button"
           onClick={handleClearClick}
           disabled={pointCount === 0}
-          title="Alle Punkte löschen"
+          title={t('segmentEditor.draw.clearTitle')}
           className={cn(
             'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
             'bg-neutral-100 dark:bg-neutral-800 text-red-500 dark:text-red-400',
@@ -85,13 +87,13 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           )}
         >
           <Trash2 className="size-3.5" />
-          <span>Löschen</span>
+          <span>{t('common.delete')}</span>
         </button>
       )}
 
-      {/* Draw-close hint — replaces the removed "Abschließen" button (double-click is the native gesture) */}
+      {/* Draw-close hint; double-click is the native gesture. */}
       <span className="text-xs text-neutral-500 dark:text-neutral-400 italic shrink-0">
-        Doppelklick schließt Linie ab
+        {t('segmentEditor.draw.doubleClickHint')}
       </span>
 
       {/* Reverse */}
@@ -99,7 +101,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         type="button"
         onClick={onReverse}
         disabled={pointCount < 2}
-        title="Richtung umkehren"
+        title={t('segmentEditor.common.reverseDirection')}
         className={cn(
           'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
           'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
@@ -109,7 +111,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
         )}
       >
         <ArrowLeftRight className="size-3.5" />
-        <span>Umkehren</span>
+        <span>{t('segmentEditor.common.reverse')}</span>
       </button>
 
       <div className="flex-1" />
@@ -118,7 +120,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
       <button
         type="button"
         onClick={onReset}
-        title="Auf gespeicherten Stand zurücksetzen"
+        title={t('segmentEditor.draw.resetTitle')}
         className={cn(
           'rounded-md px-2 py-1 text-xs',
           'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
@@ -126,7 +128,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
         )}
       >
-        Reset
+        {t('segmentEditor.common.reset')}
       </button>
 
       {/* Primary CTA — orange accent */}
@@ -141,7 +143,7 @@ export function DrawModeBottomBar(props: DrawModeBottomBarProps) {
           'disabled:pointer-events-none disabled:opacity-40',
         )}
       >
-        Speichern
+        {t('common.save')}
       </button>
     </div>
   )

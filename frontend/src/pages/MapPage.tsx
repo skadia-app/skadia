@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useLocation } from 'react-router-dom'
 import maplibregl from 'maplibre-gl'
@@ -65,6 +66,8 @@ import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
 import { SAC_COLORS, MTB_COLORS, HIGHLIGHT_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
 import type { CoordRange } from '@/api/routes'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { isSupportedLanguage, localeForLanguage } from '@/i18n/languages'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -164,7 +167,7 @@ function loadColorConfig(): SportColorConfig {
   try {
     const saved = localStorage.getItem('skadia-sport-colors')
     if (saved) return { ...defaultFilters.colorConfig, ...JSON.parse(saved) }
-  } catch { /* ignorieren */ }
+  } catch { /* ignore */ }
   return defaultFilters.colorConfig
 }
 
@@ -175,7 +178,7 @@ function loadHeatmapColor(): string {
       const parsed = JSON.parse(saved)
       if (typeof parsed.heatmapColor === 'string') return parsed.heatmapColor
     }
-  } catch { /* ignorieren */ }
+  } catch { /* ignore */ }
   return defaultFilters.heatmapColor
 }
 
@@ -216,13 +219,13 @@ function loadDefaultBaseStyle(): BaseStyle {
 function buildTileUrl(
   source: 'heatmap_lines' | 'heatmap_points',
   filters: MapFilterState,
-  teleportThresholdM: number, // 0 = kein Filter
-  samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
+  teleportThresholdM: number, // 0 = no filter
+  samplingIntervalM?: number, // undefined = no filter (default value from DB)
   userId?: string, // privacy: filter by current user
 ): string {
   // Heatmap tiles are routed through the Go API for authentication + per-user isolation.
-  // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
-  // nicht auflösen → immer absolute URL erzwingen.
+  // MapLibre v5 loads tiles in a web worker. Workers cannot resolve relative URLs
+  // → always force an absolute URL.
   const martinBase = import.meta.env.VITE_MARTIN_URL ?? `${window.location.origin}/api/v1/tiles`
   const base = `${martinBase}/${source}/{z}/{x}/{y}`
   const params = new URLSearchParams()
@@ -252,8 +255,8 @@ function buildTileUrl(
   if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
   if (filters.countryCodes.length) params.set('country_codes', filters.countryCodes.join(','))
 
-  // Cache-buster: erzwingt frische Tiles nach MVT-Funktionsänderungen.
-  // Bump nach jeder heatmap_lines_mvt / heatmap_points_mvt Migration.
+  // Cache buster: forces fresh tiles after MVT function changes.
+  // Bump after every heatmap_lines_mvt / heatmap_points_mvt migration.
   params.set('_v', '000374')
 
   const qs = params.toString()
@@ -261,11 +264,14 @@ function buildTileUrl(
 }
 
 export default function MapPage() {
+  const { t, i18n } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
   const mapRelativeRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const routePlannerMapRef = useRef<RoutePlannerMapHandle>(null)
   const navigate = useNavigate()
   const location = useLocation()
+  const activeLocale = localeForLanguage(isSupportedLanguage(i18n.language) ? i18n.language : 'de')
   const { theme: uiTheme, setTheme: setUiTheme } = useTheme()
   const themeBeforeDarkMap = useRef<'light' | 'dark'>('light')
   const [savedViewport] = useState<StoredViewport | null>(loadViewport)
@@ -302,7 +308,7 @@ export default function MapPage() {
   // Resolve the currently-selected base MapLayer from the DB catalog.
   // Falls back to null while loading (map init guard handles this).
   const selectedBaseLayer = baseLayers.find((l) => l.key === baseStyle) ?? baseLayers[0] ?? null
-  // Ref zum Zugriff auf aktuellen baseStyle in Unmount-Cleanup (Closure wäre stale)
+  // Ref for accessing the current baseStyle in unmount cleanup (closure would be stale)
   const baseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   const [filters, setFilters] = useState<MapFilterState>({
     ...defaultFilters,
@@ -315,8 +321,8 @@ export default function MapPage() {
       ? (savedViewport!.viewMode as ViewMode)
       : 'tracks'
   )
-  // Dark-Karte → UI-Dark-Mode: beim Wechsel auf 'dark' Karte schaltet die gesamte UI
-  // in den Dark Mode; beim Wegwechseln wird der vorherige Zustand wiederhergestellt.
+  // Dark map → UI dark mode: switching to the 'dark' map switches the full UI
+  // to dark mode; switching away restores the previous state.
   useEffect(() => {
     baseStyleRef.current = baseStyle
     // SCOPE-GAP: hardcoded check on layer key 'dark' to trigger UI dark theme.
@@ -331,12 +337,12 @@ export default function MapPage() {
     } else {
       setUiTheme(themeBeforeDarkMap.current)
     }
-    // uiTheme absichtlich nicht als Dependency — nur baseStyle-Wechsel soll triggern
+    // Intentionally omit uiTheme as a dependency — only baseStyle changes should trigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseStyle])
 
-  // Beim Verlassen der Seite: Dark-Theme zurücksetzen falls Dark-Karte aktiv war.
-  // Der normale else-Branch im Effect oben läuft beim Unmount nicht — daher eigener Cleanup.
+  // On page exit: reset dark theme if the dark map was active.
+  // The normal else branch in the effect above does not run on unmount, so use a dedicated cleanup.
   useEffect(() => {
     return () => {
       if (baseStyleRef.current === 'dark') {
@@ -345,8 +351,8 @@ export default function MapPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track welche user_id zuletzt für den jeweiligen Source verwendet wurde,
-  // damit bei Änderung (z.B. nach Laden der /me-Antwort) neu geladen wird.
+  // Track which user_id was last used for each source so changes
+  // (for example after loading the /me response) trigger a reload.
   const lastSummitsUserId = useRef<string>('')
   const lastForestsUserId = useRef<string>('')
   const lastPoisUserId = useRef<string>('')
@@ -379,7 +385,7 @@ export default function MapPage() {
   const { data: terraIncognitaData, isFetching: terraIncognitaFetching } = useQuery({
     queryKey: ['terra-incognita'],
     queryFn: () => fetchTerraIncognita(),
-    staleTime: Infinity, // serverseitiger Cache — kein automatisches Re-fetch
+    staleTime: Infinity, // server-side cache — no automatic refetch
   })
 
   const [isMapTilesLoading, setIsMapTilesLoading] = useState(false)
@@ -473,7 +479,7 @@ export default function MapPage() {
       didActivate = true
       getRoute(editRouteId)
         .then(route => planner.loadRoute(route))
-        .catch(() => addToast({ type: 'error', title: 'Route konnte nicht geladen werden', duration: 0 }))
+        .catch(() => addToast({ type: 'error', title: t('map.routeLoadFailed'), duration: 0 }))
     }
 
     const draft = state?.plannerRouteDraft
@@ -537,17 +543,17 @@ export default function MapPage() {
     preT0HoverToastRouteRef.current = routeKey
     addToast({
       type: 'info',
-      title: 'Altes Höhenprofil',
-      message: 'Diese Route ist im alten Profil-Format gespeichert.',
+      title: t('map.oldElevationProfileTitle'),
+      message: t('map.oldElevationProfileMessage'),
       duration: 0,
       action: {
-        label: 'Re-Migrieren',
+        label: t('map.remigrate'),
         onClick: () => {
           void planner.forceMigrateAndSave?.()
         },
       },
     })
-  }, [addToast, planner])
+  }, [addToast, planner, t])
 
   const handleProfileHover = useCallback((fraction: number | null) => {
     if (fraction === null) {
@@ -760,11 +766,11 @@ export default function MapPage() {
     removeControlPoint: planner.removeControlPoint,
     highlightedType: highlight.effective,
     isCalculating: planner.isCalculating,
-  // Perf (Wave 3, Fix 1): Dep-Liste auf konkrete Felder umgeschrieben.  Vorher
-  // depte das Memo auf das gesamte `planner`-Objekt (neue Identität bei JEDEM
-  // setState in useRoutePlanner — z.B. routeStats-Updates), wodurch es konstant
-  // invalidierte und useRouteEditor-Effekte (5× setData auf MapLibre) auslöste.
-  // Alle planner.*-Callbacks sind in useRoutePlanner via useCallback stabil.
+  // Perf (Wave 3, Fix 1): dependency list rewritten to concrete fields. Previously
+  // the memo depended on the whole `planner` object (new identity on EVERY
+  // setState in useRoutePlanner — for example routeStats updates), which constantly
+  // invalidated it and triggered useRouteEditor effects (5× setData on MapLibre).
+  // All planner.* callbacks are stable in useRoutePlanner via useCallback.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     planner.waypoints,
@@ -800,8 +806,8 @@ export default function MapPage() {
 
   useEffect(() => {
     const map = mapRef.current
-    // styleVersion === 0: Map noch nicht initialisiert (entspricht dem Pattern aller
-    // anderen Effects in MapPage). Setup läuft erst nach dem ersten style.load.
+    // styleVersion === 0: map not initialized yet (matches the pattern used by all
+    // other effects in MapPage). Setup only runs after the first style.load.
     if (!map || styleVersion === 0) return
 
     // Z-Order enforcement — run at the end of every setupLayers call (idempotent).
@@ -854,9 +860,9 @@ export default function MapPage() {
         }, before)
       }
 
-      // 2. VF K?-layer (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig).
-      //    Rendert highway=via_ferrata-Segmente ohne bestätigte Schwierigkeit als
-      //    gestrichelten Warn-Streifen, unabhängig davon ob scalePin === 'vf'.
+      // 2. VF K? layer (Invariant I9 — permanently active, not pin-dependent).
+      //    Renders highway=via_ferrata segments without confirmed difficulty as
+      //    dashed warning stripes, regardless of whether scalePin === 'vf'.
       if (!map.getSource(SOURCE_VF_UNKNOWN)) {
         map.addSource(SOURCE_VF_UNKNOWN, {
           type: 'geojson',
@@ -922,13 +928,13 @@ export default function MapPage() {
         })
       }
       if (!map.hasImage('summit-icon')) {
-        // Bergsilhouette: Dreieck mit Schneekappe — synchron auf Canvas gezeichnet.
+        // Mountain silhouette: triangle with snow cap — drawn synchronously on canvas.
         const sz = 32
         const cvs = document.createElement('canvas')
         cvs.width = sz
         cvs.height = sz
         const ctx = cvs.getContext('2d')!
-        // Berg-Körper
+        // Mountain body
         ctx.beginPath()
         ctx.moveTo(sz / 2, 2)
         ctx.lineTo(2, sz - 2)
@@ -940,7 +946,7 @@ export default function MapPage() {
         ctx.lineWidth = 2.5
         ctx.lineJoin = 'round'
         ctx.stroke()
-        // Schneekappe (deckt den inneren Teil des Strichs ab — bleibt sauber weiß)
+        // Snow cap (covers the inner part of the stroke — stays clean white)
         ctx.beginPath()
         ctx.moveTo(sz / 2, 2)
         ctx.lineTo(sz / 2 - 5, 12)
@@ -970,10 +976,10 @@ export default function MapPage() {
       setLayersReady(true)
     }
 
-    // isStyleLoaded() wird NICHT geprüft — es gibt false zurück während Tiles noch
-    // von Web-Workern dekodiert werden, obwohl addSource/addLayer problemlos funktionieren.
-    // styleVersion > 0 garantiert bereits dass style.load gefeuert hat.
-    // (Identisches Pattern wie der Overlay-Effect ab Zeile ~1217.)
+    // isStyleLoaded() is NOT checked — it returns false while tiles are still being
+    // decoded by web workers, even though addSource/addLayer work fine.
+    // styleVersion > 0 already guarantees that style.load has fired.
+    // (Same pattern as the overlay effect around line ~1217.)
     setupLayers()
   }, [styleVersion])
 
@@ -1084,32 +1090,32 @@ export default function MapPage() {
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
   //
-  // V6-Retrofit (regression case): Koordinaten kommen jetzt aus planner.routeStats.coordinates
-  // statt aus activeSuggestion.geojson. routeStats wird vom Hook in allen Modi
-  // befüllt (BadRouter Quelle 1, loadSuggestion Quelle 2, recalculateAll Quelle 3),
-  // daher funktioniert das Overlay auch bei manuell geplanten Routen ohne activeSuggestion.
+  // V6 retrofit (regression case): coordinates now come from planner.routeStats.coordinates
+  // instead of activeSuggestion.geojson. routeStats is populated by the hook in all modes
+  // (BadRouter source 1, loadSuggestion source 2, recalculateAll source 3),
+  // so the overlay also works for manually planned routes without activeSuggestion.
   //
-  // Fallback auf activeSuggestion-Geojson: wenn routeStats noch null ist aber
-  // eine activeSuggestion existiert (z.B. direkt nach Suggestion-Load, bevor
-  // loadSuggestion routeStats setzt — typischerweise <100ms, aber defensiv absichern).
+  // Fallback to activeSuggestion GeoJSON: when routeStats is still null but
+  // an activeSuggestion exists (for example directly after suggestion load, before
+  // loadSuggestion sets routeStats — typically <100ms, but guarded defensively).
   const activeIdx = hoveredSuggestion ?? 0
   const activeSuggestion = routeSuggestions?.[activeIdx]
   const parsedCoords = useMemo<number[][]>(() => {
     if (planner.routeStats && planner.routeStats.coordinates.length >= 2) {
       return planner.routeStats.coordinates
     }
-    // Fallback: activeSuggestion.geojson (Suggestion-Flow, bevor routeStats gesetzt)
+    // Fallback: activeSuggestion.geojson (suggestion flow before routeStats is set)
     return ((activeSuggestion?.geojson?.features?.[0]?.geometry?.coordinates) ?? []) as number[][]
   }, [planner.routeStats, activeSuggestion?.geojson])
 
   // ── Scale-Base source content (SAC/MTB/VF coloured ranges) ─────────────────
   //
-  // V6-Retrofit (regression case): Ranges kommen jetzt aus planner.routeStats statt
-  // aus activeSuggestion. Das erlaubt SAC/MTB/VF-Farbgebung auch bei manuell
-  // geplanten Routen (BadRouter Quelle 1) ohne aktive Suggestion.
-  // scaleEffective = scalePin ?? scaleHover — Hover liefert einen transienten
-  // Map-Preview (inkl. ScaleLegend), Click pinnt persistent. Beide ziehen
-  // dieselbe Range-Auswahl aus routeStats.
+  // V6 retrofit (regression case): ranges now come from planner.routeStats instead
+  // of activeSuggestion. This allows SAC/MTB/VF coloring for manually planned
+  // routes (BadRouter source 1) without an active suggestion.
+  // scaleEffective = scalePin ?? scaleHover — hover provides a transient
+  // map preview (incl. ScaleLegend), click pins persistently. Both read
+  // the same range selection from routeStats.
   const scaleBaseFeatures = useMemo(() => {
     if (!planner.scaleEffective || parsedCoords.length < 2) return []
     const stats = planner.routeStats
@@ -1154,20 +1160,20 @@ export default function MapPage() {
     }
   }, [scaleBaseFeatures, layersReady, planner.scaleEffective, styleVersion])
 
-  // ── VF K?-source content (Invariant I9 — dauerhaft aktiv, nicht pin-abhängig) ──
-  // Dieser Effect hat KEINE Abhängigkeit auf scalePin.  Er feuert sobald
-  // vf_unknown_ranges nicht-leer ist, egal ob der User den VF-Pin aktiviert hat.
-  // Begründung: K?-Ranges sind ein Safety-Warning (Klettersteig ohne bestätigte
-  // Schwierigkeit) — der User muss sie IMMER sehen, nicht nur wenn er zufällig
-  // auf den VF-Pin geklickt hat.
+  // ── VF K? source content (Invariant I9 — permanently active, not pin-dependent) ──
+  // This effect has NO dependency on scalePin. It fires as soon as
+  // vf_unknown_ranges is non-empty, regardless of whether the user activated the VF pin.
+  // Rationale: K? ranges are a safety warning (via ferrata without confirmed
+  // difficulty) — the user must ALWAYS see them, not only after accidentally
+  // clicking the VF pin.
   useEffect(() => {
     if (!layersReady) return
     const map = mapRef.current
     if (!map) return
     const src = map.getSource(SOURCE_VF_UNKNOWN) as maplibregl.GeoJSONSource | undefined
     if (!src) return
-    // V6-Retrofit (regression case): vf_unknown_ranges aus planner.routeStats statt
-    // activeSuggestion — zeigt K?-Overlay auch bei manuell geplanten Routen.
+    // V6 retrofit (regression case): vf_unknown_ranges from planner.routeStats instead
+    // of activeSuggestion — shows K? overlay for manually planned routes too.
     const unknown = planner.routeStats?.vf_unknown_ranges ?? []
     if (unknown.length === 0 || parsedCoords.length < 2) {
       src.setData({ type: 'FeatureCollection', features: [] })
@@ -1199,10 +1205,10 @@ export default function MapPage() {
         properties: { name: s.name, ele_m: s.ele_m, category: s.category },
       })),
     })
-    // Z-order: summit markers müssen über der Route-Linie liegen (useRouteEditor fügt
-    // route-planner-line ohne beforeId ein → landet über unseren Layern aus setupLayers).
-    // Bei Aktivierung explizit vor LAYER_ROUTE_HIGHLIGHT verschieben (= über LAYER_ROUTED),
-    // damit Gipfelpunkte sichtbar bleiben egal wann useRouteEditor.addLayers lief.
+    // Z-order: summit markers must sit above the route line (useRouteEditor adds
+    // route-planner-line without beforeId → it lands above our layers from setupLayers).
+    // On activation, explicitly move before LAYER_ROUTE_HIGHLIGHT (= above LAYER_ROUTED)
+    // so summit points stay visible regardless of when useRouteEditor.addLayers ran.
     if (summits.length > 0 && map.getLayer(LAYER_SUMMIT_MARKERS)) {
       const before = map.getLayer(LAYER_ROUTE_HIGHLIGHT) ? LAYER_ROUTE_HIGHLIGHT : undefined
       try { map.moveLayer(LAYER_SUMMIT_MARKERS, before) } catch { /* layer in transition */ }
@@ -1211,10 +1217,10 @@ export default function MapPage() {
 
   // ── Highlight-Overlay source content (forest/protected descriptor-hover) ──
   //
-  // V6-Retrofit (regression case, complete): forest_ranges / protected_ranges kommen
-  // jetzt aus planner.routeStats statt aus activeSuggestion — Highlight-Overlay
-  // funktioniert damit auch bei manuell geplanten Routen. Wave2-FE-Hook stellt
-  // sicher dass statsFromSuggestion die beiden Keys mit einbezieht.
+  // V6 retrofit (regression case, complete): forest_ranges / protected_ranges now
+  // come from planner.routeStats instead of activeSuggestion — the highlight overlay
+  // therefore also works for manually planned routes. The Wave2 FE hook ensures
+  // statsFromSuggestion includes both keys.
   const highlightFeatures = useMemo(() => {
     const hk = highlight.effective
     if (!hk || hk.kind !== 'descriptor') return []
@@ -1275,19 +1281,19 @@ export default function MapPage() {
     locationSyncTimersRef.current.forEach(t => clearTimeout(t))
   }, [])
 
-  // Heatmap-Settings laden (Teleportfilter)
+  // Load heatmap settings (teleport filter)
   const { data: heatmapSettings } = useQuery({
     queryKey: ['heatmap-settings'],
     queryFn: getHeatmapSettings,
   })
 
-  // Custom Maps Daten laden
+  // Load custom map data
   const { data: customMaps = [] } = useQuery({
     queryKey: ['custom-maps'],
     queryFn: listCustomMaps,
   })
 
-  // Alle Marker fuer sichtbare Karten laden
+  // Load all markers for visible maps
   const { data: allMarkers = [] } = useQuery({
     queryKey: ['all-custom-map-markers', customMaps.filter(m => m.is_visible).map(m => m.id).join(',')],
     queryFn: async () => {
@@ -1392,11 +1398,11 @@ export default function MapPage() {
     [queryClient, userMapLayersUserId],
   )
 
-  // location.state: activateSegmentsOverlay — z.B. von SegmentsPage aus
+  // location.state: activateSegmentsOverlay — for example from SegmentsPage
   useEffect(() => {
     if (location.state?.activateSegmentsOverlay) {
       updateOverlay('showSegmentsOverlay', true)
-      // State clearen damit beim Zurück-Navigieren kein erneutes Aktivieren passiert
+      // Clear state so back-navigation does not activate it again.
       navigate(location.pathname, { replace: true, state: null })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1471,15 +1477,15 @@ export default function MapPage() {
 
   const samplingIntervalM = heatmapSettings?.sampling_interval_m ?? 20
 
-  // Refs damit der style.load-Handler immer die aktuellen Werte sieht,
-  // ohne jedes Mal neu registriert werden zu müssen.
+  // Refs so the style.load handler always sees current values without
+  // needing to be registered again every time.
   const filtersRef = useRef(filters)
   const globalSportColorsRef = useRef(globalSportColors)
   const viewModeRef = useRef(viewMode)
   const teleportRef = useRef(teleportThresholdM)
   const samplingRef = useRef(samplingIntervalM)
   const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
-  // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
+  // Save camera state before setStyle() → persistent style.load handler restores it.
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => { globalSportColorsRef.current = globalSportColors }, [globalSportColors])
@@ -1505,16 +1511,16 @@ export default function MapPage() {
   )
 
   const handleMapStyleLoad = useCallback((map: maplibregl.Map) => {
-    // Kameraposition nach Stilwechsel atomar wiederherstellen (verhindert Race Condition
-    // mit map.once('style.load') das bei synchronem setStyle() zu spät registriert wird)
+    // Restore camera position atomically after style changes (prevents the race condition
+    // where map.once('style.load') is registered too late for synchronous setStyle()).
     if (pendingCameraRestoreRef.current) {
       map.jumpTo(pendingCameraRestoreRef.current)
       pendingCameraRestoreRef.current = null
     }
     map.resize()
-    // Nur aufräumen — Layer werden ausschließlich vom useEffect (styleVersion-Dep)
-    // aufgebaut. Verhindert doppeltes addSource→removeSource→addSource, was bei
-    // Client-Side Navigation zu gecancelten Tile-Requests und Lücken führte.
+    // Cleanup only — layers are built exclusively by the useEffect (styleVersion dep).
+    // Prevents duplicate addSource→removeSource→addSource, which caused canceled
+    // tile requests and gaps during client-side navigation.
     removeOverlayLayers(map)
     removeTerraIncognitaLayers(map)
     setStyleVersion(v => v + 1)
@@ -1575,18 +1581,18 @@ export default function MapPage() {
     } catch { /* capability mismatch during cold start — ignore, user can switch manually */ }
   }, [baseLayers]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Kartenstil wechseln ──────────────────────────────────────────────────
-  // prevBaseStyleRef verhindert den redundanten setStyle()-Aufruf beim ersten
-  // Render (baseStyle='osm' == Initialstil der Map-Instanz). Ohne diesen Schutz
-  // würde MapLibre "Style is not done loading.. Rebuilding from scratch" werfen.
+  // ── Switch map style ───────────────────────────────────────────────────────
+  // prevBaseStyleRef prevents the redundant setStyle() call on the first render
+  // (baseStyle='osm' == initial style of the map instance). Without this guard,
+  // MapLibre would throw "Style is not done loading.. Rebuilding from scratch".
   useEffect(() => {
     const map = mapRef.current
     if (!map || !selectedBaseLayer || prevBaseStyleRef.current === baseStyle) return
     prevBaseStyleRef.current = baseStyle
 
-    // Kamera vor setStyle() sichern — persistenter style.load-Handler stellt sie wieder her.
-    // map.once() würde die Race Condition nicht lösen: bei inline StyleSpecification-Objekten
-    // kann style.load synchron feuern, bevor map.once() registriert ist.
+    // Save camera before setStyle() — persistent style.load handler restores it.
+    // map.once() would not solve the race condition: with inline StyleSpecification objects,
+    // style.load can fire synchronously before map.once() is registered.
     pendingCameraRestoreRef.current = { center: map.getCenter(), zoom: map.getZoom() }
 
     const mapCaps = (caps ?? {}) as import('@/lib/mapStyles').Capabilities
@@ -1599,24 +1605,24 @@ export default function MapPage() {
     }
   }, [baseStyle]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Overlay bei Filter-/Modus-/Settings-Änderung aktualisieren ──────────
-  // showLocationTags absichtlich NICHT in deps — das Flag beeinflusst nur
-  // MapLibre-Marker, nicht die Tile-Layer → kein unnötiger Layer-Rebuild.
-  // styleVersion muss in deps: nach setStyle() werden alle Custom-Sources/-Layer
-  // gelöscht; style.load-Handler fügt sie neu hinzu und inkrementiert styleVersion,
-  // damit dieser Effect erneut feuert und den Layer-Zustand sauber herstellt.
+  // ── Update overlay on filter/mode/settings changes ────────────────────────
+  // Intentionally do NOT include showLocationTags in deps — that flag affects only
+  // MapLibre markers, not tile layers → no unnecessary layer rebuild.
+  // styleVersion must be in deps: after setStyle(), all custom sources/layers are
+  // deleted; the style.load handler adds them back and increments styleVersion
+  // so this effect fires again and cleanly restores layer state.
   useEffect(() => {
     const map = mapRef.current
-    // styleVersion === 0 bedeutet: style.load wurde noch nie gefeuert → Map noch nicht initialisiert.
-    // isStyleLoaded() wird NICHT geprüft: es gibt false zurück während Tiles noch von
-    // Web-Workern dekodiert werden, obwohl addSource/addLayer problemlos funktionieren.
+    // styleVersion === 0 means: style.load has never fired → map not initialized yet.
+    // isStyleLoaded() is NOT checked: it returns false while tiles are still being
+    // decoded by web workers, even though addSource/addLayer work fine.
     if (!map || styleVersion === 0) return
     if (viewMode === 'terra_incognita') {
-      // Beim Wechsel zu Terra Incognita: Overlay-Source komplett entfernen (inkl. Tile-Cache),
-      // da die Source für Terra Incognita nicht mehr benötigt wird.
+      // When switching to Terra Incognita: remove overlay source completely (incl. tile cache),
+      // because the source is no longer needed for Terra Incognita.
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
-      // Sofortiger Nebel (bei fehlendem terraIncognitaData: volle Welt-Abdeckung als Fallback).
+      // Immediate fog (when terraIncognitaData is missing: full-world coverage as fallback).
       const rings = terraIncognitaRef.current?.rings ?? []
       if (rings.length) addTerraIncognitaLayers(map, rings)
     } else if (viewMode === 'off') {
@@ -1633,17 +1639,16 @@ export default function MapPage() {
   }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.countryCodes, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, globalSportColors])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
-  // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
-  // weil setStyle() alle Custom-Layers löscht. Dieser Effect aktualisiert die Ref
-  // und baut den Layer neu auf. Hinweis: der style.load-Handler liest terraIncognitaRef
-  // synchron, kann dabei aber eine veraltete (noch nicht durch diesen Effect befüllte)
-  // Ref sehen. styleVersion stellt sicher, dass der Layer spätestens beim nächsten
-  // styleVersion-Trigger korrekt vorhanden ist.
+  // styleVersion in deps: after style changes, the overlay must be rebuilt because
+  // setStyle() deletes all custom layers. This effect updates the ref and rebuilds
+  // the layer. Note: the style.load handler reads terraIncognitaRef synchronously,
+  // but may see a stale ref (not yet populated by this effect). styleVersion ensures
+  // the layer is present by the next styleVersion trigger at the latest.
   useEffect(() => {
     const map = mapRef.current
-    // styleVersion === 0: Map noch nicht initialisiert — isStyleLoaded() würde sowieso false liefern.
-    // Nach dem ersten style.load (styleVersion >= 1) ist addSource/addLayer sicher, auch wenn
-    // isStyleLoaded() wegen laufender Tile-Dekodierung noch false zurückgibt.
+    // styleVersion === 0: map not initialized yet — isStyleLoaded() would return false anyway.
+    // After the first style.load (styleVersion >= 1), addSource/addLayer are safe even if
+    // isStyleLoaded() still returns false because tile decoding is in progress.
     if (!map || styleVersion === 0) return
     terraIncognitaRef.current = terraIncognitaData ?? null
     removeTerraIncognitaLayers(map)
@@ -1657,7 +1662,7 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
 
-    // Entferne alte Marker-Layer
+    // Remove old marker layers
     if (map.getLayer('custom-markers-labels')) map.removeLayer('custom-markers-labels')
     if (map.getLayer('custom-markers-circles')) map.removeLayer('custom-markers-circles')
     if (map.getSource('custom-markers')) map.removeSource('custom-markers')
@@ -1783,7 +1788,7 @@ export default function MapPage() {
     }
   }, [showCustomMaps, allMarkers, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Click-Handler fuer Marker-Hinzufuegen ──────────────────────────────
+  // ── Click handler for adding markers ─────────────────────────────────────
   const { openPromptModal } = useModal()
 
   useEffect(() => {
@@ -1800,8 +1805,8 @@ export default function MapPage() {
       const { lng, lat } = e.lngLat
 
       openPromptModal({
-        title: 'Marker-Name',
-        placeholder: 'z.B. "Lieblingskaffee"',
+        title: t('map.markerPrompt.title'),
+        placeholder: t('map.markerPrompt.placeholder'),
         onConfirm: async (name) => {
           if (name.trim()) {
             createMarkerMutation.mutate({ mapID: addMarkerModeMapID, lat, lng, name })
@@ -1828,7 +1833,7 @@ export default function MapPage() {
     const map = mapRef.current
     if (!map) return
 
-    // Alte Foto-Marker entfernen
+    // Remove old photo markers
     photoMarkersRef.current.forEach(m => m.remove())
     photoMarkersRef.current = []
 
@@ -1886,12 +1891,12 @@ export default function MapPage() {
     locationTags.forEach(tag => {
       if (tag.lat == null || tag.lng == null) return
 
-      // el = MapLibre-Root (trägt nur den MapLibre-Transform, kein eigenes Scale)
+      // el = MapLibre root (carries only the MapLibre transform, no own scale)
       const el = document.createElement('div')
       el.style.cssText = `width: 36px; cursor: pointer;`
       el.dataset.tagId = tag.id
 
-      // inner = skalierbares Kind-Element (kein MapLibre-Transform hier)
+      // inner = scalable child element (no MapLibre transform here)
       const inner = document.createElement('div')
       inner.style.cssText = `
         display: inline-flex;
@@ -1968,7 +1973,7 @@ export default function MapPage() {
             prev ? prev.map(t => t.id === tag.id ? { ...t, lat, lng } : t) : prev
           )
           updateTagLocationMutation.mutate({ id: tag.id, lat, lng })
-          // Debounced sync (3s): location_lat/location_lng auf verknüpfte Aktivitäten übertragen
+          // Debounced sync (3s): transfer location_lat/location_lng to linked activities
           const existing = locationSyncTimersRef.current.get(tag.id)
           if (existing) clearTimeout(existing)
           const timer = setTimeout(() => {
@@ -1979,14 +1984,14 @@ export default function MapPage() {
         }
       })
 
-      // Drop-Aktivitäten direkt auf den Marker (Marker liegt im DOM über dem Canvas,
-      // deshalb kommt der Canvas-Drop-Handler nicht an wenn der Cursor genau auf dem Pin ist)
+      // Drop activities directly on the marker (marker sits in the DOM above the canvas,
+      // so the canvas drop handler is not reached when the cursor is exactly on the pin).
       el.addEventListener('dragover', (e) => {
         if (!e.dataTransfer?.types.includes('application/skadia-activities')) return
         e.preventDefault()
         e.stopPropagation()
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
-        // Debounce-Timer canceln (verhindert Flicker wenn Cursor zwischen Canvas und Marker wechselt)
+        // Cancel debounce timer (prevents flicker when the cursor moves between canvas and marker)
         if (snapClearTimerRef.current) { clearTimeout(snapClearTimerRef.current); snapClearTimerRef.current = null }
         if (!snapMarkerRef.current || snapMarkerRef.current.el !== el) {
           if (snapMarkerRef.current) {
@@ -1999,7 +2004,7 @@ export default function MapPage() {
         }
       })
       el.addEventListener('dragleave', (_e) => {
-        // Nur debounced clearen — canvas-dragover könnte gleich folgen
+        // Only clear with debounce — canvas-dragover may follow immediately.
         if (snapClearTimerRef.current) clearTimeout(snapClearTimerRef.current)
         snapClearTimerRef.current = setTimeout(() => {
           if (snapMarkerRef.current?.el === el) {
@@ -2046,7 +2051,7 @@ export default function MapPage() {
     }
   }, [filters.showLocationTags, locationTags, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Drop-Location: Name-Dialog + direktes Erstellen ──────────────────────
+  // ── Drop location: name dialog + direct creation ─────────────────────────
   const [dropNameInput, setDropNameInput] = useState('')
   const [dropColorInput, setDropColorInput] = useState('#f97316')
   const isDropMode = !!(newLocationPick?.dropLngLat)
@@ -2088,7 +2093,7 @@ export default function MapPage() {
     setDropColorInput('#f97316')
   }
 
-  // ── Crosshair-Modus für neues Standort-Tag ──────────────────────────────
+  // ── Crosshair mode for new location tag ──────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -2146,10 +2151,10 @@ export default function MapPage() {
     }
   }, [newLocationPick]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Canvas-Drag-Listener: Aktivitäten auf Karte ziehen (Indoor-Tagging) ──
-  // Direktes Binden an den MapLibre-Canvas, weil React-onDrop am Container-div
-  // durch den Canvas geblockt wird (MapLibre fängt Pointer-Events ab).
-  // locationTagsRef hält immer den aktuellen Stand (kein Stale-Closure-Problem).
+  // ── Canvas drag listener: drag activities onto the map (indoor tagging) ───
+  // Bind directly to the MapLibre canvas because React onDrop on the container div
+  // is blocked by the canvas (MapLibre catches pointer events).
+  // locationTagsRef always holds the current state (no stale closure issue).
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -2185,7 +2190,7 @@ export default function MapPage() {
       }
     }
 
-    // Pixel-Radius für Snap (zoomstufenunabhängig)
+    // Pixel radius for snap (zoom-independent)
     const SNAP_PX = 60
 
     function findNearbyMarkerByPixel(cursorX: number, cursorY: number): maplibregl.Marker | null {
@@ -2237,7 +2242,7 @@ export default function MapPage() {
       const cursorX = e.clientX - rect.left
       const cursorY = e.clientY - rect.top
 
-      // Pixel-basierte Snap-Prüfung (zoomstufenunabhängig)
+      // Pixel-based snap check (zoom-independent)
       const nearbyMarker = findNearbyMarkerByPixel(cursorX, cursorY)
       if (nearbyMarker) {
         const tagId = nearbyMarker.getElement().dataset.tagId!
@@ -2262,7 +2267,7 @@ export default function MapPage() {
           setTimeout(() => { innerEl.style.transition = ''; innerEl.style.scale = '' }, 400)
         }
       } else {
-        // Kein naher Pin → neuen Standort anlegen
+        // No nearby pin → create a new location
         const lngLat = mapRef.current?.unproject([cursorX, cursorY])
         if (!lngLat) return
         setShowIndoorAssign(false)
@@ -2357,7 +2362,7 @@ export default function MapPage() {
         'circle-opacity': 0.9,
       },
     })
-    // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+    // Wave 3, Fix 5: bring route layers back to the top.
     enforceRouteLayersOnTop(map)
 
     // Build LineString features for direction arrows (segments with track_geojson)
@@ -2388,7 +2393,7 @@ export default function MapPage() {
         data: { type: 'FeatureCollection', features: trackFeatures },
       })
 
-      // Pfeil-Icon registrieren und Symbol-Layer für Richtungspfeile hinzufügen
+      // Register arrow icon and add symbol layer for direction arrows.
       const arrowSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M10 3 L16 17 L10 13 L4 17 Z" fill="white" opacity="0.9"/></svg>`
       const arrowImg = new Image(20, 20)
       arrowImg.src = 'data:image/svg+xml,' + encodeURIComponent(arrowSVG)
@@ -2413,7 +2418,7 @@ export default function MapPage() {
               'icon-opacity': 0.75,
             },
           })
-          // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+          // Wave 3, Fix 5: bring route layers back to the top.
           enforceRouteLayersOnTop(map)
         }
       }
@@ -2497,7 +2502,7 @@ export default function MapPage() {
     )).then(results => setTagPhotos(results.flat()))
   }, [selectedLocationTagId, tagActivities])
 
-  // ── Gipfel-Layer ─────────────────────────────────────────────────────────
+  // ── Summit layer ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
@@ -2507,7 +2512,7 @@ export default function MapPage() {
       : `${martinBase}/summits/{z}/{x}/{y}`
 
     const addSummitsLayer = () => {
-      // Source neu laden wenn sich user_id geändert hat (visited-Flag korrekt rendern)
+      // Reload source when user_id changed (render visited flag correctly).
       if (map.getSource('summits-source') && lastSummitsUserId.current !== currentUserId) {
         if (map.getLayer('summits-layer')) map.removeLayer('summits-layer')
         map.removeSource('summits-source')
@@ -2553,7 +2558,7 @@ export default function MapPage() {
           ? ['==', ['get', 'visited'], true]
           : ['literal', true])
       }
-      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      // Wave 3, Fix 5: bring route layers back to the top.
       enforceRouteLayersOnTop(map)
     }
 
@@ -2578,7 +2583,7 @@ export default function MapPage() {
     }
   }, [overlayState.showSummits, overlayState.summitsOnlyVisited, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Gewässer-Layer ────────────────────────────────────────────────────────
+  // ── Water layer ──────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
@@ -2607,7 +2612,7 @@ export default function MapPage() {
           },
         })
       }
-      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      // Wave 3, Fix 5: bring route layers back to the top.
       enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('waters-layer')) map.removeLayer('waters-layer')
@@ -2616,7 +2621,7 @@ export default function MapPage() {
   }, [overlayState.showWaters, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  // ── Wald-Layer ────────────────────────────────────────────────────────────
+  // ── Forest layer ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
@@ -2626,7 +2631,7 @@ export default function MapPage() {
       : `${martinBase}/forests/{z}/{x}/{y}`
 
     if (overlayState.showForests) {
-      // Source neu laden wenn sich user_id geändert hat
+      // Reload source when user_id changed.
       if (map.getSource('forests-source') && lastForestsUserId.current !== currentUserId) {
         if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
         map.removeSource('forests-source')
@@ -2654,7 +2659,7 @@ export default function MapPage() {
           },
         })
       }
-      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      // Wave 3, Fix 5: bring route layers back to the top.
       enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('forests-layer')) map.removeLayer('forests-layer')
@@ -2662,7 +2667,7 @@ export default function MapPage() {
     }
   }, [overlayState.showForests, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Besuchte Einkehr-Layer ────────────────────────────────────────────────
+  // ── Visited refreshment stop layer ───────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
@@ -2686,7 +2691,7 @@ export default function MapPage() {
           },
         })
       }
-      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      // Wave 3, Fix 5: bring route layers back to the top.
       enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('visited-pois-layer')) map.removeLayer('visited-pois-layer')
@@ -2694,7 +2699,7 @@ export default function MapPage() {
     }
   }, [overlayState.showVisitedPois, visitedPoisGeoJSON, styleVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── POIs-Layer (Martin MVT) ───────────────────────────────────────────────
+  // ── POIs layer (Martin MVT) ──────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || styleVersion === 0) return
@@ -2732,7 +2737,7 @@ export default function MapPage() {
           },
         })
       }
-      // Wave 3, Fix 5: Route-Layer wieder nach oben holen.
+      // Wave 3, Fix 5: bring route layers back to the top.
       enforceRouteLayersOnTop(map)
     } else {
       if (map.getLayer('pois-layer')) map.removeLayer('pois-layer')
@@ -2786,10 +2791,10 @@ export default function MapPage() {
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
       <div className="flex flex-row flex-1 min-h-0 relative overflow-hidden">
 
-        {/* ── Planner-Panel (links, absolute overlay mit Tab) ───────────── */}
+        {/* ── Planner panel (left, absolute overlay with tab) ────────────── */}
         {plannerAvailable && (
           <div className={`absolute left-0 top-0 bottom-0 z-10 w-72 flex flex-row-reverse transition-transform duration-200 ease-in-out ${plannerActive && plannerPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%-1.25rem)]'}`}>
-            {/* Tab (rechte Seite des Panels, immer sichtbar solange Routing verfügbar) */}
+            {/* Tab (right side of the panel, always visible while routing is available) */}
             <button
               onClick={() => {
                 if (plannerActive) {
@@ -2803,16 +2808,16 @@ export default function MapPage() {
                 }
               }}
               className="w-5 flex-shrink-0 flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 border-r border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors overflow-hidden"
-              title={plannerActive && plannerPanelOpen ? 'Routenplaner ausblenden' : 'Routenplaner einblenden'}
+              title={plannerActive && plannerPanelOpen ? t('map.hideRoutePlanner') : t('map.showRoutePlanner')}
             >
               <svg className={`w-3 h-3 flex-shrink-0 transition-transform text-neutral-400 ${plannerActive && plannerPanelOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
               </svg>
               <span className="text-[10px] text-neutral-300 select-none leading-none" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                {plannerActive && plannerPanelOpen ? 'Routenplaner ausblenden' : 'Routenplaner einblenden'}
+                {plannerActive && plannerPanelOpen ? t('map.hideRoutePlanner') : t('map.showRoutePlanner')}
               </span>
             </button>
-            {/* Panel-Inhalt — nur wenn Planer aktiv */}
+            {/* Panel content only while the planner is active. */}
             {plannerActive && <div className="flex-1 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
               <RoutePlannerPanel
                 waypoints={planner.waypoints}
@@ -2882,10 +2887,10 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* ── Mittlere Spalte: Karte + Bottom-Bar ───────────────────────── */}
+        {/* ── Middle column: map + bottom bar ────────────────────────────── */}
         <div className="flex flex-col flex-1 min-h-0 min-w-0" style={{ paddingLeft: plannerAvailable ? (plannerActive && plannerPanelOpen ? '18rem' : '1.25rem') : '0', paddingRight: filterPanelVisible ? '16rem' : '1.25rem' }}>
 
-        {/* ── Kartenbereich ─────────────────────────────────────────────── */}
+        {/* ── Map area ───────────────────────────────────────────────────── */}
         <div ref={mapRelativeRef} className="relative flex-1 min-h-0 overflow-hidden">
         <RoutePlannerMap
           ref={routePlannerMapRef}
@@ -2901,10 +2906,10 @@ export default function MapPage() {
           getViewportSnapshot={getViewportSnapshot}
         />
 
-        {/* Scale-Legende: erscheint bei Hover ODER Click auf einen Scale-Badge
-            (scaleEffective = scalePin ?? scaleHover). Erklärt die 6 Rainbow-
-            Farben des Map-Overlays; Badge-Dots nutzen die 3-Farben-DAV-
-            Konvention (siehe ScaleBadge.tsx). */}
+        {/* Scale legend: appears on hover OR click on a scale badge
+            (scaleEffective = scalePin ?? scaleHover). Explains the 6 rainbow
+            colors of the map overlay; badge dots use the 3-color DAV
+            convention (see ScaleBadge.tsx). */}
         <ScaleLegend
           kind={planner.scaleEffective}
           hasUnknownVf={(planner.routeStats?.vf_unknown_ranges?.length ?? 0) > 0}
@@ -2925,7 +2930,7 @@ export default function MapPage() {
               <button
                 key={layer.key}
                 onClick={() => setBaseStyle(layer.key)}
-                aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
+                aria-label={layer.is_system ? layer.name : t('map.ownMapAria', { name: layer.name })}
                 className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                   baseStyle === layer.key
                     ? 'bg-accent-DEFAULT text-white'
@@ -2956,7 +2961,7 @@ export default function MapPage() {
               <button
                 key={layer.key}
                 disabled
-                title={`Benötigt: ${missingCapability}`}
+                title={t('map.requiresCapability', { capability: missingCapability })}
                 className="flex-shrink-0 px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
               >
                 {layer.name}
@@ -3016,7 +3021,7 @@ export default function MapPage() {
                         setBaseStyle(layer.key)
                         setLayerMenuOpen(false)
                       }}
-                      aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
+                      aria-label={layer.is_system ? layer.name : t('map.ownMapAria', { name: layer.name })}
                       className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-left transition-colors cursor-pointer ${
                         baseStyle === layer.key
                           ? 'bg-accent-DEFAULT text-white'
@@ -3046,7 +3051,7 @@ export default function MapPage() {
                     <button
                       key={layer.key}
                       disabled
-                      title={`Benötigt: ${missingCapability}`}
+                      title={t('map.requiresCapability', { capability: missingCapability })}
                       className="px-3 py-1.5 text-xs font-medium text-left opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
                     >
                       {layer.name}
@@ -3080,17 +3085,17 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* ── View-Mode + Badges — mittig unten ────────────────────────── */}
+        {/* ── View mode + badges — bottom center ────────────────────────── */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-1.5">
 
-          {/* Lade-Indikator */}
+          {/* Loading indicator */}
           {(isMapTilesLoading || (viewMode === 'terra_incognita' && terraIncognitaFetching)) && (
             <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md pointer-events-none">
               <div className="w-3 h-3 rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-orange-500 animate-spin flex-shrink-0" />
               <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
-                {viewMode === 'tracks' && 'Tracks werden geladen'}
-                {viewMode === 'heatmap' && 'Heatmap wird gerendert'}
-                {viewMode === 'terra_incognita' && 'Nebel zieht auf'}
+                {viewMode === 'tracks' && t('map.loading.tracks')}
+                {viewMode === 'heatmap' && t('map.loading.heatmap')}
+                {viewMode === 'terra_incognita' && t('map.loading.terraIncognita')}
                 <span className="inline-flex gap-px ml-0.5">
                   <span className="animate-[bounce_1.2s_ease-in-out_0s_infinite]">.</span>
                   <span className="animate-[bounce_1.2s_ease-in-out_0.2s_infinite]">.</span>
@@ -3100,11 +3105,11 @@ export default function MapPage() {
             </div>
           )}
 
-          {/* Terra Incognita Flächen-Badge */}
+          {/* Terra Incognita area badge */}
           {viewMode === 'terra_incognita' && terraIncognitaData && !isMapTilesLoading && !terraIncognitaFetching && (
             <div className="flex justify-center px-3 py-1.5 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-300 dark:border-neutral-600 shadow-md">
               <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 whitespace-nowrap">
-                {terraIncognitaData.area_km2.toFixed(1)} km² entdeckt
+                {t('map.terraIncognitaDiscovered', { area: terraIncognitaData.area_km2.toFixed(1) })}
               </span>
             </div>
           )}
@@ -3126,7 +3131,7 @@ export default function MapPage() {
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                Aus
+                {t('map.viewModes.off')}
               </button>
               <button
                 onClick={() => {
@@ -3146,7 +3151,7 @@ export default function MapPage() {
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                Tracks
+                {t('map.viewModes.tracks')}
               </button>
               <button
                 onClick={() => {
@@ -3166,7 +3171,7 @@ export default function MapPage() {
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                Heatmap
+                {t('map.viewModes.heatmap')}
               </button>
               <button
                 onClick={() => {
@@ -3185,7 +3190,7 @@ export default function MapPage() {
                     : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                Terra Inc.
+                {t('map.viewModes.terraIncognitaShort')}
               </button>
           </div>
         </div>
@@ -3201,7 +3206,7 @@ export default function MapPage() {
           <button
             onClick={() => {
               if (!plannerAvailable) {
-                addToast({ type: 'info', title: 'Routenplaner nicht verfügbar', message: 'Benötigt BRouter-Segmente oder einen BadRouter-Graph. Konfiguriere beides unter Einstellungen → Geodaten.' })
+                addToast({ type: 'info', title: t('map.plannerUnavailableTitle'), message: t('map.plannerUnavailableMessage') })
                 return
               }
               if (plannerActive) {
@@ -3214,7 +3219,7 @@ export default function MapPage() {
                 try { localStorage.setItem('skadia-planner-panel-visible', 'true') } catch { /* ignore */ }
               }
             }}
-            title={plannerAvailable ? 'Routenplaner' : 'Routenplaner benötigt BRouter-Segmente oder BadRouter-Graph.'}
+            title={plannerAvailable ? t('map.routePlanner') : t('map.plannerUnavailableTooltip')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border shadow-md backdrop-blur-sm transition-colors ${
               !plannerAvailable
                 ? 'opacity-50 cursor-not-allowed bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600'
@@ -3227,7 +3232,7 @@ export default function MapPage() {
             <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 00.025 1.06l4.146 3.958H6.375a5.375 5.375 0 000 10.75H9.75a.75.75 0 000-1.5H6.375a3.875 3.875 0 010-7.75h10.003l-4.146 3.957a.75.75 0 001.036 1.085l5.5-5.25a.75.75 0 000-1.085l-5.5-5.25a.75.75 0 00-1.061.025z" clipRule="evenodd" />
             </svg>
-            Planer
+            {t('map.planner')}
           </button>
           <button
             onClick={() => setShowIndoorAssign(!showIndoorAssign)}
@@ -3237,7 +3242,7 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Zuweisung
+            {t('map.assignment')}
           </button>
           <button
             onClick={() => setShowSegments(!showSegments)}
@@ -3247,7 +3252,7 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Segmente
+            {t('map.segments')}
           </button>
           <button
             onClick={() => setShowPhotos(!showPhotos)}
@@ -3257,7 +3262,7 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Bilder
+            {t('map.images')}
           </button>
           <button
             onClick={() => setShowCustomMaps(!showCustomMaps)}
@@ -3267,11 +3272,11 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            Eigene Karten
+            {t('map.customMaps')}
           </button>
           </div>
 
-        {/* Segments Overlay — Segment-Linien als Karten-Ebene */}
+        {/* Segments overlay — segment lines as a map layer */}
         <SegmentsOverlay
           map={mapRef.current}
           enabled={overlayState.showSegmentsOverlay}
@@ -3326,8 +3331,8 @@ export default function MapPage() {
               onClose={() => setShowSuggestionDialog(false)}
               onResult={(response) => {
                 if (response.suggestions.length === 0) {
-                  addToast({ type: 'info', title: 'Keine Route gefunden',
-                    message: 'Versuche eine groessere Distanz oder anderen Startpunkt', duration: 4000 })
+                  addToast({ type: 'info', title: t('map.noRouteFoundTitle'),
+                    message: t('map.noRouteFoundMessage'), duration: 4000 })
                   return
                 }
                 setRouteSuggestions(response.suggestions)
@@ -3387,7 +3392,7 @@ export default function MapPage() {
         {isDropMode && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-72 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Neuer Standort</span>
+              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('map.locationTags.newLocation')}</span>
               <button
                 onClick={() => { setNewLocationPick(null); setDropNameInput(''); setDropColorInput('#f97316') }}
                 className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
@@ -3398,14 +3403,14 @@ export default function MapPage() {
               </button>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              {newLocationPick!.activityIDs.length} Aktivität(en) werden zugewiesen.
+              {t('map.locationTags.assignmentCount', { count: newLocationPick!.activityIDs.length })}
             </p>
             <input
               type="text"
               value={dropNameInput}
               onChange={(e) => setDropNameInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleDropConfirm() }}
-              placeholder="Name des Standorts"
+              placeholder={t('map.locationTags.locationNamePlaceholder')}
               autoFocus
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             />
@@ -3428,16 +3433,16 @@ export default function MapPage() {
               disabled={!dropNameInput.trim()}
               className="w-full py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              Standort erstellen + zuweisen
+              {t('map.locationTags.createAndAssign')}
             </button>
           </div>
         )}
 
-        {/* Drag-to-merge Bestätigungs-Dialog */}
+        {/* Drag-to-merge confirmation dialog */}
         {tagMergeDialog && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-80 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Tags fusionieren?</span>
+              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('map.locationTags.mergeTitle')}</span>
               <button
                 onClick={() => {
                   // Roll back marker to original position
@@ -3455,23 +3460,23 @@ export default function MapPage() {
               </button>
             </div>
             <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed">
-              Tag{' '}
+              {t('map.locationTags.tagLabel')}{' '}
               <span className="font-semibold" style={{ color: tagMergeDialog.draggedTag.color }}>
                 {tagMergeDialog.draggedTag.name}
               </span>{' '}
-              mit{' '}
+              {t('map.locationTags.mergeWith')}{' '}
               <span className="font-semibold" style={{ color: tagMergeDialog.nearbyTag.color }}>
                 {tagMergeDialog.nearbyTag.name}
               </span>{' '}
-              fusionieren? Alle Aktivitäten werden{' '}
+              {t('map.locationTags.mergeQuestion')}{' '}
               <span className="font-semibold" style={{ color: tagMergeDialog.nearbyTag.color }}>
                 {tagMergeDialog.nearbyTag.name}
               </span>{' '}
-              zugewiesen.{' '}
+              {t('map.locationTags.mergeAssigned')}{' '}
               <span className="font-semibold" style={{ color: tagMergeDialog.draggedTag.color }}>
                 {tagMergeDialog.draggedTag.name}
               </span>{' '}
-              wird gelöscht.
+              {t('map.locationTags.mergeDeleted')}
             </p>
             <div className="flex gap-2">
               <button
@@ -3484,7 +3489,7 @@ export default function MapPage() {
                 disabled={mergeTagMutation.isPending}
                 className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
-                {mergeTagMutation.isPending ? 'Fusioniere…' : 'Fusionieren'}
+                {mergeTagMutation.isPending ? t('map.locationTags.merging') : t('map.locationTags.merge')}
               </button>
               <button
                 onClick={() => {
@@ -3496,7 +3501,7 @@ export default function MapPage() {
                 }}
                 className="flex-1 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
-                Abbrechen
+                {t('account.actions.cancel')}
               </button>
             </div>
           </div>
@@ -3543,7 +3548,7 @@ export default function MapPage() {
                       )
                     }}
                     className="absolute top-1.5 right-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs cursor-pointer"
-                    title="Bild entfernen"
+                    title={t('map.locationTags.removeCoverImage')}
                   >
                     <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -3565,7 +3570,7 @@ export default function MapPage() {
                       const { uploadTagCoverImage } = await import('@/api/tags')
                       try {
                         const updatedTag = await uploadTagCoverImage(selectedLocationTag.id, file)
-                        // Sofort im Cache aktualisieren → live ohne Refetch-Verzögerung
+                        // Update cache immediately → live without refetch delay
                         queryClient.setQueryData<Tag[]>(['tags'], old =>
                           old?.map(t => t.id === selectedLocationTag.id ? updatedTag : t) ?? []
                         )
@@ -3577,7 +3582,7 @@ export default function MapPage() {
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/>
                   </svg>
-                  {selectedLocationTag.cover_file_id ? 'Ersetzen' : 'Bild hinzufügen'}
+                  {selectedLocationTag.cover_file_id ? t('map.locationTags.replaceCoverImage') : t('map.locationTags.addCoverImage')}
                 </label>
                 {tagPhotos.length > 0 && (
                   <button
@@ -3587,7 +3592,7 @@ export default function MapPage() {
                     <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd"/>
                     </svg>
-                    Aus Aktivitäten
+                    {t('map.locationTags.fromActivities')}
                   </button>
                 )}
               </div>
@@ -3617,28 +3622,24 @@ export default function MapPage() {
               <div className="flex-shrink-0">
                 <div className="px-4 pt-2 pb-1">
                   <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                    Aktivitäten ({tagActivities.length})
+                    {t('map.locationTags.activityCount', { count: tagActivities.length })}
                   </span>
                 </div>
                 {tagActivitiesLoading ? (
-                  <div className="flex items-center justify-center py-4 text-sm text-neutral-400">Laden...</div>
+                  <div className="flex items-center justify-center py-4 text-sm text-neutral-400">{t('common.loading')}</div>
                 ) : tagActivities.length === 0 ? (
                   <div className="px-4 py-3 text-sm text-neutral-400 text-center">
                     {selectedLocationTag.description && (
                       <p className="mb-1 text-xs">{selectedLocationTag.description}</p>
                     )}
-                    Noch keine Aktivitäten zugeordnet
+                    {t('map.locationTags.noActivities')}
                   </div>
                 ) : (
                   <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 max-h-[200px] overflow-y-auto">
                     {tagActivities.map(act => {
-                      const displayTitle = displayActivityTitle(act, 'Aktivität')
+                      const displayTitle = displayActivityTitle(act, t('activities.row.noTitle'))
                       const date = fmtDateCompact(act.started_at, act.timezone)
-                      const dist = act.distance_m != null
-                        ? act.distance_m >= 1000
-                          ? `${(act.distance_m / 1000).toFixed(1)} km`
-                          : `${Math.round(act.distance_m)} m`
-                        : null
+                      const dist = act.distance_m != null ? formatDistanceCompact(act.distance_m) : null
                       return (
                         <li key={act.id}>
                           <a
@@ -3668,7 +3669,7 @@ export default function MapPage() {
                     onClick={() => setTagGalleryOpen(!tagGalleryOpen)}
                     className="w-full flex items-center justify-between px-4 py-2 text-xs text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer"
                   >
-                    <span>Galerie ({tagPhotos.length} Fotos)</span>
+                    <span>{t('map.locationTags.galleryCount', { count: tagPhotos.length })}</span>
                     <svg className={`w-3.5 h-3.5 transition-transform ${tagGalleryOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd"/>
                     </svg>
@@ -3676,7 +3677,7 @@ export default function MapPage() {
                   {tagGalleryOpen && (
                     <div className="px-3 pb-3 max-h-48 overflow-y-auto">
                       {tagGallerySelectMode && (
-                        <p className="text-xs text-accent-DEFAULT mb-2 text-center">Foto als Titelbild wählen</p>
+                        <p className="text-xs text-accent-DEFAULT mb-2 text-center">{t('map.locationTags.chooseCoverPhoto')}</p>
                       )}
                       <div className="grid grid-cols-3 gap-1.5">
                         {tagPhotos.map(photo => (
@@ -3730,7 +3731,7 @@ export default function MapPage() {
             >
               <AuthenticatedImage
                 src={selectedPhoto.thumb_url.replace('/thumb', '/full')}
-                alt={selectedPhoto.activity_title ?? 'Foto'}
+                alt={selectedPhoto.activity_title ?? t('map.locationTags.photoAlt')}
                 className="w-full object-contain max-h-96"
               />
               <div className="p-4">
@@ -3744,34 +3745,34 @@ export default function MapPage() {
                 )}
                 {selectedPhoto.taken_at && (
                   <p className="text-xs text-neutral-500 mt-1">
-                    {new Date(selectedPhoto.taken_at).toLocaleString('de-DE')}
+                    {new Date(selectedPhoto.taken_at).toLocaleString(activeLocale)}
                   </p>
                 )}
                 <button
                   onClick={() => setSelectedPhoto(null)}
                   className="mt-3 w-full text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
                 >
-                  Schliessen
+                  {t('common.close')}
                 </button>
               </div>
             </div>
           </div>
         )}
-        </div>{/* Ende: Kartenbereich (relative flex-1 min-h-0) */}
+        </div>{/* End: map area (relative flex-1 min-h-0) */}
 
-        {/* ── Bottom-Bar: Höhenprofil (gedockt, ein-/ausklappbar) ────────── */}
+        {/* ── Bottom bar: elevation profile (docked, collapsible) ────────── */}
         {plannerActive && planner.elevationProfile && planner.elevationProfile.length > 0 && (
           <div className="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-            {/* Toggle-Tab */}
+            {/* Toggle tab */}
             <button
               onClick={() => setBottomBarCollapsed(c => !c)}
               className="w-full flex items-center justify-center gap-2 px-4 py-1 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
-              aria-label={bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}
+              aria-label={bottomBarCollapsed ? t('map.showElevationProfile') : t('map.hideElevationProfile')}
             >
               <svg className={`w-3 h-3 transition-transform text-neutral-400 ${bottomBarCollapsed ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
               </svg>
-              <span className="text-[10px] text-neutral-400">{bottomBarCollapsed ? 'Höhenprofil einblenden' : 'Höhenprofil ausblenden'}</span>
+              <span className="text-[10px] text-neutral-400">{bottomBarCollapsed ? t('map.showElevationProfile') : t('map.hideElevationProfile')}</span>
             </button>
             {!bottomBarCollapsed && (
               <div className="px-3 py-2">
@@ -3807,10 +3808,10 @@ export default function MapPage() {
           </div>
         )}
 
-        </div>{/* Ende: Mittlere Spalte (flex flex-col flex-1 min-h-0 min-w-0) */}
+        </div>{/* End: middle column (flex flex-col flex-1 min-h-0 min-w-0) */}
 
-        {/* ── Filter-Panel (rechts, absolut überlagert, kein Layout-Einfluss) ── */}
-        {/* Overlay-Ansatz: Map-Container ändert nie seine Breite → kein WebGL-Flackern */}
+        {/* ── Filter panel (right, absolute overlay, no layout impact) ───── */}
+        {/* Overlay approach: map container never changes width → no WebGL flicker */}
         <div className={`absolute right-0 top-0 bottom-0 z-10 w-64 flex transition-transform duration-200 ease-in-out ${filterPanelVisible ? 'translate-x-0' : 'translate-x-[calc(100%-1.25rem)]'}`}>
           {/* Collapse toggle tab */}
           <button
@@ -3820,16 +3821,16 @@ export default function MapPage() {
               try { localStorage.setItem('skadia-filter-panel-visible', String(next)) } catch { /* ignore */ }
             }}
             className="w-5 flex-shrink-0 flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 border-l border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors overflow-hidden"
-            title={filterPanelVisible ? 'Filter ausblenden' : 'Filter einblenden'}
+            title={filterPanelVisible ? t('map.hideFilters') : t('map.showFilters')}
           >
             <svg className={`w-3 h-3 flex-shrink-0 transition-transform text-neutral-400 ${filterPanelVisible ? '' : 'rotate-180'}`} viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
             </svg>
             <span className="text-[10px] text-neutral-300 select-none leading-none" style={{ writingMode: 'vertical-rl' }}>
-              {filterPanelVisible ? 'Filter ausblenden' : 'Filter einblenden'}
+              {filterPanelVisible ? t('map.hideFilters') : t('map.showFilters')}
             </span>
           </button>
-          {/* Panel content — immer gerendert damit Transform-Animation in beide Richtungen funktioniert */}
+          {/* Panel content — always rendered so transform animation works in both directions */}
           <div className="flex-1 border-l border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 overflow-y-auto">
             <MapFilters
               filters={filters}
@@ -3846,7 +3847,7 @@ export default function MapPage() {
           </div>
         </div>
 
-      </div>{/* Ende: Zeilen-Wrapper (flex flex-row flex-1 min-h-0) */}
+      </div>{/* End: row wrapper (flex flex-row flex-1 min-h-0) */}
     </div>
   )
 }
@@ -3869,8 +3870,8 @@ function addOverlayLayers(
   userId?: string,
   globalSportColors: Record<string, string> = {},
 ) {
-  // Layer und Source vollständig entfernen und neu aufbauen.
-  // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
+  // Fully remove and rebuild layers and source.
+  // removeOverlayLayers() ensures no "Source already exists" error occurs.
   removeOverlayLayers(map)
 
   const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)
@@ -3887,7 +3888,7 @@ function addOverlayLayers(
     const opacity = Math.pow(opacityPercentToFloat(filters.opacity), 2)
     const glowOpacity = opacity * 0.35
 
-    // Subtiler Glow-Layer unter den eigentlichen Tracks
+    // Subtle glow layer below the actual tracks
     map.addLayer({
       id: 'heatmap-tracks-glow',
       type: 'line',
@@ -3901,7 +3902,7 @@ function addOverlayLayers(
       },
     })
 
-    // Eigentliche Track-Linien mit nutzerdefinierter Farbe
+    // Actual track lines with user-defined color
     map.addLayer({
       id: 'heatmap-lines',
       type: 'line',
@@ -3914,8 +3915,8 @@ function addOverlayLayers(
       },
     })
   } else {
-    // Heatmap: 5 gestapelte Glow-Layer — Alpha-Compositing erzeugt natuerliche
-    // Helligkeitsunterschiede: viel befahrene Strecken leuchten heller/waermer.
+    // Heatmap: 5 stacked glow layers — alpha compositing creates natural
+    // brightness differences: heavily used routes glow brighter/warmer.
     addHeatmapGlowLayers(map, tileUrl, filters.heatmapColor, undefined, Math.pow(opacityPercentToFloat(filters.opacity), 2))
   }
 }

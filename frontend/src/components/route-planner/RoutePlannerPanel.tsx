@@ -1,13 +1,14 @@
 import { memo, useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { RouteWaypoint, RouteSegment, PlannedRoute } from '@/api/routes'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
 import { getProfileDefaults as fetchProfileDefaults } from '@/api/routes'
-import { fmtDist, fmtDurationMin } from '@/lib/format'
-import { lazyFillMessages } from '@/lib/strings/route-planner'
+import { fmtDurationMin } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import ProfileEditor from './ProfileEditor'
 import {
   fetchAllProfiles,
@@ -19,10 +20,6 @@ import {
 } from '@/api/routingProfiles'
 import { apiDownload } from '@/api/client'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-
-function formatElevation(m: number): string {
-  return `${Math.round(m)} m`
-}
 
 function GripIcon({ dragging }: { dragging?: boolean }) {
   return (
@@ -79,6 +76,8 @@ interface WaypointItemProps {
   onDropAt: (e: React.DragEvent, index: number) => void
   onDragEnd: () => void
   segmentAfter?: RouteSegment
+  formatDistanceCompact: (meters: number | null | undefined) => string
+  formatElevation: (meters: number | null | undefined) => string
 }
 
 const WaypointItem = memo(function WaypointItem({
@@ -94,7 +93,10 @@ const WaypointItem = memo(function WaypointItem({
   onDropAt,
   onDragEnd,
   segmentAfter,
+  formatDistanceCompact,
+  formatElevation,
 }: WaypointItemProps) {
+  const { t } = useTranslation()
   const label = waypoint.poi_name ?? `${waypoint.latlng[0].toFixed(4)}, ${waypoint.latlng[1].toFixed(4)}`
 
   // Per-item closures built inside the component — stable across parent re-renders
@@ -117,7 +119,7 @@ const WaypointItem = memo(function WaypointItem({
         .join(' ')}
     >
       {/* Grip handle for drag-to-reorder — always visible */}
-      <div draggable onDragStart={handleDragStart} onDragEnd={onDragEnd} className="flex-shrink-0 pt-1" title="Verschieben">
+      <div draggable onDragStart={handleDragStart} onDragEnd={onDragEnd} className="flex-shrink-0 pt-1" title={t('routePlanner.panel.moveWaypoint')}>
         <GripIcon dragging={isDragging} />
       </div>
 
@@ -133,12 +135,12 @@ const WaypointItem = memo(function WaypointItem({
           <span className="text-xs text-neutral-700 dark:text-neutral-300 truncate flex-1" title={label}>
             {label}
           </span>
-          {/* Remove button — always visible, dezent */}
+          {/* Remove button, always visible but visually quiet. */}
           {total > 2 && (
             <button
               onClick={() => onRemove(waypoint.id)}
               className="w-5 h-5 flex items-center justify-center text-neutral-300 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
-              title="Wegpunkt entfernen"
+              title={t('routePlanner.panel.removeWaypoint')}
             >
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -150,7 +152,7 @@ const WaypointItem = memo(function WaypointItem({
         {/* Segment info between waypoints */}
         {segmentAfter && (
           <div className="flex items-center gap-2 mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
-            <span>{fmtDist(segmentAfter.distance_m)}</span>
+            <span>{formatDistanceCompact(segmentAfter.distance_m)}</span>
             {segmentAfter.elevation_gain > 0 && (
               <span className="text-green-600 dark:text-green-500">
                 ↑{segmentAfter.elevation_estimated ? '~' : ''}
@@ -170,7 +172,7 @@ const WaypointItem = memo(function WaypointItem({
                   : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
               }`}
             >
-              {segmentAfter.mode === 'offroad' ? 'Freihand' : 'Route'}
+              {segmentAfter.mode === 'offroad' ? t('routePlanner.panel.offroad') : t('routePlanner.panel.route')}
             </span>
           </div>
         )}
@@ -180,13 +182,13 @@ const WaypointItem = memo(function WaypointItem({
 })
 
 // Offline fallback for BRouter profiles (used when API is not available)
-const BROUTER_PROFILES_FALLBACK = [
-  { value: 'hiking-mountain', label: 'Wandern' },
-  { value: 'fastbike', label: 'Rennrad' },
-  { value: 'mtb', label: 'MTB' },
-  { value: 'gravel', label: 'Gravel' },
-  { value: 'trekking', label: 'Trekking (Rad)' },
-  { value: 'shortest', label: 'Kürzeste Route' },
+const BROUTER_PROFILES_FALLBACK: { value: string; labelKey: string }[] = [
+  { value: 'hiking-mountain', labelKey: 'routePlanner.metadata.brouterProfiles.hikingMountain' },
+  { value: 'fastbike', labelKey: 'routePlanner.metadata.brouterProfiles.fastbike' },
+  { value: 'mtb', labelKey: 'routePlanner.metadata.brouterProfiles.mtb' },
+  { value: 'gravel', labelKey: 'routePlanner.metadata.brouterProfiles.gravel' },
+  { value: 'trekking', labelKey: 'routePlanner.panel.brouterProfiles.trekkingBike' },
+  { value: 'shortest', labelKey: 'routePlanner.metadata.brouterProfiles.shortest' },
 ]
 
 export function buildCreateProfilePayload(name: string, profileConfig: ProfileConfig, currentBadRouterEntry?: RoutingProfileEntry) {
@@ -284,8 +286,10 @@ export default function RoutePlannerPanel({
   isSaving = false,
   lazyFillPendingSave = false,
 }: RoutePlannerPanelProps) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const { openModal } = useModal()
+  const { formatDistance, formatDistanceCompact, formatElevation } = useUnitFormatters()
   const queryClient = useQueryClient()
   const dragIndexRef = useRef<number | null>(null)
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
@@ -307,7 +311,9 @@ export default function RoutePlannerPanel({
   const badRouterProfiles = profilesData?.profiles.filter((p) => p.engine === 'badrouter') ?? []
   const brouterProfiles = profilesData?.profiles.filter((p) => p.engine === 'brouter') ?? []
   const brouterOptions =
-    brouterProfiles.length > 0 ? brouterProfiles.map((p) => ({ value: p.name, label: p.name })) : BROUTER_PROFILES_FALLBACK
+    brouterProfiles.length > 0
+      ? brouterProfiles.map((p) => ({ value: p.name, label: p.name }))
+      : BROUTER_PROFILES_FALLBACK.map((p) => ({ value: p.value, label: t(p.labelKey) }))
 
   // Current BadRouter profile entry from API (for defaults reset and delete)
   const currentBadRouterEntry = badRouterProfiles.find((p) => p.name === profileConfig?.profile)
@@ -319,12 +325,12 @@ export default function RoutePlannerPanel({
       void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
       setShowSaveDialog(false)
       setSaveProfileName('')
-      addToast({ type: 'success', title: 'Profil gespeichert' })
+      addToast({ type: 'success', title: t('routePlanner.panel.profileSaved') })
     },
     onError: (err: Error) => {
       addToast({
         type: 'error',
-        title: 'Profil speichern fehlgeschlagen',
+        title: t('routePlanner.panel.profileSaveFailed'),
         message: err.message,
         duration: 0,
       })
@@ -335,12 +341,12 @@ export default function RoutePlannerPanel({
     mutationFn: deleteProfile,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
-      addToast({ type: 'success', title: 'Profil gelöscht' })
+      addToast({ type: 'success', title: t('routePlanner.panel.profileDeleted') })
     },
     onError: (err: Error) => {
       addToast({
         type: 'error',
-        title: 'Profil löschen fehlgeschlagen',
+        title: t('routePlanner.panel.profileDeleteFailed'),
         message: err.message,
         duration: 0,
       })
@@ -372,8 +378,8 @@ export default function RoutePlannerPanel({
     } catch {
       addToast({
         type: 'error',
-        title: 'Reset fehlgeschlagen',
-        message: `Profil "${profileName}" konnte nicht geladen werden.`,
+        title: t('routePlanner.panel.resetFailed'),
+        message: t('routePlanner.panel.profileLoadFailedMessage', { profile: profileName }),
         duration: 0,
       })
     }
@@ -401,8 +407,8 @@ export default function RoutePlannerPanel({
     } catch {
       addToast({
         type: 'error',
-        title: 'Profil laden fehlgeschlagen',
-        message: `Profil "${p.base_profile}" konnte nicht geladen werden.`,
+        title: t('routePlanner.panel.profileLoadFailed'),
+        message: t('routePlanner.panel.profileLoadFailedMessage', { profile: p.base_profile }),
         duration: 0,
       })
     }
@@ -421,7 +427,7 @@ export default function RoutePlannerPanel({
     } catch (err) {
       addToast({
         type: 'error',
-        title: 'Export fehlgeschlagen',
+        title: t('routePlanner.panel.exportFailed'),
         message: String(err),
         duration: 0,
       })
@@ -440,21 +446,21 @@ export default function RoutePlannerPanel({
         void queryClient.invalidateQueries({ queryKey: ['routing-profiles'] })
         addToast({
           type: 'success',
-          title: `${succeeded.length === 1 ? '1 Profil' : `${succeeded.length} Profile`} importiert`,
+          title: t('routePlanner.panel.profilesImported', { count: succeeded.length }),
         })
       }
       if (failed.length > 0) {
         addToast({
           type: 'error',
-          title: `${failed.length === 1 ? '1 Profil' : `${failed.length} Profile`} nicht importiert`,
-          message: failed.map((f) => `${f.name}: ${f.error ?? 'Unbekannter Fehler'}`).join('\n'),
+          title: t('routePlanner.panel.profilesNotImported', { count: failed.length }),
+          message: failed.map((f) => `${f.name}: ${f.error ?? t('auth.errors.unknown_error')}`).join('\n'),
           duration: 0,
         })
       }
     } catch (err) {
       addToast({
         type: 'error',
-        title: 'Import fehlgeschlagen',
+        title: t('routePlanner.panel.importFailed'),
         message: String(err),
         duration: 0,
       })
@@ -510,9 +516,9 @@ export default function RoutePlannerPanel({
   const handleClear = useCallback(() => {
     if (waypoints.length > 0) {
       onClearRoute()
-      addToast({ type: 'info', title: 'Route geleert' })
+      addToast({ type: 'info', title: t('routePlanner.panel.routeCleared') })
     }
-  }, [waypoints.length, onClearRoute, addToast])
+  }, [waypoints.length, onClearRoute, addToast, t])
 
   const anyElevationEstimated = segments.some((s) => s.elevation_estimated === true)
 
@@ -538,13 +544,13 @@ export default function RoutePlannerPanel({
               />
             </svg>
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {editingRoute ? `Route: ${editingRoute.name}` : 'Route planen'}
+              {editingRoute ? t('routePlanner.panel.editingRoute', { name: editingRoute.name }) : t('routePlanner.panel.planRoute')}
             </span>
           </div>
           <button
             onClick={onClose}
             className="ml-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer flex-shrink-0"
-            title="Schliessen"
+            title={t('routePlanner.panel.close')}
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -602,7 +608,7 @@ export default function RoutePlannerPanel({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
-                      title="Profilverwaltung"
+                      title={t('routePlanner.panel.profileManagement')}
                       className="p-1 rounded text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors cursor-pointer"
                     >
                       <svg
@@ -628,7 +634,7 @@ export default function RoutePlannerPanel({
                           clipRule="evenodd"
                         />
                       </svg>
-                      Auf Standard zuruecksetzen
+                      {t('routePlanner.panel.resetToDefault')}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
@@ -639,7 +645,7 @@ export default function RoutePlannerPanel({
                       <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75z" />
                       </svg>
-                      Profil speichern...
+                      {t('routePlanner.panel.saveProfileAction')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => importInputRef.current?.click()}>
                       <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -649,7 +655,7 @@ export default function RoutePlannerPanel({
                           clipRule="evenodd"
                         />
                       </svg>
-                      Profil importieren...
+                      {t('routePlanner.panel.importProfileAction')}
                     </DropdownMenuItem>
                     {currentBadRouterEntry && (
                       <DropdownMenuItem onClick={() => void handleExportProfile(currentBadRouterEntry.id, currentBadRouterEntry.name)}>
@@ -660,7 +666,7 @@ export default function RoutePlannerPanel({
                             clipRule="evenodd"
                           />
                         </svg>
-                        Profil exportieren
+                        {t('routePlanner.panel.exportProfileAction')}
                       </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
@@ -670,7 +676,7 @@ export default function RoutePlannerPanel({
               {/* BadRouter: user/filesystem profiles list (editable entries) */}
               {badRouterProfiles.filter((p) => p.editable || p.source === 'filesystem').length > 0 && (
                 <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
-                  <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1.5">Eigene Profile</div>
+                  <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1.5">{t('routePlanner.panel.customProfiles')}</div>
                   <div className="space-y-1">
                     {badRouterProfiles
                       .filter((p) => p.editable || p.source === 'filesystem')
@@ -696,7 +702,7 @@ export default function RoutePlannerPanel({
                           {/* Export */}
                           <button
                             onClick={() => void handleExportProfile(p.id, p.name)}
-                            title="Profil exportieren"
+                            title={t('routePlanner.panel.exportProfileAction')}
                             className="text-neutral-300 dark:text-neutral-600 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT transition-colors cursor-pointer flex-shrink-0"
                           >
                             <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -712,23 +718,23 @@ export default function RoutePlannerPanel({
                             <button
                               onClick={() => {
                                 openModal({
-                                  title: 'Profil löschen?',
-                                  message: `Profil "${p.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+                                  title: t('routePlanner.panel.deleteProfileConfirmTitle'),
+                                  message: t('routePlanner.panel.deleteProfileConfirmMessage', { name: p.name }),
                                   buttons: [
                                     {
-                                      label: 'Abbrechen',
+                                      label: t('routePlanner.panel.cancel'),
                                       variant: 'default',
                                       onClick: () => {},
                                     },
                                     {
-                                      label: 'Löschen',
+                                      label: t('routePlanner.panel.delete'),
                                       variant: 'destructive',
                                       onClick: () => deleteMutation.mutate(p.id),
                                     },
                                   ],
                                 })
                               }}
-                              title="Profil löschen"
+                              title={t('routePlanner.panel.deleteProfileAction')}
                               className="text-neutral-300 dark:text-neutral-600 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"
                             >
                               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -752,7 +758,7 @@ export default function RoutePlannerPanel({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  Lade Profil-Defaults...
+                  {t('routePlanner.panel.loadingProfileDefaults')}
                 </div>
               ) : (
                 <ProfileEditor config={profileConfig} onChange={onProfileChange} />
@@ -761,11 +767,11 @@ export default function RoutePlannerPanel({
               {/* Save-as dialog (inline, below profile tabs) */}
               {showSaveDialog && (
                 <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
-                  <div className="text-[10px] text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1.5">Profil speichern</div>
+                  <div className="text-[10px] text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1.5">{t('routePlanner.panel.saveProfileTitle')}</div>
                   <div className="flex gap-1.5">
                     <input
                       type="text"
-                      placeholder="Profilname..."
+                      placeholder={t('routePlanner.panel.profileNamePlaceholder')}
                       value={saveProfileName}
                       onChange={(e) => setSaveProfileName(e.target.value)}
                       onKeyDown={(e) => {
@@ -786,7 +792,7 @@ export default function RoutePlannerPanel({
                       onClick={() => setShowSaveDialog(false)}
                       className="px-2.5 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
                     >
-                      Abbruch
+                      {t('routePlanner.panel.cancelShort')}
                     </button>
                   </div>
                 </div>
@@ -796,9 +802,9 @@ export default function RoutePlannerPanel({
                 <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-neutral-700 dark:text-neutral-300">Offroad-Schwelle</span>
+                      <span className="text-xs text-neutral-700 dark:text-neutral-300">{t('routePlanner.panel.offroadThreshold')}</span>
                       <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 tabular-nums">
-                        {profileConfig.snap_threshold_m ?? 100} m
+                        {formatDistanceCompact(profileConfig.snap_threshold_m ?? 100)}
                       </span>
                     </div>
                     <input
@@ -816,7 +822,7 @@ export default function RoutePlannerPanel({
                       className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-[var(--color-accent-DEFAULT,#F97316)] bg-neutral-200 dark:bg-neutral-700"
                     />
                     <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
-                      Maximale Distanz zum nächsten Weg beim Snap
+                      {t('routePlanner.panel.offroadThresholdDescription')}
                     </p>
                   </div>
                 </div>
@@ -824,7 +830,7 @@ export default function RoutePlannerPanel({
             </>
           ) : (
             <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
-              <label className="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1">Profil</label>
+              <label className="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide mb-1">{t('routePlanner.panel.profile')}</label>
               <select
                 value={brouterProfile}
                 onChange={(e) => onBrouterProfileChange(e.target.value)}
@@ -843,7 +849,7 @@ export default function RoutePlannerPanel({
           <div className="px-3 pt-2 pb-1">
             {waypoints.length === 0 ? (
               <div className="text-xs text-neutral-400 dark:text-neutral-500 text-center py-4">
-                Klicke auf die Karte, um Wegpunkte zu setzen
+                {t('routePlanner.panel.setWaypointsHint')}
               </div>
             ) : (
               <div className="space-y-0">
@@ -862,6 +868,8 @@ export default function RoutePlannerPanel({
                     onDropAt={handleDrop}
                     onDragEnd={handleDragEnd}
                     segmentAfter={segmentAfterWaypoint(wp, i)}
+                    formatDistanceCompact={formatDistanceCompact}
+                    formatElevation={formatElevation}
                   />
                 ))}
               </div>
@@ -871,9 +879,9 @@ export default function RoutePlannerPanel({
           {/* No-route inline dialog */}
           {calculationError === 'no_route' && (
             <div className="mx-3 mb-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5">
-              <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mb-2">Keine Route gefunden</p>
+              <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mb-2">{t('routePlanner.panel.noRouteFound')}</p>
               <p className="text-[10px] text-amber-600 dark:text-amber-400 mb-2.5">
-                Zwischen den Wegpunkten gibt es keinen Weg im Netzwerk.
+                {t('routePlanner.panel.noRouteDescription')}
               </p>
               <div className="flex gap-2">
                 <button
@@ -886,42 +894,42 @@ export default function RoutePlannerPanel({
                   }}
                   className="flex-1 px-2 py-1.5 rounded-md bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 transition-colors cursor-pointer"
                 >
-                  Offroad-Segment anlegen
+                  {t('routePlanner.panel.createOffroadSegment')}
                 </button>
                 <button
                   onClick={() => onClearError?.()}
                   className="px-2 py-1.5 rounded-md border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
                 >
-                  Abbrechen
+                  {t('routePlanner.panel.cancel')}
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* ── Fixierter unterer Bereich (Stats + Buttons) ──────────────── */}
+        {/* ── Fixed lower area (stats + buttons) ────────────────────────── */}
         <div className="flex-shrink-0 border-t border-neutral-100 dark:border-neutral-800">
           {/* Route statistics */}
           {hasRoute && (
             <div className="mx-3 mt-2 mb-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1">
               <div>
-                <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">Distanz</div>
-                <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{fmtDist(totalDistanceM)}</div>
+                <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">{t('routePlanner.panel.distance')}</div>
+                <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{formatDistance(totalDistanceM)}</div>
               </div>
               <div>
-                <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">Zeit (est.)</div>
+                <div className="text-[10px] text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">{t('routePlanner.panel.estimatedTime')}</div>
                 <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
                   {estimatedTimeMin != null ? fmtDurationMin(estimatedTimeMin) : '—'}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-green-600 dark:text-green-500 uppercase tracking-wide">Aufstieg</div>
+                <div className="text-[10px] text-green-600 dark:text-green-500 uppercase tracking-wide">{t('routePlanner.panel.ascent')}</div>
                 <div className="text-sm font-semibold text-green-700 dark:text-green-400">
                   {totalElevationGain > 0 ? `↑ ${anyElevationEstimated ? '~' : ''}${formatElevation(totalElevationGain)}` : '—'}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-red-500 dark:text-red-400 uppercase tracking-wide">Abstieg</div>
+                <div className="text-[10px] text-red-500 dark:text-red-400 uppercase tracking-wide">{t('routePlanner.panel.descent')}</div>
                 <div className="text-sm font-semibold text-red-600 dark:text-red-400">
                   {totalElevationLoss > 0 ? `↓ ${anyElevationEstimated ? '~' : ''}${formatElevation(totalElevationLoss)}` : '—'}
                 </div>
@@ -946,7 +954,7 @@ export default function RoutePlannerPanel({
                   }`}
                 />
               </button>
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">Heatmap anzeigen</span>
+              <span className="text-xs text-neutral-600 dark:text-neutral-400">{t('routePlanner.panel.showHeatmap')}</span>
             </label>
           </div>
 
@@ -961,7 +969,7 @@ export default function RoutePlannerPanel({
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
                 </svg>
-                Route vorschlagen
+                {t('routePlanner.suggestion.submit')}
               </button>
             )}
 
@@ -974,7 +982,7 @@ export default function RoutePlannerPanel({
                   'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer',
                   lazyFillPendingSave && !isSaving ? 'ring-2 ring-amber-400 animate-pulse' : '',
                 ].join(' ')}
-                title={lazyFillPendingSave ? lazyFillMessages.saveButtonHint : undefined}
+                title={lazyFillPendingSave ? t('routePlanner.panel.lazyFillSaveHint') : undefined}
               >
                 {isSaving ? (
                   <>
@@ -982,14 +990,14 @@ export default function RoutePlannerPanel({
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Speichern...
+                    {t('routePlanner.panel.saving')}
                   </>
                 ) : (
                   <>
                     <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25v-8.5A1.75 1.75 0 0016.25 5H15V3.75A1.75 1.75 0 0013.25 2h-3.5A1.75 1.75 0 008 3.75V5H4.75A1.75 1.75 0 003.75 3H3.75zm4.75.75A.25.25 0 018.75 4h2.5a.25.25 0 01.25.25V5h-3.5V3.75zm3.25 7.5a.75.75 0 01-.75.75H9.75a.75.75 0 010-1.5H11v-1.25a.75.75 0 011.5 0v1.5z" />
                     </svg>
-                    {editingRoute ? 'Aktualisieren' : 'Speichern'}
+                    {editingRoute ? t('routePlanner.panel.update') : t('routePlanner.panel.save')}
                     {lazyFillPendingSave && <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" aria-hidden="true" />}
                   </>
                 )}
@@ -999,7 +1007,7 @@ export default function RoutePlannerPanel({
                 onClick={handleClear}
                 disabled={waypoints.length === 0}
                 className="px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-red-300 hover:text-red-500 dark:hover:border-red-700 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium transition-colors cursor-pointer"
-                title="Route leeren"
+                title={t('routePlanner.panel.clearRoute')}
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path
@@ -1014,7 +1022,7 @@ export default function RoutePlannerPanel({
             {/* Hint text when no waypoints */}
             {!hasRoute && waypoints.length === 0 && (
               <p className="text-[10px] text-neutral-400 dark:text-neutral-500 text-center leading-snug">
-                Klicke auf die Karte um Start und Ziel zu setzen. Oder nutze "Route vorschlagen" für eine KI-generierte Route.
+                {t('routePlanner.panel.emptyHint')}
               </p>
             )}
           </div>

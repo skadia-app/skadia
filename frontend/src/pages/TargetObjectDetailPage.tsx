@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft } from 'lucide-react'
 import { getMe } from '@/api/auth'
 import {
@@ -20,55 +21,43 @@ import {
   type TargetRegionResponse,
 } from '@/api/targetObjects'
 import PlaceRegionEditor, { type PlaceRegionEditorValue } from '@/components/target-objects/PlaceRegionEditor'
+import { placeKindLabel, regionKindLabel, targetVisibilityLabel } from '@/components/target-objects/targetLabels'
 import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
 import { useToast } from '@/lib/toast'
 
-const PLACE_KIND_LABELS: Record<string, string> = {
-  custom: 'Eigener Punkt',
-  private_place: 'Privater Ort',
-  poi: 'POI',
-  entrance: 'Einstieg',
-  parking: 'Parkplatz',
-  summit: 'Gipfel',
-  pass: 'Pass',
-  water: 'Gewässer',
-  settlement: 'Ort',
-  amenity: 'Infrastruktur',
-}
-
-const REGION_KIND_LABELS: Record<string, string> = {
-  custom: 'Eigener Bereich',
-  private_area: 'Privater Bereich',
-  public_pool: 'Öffentlicher Pool',
-  venue_area: 'Gelände',
-  privacy_zone_mirror: 'Privacy-Zonen-Referenz',
-  admin_area: 'Admin-Bereich',
-  protected_area: 'Schutzgebiet',
-}
-
 function asPointGeometry(value: PlaceRegionEditorValue): PointGeometry {
   if (value.geometry.type !== 'Point') {
-    throw new Error('Orte benötigen eine Punkt-Geometrie.')
+    throw new Error('invalidPointGeometry')
   }
   return value.geometry
 }
 
 function asRegionGeometry(value: PlaceRegionEditorValue): PolygonGeometry | MultiPolygonGeometry {
   if (value.geometry.type !== 'Polygon' && value.geometry.type !== 'MultiPolygon') {
-    throw new Error('Bereiche benötigen eine Polygon- oder MultiPolygon-Geometrie.')
+    throw new Error('invalidRegionGeometry')
   }
   return value.geometry
 }
 
-const VISIBILITY_LABELS: Record<string, string> = {
-  private: 'Privat',
-  shared: 'Geteilt',
-  public: 'Öffentlich',
-}
-
 type DetailKind = 'place' | 'region'
 
+const TARGET_OBJECT_PERMISSION_LABEL_KEYS: Record<string, string> = {
+  edit_metadata: 'targetObjects.permissions.edit_metadata',
+  edit_geometry: 'targetObjects.permissions.edit_geometry',
+  publish: 'targetObjects.permissions.publish',
+  hide_or_archive: 'targetObjects.permissions.hide_or_archive',
+  disable_leaderboard: 'targetObjects.permissions.disable_leaderboard',
+  disable_gps_download: 'targetObjects.permissions.disable_gps_download',
+  manage_reports: 'targetObjects.permissions.manage_reports',
+  manage_events: 'targetObjects.permissions.manage_events',
+  resolve_claims: 'targetObjects.permissions.resolve_claims',
+  manage_members: 'targetObjects.permissions.manage_members',
+  manage_roles: 'targetObjects.permissions.manage_roles',
+  link_external_refs: 'targetObjects.permissions.link_external_refs',
+}
+
 export default function TargetObjectDetailPage() {
+  const { t } = useTranslation()
   const { kind = 'place', id = '' } = useParams()
   const detailKind: DetailKind = kind === 'region' ? 'region' : 'place'
   const queryClient = useQueryClient()
@@ -88,9 +77,9 @@ export default function TargetObjectDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['target-object', detailKind, id] })
       queryClient.invalidateQueries({ queryKey: detailKind === 'region' ? ['target-regions'] : ['target-places'] })
-      addToast({ type: 'success', title: detailKind === 'region' ? 'Bereich archiviert' : 'Ort archiviert' })
+      addToast({ type: 'success', title: detailKind === 'region' ? t('targetObjects.regionArchived') : t('targetObjects.placeArchived') })
     },
-    onError: error => addToast({ type: 'error', title: detailKind === 'region' ? 'Bereich konnte nicht archiviert werden' : 'Ort konnte nicht archiviert werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: detailKind === 'region' ? t('targetObjects.regionArchiveFailed') : t('targetObjects.placeArchiveFailed'), message: errorMessage(error, t), duration: 0 }),
   })
   const updateMutation = useMutation<TargetPlaceResponse | TargetRegionResponse, Error, PlaceRegionEditorValue>({
     mutationFn: (value: PlaceRegionEditorValue): Promise<TargetPlaceResponse | TargetRegionResponse> => {
@@ -109,14 +98,14 @@ export default function TargetObjectDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['target-object', detailKind, id] })
       queryClient.invalidateQueries({ queryKey: detailKind === 'region' ? ['target-regions'] : ['target-places'] })
       setEditing(false)
-      addToast({ type: 'success', title: detailKind === 'region' ? 'Bereich gespeichert' : 'Ort gespeichert' })
+      addToast({ type: 'success', title: detailKind === 'region' ? t('targetObjects.regionSaved') : t('targetObjects.placeSaved') })
     },
-    onError: error => addToast({ type: 'error', title: detailKind === 'region' ? 'Bereich konnte nicht gespeichert werden' : 'Ort konnte nicht gespeichert werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: detailKind === 'region' ? t('targetObjects.regionSaveFailed') : t('targetObjects.placeSaveFailed'), message: errorMessage(error, t), duration: 0 }),
   })
 
   const object = detail.data
-  if (detail.isLoading) return <p className="text-sm text-neutral-500">Lädt...</p>
-  if (!object) return <p className="text-sm text-neutral-500">Objekt nicht gefunden.</p>
+  if (detail.isLoading) return <p className="text-sm text-neutral-500">{t('targetObjects.loading')}</p>
+  if (!object) return <p className="text-sm text-neutral-500">{t('targetObjects.detail.notFound')}</p>
 
   const permissions = new Set(object.effective_permissions ?? [])
   const ownerEdit = Boolean(me?.is_admin || me?.user_id === object.owner_user_id)
@@ -126,8 +115,8 @@ export default function TargetObjectDetailPage() {
   const parsedGeometry = parseGeometry(object.geometry)
   const subjectKind = detailKind
   const kindLabel = detailKind === 'region'
-    ? REGION_KIND_LABELS[(object as TargetRegion).region_kind] ?? (object as TargetRegion).region_kind
-    : PLACE_KIND_LABELS[(object as TargetPlace).place_kind] ?? (object as TargetPlace).place_kind
+    ? targetObjectKindLabel('region', (object as TargetRegion).region_kind, t)
+    : targetObjectKindLabel('place', (object as TargetPlace).place_kind, t)
 
   return (
     <div className="space-y-6">
@@ -135,15 +124,15 @@ export default function TargetObjectDetailPage() {
         <div>
           <Link to="/objects" className="mb-3 inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">
             <ArrowLeft size={15} />
-            Orte & Bereiche
+            {t('targetObjects.title')}
           </Link>
           <h1 className="text-2xl font-semibold tracking-normal">{object.name}</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            {kindLabel} · {VISIBILITY_LABELS[object.visibility] ?? object.visibility}
+            {kindLabel} · {targetObjectVisibilityLabel(object.visibility, t)}
           </p>
           {object.overlay_summary && (
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              {object.overlay_summary.public_open_report_count} offene Meldungen · {object.overlay_summary.public_comment_count} Kommentare
+              {t('targetObjects.detail.overlaySummary', { reports: object.overlay_summary.public_open_report_count, comments: object.overlay_summary.public_comment_count })}
             </p>
           )}
         </div>
@@ -156,7 +145,7 @@ export default function TargetObjectDetailPage() {
                 disabled={updateMutation.isPending}
                 className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
               >
-                {editing ? 'Bearbeiten schließen' : 'Bearbeiten'}
+                {editing ? t('targetObjects.detail.closeEdit') : t('targetObjects.detail.edit')}
               </button>
             )}
             {canArchive && !object.archived_at && (
@@ -166,7 +155,7 @@ export default function TargetObjectDetailPage() {
                 disabled={archiveMutation.isPending}
                 className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
               >
-                {archiveMutation.isPending ? 'Archiviert...' : 'Archivieren'}
+                {archiveMutation.isPending ? t('targetObjects.archiving') : t('targetObjects.archive')}
               </button>
             )}
           </div>
@@ -177,7 +166,7 @@ export default function TargetObjectDetailPage() {
         <PlaceRegionEditor
           mode={detailKind}
           busy={updateMutation.isPending}
-          submitLabel={detailKind === 'region' ? 'Bereich aktualisieren' : 'Ort aktualisieren'}
+          submitLabel={detailKind === 'region' ? t('targetObjects.detail.updateRegion') : t('targetObjects.detail.updatePlace')}
           showVisibility={ownerEdit}
           initialValue={{
             name: object.name,
@@ -195,7 +184,7 @@ export default function TargetObjectDetailPage() {
       )}
 
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Geometrie</h2>
+        <h2 className="text-lg font-semibold">{t('targetObjects.detail.geometry')}</h2>
         <pre className="overflow-auto rounded-md border border-neutral-200 bg-neutral-50 p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900">
           {JSON.stringify(parsedGeometry, null, 2)}
         </pre>
@@ -222,26 +211,43 @@ function parseGeometry(geometry: TargetPlace['geometry'] | TargetRegion['geometr
   }
 }
 
+export function targetObjectKindLabel(kind: DetailKind, value: string, t: (key: string) => string): string {
+  return kind === 'region' ? regionKindLabel(value, t) : placeKindLabel(value, t)
+}
+
+export function targetObjectVisibilityLabel(value: string, t: (key: string) => string): string {
+  return targetVisibilityLabel(value, t)
+}
+
+export function targetObjectPermissionLabel(value: string, t: (key: string) => string): string {
+  return t(TARGET_OBJECT_PERMISSION_LABEL_KEYS[value] ?? 'targetObjects.permissions.unknown')
+}
+
 function PermissionAudit({ permissions, isOwner, isAdmin }: { permissions: string[]; isOwner: boolean; isAdmin: boolean }) {
+  const { t } = useTranslation()
+  const permissionLabels = permissions.map(permission => targetObjectPermissionLabel(permission, t)).join(', ')
+
   return (
     <section className="space-y-2 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-      <h2 className="text-lg font-semibold">Berechtigungsstatus</h2>
+      <h2 className="text-lg font-semibold">{t('targetObjects.detail.permissionStatus')}</h2>
       <p className="text-sm text-neutral-600 dark:text-neutral-300">
         {isAdmin
-          ? 'Admin-Zugriff'
+          ? t('targetObjects.detail.adminAccess')
           : isOwner
-            ? 'Eigene Referenz'
+            ? t('targetObjects.detail.ownReference')
             : permissions.length > 0
-              ? permissions.join(', ')
-              : 'Keine delegierten Rechte in der Detailantwort'}
+              ? permissionLabels
+              : t('targetObjects.detail.noDelegatedPermissions')}
       </p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Governance-Verwaltung ist hier noch nicht vollständig verfügbar; angezeigt werden nur die effektiven Rechte aus der Detailantwort.
+        {t('targetObjects.detail.permissionNote')}
       </p>
     </section>
   )
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Bitte versuche es erneut.'
+function errorMessage(error: unknown, t: (key: string) => string): string {
+  if (error instanceof Error && error.message === 'invalidPointGeometry') return t('targetObjects.invalidPointGeometry')
+  if (error instanceof Error && error.message === 'invalidRegionGeometry') return t('targetObjects.invalidRegionGeometry')
+  return error instanceof Error ? error.message : t('targetObjects.tryAgain')
 }

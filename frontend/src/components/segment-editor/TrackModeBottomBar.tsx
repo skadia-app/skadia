@@ -1,6 +1,7 @@
 // frontend/src/components/segment-editor/TrackModeBottomBar.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
+import { useTranslation } from 'react-i18next'
 import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
@@ -12,18 +13,10 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { ArrowLeftRight, ZoomIn } from 'lucide-react'
 import { useRangeBrush } from '@/hooks/useRangeBrush'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { cn, findClosestIdx } from '@/lib/utils'
-import { fmtDist, fmtElevation } from '@/lib/format'
 
 echarts.use([LineChart, GridComponent, BrushComponent, ToolboxComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
-
-export function formatTrackModeDistanceKm(valueKm: number | null | undefined): string {
-  return fmtDist(valueKm == null ? valueKm : valueKm * 1000)
-}
-
-export function formatTrackModeElevationM(valueM: number | null | undefined): string {
-  return fmtElevation(valueM)
-}
 
 export interface TrackPoint {
   lat: number
@@ -36,11 +29,11 @@ export interface TrackModeBottomBarProps {
   trackPoints: TrackPoint[]
   range: [number, number]
   onRangeChange: (r: [number, number]) => void
-  onCommitRange: (r: [number, number]) => void   // fires on mouse-up / keyboard-commit, triggers map fitBounds
+  onCommitRange: (r: [number, number]) => void   // Fires on mouse-up or keyboard commit and triggers map fitBounds.
   onReverse: () => void
   /** Resets only the geometry selection (range). Form values are preserved. */
   onReset: () => void
-  /** Resets everything: geometry selection + all form fields (Fix #12). */
+  /** Resets everything: geometry selection plus all form fields. */
   onResetAll: () => void
   onPreviewOrSave: () => void
   /** Fired when the hover position on the chart changes. index = track-point index (0-based), null = no hover. */
@@ -48,15 +41,17 @@ export interface TrackModeBottomBarProps {
 }
 
 export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const { trackPoints, range, onRangeChange, onCommitRange, onReverse, onReset, onResetAll, onPreviewOrSave, onHover } = props
   const chartRef = useRef<HTMLDivElement | null>(null)
   const echartsInstanceRef = useRef<echarts.ECharts | null>(null)
-  // Inline confirm state for "Alles zurücksetzen" (Fix #12)
+  // Inline confirmation state for the full reset action.
   const [confirmResetAll, setConfirmResetAll] = useState(false)
-  // Whether X-axis is currently zoomed (for "Zoom zurücksetzen" button visibility)
+  // Whether the X-axis is currently zoomed.
   const [isZoomed, setIsZoomed] = useState(false)
 
-  // Compute elevation series and cumulative distance-per-index for km labels.
+  // Compute elevation series and cumulative distance-per-index for chart coordinates.
   const { elevationSeries, hasElevation, cumulativeKm } = useMemo(() => {
     const elev = trackPoints.map(p => (p.elevation ?? null))
     const has = elev.some(e => e != null)
@@ -79,7 +74,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
   const onHoverRef = useRef(onHover)
   onHoverRef.current = onHover
 
-  // coordToIndex: converts km X-axis value → nearest track-point index.
+  // coordToIndex: converts the chart X-axis distance to the nearest track-point index.
   // Binary-search on the cumulativeKm array for O(log n) lookup.
   const coordToIndex = useCallback((coord: number): number => {
     const km = cumulativeKm
@@ -136,7 +131,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         axisLabel: {
           fontSize: 10,
           color: '#6b7280',
-          formatter: (v: number) => formatTrackModeDistanceKm(v),
+          formatter: (v: number) => formatDistanceCompact(v * 1000),
           showMinLabel: true,
           showMaxLabel: true,
         },
@@ -152,7 +147,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         axisLabel: {
           fontSize: 10,
           color: '#6b7280',
-          formatter: (v: number) => formatTrackModeElevationM(v),
+          formatter: (v: number) => formatElevation(v),
           showMinLabel: false,
           showMaxLabel: true,
         },
@@ -175,9 +170,9 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           const idx = p[0].dataIndex
           const elevVal = elevationSeries[idx]
           const kmVal = cumulativeKm[idx]
-          const kmStr = formatTrackModeDistanceKm(kmVal)
-          const elevStr = formatTrackModeElevationM(elevVal)
-          return `<div style="font-size:11px;line-height:1.7"><div style="color:#9ca3af">${kmStr}</div><div><strong style="color:#f9fafb">${elevStr}</strong></div></div>`
+          const distanceStr = kmVal != null ? formatDistanceCompact(kmVal * 1000) : '—'
+          const elevationStr = elevVal != null ? formatElevation(elevVal) : '—'
+          return `<div style="font-size:11px;line-height:1.7"><div style="color:#9ca3af">${distanceStr}</div><div><strong style="color:#f9fafb">${elevationStr}</strong></div></div>`
         },
       },
       brush: {
@@ -219,7 +214,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         data: elevationSeries.map((y, i) => [cumulativeKm[i] ?? i, y ?? 0]),
         showSymbol: false,
         smooth: 0.2,
-        // D2: orange accent line to match sub-segment color on map
+        // Orange accent line to match the sub-segment color on the map.
         lineStyle: { color: '#F97316', width: 2.0 },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -265,7 +260,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       dispatchAction: ec.dispatchAction.bind(ec) as (a: unknown) => void,
     })
 
-    // ── Hover-point sync (Task 2) ──────────────────────────────────────────
+    // ── Hover-point sync ───────────────────────────────────────────────────
     // Pattern adapted from ActivityCharts.tsx `setupChartInteractions`:
     // use the ZRenderer low-level events so we get pixel coords and can map
     // them to the nearest track-point index via findClosestIdx on cumulativeKm.
@@ -304,7 +299,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       ec.dispose()
       echartsInstanceRef.current = null
     }
-  }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts, coordToIndex])
+  }, [trackPoints, hasElevation, elevationSeries, cumulativeKm, bindEcharts, coordToIndex, formatDistanceCompact, formatElevation])
 
   // Reflect external range changes back to the brush visual.
   // lastDispatchedRangeRef prevents a dispatch loop when the brush change itself
@@ -330,8 +325,8 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
     setIsZoomed(false)
   }, [])
 
-  const startDistance = formatTrackModeDistanceKm(cumulativeKm[range[0]])
-  const endDistance = formatTrackModeDistanceKm(cumulativeKm[range[1]])
+  const startDistance = formatDistanceCompact((cumulativeKm[range[0]] ?? 0) * 1000)
+  const endDistance = formatDistanceCompact((cumulativeKm[range[1]] ?? 0) * 1000)
 
   // Keyboard handler: arrow-keys on focused handle buttons.
   const startRef = useRef<HTMLButtonElement>(null)
@@ -348,21 +343,21 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
 
   return (
     <div className="border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 pt-2 pb-2">
-      {/* Row 1 — Elevation brush chart (D1: height 116px, section heading) */}
+      {/* Row 1 — Elevation brush chart */}
       <div className="mb-1.5">
         <div className="flex items-center gap-2 px-0 pb-1">
           <span className="text-[10px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
-            Höhenprofil
+            {t('segmentEditor.sidebar.fields.elevationProfile')}
           </span>
           <span className="text-[10px] text-neutral-400 dark:text-neutral-600">
-            · Brush ziehen = Auswahl · Brush verschieben = Position · Scroll = Zoom
+            {t('segmentEditor.track.brushHint')}
           </span>
           <div className="flex-1" />
           {isZoomed && (
             <button
               type="button"
               onClick={handleZoomReset}
-              title="Zoom zurücksetzen"
+              title={t('segmentEditor.track.resetZoomTitle')}
               className={cn(
                 'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
                 'bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300',
@@ -370,7 +365,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
               )}
             >
               <ZoomIn className="size-2.5" />
-              <span>Zoom zurück</span>
+              <span>{t('segmentEditor.track.resetZoom')}</span>
             </button>
           )}
         </div>
@@ -378,13 +373,13 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           <div ref={chartRef} className="h-[116px] w-full" />
           {!hasElevation && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span className="text-xs text-neutral-400 dark:text-neutral-600">Keine Höhendaten</span>
+              <span className="text-xs text-neutral-400 dark:text-neutral-600">{t('segmentEditor.track.noElevation')}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Row 2 — Pointer-capture dual-thumb range slider (fix #14: no stacked inputs) */}
+      {/* Row 2 — Pointer-capture dual-thumb range slider */}
       {/* setStart/setEnd from useRangeBrush fire onBrushChange → onRangeChange (state update).
           onCommitRange is called on pointerUp via DualRangeSlider.onCommit (fitBounds). */}
       <div className="mb-2 flex items-center gap-2">
@@ -404,7 +399,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
       {/* Row 3 — Stepper controls + action buttons */}
       <div className="flex items-center gap-2">
         <PillGroup
-          label="Start"
+          label={t('segmentDetail.controls.start')}
           value={range[0]}
           totalPoints={trackPoints.length}
           onPrev={() => setStart(range[0] - 1)}
@@ -413,7 +408,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           onKeyDown={handleKeyDown('start')}
         />
         <PillGroup
-          label="Ende"
+          label={t('segmentEditor.track.end')}
           value={range[1]}
           totalPoints={trackPoints.length}
           onPrev={() => setEnd(range[1] - 1)}
@@ -421,7 +416,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           handleRef={endRef}
           onKeyDown={handleKeyDown('end')}
         />
-        <span className="ml-1 text-xs text-neutral-400 dark:text-neutral-600">← → fein · ⇧ ×10</span>
+        <span className="ml-1 text-xs text-neutral-400 dark:text-neutral-600">{t('segmentEditor.track.keyboardHint')}</span>
 
         <div className="flex-1" />
 
@@ -429,7 +424,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
         <button
           type="button"
           onClick={onReverse}
-          title="Richtung umkehren"
+          title={t('segmentEditor.common.reverseDirection')}
           className={cn(
             'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
             'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300',
@@ -438,14 +433,14 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
           )}
         >
           <ArrowLeftRight className="size-3.5" />
-          <span>Umkehren</span>
+          <span>{t('segmentEditor.common.reverse')}</span>
         </button>
 
-        {/* Reset geometry only (Fix #12 — separate from full reset) */}
+        {/* Reset geometry only, separate from the full reset. */}
         <button
           type="button"
           onClick={onReset}
-          title="Nur Geometrie-Auswahl zurücksetzen (Formularwerte bleiben)"
+          title={t('segmentEditor.track.resetGeometryTitle')}
           className={cn(
             'rounded-md px-2 py-1 text-xs',
             'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
@@ -453,33 +448,33 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
           )}
         >
-          Geometrie
+          {t('segmentEditor.track.geometry')}
         </button>
 
-        {/* Reset all: geometry + form fields, with inline confirm (Fix #12) */}
+        {/* Reset all: geometry plus form fields, with inline confirmation. */}
         {confirmResetAll ? (
           <span className="flex items-center gap-1 text-xs">
-            <span className="shrink-0 text-neutral-600 dark:text-neutral-300">Alles zurücksetzen?</span>
+            <span className="shrink-0 text-neutral-600 dark:text-neutral-300">{t('segmentEditor.track.resetAllConfirm')}</span>
             <button
               type="button"
               onClick={() => { setConfirmResetAll(false); onResetAll() }}
               className="rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/40 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/60"
             >
-              Ja
+              {t('common.yes')}
             </button>
             <button
               type="button"
               onClick={() => setConfirmResetAll(false)}
               className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
             >
-              Nein
+              {t('common.no')}
             </button>
           </span>
         ) : (
           <button
             type="button"
             onClick={() => setConfirmResetAll(true)}
-            title="Geometrie und alle Formularwerte zurücksetzen"
+            title={t('segmentEditor.track.resetAllTitle')}
             className={cn(
               'rounded-md px-2 py-1 text-xs',
               'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400',
@@ -487,7 +482,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
               'transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
             )}
           >
-            Alles
+            {t('segmentEditor.track.everything')}
           </button>
         )}
 
@@ -501,7 +496,7 @@ export function TrackModeBottomBar(props: TrackModeBottomBarProps) {
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1',
           )}
         >
-          Speichern
+          {t('common.save')}
         </button>
       </div>
     </div>
@@ -530,6 +525,7 @@ interface DualRangeSliderProps {
 }
 
 function DualRangeSlider({ min, max, start, end, onStartChange, onEndChange, onCommit }: DualRangeSliderProps) {
+  const { t } = useTranslation()
   const trackRef = useRef<HTMLDivElement>(null)
   // Keep refs to latest start/end so onUp closure can read committed values
   const startRef = useRef(start)
@@ -600,7 +596,7 @@ function DualRangeSlider({ min, max, start, end, onStartChange, onEndChange, onC
       {/* Start thumb — positioned absolutely, uses pointer capture for independent drag */}
       <div
         role="slider"
-        aria-label="Start-Punkt"
+        aria-label={t('segmentEditor.track.startPoint')}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={start}
@@ -622,7 +618,7 @@ function DualRangeSlider({ min, max, start, end, onStartChange, onEndChange, onC
       {/* End thumb */}
       <div
         role="slider"
-        aria-label="Ende-Punkt"
+        aria-label={t('segmentEditor.track.endPoint')}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={end}
@@ -654,13 +650,14 @@ function PillGroup({ label, value, totalPoints, onPrev, onNext, handleRef, onKey
   handleRef: React.RefObject<HTMLButtonElement | null>
   onKeyDown: (e: React.KeyboardEvent) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-0.5 rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-1">
       <span className="mr-1 text-xs text-neutral-500 dark:text-neutral-500">{label}</span>
       <button
         type="button"
         onClick={onPrev}
-        aria-label={`${label} minus 1`}
+        aria-label={t('segmentEditor.track.decrement', { label })}
         className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white focus-visible:ring-1 focus-visible:ring-accent-DEFAULT focus-visible:outline-none"
       >
         ‹
@@ -677,7 +674,7 @@ function PillGroup({ label, value, totalPoints, onPrev, onNext, handleRef, onKey
       <button
         type="button"
         onClick={onNext}
-        aria-label={`${label} plus 1`}
+        aria-label={t('segmentEditor.track.increment', { label })}
         className="flex size-5 items-center justify-center rounded text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white focus-visible:ring-1 focus-visible:ring-accent-DEFAULT focus-visible:outline-none"
       >
         ›

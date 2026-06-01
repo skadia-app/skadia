@@ -3,6 +3,7 @@ import { haversineM } from '@/lib/geoUtils'
 import { getElevationProfile, type ElevationPoint } from './routes'
 import type { RouteElevationPoint } from './routes'
 import type { Toast } from '@/lib/toast'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
 
 export const MAX_VERTICES_PER_CALL = 50_000
 
@@ -10,6 +11,23 @@ export const MAX_VERTICES_PER_CALL = 50_000
 // browser-tab lifetime (Spec §6 Class B). No React state needed — this is
 // a pure utility module.
 let demCoverageWarnedThisSession = false
+
+const DEM_COVERAGE_TOAST_COPY: Record<'title' | 'message', LocalizedString> = {
+  title: {
+    de: 'Höhendaten nicht verfügbar',
+    en: 'Elevation data unavailable',
+    fr: 'Données d’altitude indisponibles',
+    it: 'Dati quota non disponibili',
+    es: 'Datos de elevación no disponibles',
+  },
+  message: {
+    de: 'Für diese Region sind keine Höhendaten vorhanden.',
+    en: 'No elevation data is available for this region.',
+    fr: 'Aucune donnée d’altitude n’est disponible pour cette région.',
+    it: 'Non sono disponibili dati quota per questa regione.',
+    es: 'No hay datos de elevación disponibles para esta región.',
+  },
+}
 
 /**
  * Clears the DEM coverage warning flag.
@@ -88,8 +106,8 @@ export async function getElevationAtVerticesChunked(
     demCoverageWarnedThisSession = true
     addToast({
       type: 'info',
-      title: 'Höhendaten nicht verfügbar',
-      message: 'Für diese Region sind keine Höhendaten vorhanden.',
+      title: localizeString(DEM_COVERAGE_TOAST_COPY.title),
+      message: localizeString(DEM_COVERAGE_TOAST_COPY.message),
       group: 'dem-coverage',
       duration: 8000,
     })
