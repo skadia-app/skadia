@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { clearQueryClientCache } from '@/lib/queryClient'
 import { getAuthConfig, loginWithEmail, resendVerificationEmail, type AuthConfig } from '@/api/auth'
@@ -8,12 +9,13 @@ import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { useToast } from '@/lib/toast'
 import { API_BASE } from '@/api/client'
 
-const LOGIN_MESSAGES: Record<string, { title: string; description?: string }> = {
-  password_changed: { title: 'Passwort geändert', description: 'Bitte melde dich mit deinem neuen Passwort an.' },
-  deletion_scheduled: { title: 'Account-Löschung geplant', description: 'Dein Account wird in 30 Tagen gelöscht. Du erhältst eine E-Mail zum Abbrechen.' },
+const LOGIN_MESSAGE_KEYS: Record<string, string> = {
+  password_changed: 'passwordChanged',
+  deletion_scheduled: 'deletionScheduled',
 }
 
 export default function LoginPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { addToast } = useToast()
@@ -39,15 +41,19 @@ export default function LoginPage() {
     }
 
     const messageParam = searchParams.get('message')
-    if (messageParam && LOGIN_MESSAGES[messageParam]) {
-      const m = LOGIN_MESSAGES[messageParam]
-      addToast({ type: 'info', title: m.title, ...(m.description && { message: m.description }) })
+    const messageKey = messageParam ? LOGIN_MESSAGE_KEYS[messageParam] : null
+    if (messageKey) {
+      addToast({
+        type: 'info',
+        title: t(`auth.loginMessages.${messageKey}.title`),
+        message: t(`auth.loginMessages.${messageKey}.description`),
+      })
     }
 
     getAuthConfig()
       .then(setConfig)
       .catch(() => {})
-  }, [navigate, searchParams, addToast])
+  }, [navigate, searchParams, addToast, t])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -64,7 +70,7 @@ export default function LoginPage() {
       setToken(data.token)
       navigate(returnTo, { replace: true })
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+      const msg = err instanceof Error ? err.message : 'login_failed'
       setCanResendVerification(msg === 'email_not_verified')
       setError(getAuthErrorMessage(msg))
     } finally {
@@ -77,9 +83,9 @@ export default function LoginPage() {
     setResendingVerification(true)
     try {
       await resendVerificationEmail(email)
-      addToast({ type: 'success', title: 'Bestätigungs-E-Mail wurde angefordert' })
+      addToast({ type: 'success', title: t('auth.login.verificationRequested') })
     } catch (err) {
-      addToast({ type: 'error', title: 'Anfrage fehlgeschlagen', message: err instanceof Error ? getAuthErrorMessage(err.message) : undefined })
+      addToast({ type: 'error', title: t('auth.login.requestFailed'), message: err instanceof Error ? getAuthErrorMessage(err.message) : undefined })
     } finally {
       setResendingVerification(false)
     }
@@ -97,7 +103,7 @@ export default function LoginPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-accent-DEFAULT tracking-tight">skadia</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Melde dich an, um fortzufahren
+            {t('auth.login.subtitle')}
           </p>
         </div>
 
@@ -111,7 +117,7 @@ export default function LoginPage() {
                 disabled={resendingVerification || !email}
                 className="mt-2 text-sm font-medium text-red-700 dark:text-red-300 hover:underline disabled:opacity-60 disabled:no-underline"
               >
-                {resendingVerification ? 'Wird gesendet…' : 'Bestätigung erneut senden'}
+                {resendingVerification ? t('auth.common.sending') : t('auth.login.resendVerification')}
               </button>
             )}
           </div>
@@ -122,7 +128,7 @@ export default function LoginPage() {
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            placeholder="E-Mail"
+            placeholder={t('auth.fields.email')}
             required
             autoComplete="email"
             className={AUTH_INPUT_CLASS}
@@ -131,7 +137,7 @@ export default function LoginPage() {
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder="Passwort"
+            placeholder={t('auth.fields.password')}
             required
             autoComplete="current-password"
             className={AUTH_INPUT_CLASS}
@@ -144,7 +150,7 @@ export default function LoginPage() {
                        hover:bg-neutral-800 dark:hover:bg-neutral-200
                        transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Wird angemeldet…' : 'Anmelden'}
+            {loading ? t('auth.login.signingIn') : t('auth.login.submit')}
           </button>
         </form>
 
@@ -153,7 +159,7 @@ export default function LoginPage() {
             to="/forgot-password"
             className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
           >
-            Passwort vergessen?
+            {t('auth.login.forgotPassword')}
           </Link>
         </div>
 
@@ -161,7 +167,7 @@ export default function LoginPage() {
           <>
             <div className="relative flex items-center">
               <div className="flex-grow border-t border-neutral-200 dark:border-neutral-700" />
-              <span className="flex-shrink mx-3 text-xs text-neutral-400">oder</span>
+              <span className="flex-shrink mx-3 text-xs text-neutral-400">{t('auth.common.or')}</span>
               <div className="flex-grow border-t border-neutral-200 dark:border-neutral-700" />
             </div>
 
@@ -173,7 +179,7 @@ export default function LoginPage() {
                              text-neutral-700 dark:text-neutral-300 text-sm font-medium
                              hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Mit Strava anmelden
+                  {t('auth.login.socialLogin', { provider: 'Strava' })}
                 </button>
               )}
               {config!.social_providers.includes('google') && (
@@ -183,7 +189,7 @@ export default function LoginPage() {
                              text-neutral-700 dark:text-neutral-300 text-sm font-medium
                              hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  Mit Google anmelden
+                  {t('auth.login.socialLogin', { provider: 'Google' })}
                 </button>
               )}
             </div>
@@ -192,12 +198,12 @@ export default function LoginPage() {
 
         {(config?.registration_mode !== 'invite' || config?.bootstrap_mode === true) && (
           <div className="text-center text-sm text-neutral-500 dark:text-neutral-400">
-            Noch kein Konto?{' '}
+            {t('auth.login.noAccount')}{' '}
             <Link
               to="/register"
               className="font-medium text-accent-DEFAULT hover:underline"
             >
-              Registrieren
+              {t('auth.register.submit')}
             </Link>
           </div>
         )}
@@ -209,7 +215,7 @@ export default function LoginPage() {
                        text-neutral-600 dark:text-neutral-300 text-sm
                        hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
           >
-            Dev-Anmeldung (Test)
+            {t('auth.login.devLogin')}
           </button>
         )}
       </div>

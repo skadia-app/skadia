@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { register, getAuthConfig, type AuthConfig } from '@/api/auth'
 import { isAuthenticated } from '@/lib/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function RegisterPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
@@ -37,11 +39,11 @@ export default function RegisterPage() {
     setError(null)
 
     if (password.length < 10) {
-      setError('Das Passwort muss mindestens 10 Zeichen lang sein.')
+      setError(t('auth.errors.password_too_short'))
       return
     }
     if (password !== confirmPassword) {
-      setError('Die Passwörter stimmen nicht überein.')
+      setError(t('auth.errors.password_mismatch'))
       return
     }
 
@@ -50,7 +52,7 @@ export default function RegisterPage() {
       await register(email, username, password)
       setSuccess(true)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Registrierung fehlgeschlagen'
+      const msg = err instanceof Error ? err.message : 'registration_failed'
       setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
@@ -66,16 +68,15 @@ export default function RegisterPage() {
           </div>
           <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
             <p className="text-sm text-green-700 dark:text-green-400 font-medium">
-              Registrierung erfolgreich!
+              {t('auth.register.successTitle')}
             </p>
             <p className="text-sm text-green-600 dark:text-green-500 mt-1">
-              Wir haben dir eine Bestätigungs-E-Mail geschickt. Bitte klicke auf den Link in der
-              E-Mail, um dein Konto zu aktivieren.
+              {t('auth.register.successDescription')}
             </p>
           </div>
           <div className="text-center">
             <Link to="/login" className="text-sm text-accent-DEFAULT hover:underline">
-              Zur Anmeldung
+              {t('auth.common.toLogin')}
             </Link>
           </div>
         </div>
@@ -88,14 +89,14 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-accent-DEFAULT tracking-tight">skadia</h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Konto erstellen</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('auth.register.title')}</p>
         </div>
 
         {config?.bootstrap_mode === true && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
-            <p className="font-medium">Erstmaliger Setup</p>
+            <p className="font-medium">{t('auth.register.bootstrapTitle')}</p>
             <p className="mt-1">
-              Du erstellst gerade den ersten Account dieser Skadia-Installation. Dieser Account erhält automatisch Administrator-Rechte.
+              {t('auth.register.bootstrapDescription')}
             </p>
           </div>
         )}
@@ -111,7 +112,7 @@ export default function RegisterPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="E-Mail"
+            placeholder={t('auth.fields.email')}
             required
             autoComplete="email"
             className={AUTH_INPUT_CLASS}
@@ -120,7 +121,7 @@ export default function RegisterPage() {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="Benutzername"
+            placeholder={t('auth.fields.username')}
             required
             autoComplete="username"
             className={AUTH_INPUT_CLASS}
@@ -129,7 +130,7 @@ export default function RegisterPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Passwort (min. 10 Zeichen)"
+            placeholder={t('auth.fields.passwordMin')}
             required
             minLength={10}
             autoComplete="new-password"
@@ -139,7 +140,7 @@ export default function RegisterPage() {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Passwort bestätigen"
+            placeholder={t('auth.fields.confirmPassword')}
             required
             autoComplete="new-password"
             className={AUTH_INPUT_CLASS}
@@ -152,14 +153,14 @@ export default function RegisterPage() {
                        hover:bg-neutral-800 dark:hover:bg-neutral-200
                        transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Wird registriert…' : 'Registrieren'}
+            {loading ? t('auth.register.submitting') : t('auth.register.submit')}
           </button>
         </form>
 
         <div className="text-center text-sm text-neutral-500 dark:text-neutral-400">
-          Bereits ein Konto?{' '}
+          {t('auth.register.hasAccount')}{' '}
           <Link to="/login" className="font-medium text-accent-DEFAULT hover:underline">
-            Anmelden
+            {t('auth.login.submit')}
           </Link>
         </div>
       </div>

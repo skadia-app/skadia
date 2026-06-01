@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { Toast, ToastType } from '@/lib/toast'
 import { useToast } from '@/lib/toast'
 
@@ -44,6 +45,7 @@ function getToastStyles(type: ToastType) {
 }
 
 export function ToastItem({ toast }: ToastItemProps) {
+  const { t } = useTranslation()
   const { removeToast } = useToast()
   const styles = getToastStyles(toast.type)
 
@@ -80,7 +82,7 @@ export function ToastItem({ toast }: ToastItemProps) {
         type="button"
         onClick={() => removeToast(toast.id)}
         className={`${styles.iconColor} hover:opacity-70 flex-shrink-0 mt-0.5 cursor-pointer`}
-        aria-label="Schließen"
+        aria-label={t('common.close')}
       >
         ✕
       </button>

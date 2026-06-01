@@ -2,18 +2,21 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchActivities } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
-import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { normTz } from '@/lib/format'
 import { fetchHRVAnalysis } from '@/api/analytics'
 import type { HRVAnalysis } from '@/api/analytics'
 import { ReadinessCardCompact } from '@/components/analytics/ReadinessCard'
 import { toLocalISO } from '@/lib/dateUtils'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
+import { isSupportedLanguage, localeForLanguage } from '@/i18n/languages'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -36,7 +39,11 @@ function sevenDaysAgo(): string {
 // ── Component ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const { t, i18n } = useTranslation()
+  const { formatDistance, formatDistanceCompact, formatElevation, formatElevationGain } = useUnitFormatters()
   const navigate = useNavigate()
+  const activeLanguage = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
+  const locale = localeForLanguage(activeLanguage)
 
   // ── Data Fetching ──────────────────────────────────────────────────────────
 
@@ -91,31 +98,29 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Dashboard</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('dashboardPage.title')}</h1>
 
       <MaintenanceAlerts />
 
-      {/* ── Row 1: Readiness / Diese Woche / HRV ───────────────────────── */}
+      {/* ── Row 1: Readiness / this week / HRV ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* Readiness Score Card */}
         <ReadinessCardCompact />
 
-        {/* Diese Woche Card */}
+        {/* This week card */}
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-3">Diese Woche</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-3">{t('dashboardPage.thisWeek')}</div>
           <div className="grid grid-cols-2 gap-y-2 gap-x-3">
-            <MiniStat label="Aktivitäten" value={String(weekStats.count)} />
+            <MiniStat label={t('dashboardPage.activities')} value={String(weekStats.count)} />
             <MiniStat
-              label="Distanz"
-              value={weekStats.distance >= 1000
-                ? `${(weekStats.distance / 1000).toFixed(1)} km`
-                : `${Math.round(weekStats.distance)} m`}
+              label={t('dashboardPage.distance')}
+              value={formatDistanceCompact(weekStats.distance)}
             />
-            <MiniStat label="Zeit" value={formatDuration(weekStats.duration)} />
+            <MiniStat label={t('dashboardPage.time')} value={formatDuration(weekStats.duration)} />
             <MiniStat
-              label="Höhenmeter"
-              value={weekStats.elevation > 0 ? `${Math.round(weekStats.elevation)} m` : '0 m'}
+              label={t('dashboardPage.elevation')}
+              value={formatElevation(weekStats.elevation)}
             />
           </div>
         </div>
@@ -127,7 +132,7 @@ export default function DashboardPage() {
                      hover:border-neutral-300 dark:hover:border-neutral-700
                      hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors group"
         >
-          <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">HRV (7 Tage)</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">{t('dashboardPage.hrvSevenDays')}</div>
           <div className="flex items-end gap-2">
             <span className="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
               {hrvAvg != null ? Math.round(hrvAvg) : '–'}
@@ -145,26 +150,26 @@ export default function DashboardPage() {
           </div>
           {hrvBaseline != null && (
             <div className="text-xs text-neutral-400 mt-1">
-              Baseline: {Math.round(hrvBaseline)} ms
+              {t('dashboardPage.baseline', { value: Math.round(hrvBaseline) })}
             </div>
           )}
           {hrv == null && (
-            <div className="text-sm text-neutral-400">Keine HRV-Daten</div>
+            <div className="text-sm text-neutral-400">{t('dashboardPage.noHrvData')}</div>
           )}
         </Link>
       </div>
 
-      {/* ── Row 2: Letzte Aktivitäten ──────────────────────────────────── */}
+      {/* ── Row 2: recent activities ───────────────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-            Letzte Aktivitäten
+            {t('dashboardPage.recentActivities')}
           </h2>
           <button
             onClick={() => navigate('/activities')}
             className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
-            Alle anzeigen
+            {t('dashboardPage.showAll')}
           </button>
         </div>
 
@@ -195,7 +200,7 @@ export default function DashboardPage() {
                   {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
                 </span>
                 <span className="text-xs text-neutral-400 flex-shrink-0">
-                  {new Date(a.started_at).toLocaleDateString('de-DE', {
+                  {new Date(a.started_at).toLocaleDateString(locale, {
                     day: '2-digit', month: 'short',
                     ...(normTz(a.timezone) ? { timeZone: normTz(a.timezone) } : {}),
                   })}
@@ -218,7 +223,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-            Keine Aktivitäten vorhanden
+            {t('dashboardPage.noActivities')}
           </div>
         )}
       </section>

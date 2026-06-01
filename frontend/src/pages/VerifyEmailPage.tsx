@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { verifyEmail } from '@/api/auth'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function VerifyEmailPage() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') ?? ''
 
@@ -13,7 +15,7 @@ export default function VerifyEmailPage() {
 
   async function handleVerify() {
     if (!token) {
-      setError('Ungültiger oder fehlender Bestätigungs-Link.')
+      setError(t('auth.verify.invalidLink'))
       return
     }
     setLoading(true)
@@ -33,22 +35,22 @@ export default function VerifyEmailPage() {
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-accent-DEFAULT tracking-tight">skadia</h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">E-Mail verifizieren</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('auth.verify.title')}</p>
         </div>
 
         {success ? (
           <>
             <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
               <p className="text-sm text-green-700 dark:text-green-400 font-medium">
-                E-Mail erfolgreich verifiziert!
+                {t('auth.verify.successTitle')}
               </p>
               <p className="text-sm text-green-600 dark:text-green-500 mt-1">
-                Du kannst dich jetzt anmelden.
+                {t('auth.verify.successDescription')}
               </p>
             </div>
             <div className="text-center">
               <Link to="/login" className="text-sm text-accent-DEFAULT hover:underline">
-                Zur Anmeldung
+                {t('auth.common.toLogin')}
               </Link>
             </div>
           </>
@@ -63,14 +65,14 @@ export default function VerifyEmailPage() {
             {!token && !error && (
               <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
                 <p className="text-sm text-red-600 dark:text-red-400">
-                  Ungültiger oder fehlender Bestätigungs-Link.
+                  {t('auth.verify.invalidLink')}
                 </p>
               </div>
             )}
 
             <div className="space-y-4">
               <p className="text-sm text-neutral-600 dark:text-neutral-400 text-center">
-                Klicke auf den Button, um deine E-Mail-Adresse zu bestätigen.
+                {t('auth.verify.instructions')}
               </p>
               <button
                 type="button"
@@ -81,13 +83,13 @@ export default function VerifyEmailPage() {
                            hover:bg-neutral-800 dark:hover:bg-neutral-200
                            transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Wird bestätigt…' : 'Bestätigen'}
+                {loading ? t('auth.verify.confirming') : t('auth.verify.submit')}
               </button>
             </div>
 
             <div className="text-center">
               <Link to="/login" className="text-sm text-accent-DEFAULT hover:underline">
-                Zurück zur Anmeldung
+                {t('auth.common.backToLogin')}
               </Link>
             </div>
           </>
