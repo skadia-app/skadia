@@ -11,7 +11,20 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
-// UpdateMe handles PATCH /api/v1/me — updates username and/or display_name.
+var supportedUserLocales = map[string]bool{
+	"de": true,
+	"en": true,
+	"fr": true,
+	"it": true,
+	"es": true,
+}
+
+var supportedUserUnits = map[string]bool{
+	"metric":   true,
+	"imperial": true,
+}
+
+// UpdateMe handles PATCH /api/v1/me — updates account details and user preferences.
 func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -21,6 +34,8 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username    *string `json:"username,omitempty"`
 		DisplayName *string `json:"display_name,omitempty"`
+		Locale      *string `json:"locale,omitempty"`
+		Units       *string `json:"units,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid_request"}`, http.StatusBadRequest)
@@ -45,14 +60,29 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Locale != nil && !supportedUserLocales[*req.Locale] {
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_locale"})
+		return
+	}
+
+	if req.Units != nil && !supportedUserUnits[*req.Units] {
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_units"})
+		return
+	}
+
 	if err := h.DB.UpdateAccountInfo(r.Context(), userID, req.Username, req.DisplayName); err != nil {
 		slog.Error("UpdateMe: update account info failed", "error", err)
 		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
+	if err := h.DB.UpdateUserPreferences(r.Context(), userID, req.Locale, req.Units); err != nil {
+		slog.Error("UpdateMe: update preferences failed", "error", err)
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
 
 	h.DB.LogAuthEvent(r.Context(), userID, "profile_update", middleware.ClientIP(r), r.UserAgent(), nil)
-	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	writeMeResponse(w, r, h, userID)
 }
 
 // GetMe returns the authenticated user's full profile.
@@ -62,6 +92,10 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	writeMeResponse(w, r, h, userID)
+}
+
+func writeMeResponse(w http.ResponseWriter, r *http.Request, h *Handler, userID string) {
 	user, err := h.DB.GetUserByID(r.Context(), userID)
 	if err != nil {
 		slog.Error("GetMe: user not found", "error", err)
@@ -78,6 +112,8 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		HasPassword:        user.PasswordHash != nil,
 		MustChangePassword: user.MustChangePassword,
 		RegistrationSource: user.RegistrationSrc,
+		Locale:             user.Locale,
+		Units:              user.Units,
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }

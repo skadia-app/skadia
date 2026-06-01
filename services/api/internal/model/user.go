@@ -40,6 +40,8 @@ type User struct {
 	Email       *string   `json:"email,omitempty"`
 	IsAdmin     bool      `json:"is_admin"`
 	IsActive    bool      `json:"is_active"`
+	Locale      string    `json:"locale"`
+	Units       string    `json:"units"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 
@@ -71,6 +73,8 @@ type MeResponse struct {
 	HasPassword        bool    `json:"has_password"`
 	MustChangePassword bool    `json:"must_change_password"`
 	RegistrationSource *string `json:"registration_source,omitempty"`
+	Locale             string  `json:"locale"`
+	Units              string  `json:"units"`
 }
 
 // UserProfile holds physiological data for training zone calculations.

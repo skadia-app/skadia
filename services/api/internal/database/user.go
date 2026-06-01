@@ -207,7 +207,7 @@ var ErrEmailCollision = fmt.Errorf("email already registered")
 
 // allUserColumns is the shared column list for scanning a full model.User.
 const allUserColumns = `id, username, display_name, email, is_admin, is_active,
-	created_at, updated_at, password_hash, email_verified, registration_source,
+	COALESCE(locale, 'de'), COALESCE(units, 'metric'), created_at, updated_at, password_hash, email_verified, registration_source,
 	password_changed_at, last_login_at, failed_login_count, login_delay_until,
 	deleted_at, must_change_password, pending_email, COALESCE(timezone, ''), pending_approval`
 
@@ -216,7 +216,7 @@ func scanUser(row pgx.Row) (*model.User, error) {
 	var u model.User
 	err := row.Scan(
 		&u.ID, &u.Username, &u.DisplayName, &u.Email,
-		&u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.IsAdmin, &u.IsActive, &u.Locale, &u.Units, &u.CreatedAt, &u.UpdatedAt,
 		&u.PasswordHash, &u.EmailVerified, &u.RegistrationSrc,
 		&u.PasswordChangedAt, &u.LastLoginAt, &u.FailedLoginCount, &u.LoginDelayUntil,
 		&u.DeletedAt, &u.MustChangePassword, &u.PendingEmail, &u.Timezone,
@@ -699,6 +699,19 @@ func (db *DB) UpdateAccountInfo(ctx context.Context, userID string, username, di
 			updated_at   = NOW()
 		 WHERE id = $3 AND deleted_at IS NULL`,
 		username, displayName, userID)
+	return err
+}
+
+// UpdateUserPreferences updates locale and unit preferences for a user.
+// Nil pointers leave the corresponding field unchanged.
+func (db *DB) UpdateUserPreferences(ctx context.Context, userID string, locale, units *string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET
+			locale     = COALESCE($1, locale),
+			units      = COALESCE($2, units),
+			updated_at = NOW()
+		 WHERE id = $3 AND deleted_at IS NULL`,
+		locale, units, userID)
 	return err
 }
 
