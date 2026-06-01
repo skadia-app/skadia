@@ -4,6 +4,25 @@ All notable user-facing, administrator-facing, security, operational and API-rel
 
 ---
 
+## 2026-06-01
+
+### Added
+
+- The web UI now supports German, English, French, Italian and Spanish language selection from the user menu and account settings.
+- User preferences now include metric and imperial unit systems for distances, elevation, weights, temperatures, precipitation and related activity metrics.
+- Translation catalogs now include protected technical, brand and product terms so established names and functional labels stay stable across languages.
+
+### Changed
+
+- Activity, analytics, import, routing, map, gear, health, notification, job and administration surfaces now use localized UI labels and messages where translations are available.
+- Activity tables, charts, weather panels, gear metrics, health cards and record views now format supported units through the selected user unit system.
+
+### Fixed
+
+- Import, background-job and generated taxonomy labels now avoid guessing translated functional identifiers where no localized UI label is available.
+
+---
+
 ## 2026-05-21
 
 ### Added
