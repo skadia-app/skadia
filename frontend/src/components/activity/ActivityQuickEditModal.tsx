@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Loader2, Pencil, Save, X } from 'lucide-react'
 import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
 import { assignActivitiesToTag, createTag, fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
@@ -16,16 +18,18 @@ import {
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
   quickEditModifierSelected,
-  quickEditTagRemovalLabel,
   quickEditTagRemovalLocked,
   quickEditTagSuggestions,
+  quickEditSyncedModifierForTag,
   type ActivityQuickEditDraft,
 } from './quickEdit'
-import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtTime } from '@/lib/format'
 import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -35,20 +39,20 @@ interface ActivityQuickEditModalProps {
   showMoreEdit?: boolean
 }
 
-const VISIBILITY_OPTIONS: Array<{ value: Activity['visibility']; label: string }> = [
-  { value: 'private', label: 'Privat' },
-  { value: 'bekannte', label: 'Bekannte' },
-  { value: 'instanz', label: 'Instanz' },
-  { value: 'federation', label: 'Federation' },
-  { value: 'public', label: 'Öffentlich' },
+const VISIBILITY_OPTIONS: Activity['visibility'][] = [
+  'private',
+  'bekannte',
+  'instanz',
+  'federation',
+  'public',
 ]
 
 const FEEL_OPTIONS = [
-  ['😫', 'Schlecht'],
-  ['😕', 'Mäßig'],
-  ['😐', 'Okay'],
-  ['🙂', 'Gut'],
-  ['😄', 'Super'],
+  '😫',
+  '😕',
+  '😐',
+  '🙂',
+  '😄',
 ] as const
 
 const FALLBACK_TAG_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#F43F5E', '#06B6D4']
@@ -69,7 +73,31 @@ function activityLocationText(activity: Activity): string | null {
   return region ? `${place} · ${region}` : place
 }
 
+function currentLanguage(language: string): SupportedLanguage {
+  const code = language.split('-')[0]
+  return isSupportedLanguage(code) ? code : 'de'
+}
+
+function visibilityLabel(value: Activity['visibility'], t: TFunction): string {
+  return t(`ruleEditor.optionLabels.visibility.${value}`)
+}
+
+function feelLabel(index: number, t: TFunction): string {
+  return t(`activityQuickEdit.feel.${index}`)
+}
+
+function tagRemovalLabel(draft: ActivityQuickEditDraft, tagName: string, t: TFunction, language: SupportedLanguage): string {
+  const modifierKey = quickEditSyncedModifierForTag(draft, tagName)
+  if (modifierKey && quickEditModifierSelected(draft, modifierKey)) {
+    return t('activityQuickEdit.tags.removeDisablesModifier', { tag: tagName, modifier: modifierLabel(modifierKey, language) })
+  }
+  return t('activityQuickEdit.tags.remove', { tag: tagName })
+}
+
 export default function ActivityQuickEditModal({ activity, open, onClose, onSaved, showMoreEdit = true }: ActivityQuickEditModalProps) {
+  const { t, i18n } = useTranslation()
+  const { formatDistance, formatElevationGain, formatElevationLoss } = useUnitFormatters()
+  const language = currentLanguage(i18n.language)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<ActivityQuickEditDraft>(() => activityQuickEditDraftFromActivity(activity))
@@ -129,7 +157,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="w-[calc(100vw-2rem)]">
         <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-neutral-600 dark:text-neutral-300">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Aktivität wird geladen...</span>
+          <span>{t('activityQuickEdit.loading')}</span>
         </div>
       </ModalShell>
     )
@@ -224,20 +252,20 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       onClose()
     } catch (err) {
       if (savedAny) {
-	        try {
-	          const current = await fetchActivity(activity.id)
-	          queryClient.setQueryData(['activity', activity.id], current)
-	          queryClient.invalidateQueries({ queryKey: ['activities'] })
-	          setDraft(activityQuickEditDraftFromActivity(current))
-	          setDraftDirty(false)
-	          onSaved(current)
-	        } catch {
+        try {
+          const current = await fetchActivity(activity.id)
+          queryClient.setQueryData(['activity', activity.id], current)
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          setDraft(activityQuickEditDraftFromActivity(current))
+          setDraftDirty(false)
+          onSaved(current)
+        } catch {
           queryClient.invalidateQueries({ queryKey: ['activities'] })
           queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
         }
-        setError('Teilweise gespeichert. Bitte prüfe die Aktivität und speichere fehlende Änderungen erneut.')
+        setError(t('activityQuickEdit.errors.partialSave'))
       } else {
-        setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen')
+        setError(err instanceof Error ? err.message : t('activityQuickEdit.errors.saveFailed'))
       }
     } finally {
       setSaving(false)
@@ -266,15 +294,15 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       <div className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Aktivität bearbeiten</h2>
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('activityQuickEdit.title')}</h2>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              Änderungen werden erst beim Speichern übernommen.
+              {t('activityQuickEdit.subtitle')}
             </p>
           </div>
           <div className="flex min-w-0 items-start gap-3">
             {recordingDeviceName && (
               <div className="hidden max-w-[18rem] text-right text-sm sm:block">
-                <div className="text-[11px] text-neutral-400 dark:text-neutral-500">Aufzeichnungsgerät</div>
+                <div className="text-[11px] text-neutral-400 dark:text-neutral-500">{t('activityQuickEdit.recordingDevice')}</div>
                 {baseActivity.recording_device_id ? (
                   <Link
                     to={`/hardware/detail/${baseActivity.recording_device_id}`}
@@ -292,7 +320,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               type="button"
               onClick={onClose}
               className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-              aria-label="Schnellbearbeitung schließen"
+              aria-label={t('activityQuickEdit.close')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -302,7 +330,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
         <div className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
           <div className="space-y-4">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Titel</span>
+              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityQuickEdit.fields.title')}</span>
               <input
                 value={draft.title}
                 onChange={e => patchDraft({ title: e.target.value })}
@@ -310,7 +338,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               />
             </label>
 
-            <QuickEditSection title="Sportart">
+            <QuickEditSection title={t('activityQuickEdit.sections.sportType')}>
               <SportTuplePicker
                 sportType={draft.sportType}
                 subType={draft.subType}
@@ -318,7 +346,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               />
               <div className="mt-3 grid gap-2 md:grid-cols-3">
                 {quickEditModifierKeys.map((key) => {
-                  const label = modifierLabel(key)
+                  const label = modifierLabel(key, language)
                   return (
                     <ToggleRow key={key} label={label}>
                       <Toggle
@@ -334,7 +362,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
             </QuickEditSection>
 
             <QuickEditSection
-              title="Privatsphäre"
+              title={t('activityQuickEdit.sections.privacy')}
               action={(
                 <button
                   type="button"
@@ -343,57 +371,57 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   aria-expanded={privacyDetailsOpen}
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  Details
+                  {t('activityQuickEdit.details')}
                 </button>
               )}
             >
               <label className="block">
-                <span className="sr-only">Sichtbarkeit</span>
+                <span className="sr-only">{t('activityQuickEdit.fields.visibility')}</span>
                 <select
                   value={draft.visibility}
                   onChange={e => patchDraft({ visibility: e.target.value as Activity['visibility'] })}
                   className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-accent-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 >
                   {VISIBILITY_OPTIONS.map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option} value={option}>{visibilityLabel(option, t)}</option>
                   ))}
                 </select>
               </label>
               {privacyDetailsOpen && (
                 <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  <ToggleRow label="Karte ausblenden">
+                  <ToggleRow label={t('activityQuickEdit.privacy.hideMap')}>
                     <Toggle
                       checked={draft.hideMap}
                       onChange={checked => patchDraft({ hideMap: checked })}
                       size="sm"
-                      aria-label="Karte ausblenden"
+                      aria-label={t('activityQuickEdit.privacy.hideMap')}
                     />
                   </ToggleRow>
-                  <ToggleRow label="Herzfrequenz ausblenden">
+                  <ToggleRow label={t('activityQuickEdit.privacy.hideHeartRate')}>
                     <Toggle
                       checked={!draft.dataVisibility.heart_rate}
                       onChange={() => toggleDataVisibility('heart_rate')}
                       size="sm"
-                      aria-label="Herzfrequenz ausblenden"
+                      aria-label={t('activityQuickEdit.privacy.hideHeartRate')}
                     />
                   </ToggleRow>
-                  <ToggleRow label="Leistung ausblenden">
+                  <ToggleRow label={t('activityQuickEdit.privacy.hidePower')}>
                     <Toggle
                       checked={!draft.dataVisibility.power}
                       onChange={() => toggleDataVisibility('power')}
                       size="sm"
-                      aria-label="Leistung ausblenden"
+                      aria-label={t('activityQuickEdit.privacy.hidePower')}
                     />
                   </ToggleRow>
                 </div>
               )}
             </QuickEditSection>
 
-            <QuickEditSection title="Statistik">
+            <QuickEditSection title={t('activityQuickEdit.sections.statistics')}>
               <div className="grid gap-2 md:grid-cols-2">
                 {([
-                  ['excludeFromHeatmap', 'Von Heatmap ausschließen'],
-                  ['excludeFromStats', 'Von Statistik ausschließen'],
+                  ['excludeFromHeatmap', t('activityQuickEdit.statistics.excludeFromHeatmap')],
+                  ['excludeFromStats', t('activityQuickEdit.statistics.excludeFromStats')],
                 ] as const).map(([key, label]) => (
                   <ToggleRow key={key} label={label}>
                     <Toggle
@@ -409,12 +437,12 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
             </QuickEditSection>
 
             <div>
-              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
+              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityQuickEdit.tags.title')}</span>
               <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
                 <div className="mb-2 flex flex-wrap gap-2">
                   {draft.tags.map(tag => {
                     const locked = quickEditTagRemovalLocked(draft, tag)
-                    const removalLabel = quickEditTagRemovalLabel(draft, tag)
+                    const removalLabel = tagRemovalLabel(draft, tag, t, language)
                     return (
                       <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
                         {tag}
@@ -427,19 +455,19 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                     )
                   })}
                   {draft.tags.length === 0 && (
-                    <span className="text-sm text-neutral-400">Keine Tags</span>
+                    <span className="text-sm text-neutral-400">{t('activityQuickEdit.tags.empty')}</span>
                   )}
                 </div>
                 <div className="flex gap-2">
                   <input
                     value={tagSearch}
                     onChange={e => setTagSearch(e.target.value)}
-                    placeholder="Tag suchen oder erstellen..."
+                    placeholder={t('activityQuickEdit.tags.searchPlaceholder')}
                     className="min-w-0 flex-1 rounded border border-neutral-200 bg-transparent px-2 py-1.5 text-sm text-neutral-900 outline-none focus:border-accent-400 dark:border-neutral-700 dark:text-neutral-100"
                   />
                   {canCreateTag && (
                     <button type="button" onClick={() => { toggleTag(tagSearchTrimmed, true); setTagSearch('') }} className="rounded border border-neutral-200 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">
-                      Erstellen
+                      {t('activityQuickEdit.tags.create')}
                     </button>
                   )}
                 </div>
@@ -458,7 +486,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Beschreibung</span>
+              <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityQuickEdit.fields.description')}</span>
               <textarea
                 value={draft.description}
                 onChange={e => patchDraft({ description: e.target.value })}
@@ -479,31 +507,31 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   className="w-full accent-accent-DEFAULT"
                 />
                 <div className="mt-1 flex items-center justify-between text-xs text-neutral-400">
-                  <span>{draft.workoutRpe == null ? 'Nicht gesetzt' : `${draft.workoutRpe}/10`}</span>
-                  <button type="button" onClick={() => patchDraft({ workoutRpe: null })} className="hover:text-neutral-600 dark:hover:text-neutral-200">Entfernen</button>
+                  <span>{draft.workoutRpe == null ? t('activityQuickEdit.rpe.notSet') : `${draft.workoutRpe}/10`}</span>
+                  <button type="button" onClick={() => patchDraft({ workoutRpe: null })} className="hover:text-neutral-600 dark:hover:text-neutral-200">{t('activityQuickEdit.remove')}</button>
                 </div>
                 <div className="mt-1 flex justify-between text-[10px] text-neutral-400 dark:text-neutral-500">
-                  <span>1 Leicht</span>
-                  <span>5 Mittel</span>
-                  <span>10 Maximum</span>
+                  <span>{t('activityQuickEdit.rpe.light')}</span>
+                  <span>{t('activityQuickEdit.rpe.medium')}</span>
+                  <span>{t('activityQuickEdit.rpe.maximum')}</span>
                 </div>
               </label>
               <div>
-                <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Gefühl</span>
+                <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityQuickEdit.fields.feel')}</span>
                 <div className="grid grid-cols-5 gap-1.5">
-                  {FEEL_OPTIONS.map(([emoji, label], index) => (
+                  {FEEL_OPTIONS.map((emoji, index) => (
                     <button
-                      key={label}
+                      key={emoji}
                       type="button"
                       onClick={() => patchDraft({ workoutFeel: draft.workoutFeel === index ? null : index })}
-                      title={label}
+                      title={feelLabel(index, t)}
                       className={`flex min-w-0 flex-col items-center gap-0.5 rounded-lg border px-1.5 py-2 text-xs ${draft.workoutFeel === index
                         ? 'border-accent-DEFAULT bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
                         : 'border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
                       }`}
                     >
                       <span className="text-lg">{emoji}</span>
-                      <span className="w-full truncate text-[10px]">{label}</span>
+                      <span className="w-full truncate text-[10px]">{feelLabel(index, t)}</span>
                     </button>
                   ))}
                 </div>
@@ -513,7 +541,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
 
           <aside className="space-y-3">
             <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
-              <div className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Minimap</div>
+              <div className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityQuickEdit.minimap')}</div>
               <div className="flex aspect-video items-center justify-center overflow-hidden rounded bg-neutral-100 dark:bg-neutral-800">
                 <ActivityQuickEditMiniMap key={activity.id} streams={streams} loading={streamsLoading} />
               </div>
@@ -552,12 +580,12 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               )}
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <Stat label="Distanz" value={formatDistance(baseActivity.distance_m)} />
-              <Stat label="Zeit" value={formatDuration(baseActivity.elapsed_time_s ?? 0)} />
-              <Stat label="Höhenmeter" value={elevationValue} />
-              <Stat label="GPS" value={baseActivity.has_gps ? 'Ja' : hasLoadedGpsTrack ? 'Nein / Track ja' : streamsLoading ? 'Lädt...' : 'Nein'} />
-              {heartRateValue && <Stat label="Herzfrequenz" value={heartRateValue} />}
-              {powerValue && <Stat label="Leistung" value={powerValue} />}
+              <Stat label={t('activityQuickEdit.stats.distance')} value={formatDistance(baseActivity.distance_m)} />
+              <Stat label={t('activityQuickEdit.stats.time')} value={formatDuration(baseActivity.elapsed_time_s ?? 0)} />
+              <Stat label={t('activityQuickEdit.stats.elevation')} value={elevationValue} />
+              <Stat label={t('activityQuickEdit.stats.gps')} value={baseActivity.has_gps ? t('ruleEditor.choices.yes') : hasLoadedGpsTrack ? t('activityQuickEdit.stats.noTrackYes') : streamsLoading ? t('activityQuickEdit.stats.loading') : t('ruleEditor.choices.no')} />
+              {heartRateValue && <Stat label={t('activityQuickEdit.stats.heartRate')} value={heartRateValue} />}
+              {powerValue && <Stat label={t('activityQuickEdit.stats.power')} value={powerValue} />}
             </div>
           </aside>
         </div>
@@ -575,16 +603,16 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               onClick={() => navigate(`/activities/${activity.id}/edit`)}
               className="rounded-lg border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              Mehr bearbeiten
+              {t('activityQuickEdit.moreEdit')}
             </button>
           ) : <span />}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
-              Abbrechen
+              {t('common.cancel')}
             </button>
             <button type="button" onClick={handleSave} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-50">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Speichern
+              {t('account.actions.save')}
             </button>
           </div>
         </div>

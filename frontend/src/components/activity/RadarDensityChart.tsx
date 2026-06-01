@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -9,6 +10,8 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useECharts } from '@/hooks/useECharts'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { distanceInputUnit, distanceToDisplayValue } from '@/lib/units'
 import type { StreamPoint } from '@/api/types'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, CanvasRenderer])
@@ -20,6 +23,8 @@ interface Props {
 }
 
 export function RadarDensityChart({ streams }: Props) {
+  const { t } = useTranslation()
+  const { options, formatDistanceCompact } = useUnitFormatters()
   const hasRadarData = useMemo(
     () => streams.some(s => s.radar_vehicle_count != null),
     [streams],
@@ -41,7 +46,7 @@ export function RadarDensityChart({ streams }: Props) {
       if (s.radar_vehicle_count == null) continue
 
       if (xMode === 'distance') {
-        xValues.push((s.distance_m ?? 0) / 1000)
+        xValues.push(distanceToDisplayValue(s.distance_m ?? 0, options.units))
       } else {
         xValues.push((new Date(s.time).getTime() - t0) / 60000)
       }
@@ -57,11 +62,19 @@ export function RadarDensityChart({ streams }: Props) {
     }
 
     return { xData: xValues, vehicleData: vehicles, rangeData: ranges, hasRange: anyRange }
-  }, [streams, xMode])
+  }, [streams, xMode, options.units])
 
   const containerRef = useECharts(
     (theme) => {
       if (xData.length === 0) return { series: [] }
+
+      const vehicleSeriesName = t('activityDetail.radarDensity.series.vehicles')
+      const nearestVehicleSeriesName = t('activityDetail.radarDensity.series.nearestVehicle')
+      const distanceUnit = distanceInputUnit(options.units)
+      const formatAxisNumber = (value: number, digits: number) => new Intl.NumberFormat(options.locale, {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(value)
 
       // Build range series data as [x, y] pairs to support visualMap on the line
       const rangeSeriesData = xData.map((x, i) => [x, rangeData[i]] as [number, number | null])
@@ -69,7 +82,7 @@ export function RadarDensityChart({ streams }: Props) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const series: any[] = [
         {
-          name: 'Vehicles',
+          name: vehicleSeriesName,
           type: 'line',
           yAxisIndex: 0,
           data: xData.map((x, i) => [x, vehicleData[i]]),
@@ -83,7 +96,7 @@ export function RadarDensityChart({ streams }: Props) {
 
       if (hasRange) {
         series.push({
-          name: 'Nearest vehicle',
+          name: nearestVehicleSeriesName,
           type: 'line',
           yAxisIndex: 1,
           data: rangeSeriesData,
@@ -97,19 +110,21 @@ export function RadarDensityChart({ streams }: Props) {
       }
 
       const xFormatter = xMode === 'distance'
-        ? (v: number) => `${v.toFixed(2)} km`
+        ? (v: number) => `${formatAxisNumber(v, 2)} ${distanceUnit}`
         : (v: number) => {
             const h = Math.floor(v / 60)
             const m = Math.floor(v % 60)
-            return h > 0 ? `${h}h ${m}m` : `${m} min`
+            return h > 0
+              ? t('activityDetail.radarDensity.time.hoursMinutes', { hours: h, minutes: m })
+              : t('activityDetail.radarDensity.time.minutes', { minutes: m })
           }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const visualMapPieces: any[] = hasRange
         ? [
-            { lte: 10, color: '#ef4444', label: '<10 m' },
-            { gt: 10, lte: 30, color: '#eab308', label: '10–30 m' },
-            { gt: 30, color: '#22c55e', label: '>30 m' },
+            { lte: 10, color: '#ef4444', label: t('activityDetail.radarDensity.range.lt', { value: formatDistanceCompact(10) }) },
+            { gt: 10, lte: 30, color: '#eab308', label: t('activityDetail.radarDensity.range.between', { min: formatDistanceCompact(10), max: formatDistanceCompact(30) }) },
+            { gt: 30, color: '#22c55e', label: t('activityDetail.radarDensity.range.gt', { value: formatDistanceCompact(30) }) },
           ]
         : []
 
@@ -123,7 +138,7 @@ export function RadarDensityChart({ streams }: Props) {
         },
         legend: hasRange
           ? {
-              data: ['Vehicles', 'Nearest vehicle'],
+              data: [vehicleSeriesName, nearestVehicleSeriesName],
               top: 8,
               textStyle: { fontSize: 10, color: theme.textColor },
               itemHeight: 8,
@@ -147,11 +162,13 @@ export function RadarDensityChart({ streams }: Props) {
             let html = `<div style="font-size:11px;color:${theme.textColor};margin-bottom:4px">${xLabel}</div>`
             for (const p of items) {
               if (p.value[1] == null) continue
-              const unit = p.seriesName === 'Nearest vehicle' ? ' m' : ''
+              const value = p.seriesName === nearestVehicleSeriesName
+                ? formatDistanceCompact(p.value[1])
+                : String(p.value[1])
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
                 <span>${p.seriesName}:</span>
-                <strong>${p.value[1]}${unit}</strong>
+                <strong>${value}</strong>
               </div>`
             }
             return html
@@ -167,7 +184,7 @@ export function RadarDensityChart({ streams }: Props) {
         yAxis: [
           {
             type: 'value',
-            name: 'Vehicles',
+            name: t('activityDetail.radarDensity.axes.vehicles'),
             nameTextStyle: { fontSize: 9, color: theme.textColor },
             axisLabel: {
               fontSize: 10,
@@ -181,12 +198,12 @@ export function RadarDensityChart({ streams }: Props) {
             ? [
                 {
                   type: 'value',
-                  name: 'Distance (m)',
+                  name: t('activityDetail.radarDensity.axes.nearestDistance'),
                   nameTextStyle: { fontSize: 9, color: theme.textColor },
                   axisLabel: {
                     fontSize: 10,
                     color: theme.textColor,
-                    formatter: (v: number) => `${v} m`,
+                    formatter: (v: number) => formatDistanceCompact(v),
                   },
                   splitLine: { show: false },
                   inverse: true,  // closer = higher on screen (smaller = more dangerous)
@@ -209,7 +226,7 @@ export function RadarDensityChart({ streams }: Props) {
         series,
       }
     },
-    [xData, vehicleData, rangeData, hasRange, xMode],
+    [formatDistanceCompact, options.locale, options.units, t, xData, vehicleData, rangeData, hasRange, xMode],
   )
 
   if (!hasRadarData) return null
@@ -218,7 +235,7 @@ export function RadarDensityChart({ streams }: Props) {
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          Radar — Vehicle Density
+          {t('activityDetail.radarDensity.title')}
         </h3>
         {/* X-axis toggle — only show if distance data is available */}
         {hasDistance && (
@@ -231,7 +248,7 @@ export function RadarDensityChart({ streams }: Props) {
               }`}
               onClick={() => setXMode('distance')}
             >
-              Distance
+              {t('activityDetail.radarDensity.xModes.distance')}
             </button>
             <button
               className={`px-3 py-1 transition-colors border-l border-neutral-200 dark:border-neutral-700 cursor-pointer ${
@@ -241,7 +258,7 @@ export function RadarDensityChart({ streams }: Props) {
               }`}
               onClick={() => setXMode('time')}
             >
-              Time
+              {t('activityDetail.radarDensity.xModes.time')}
             </button>
           </div>
         )}
@@ -252,15 +269,15 @@ export function RadarDensityChart({ streams }: Props) {
         <div className="flex items-center gap-4 px-4 pb-1 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-1.5 rounded-sm bg-red-500" />
-            &lt;10 m
+            {t('activityDetail.radarDensity.range.lt', { value: formatDistanceCompact(10) })}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-1.5 rounded-sm bg-yellow-500" />
-            10–30 m
+            {t('activityDetail.radarDensity.range.between', { min: formatDistanceCompact(10), max: formatDistanceCompact(30) })}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-1.5 rounded-sm bg-green-500" />
-            &gt;30 m
+            {t('activityDetail.radarDensity.range.gt', { value: formatDistanceCompact(30) })}
           </span>
         </div>
       )}

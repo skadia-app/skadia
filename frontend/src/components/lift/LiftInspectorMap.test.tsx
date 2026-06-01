@@ -27,6 +27,18 @@ import type { ReactNode } from 'react'
 import { ToastProvider } from '@/lib/toast'
 import { ToastContainer } from '@/components/Toast'
 import type { LiftCandidate, StreamPoint } from '@/api/types'
+import { i18n } from '@/i18n/i18n'
+
+const mockUserPrefs = vi.hoisted((): { locale: 'de' | 'en'; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
+
+beforeEach(async () => {
+  mockUserPrefs.locale = 'de'
+  mockUserPrefs.units = 'metric'
+  await i18n.changeLanguage('de')
+})
 
 // ResizeObserver and matchMedia stubs for jsdom.
 global.ResizeObserver = class {
@@ -54,6 +66,7 @@ const maplibreMock = vi.hoisted(() => {
   const layersMap: Record<string, unknown> = {}
   const paintProps: Record<string, Record<string, unknown>> = {}
   const instances: MapMock[] = []
+  const popupHtml: string[] = []
 
   class GeoJSONSourceMock {
     id: string
@@ -63,11 +76,15 @@ const maplibreMock = vi.hoisted(() => {
 
   class MapMock {
     _sources: Record<string, GeoJSONSourceMock> = {}
+    handlers: Record<string, (...args: unknown[]) => void> = {}
     addControl = vi.fn()
-    on = vi.fn((event: string, arg2: unknown, _arg3?: unknown) => {
+    on = vi.fn((event: string, arg2: unknown, arg3?: unknown) => {
       // Immediately invoke 'load' and 'style.load' callbacks so layers get added in tests.
       if ((event === 'load' || event === 'style.load') && typeof arg2 === 'function') {
         setTimeout(arg2, 0)
+      }
+      if (typeof arg2 === 'string' && typeof arg3 === 'function') {
+        this.handlers[`${event}:${arg2}`] = arg3 as (...args: unknown[]) => void
       }
     })
     off = vi.fn()
@@ -98,7 +115,14 @@ const maplibreMock = vi.hoisted(() => {
     }
   }
 
-  return { MapMock, sourcesMap, layersMap, paintProps, instances }
+  class PopupMock {
+    setLngLat(_ll: unknown) { return this }
+    setHTML(html: string) { popupHtml.push(html); return this }
+    addTo(_map: unknown) { return this }
+    remove() {}
+  }
+
+  return { MapMock, PopupMock, sourcesMap, layersMap, paintProps, instances, popupHtml }
 })
 
 const markerMock = vi.hoisted(() => {
@@ -126,6 +150,7 @@ vi.mock('maplibre-gl', () => ({
     },
     NavigationControl: class {},
     Marker: markerMock.MarkerMock,
+    Popup: maplibreMock.PopupMock,
   },
   Map: maplibreMock.MapMock,
   LngLatBounds: class {
@@ -134,6 +159,7 @@ vi.mock('maplibre-gl', () => ({
   },
   NavigationControl: class {},
   Marker: markerMock.MarkerMock,
+  Popup: maplibreMock.PopupMock,
 }))
 
 vi.mock('@/hooks/useMapLayers', () => ({
@@ -153,6 +179,7 @@ vi.mock('@/lib/theme', () => ({
 }))
 
 vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
   useCurrentUserId: vi.fn(() => 'user-abc'),
 }))
 
@@ -211,6 +238,7 @@ describe('LiftInspectorMap — map-layer initialization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     maplibreMock.instances.length = 0
+    maplibreMock.popupHtml.length = 0
   })
 
   it('initializes MapLibre when base layers arrive after the first render', async () => {
@@ -301,6 +329,39 @@ describe('LiftInspectorMap — map-layer initialization', () => {
     })
 
     expect(maplibreMock.instances[0].moveLayer).toHaveBeenCalledWith('lift-highlight-line')
+  })
+
+  it('formats lift popup distance and elevation with selected user units', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    await i18n.changeLanguage('en')
+
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    render(
+      <LiftInspectorMap
+        candidates={[makeCandidate({ distance_m: 1609.344, ascent_m: 100, descent_m: 50 })]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    const map = maplibreMock.instances[0]
+    map.handlers['click:lift-line-c-0']({
+      lngLat: { toArray: () => [11.15, 47.15] },
+    })
+
+    const html = maplibreMock.popupHtml.at(-1) ?? ''
+    expect(html).toContain('1.0 mi')
+    expect(html).toContain('+328 ft')
+    expect(html).toContain('−164 ft')
+    expect(html).not.toContain('1.6 km')
+    expect(html).not.toContain('+100 m')
   })
 })
 

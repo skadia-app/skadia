@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { StreamPoint } from '@/api/types'
@@ -24,6 +25,7 @@ function fallbackSvgPoints(coords: [number, number][]): string | null {
 }
 
 export default function ActivityQuickEditMiniMap({ streams, loading }: ActivityQuickEditMiniMapProps) {
+  const { t } = useTranslation()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const coords = useMemo(() => trackCoordsFromStreams(streams), [streams])
@@ -95,11 +97,11 @@ export default function ActivityQuickEditMiniMap({ streams, loading }: ActivityQ
   }, [caps, coords, selectedLayer])
 
   if (loading) {
-    return <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400">Track wird geladen...</div>
+    return <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400">{t('activityQuickEditMiniMap.loadingTrack')}</div>
   }
 
   if (coords.length < 2) {
-    return <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400">Kein GPS-Track</div>
+    return <div className="flex h-full w-full items-center justify-center text-sm text-neutral-400">{t('activityQuickEditMiniMap.noTrack')}</div>
   }
 
   return (

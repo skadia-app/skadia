@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import StaticTrackMap from '@/components/StaticTrackMap'
 import type { PhotoFeedActivitySummary } from '@/api/photos'
-import { fmtDuration, fmtDist, fmtDateMedium } from '@/lib/format'
+import { fmtDuration, fmtDateMedium } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   activity: PhotoFeedActivitySummary
@@ -10,12 +12,14 @@ interface Props {
 }
 
 export default function ActivityMiniCard({ activity, photoCount }: Props) {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const color = sportColor(activity.sport_type)
   const label = sportLabel(activity.sport_type)
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Track-Karte oder Placeholder */}
+      {/* Track map or placeholder */}
       <div className="rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 aspect-[5/3] relative">
         {activity.track_geojson ? (
           <StaticTrackMap
@@ -38,7 +42,7 @@ export default function ActivityMiniCard({ activity, photoCount }: Props) {
         )}
       </div>
 
-      {/* Aktivitätsinfos */}
+      {/* Activity info */}
       <div className="flex flex-col gap-1.5 min-w-0">
         <div
           className="text-xs font-medium px-1.5 py-0.5 rounded-full self-start"
@@ -51,22 +55,22 @@ export default function ActivityMiniCard({ activity, photoCount }: Props) {
           to={`/activities/${activity.id}`}
           className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 hover:text-accent-DEFAULT line-clamp-2 leading-tight transition-colors"
         >
-          {activity.title || 'Aktivität'}
+          {activity.title || t('activityMiniCard.fallbackTitle')}
         </Link>
 
         <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-0.5">
           {activity.started_at && <div>{fmtDateMedium(activity.started_at, activity.timezone)}</div>}
           <div className="flex flex-wrap gap-x-2">
-            {activity.distance_m && <span>{fmtDist(activity.distance_m)}</span>}
+            {activity.distance_m && <span>{formatDistance(activity.distance_m)}</span>}
             {activity.moving_time_s && <span>{fmtDuration(activity.moving_time_s, 'compact')}</span>}
             {activity.elevation_gain_m && activity.elevation_gain_m > 5 && (
-              <span>↑{Math.round(activity.elevation_gain_m)} m</span>
+              <span>↑{formatElevation(activity.elevation_gain_m)}</span>
             )}
           </div>
         </div>
 
         <div className="text-xs text-neutral-400 dark:text-neutral-500">
-          {photoCount} {photoCount === 1 ? 'Foto' : 'Fotos'}
+          {t('activityMiniCard.photoCount', { count: photoCount })}
         </div>
       </div>
     </div>

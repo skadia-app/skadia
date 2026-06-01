@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
@@ -16,6 +17,7 @@ import type { StreamPoint } from '@/api/types'
 import Toggle from '@/components/Toggle'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ function buildHRChartOption(
   spikeTimestamps: Set<string>,
   showPreview: boolean,
   sidecar: EditSidecar | null,
+  labels: { heartRateAxis: string; heartRateTooltip: string },
 ) {
   const times: string[] = []
   const hrValues: (number | null)[] = []
@@ -158,7 +161,7 @@ function buildHRChartOption(
     },
     yAxis: {
       type: 'value',
-      name: 'HR (bpm)',
+      name: labels.heartRateAxis,
       nameTextStyle: { color: '#9ca3af', fontSize: 11 },
       axisLabel: { color: '#9ca3af', fontSize: 11 },
       axisLine: { lineStyle: { color: '#374151' } },
@@ -173,7 +176,7 @@ function buildHRChartOption(
         if (!params?.length) return ''
         const t = new Date(params[0].axisValue)
         const time = `${t.getHours().toString().padStart(2, '0')}:${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}`
-        return `${time}<br/>HR: <b>${params[0].value} bpm</b>`
+        return `${time}<br/>${labels.heartRateTooltip}: <b>${params[0].value} bpm</b>`
       },
     },
     series: [
@@ -196,6 +199,8 @@ function buildHRChartOption(
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function ActivityEditorPage() {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
@@ -322,7 +327,10 @@ export default function ActivityEditorPage() {
   const chartRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!chartRef.current || !hasHR) return
-    const option = buildHRChartOption(streams, displaySpikeTimestamps, showPreview, sidecar ?? null)
+    const option = buildHRChartOption(streams, displaySpikeTimestamps, showPreview, sidecar ?? null, {
+      heartRateAxis: t('activityEditor.heartRateAxis'),
+      heartRateTooltip: t('activityEditor.heartRateTooltip'),
+    })
     const chart = echarts.getInstanceByDom(chartRef.current) ?? echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
     chart.setOption(option, true)
   })
@@ -339,9 +347,9 @@ export default function ActivityEditorPage() {
     try {
       const result = await detectSpikes(id, 25)
       setDetectedSpikes(result.timestamps)
-      showStatus(`${result.count} HR-Spike${result.count !== 1 ? 's' : ''} erkannt (Schwelle: ${result.threshold} bpm)`)
+      showStatus(t('activityEditor.status.hrSpikesDetected', { count: result.count, threshold: result.threshold }))
     } catch {
-      showStatus('Spike-Erkennung fehlgeschlagen.')
+      showStatus(t('activityEditor.status.spikeDetectionFailed'))
     } finally {
       setIsDetecting(false)
     }
@@ -370,9 +378,9 @@ export default function ActivityEditorPage() {
       }
       await putEdits(id, newSidecar)
       await refetchSidecar()
-      showStatus('Edits gespeichert.')
+      showStatus(t('activityEditor.status.editsSaved'))
     } catch {
-      showStatus('Speichern fehlgeschlagen.')
+      showStatus(t('activityEditor.status.saveFailed'))
     } finally {
       setIsSaving(false)
     }
@@ -390,9 +398,9 @@ export default function ActivityEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['activity', id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', id] })
       await refetchSidecar()
-      showStatus('Edits angewendet und Metriken neu berechnet.', 5000)
+      showStatus(t('activityEditor.status.applied'), 5000)
     } catch {
-      showStatus('Anwenden fehlgeschlagen.')
+      showStatus(t('activityEditor.status.applyFailed'))
     } finally {
       setIsApplying(false)
     }
@@ -412,9 +420,9 @@ export default function ActivityEditorPage() {
       if (trackGeoJSON) setTrimEnd(trackGeoJSON.coordinates.length - 1)
       didInitTrim.current = false
       await refetchSidecar()
-      showStatus('Edits zurückgesetzt.')
+      showStatus(t('activityEditor.status.resetDone'))
     } catch {
-      showStatus('Zurücksetzen fehlgeschlagen.')
+      showStatus(t('activityEditor.status.resetFailed'))
     } finally {
       setIsResetting(false)
     }
@@ -429,11 +437,11 @@ export default function ActivityEditorPage() {
       setDetectedGPSOutliers(result.timestamps)
       showStatus(
         result.count > 0
-          ? `${result.count} GPS-Ausreißer erkannt (Max. ${result.max_speed_ms.toFixed(1)} m/s für ${sportLabel(result.sport_type)})`
-          : 'Keine GPS-Ausreißer erkannt.',
+          ? t('activityEditor.status.gpsOutliersDetected', { count: result.count, maxSpeed: result.max_speed_ms.toFixed(1), sport: sportLabel(result.sport_type, null, { language }) })
+          : t('activityEditor.status.noGpsOutliers'),
       )
     } catch {
-      showStatus('GPS-Ausreißer-Erkennung fehlgeschlagen.')
+      showStatus(t('activityEditor.status.gpsDetectionFailed'))
     } finally {
       setIsDetectingGPS(false)
     }
@@ -463,9 +471,9 @@ export default function ActivityEditorPage() {
       await putEdits(id, newSidecar)
       await refetchSidecar()
       setDetectedGPSOutliers([])
-      showStatus('GPS-Korrektur gespeichert.')
+      showStatus(t('activityEditor.status.gpsCorrectionSaved'))
     } catch {
-      showStatus('Speichern fehlgeschlagen.')
+      showStatus(t('activityEditor.status.saveFailed'))
     } finally {
       setIsSavingGPS(false)
     }
@@ -474,7 +482,7 @@ export default function ActivityEditorPage() {
   if (activityLoading || streamsLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-400">
-        Lade Aktivität...
+        {t('activityEditor.loading')}
       </div>
     )
   }
@@ -482,9 +490,9 @@ export default function ActivityEditorPage() {
   if (!activity) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <span className="text-neutral-400">Aktivität nicht gefunden</span>
+        <span className="text-neutral-400">{t('activityEditor.notFound')}</span>
         <Link to="/activities" className="text-sm text-accent-DEFAULT hover:text-accent-600">
-          Zur Liste
+          {t('activityEditor.backToList')}
         </Link>
       </div>
     )
@@ -502,29 +510,29 @@ export default function ActivityEditorPage() {
         to={`/activities/${id}`}
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> Zur Aktivitätsdetailseite
+        <span>&#8592;</span> {t('activityEditor.backToDetail')}
       </Link>
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-            Track bearbeiten
+            {t('activityEditor.title')}
           </h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {displayActivityTitle(activity, 'Kein Titel')}
+            {displayActivityTitle(activity, t('activityEditor.noTitle'))}
           </p>
         </div>
         {activity.has_edits && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
-            Bearbeitet
+            {t('activityEditor.edited')}
           </span>
         )}
         <button
           onClick={() => setQuickEditOpen(true)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
         >
-          Metadaten bearbeiten
+          {t('activityEditor.editMetadata')}
         </button>
       </div>
 
@@ -552,16 +560,16 @@ export default function ActivityEditorPage() {
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Strecke
+              {t('activityEditor.track')}
               {activity.has_gps && (
                 <span className="ml-2 text-xs text-neutral-400 dark:text-neutral-500 font-normal">
-                  {trackGeoJSON.coordinates.length} GPS-Punkte
+                  {t('activityEditor.gpsPointCount', { count: trackGeoJSON.coordinates.length })}
                 </span>
               )}
             </h2>
             {outlierPoints.length > 0 && (
               <span className="text-xs text-orange-600 dark:text-orange-400">
-                {outlierPoints.length} Ausreißer markiert
+                {t('activityEditor.outliersMarked', { count: outlierPoints.length })}
               </span>
             )}
           </div>
@@ -602,22 +610,22 @@ export default function ActivityEditorPage() {
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Herzfrequenz
+              {t('activityEditor.heartRate')}
               {detectedSpikes.length > 0 && (
                 <span className="ml-2 text-xs text-accent-DEFAULT">
-                  {detectedSpikes.length} Spike{detectedSpikes.length !== 1 ? 's' : ''} markiert
+                  {t('activityEditor.spikesMarked', { count: detectedSpikes.length })}
                 </span>
               )}
             </h2>
             <div className="flex items-center gap-2">
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                {showPreview ? 'Vorschau (korrigiert)' : 'Original'}
+                {showPreview ? t('activityEditor.correctedPreview') : t('activityEditor.original')}
               </span>
               <Toggle
                 checked={showPreview}
                 onChange={() => setShowPreview(p => !p)}
                 color="#22C55E"
-                aria-label="Korrigierte Vorschau anzeigen"
+                aria-label={t('activityEditor.showCorrectedPreview')}
               />
             </div>
           </div>
@@ -625,26 +633,26 @@ export default function ActivityEditorPage() {
           <div className="mt-2 flex items-center gap-4 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-4 rounded bg-accent-DEFAULT opacity-80" />
-              Erkannte Spikes
+              {t('activityEditor.detectedSpikes')}
             </span>
             {showPreview && (
               <span className="flex items-center gap-1.5">
                 <span className="inline-block h-2 w-4 rounded bg-green-500 opacity-80" />
-                Korrigierte Werte
+                {t('activityEditor.correctedValues')}
               </span>
             )}
           </div>
         </div>
       ) : !hasHR ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-8 text-center text-sm text-neutral-400">
-          Diese Aktivität enthält keine Herzfrequenzdaten.
+          {t('activityEditor.noHeartRate')}
         </div>
       ) : null}
 
       {/* Toolbar */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
         <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-4">
-          Werkzeuge
+          {t('activityEditor.tools')}
         </h2>
 
         <div className="flex flex-wrap gap-3">
@@ -662,7 +670,7 @@ export default function ActivityEditorPage() {
                            transition-colors"
               >
                 <HeartPulseIcon className="w-4 h-4 text-red-500" />
-                {isDetecting ? 'Erkenne...' : 'HR-Spikes erkennen'}
+                {isDetecting ? t('activityEditor.detecting') : t('activityEditor.detectHrSpikes')}
               </button>
 
               {detectedSpikes.length > 0 && (
@@ -677,7 +685,7 @@ export default function ActivityEditorPage() {
                              transition-colors"
                 >
                   <CheckCircleIcon className="w-4 h-4" />
-                  {isSaving ? 'Speichere...' : `Spikes korrigieren (${detectedSpikes.length})`}
+                  {isSaving ? t('common.saving') : t('activityEditor.correctSpikes', { count: detectedSpikes.length })}
                 </button>
               )}
             </>
@@ -696,7 +704,7 @@ export default function ActivityEditorPage() {
                          transition-colors"
             >
               <MapPinIcon className="w-4 h-4 text-blue-500" />
-              {isDetectingGPS ? 'Erkenne...' : 'GPS-Ausreißer erkennen'}
+              {isDetectingGPS ? t('activityEditor.detecting') : t('activityEditor.detectGpsOutliers')}
             </button>
 
             {detectedGPSOutliers.length > 0 && (
@@ -708,8 +716,8 @@ export default function ActivityEditorPage() {
                              text-sm text-neutral-700 dark:text-neutral-300 px-3 py-2
                              focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 >
-                  <option value="interpolate">Interpolieren</option>
-                  <option value="remove">Entfernen</option>
+                  <option value="interpolate">{t('activityEditor.methods.interpolate')}</option>
+                  <option value="remove">{t('activityEditor.methods.remove')}</option>
                 </select>
                 <button
                   onClick={handleSaveGPSOutliers}
@@ -722,7 +730,7 @@ export default function ActivityEditorPage() {
                              transition-colors"
                 >
                   <CheckCircleIcon className="w-4 h-4" />
-                  {isSavingGPS ? 'Speichere...' : `GPS korrigieren (${detectedGPSOutliers.length})`}
+                  {isSavingGPS ? t('common.saving') : t('activityEditor.correctGps', { count: detectedGPSOutliers.length })}
                 </button>
               </>
             )}
@@ -736,7 +744,7 @@ export default function ActivityEditorPage() {
             <button
               onClick={handleApply}
               disabled={isApplying || hasUnsavedSpikes}
-              title={hasUnsavedSpikes ? 'Bitte Edits zuerst speichern' : 'Edits anwenden und Metriken neu berechnen'}
+              title={hasUnsavedSpikes ? t('activityEditor.saveEditsFirst') : t('activityEditor.applyTitle')}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
                          bg-accent-DEFAULT text-white
                          hover:bg-accent-600
@@ -744,7 +752,7 @@ export default function ActivityEditorPage() {
                          transition-colors"
             >
               <SaveIcon className="w-4 h-4" />
-              {isApplying ? 'Berechne...' : 'Anwenden'}
+              {isApplying ? t('activityEditor.computing') : t('activityEditor.apply')}
             </button>
           )}
 
@@ -761,7 +769,7 @@ export default function ActivityEditorPage() {
                          transition-colors"
             >
               <RotateCcwIcon className="w-4 h-4" />
-              {isResetting ? 'Setze zurück...' : 'Zurücksetzen'}
+              {isResetting ? t('activityEditor.resetting') : t('activityEditor.reset')}
             </button>
           )}
         </div>
@@ -770,13 +778,13 @@ export default function ActivityEditorPage() {
         {(sidecar?.edits.length ?? 0) > 0 && (
           <div className="mt-4 pt-4 border-t border-neutral-100 dark:border-neutral-800">
             <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium mb-2">
-              Gespeicherte Edits ({sidecar!.edits.length}):
+              {t('activityEditor.savedEdits', { count: sidecar!.edits.length })}
             </p>
             <ul className="space-y-1">
               {sidecar!.edits.map((edit, i) => (
                 <li key={i} className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent-400 flex-shrink-0" />
-                  {editLabel(edit)}
+                  {editLabel(edit, t)}
                 </li>
               ))}
             </ul>
@@ -790,20 +798,22 @@ export default function ActivityEditorPage() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function editLabel(edit: Edit): string {
+function editLabel(edit: Edit, t: ReturnType<typeof useTranslation>['t']): string {
   switch (edit.type) {
-    case 'hr_spike_smooth':
-      return `HR-Spikes glatten: ${edit.timestamps?.length ?? 0} Punkte (${edit.method ?? 'interpolate'})`
+    case 'hr_spike_smooth': {
+      const methodLabel = edit.method === 'remove' ? t('activityEditor.methods.remove') : t('activityEditor.methods.interpolate')
+      return t('activityEditor.editLabels.hrSpikeSmooth', { count: edit.timestamps?.length ?? 0, method: methodLabel })
+    }
     case 'gps_outlier_smooth': {
-      const methodLabel = edit.method === 'remove' ? 'Entfernen' : 'Interpolieren'
-      return `GPS-Ausreißer korrigieren: ${edit.timestamps?.length ?? 0} Punkte (${methodLabel})`
+      const methodLabel = edit.method === 'remove' ? t('activityEditor.methods.remove') : t('activityEditor.methods.interpolate')
+      return t('activityEditor.editLabels.gpsOutlierSmooth', { count: edit.timestamps?.length ?? 0, method: methodLabel })
     }
     case 'trim_start':
-      return `Anfang trimmen ab ${edit.timestamp ?? '?'}`
+      return t('activityEditor.editLabels.trimStart', { timestamp: edit.timestamp ?? '?' })
     case 'trim_end':
-      return `Ende trimmen bis ${edit.timestamp ?? '?'}`
+      return t('activityEditor.editLabels.trimEnd', { timestamp: edit.timestamp ?? '?' })
     case 'crop':
-      return `Ausschneiden: ${edit.from_utc ?? '?'} – ${edit.to_utc ?? '?'}`
+      return t('activityEditor.editLabels.crop', { from: edit.from_utc ?? '?', to: edit.to_utc ?? '?' })
     default:
       return edit.type
   }

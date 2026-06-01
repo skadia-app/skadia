@@ -1,12 +1,14 @@
+import { useTranslation } from 'react-i18next'
 import type { Workout, WorkoutStep } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 const INTENSITY_COLORS: Record<number, string> = {
   0: 'bg-orange-400', 1: 'bg-green-400', 2: 'bg-green-300', 3: 'bg-blue-400',
 }
 
-const INTENSITY_LABELS: Record<number, string> = {
-  0: 'Intervall', 1: 'Aufwärmen', 2: 'Abkühlen', 3: 'Pause',
+const INTENSITY_LABEL_KEYS: Record<number, string> = {
+  0: 'interval', 1: 'warmup', 2: 'cooldown', 3: 'rest',
 }
 
 interface Props { workout: Workout }
@@ -26,6 +28,8 @@ function stepWeight(step: WorkoutStep): number {
 }
 
 export function WorkoutOverview({ workout }: Props) {
+  const { t } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
   if (!workout.steps?.length) return null
 
   const renderSteps = workout.steps.filter(s => !isRepeatStep(s.duration_type))
@@ -40,7 +44,7 @@ export function WorkoutOverview({ workout }: Props) {
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Workout{workout.name ? `: ${workout.name}` : ''}
+          {t('activityDetail.workout.title')}{workout.name ? `: ${workout.name}` : ''}
         </h3>
       </div>
       <div className="px-4 py-3">
@@ -50,11 +54,12 @@ export function WorkoutOverview({ workout }: Props) {
             const pct = (w / totalWeight) * 100
             if (pct < 0.5) return null
             const color = INTENSITY_COLORS[step.intensity ?? 0] ?? 'bg-neutral-400'
-            const label = step.step_name ?? INTENSITY_LABELS[step.intensity ?? 0] ?? ''
+            const intensityKey = INTENSITY_LABEL_KEYS[step.intensity ?? 0]
+            const label = step.step_name ?? (intensityKey ? t(`activityDetail.workout.intensity.${intensityKey}`) : '')
             const dur = isTimeBasedStep(step.duration_type) && step.duration_value != null
               ? fmtDuration(step.duration_value / 1000, 'short')
               : step.duration_type === 1 && step.duration_value != null
-                ? `${(step.duration_value / 1000).toFixed(1)} km`
+                ? formatDistance(step.duration_value)
                 : ''
             const isLoopStart = repeatTargets.has(step.message_index)
 
@@ -68,7 +73,7 @@ export function WorkoutOverview({ workout }: Props) {
                 {pct > 8 && <span className="font-medium truncate px-1">{label}</span>}
                 {pct > 12 && dur && <span className="opacity-80">{dur}</span>}
                 {isLoopStart && (
-                  <div className="absolute -bottom-0.5 left-0 right-0 h-1 bg-white/50 rounded-full" title="Wiederholung ab hier" />
+                  <div className="absolute -bottom-0.5 left-0 right-0 h-1 bg-white/50 rounded-full" title={t('activityDetail.workout.repeatFromHere')} />
                 )}
               </div>
             )

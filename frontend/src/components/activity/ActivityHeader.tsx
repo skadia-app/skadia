@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Pencil } from 'lucide-react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
@@ -20,19 +21,30 @@ import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { displayActivityTitle, editableActivityTitleSeed } from '@/lib/activityTitle'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { isSupportedLanguage, localeForLanguage, type SupportedLanguage } from '@/i18n/languages'
 import { availableReprocessScopeKeys } from '@/lib/reprocessScopes'
 import { triggerBlobDownload, cn } from '@/lib/utils'
 import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface ActivityHeaderProps {
   activity: Activity
   childCount: number
 }
 
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
+}
+
 function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const { t, i18n } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
+  const language = currentLanguage(i18n.language)
+  const locale = localeForLanguage(language)
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState(() => editableActivityTitleSeed(activity))
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -66,7 +78,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       const extMap: Record<string, string> = { original: '', gpx: '.gpx', tcx: '.tcx', fit: '.fit', zip: '.zip' }
       triggerBlobDownload(blob, filename ?? `activity${extMap[format] ?? ''}`)
     } catch (err) {
-      console.error('Export fehlgeschlagen', err)
+      console.error('Export failed', err)
     }
   }
 
@@ -185,7 +197,11 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       }
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fusion konnte nicht rückgängig gemacht werden', message: 'Bitte erneut versuchen.' })
+      addToast({
+        type: 'error',
+        title: t('activityActions.toasts.revertFusionFailed'),
+        message: t('common.retry'),
+      })
     },
   })
 
@@ -203,10 +219,11 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
     }
   }
 
-  const label = sportDetailLabel(activity.sport_type, activity.sub_type)
+  const label = sportDetailLabel(activity.sport_type, activity.sub_type, language)
   const date = new Date(activity.started_at)
   const isReprocessing = reprocessState === 'loading'
-  const headerTitle = displayActivityTitle(activity, 'Kein Titel')
+  const noTitleLabel = t('activityActions.noTitle')
+  const headerTitle = displayActivityTitle(activity, noTitleLabel)
   const editSeed = editableActivityTitleSeed(activity)
   const showingAutoTitle = !activity.title_is_manual && !!activity.title_auto
 
@@ -252,10 +269,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             onClick={() => { setTitleDraft(editSeed); setEditing(true) }}
             className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 cursor-pointer
                        hover:text-accent-DEFAULT transition-colors truncate"
-            title="Klicken zum Bearbeiten"
+            title={t('activityActions.clickToEdit')}
           >
-            {headerTitle === 'Kein Titel'
-              ? <span className="text-neutral-400 italic font-normal">Kein Titel</span>
+            {headerTitle === noTitleLabel
+              ? <span className="text-neutral-400 italic font-normal">{noTitleLabel}</span>
               : headerTitle}
           </h1>
         )}
@@ -267,8 +284,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           {activity.sport_conflict_pending && (
             <SportConflictBadge onClick={() => setConflictOpen(true)} />
           )}
-          <span>{fmtActivityDate(activity.started_at, activity.timezone)}</span>
-          <span className="text-neutral-400 dark:text-neutral-600">{fmtTimeFromDate(date, activity.timezone)} Uhr</span>
+          <span>{fmtActivityDate(activity.started_at, activity.timezone, locale)}</span>
+          <span className="text-neutral-400 dark:text-neutral-600">
+            {t('activityActions.timeOfDay', { time: fmtTimeFromDate(date, activity.timezone, locale) })}
+          </span>
           {activity.recording_device_id ? (
             <Link
               to={`/hardware/detail/${activity.recording_device_id}`}
@@ -293,7 +312,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   </span>
                   <span className="text-muted-foreground text-xs">ml/kg/min</span>
                   {!isSuuntoFallback && activity.vo2max_calibrated === false && (
-                    <span className="text-amber-500 text-xs" title="Nicht kalibriert">~</span>
+                    <span className="text-amber-500 text-xs" title={t('activityActions.notCalibrated')}>~</span>
                   )}
                 </div>
               )
@@ -305,7 +324,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                 activity.gps_accuracy_m <= 8 ? "bg-amber-100 text-amber-700" :
                 "bg-red-100 text-red-700"
               )}>
-                GPS ±{activity.gps_accuracy_m}m
+                GPS ±{formatDistanceCompact(activity.gps_accuracy_m)}
               </span>
             )}
           </div>
@@ -316,40 +335,40 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               <>
                 <span
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800"
-                  title={`Fusion aus ${activity.fusion_memberships!.length} ${activity.fusion_memberships!.length === 1 ? 'Quelle' : 'Quellen'}`}
+                  title={t('activityActions.fusionFromSources', { count: activity.fusion_memberships!.length })}
                 >
-                  ⚡ F — Fusion Ergebnis
+                  ⚡ F — {t('activityActions.fusionResultBadge')}
                 </span>
                 <button
                   onClick={() => setShowRevertFusionModal(true)}
                   disabled={revertFusionMutation.isPending}
                   className="text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Fusion rückgängig
+                  {t('activityActions.revertFusion')}
                 </button>
               </>
             )}
             {!!activity.recording_group_id && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800"
-                title="Gruppenaufzeichnung"
+                title={t('activityActions.groupRecording')}
               >
-                G — Gruppenaufzeichnung
+                G — {t('activityActions.groupRecording')}
               </span>
             )}
             {(activity.fusion_source_count ?? 0) > 0 && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
-                title={`Diese Aktivität ist Quelle für ${activity.fusion_source_count} Fusion${(activity.fusion_source_count ?? 0) === 1 ? '' : 'en'}`}
+                title={t('activityActions.fusionSourceTitle', { count: activity.fusion_source_count ?? 0 })}
               >
-                {(activity.fusion_source_count ?? 0) === 1 ? 'Fusionsquelle' : `Quelle für ${activity.fusion_source_count} Fusionen`}
+                {t('activityActions.fusionSourceBadge', { count: activity.fusion_source_count ?? 0 })}
               </span>
             )}
           </div>
         )}
         {(activity.garmin_activity_id || activity.strava_activity_id || activity.komoot_tour_id) && (
           <div className="flex gap-2 items-center text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            <span>Auf:</span>
+            <span>{t('activityActions.externalLinksPrefix')}</span>
             {activity.garmin_activity_id && (
               <a
                 href={`https://connect.garmin.com/app/activity/${activity.garmin_activity_id}`}
@@ -393,7 +412,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             onChange={e => handleExcludeChange('exclude_from_heatmap', e.target.checked)}
             className="rounded border-neutral-300"
           />
-          <span>Von Heatmap ausschließen</span>
+          <span>{t('activityActions.excludeFromHeatmap')}</span>
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -402,7 +421,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             onChange={e => handleExcludeChange('exclude_from_stats', e.target.checked)}
             className="rounded border-neutral-300"
           />
-          Von Statistik ausschließen
+          {t('activityActions.excludeFromStats')}
         </label>
       </div>
 
@@ -415,7 +434,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               onClick={() => setSmoothPopover(v => !v)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              {smoothing === 'smoothing' ? '…' : '⌇'} Glätten
+              {smoothing === 'smoothing' ? '...' : '⌇'} {t('activityActions.smoothSpeed')}
             </button>
             <button
               disabled={smoothing !== 'idle'}
@@ -425,31 +444,31 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   await reprocessActivity(activity.id, ['streams'])
                   queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                   queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                  addToast({ type: 'success', title: 'Originaldaten wiederhergestellt' })
+                  addToast({ type: 'success', title: t('activityActions.toasts.restoreSuccess') })
                 } catch {
-                  addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
+                  addToast({ type: 'error', title: t('activityActions.toasts.restoreFailed'), duration: 0 })
                 } finally {
                   setSmoothing('idle')
                 }
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              title="Geschwindigkeitsdaten aus Originaldatei wiederherstellen"
+              title={t('activityActions.restoreTrackTitle')}
             >
-              {smoothing === 'resetting' ? '…' : '↺'}
+              {smoothing === 'resetting' ? '...' : '↺'}
             </button>
           </div>
           {smoothPopover && (
             <div className="absolute top-full left-0 mt-1 z-50 w-72 bg-white dark:bg-neutral-900 rounded-xl shadow-xl border border-neutral-200 dark:border-neutral-700 p-4 space-y-3">
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Glättet GPS-Geschwindigkeitsrauschen mit einem Median-Filter.
-                Höhere Werte entfernen mehr Ausreißer, können aber echte
-                Geschwindigkeitsänderungen abschwächen.
+                {t('activityActions.smoothSpeedDescription')}
               </p>
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400">
-                  <span>Leicht</span>
-                  <span className="font-medium text-neutral-700 dark:text-neutral-200">{smoothWindow * 2 + 1}s Fenster</span>
-                  <span>Stark</span>
+                  <span>{t('activityActions.light')}</span>
+                  <span className="font-medium text-neutral-700 dark:text-neutral-200">
+                    {t('activityActions.windowSeconds', { seconds: smoothWindow * 2 + 1 })}
+                  </span>
+                  <span>{t('activityActions.strong')}</span>
                 </div>
                 <input
                   type="range"
@@ -464,7 +483,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   onClick={() => setSmoothPopover(false)}
                   className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
                 >
-                  Abbrechen
+                  {t('common.cancel')}
                 </button>
                 <button
                   disabled={smoothing !== 'idle'}
@@ -475,16 +494,16 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                       await reprocessActivity(activity.id, ['speed_smooth'], smoothWindow)
                       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                      addToast({ type: 'success', title: `Geglättet (${smoothWindow * 2 + 1}s Fenster)` })
+                      addToast({ type: 'success', title: t('activityActions.toasts.smoothed', { seconds: smoothWindow * 2 + 1 }) })
                     } catch {
-                      addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
+                      addToast({ type: 'error', title: t('activityActions.toasts.smoothingFailed'), duration: 0 })
                     } finally {
                       setSmoothing('idle')
                     }
                   }}
                   className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Anwenden
+                  {t('activityActions.apply')}
                 </button>
               </div>
             </div>
@@ -497,14 +516,14 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 cursor-pointer"
       >
         <Pencil className="h-4 w-4" />
-        Metadaten
+        {t('activityActions.metadata')}
       </button>
       {activity.sport_type !== 'multisport' && (
         <Link
           to={`/activities/${activity.id}/edit`}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1"
         >
-          &#9998; Bearbeiten
+          &#9998; {t('activityActions.editTrack')}
         </Link>
       )}
       {/* Open in Route Planner — only when routing is available */}
@@ -518,8 +537,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             } catch (err) {
               addToast({
                 type: 'error',
-                title: 'Fehler beim Öffnen im Routenplaner',
-                message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+                title: t('activityActions.toasts.routePlannerFailed'),
+                message: err instanceof Error ? err.message : t('activityActions.toasts.unknownError'),
                 duration: 0,
               })
             } finally {
@@ -528,7 +547,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           }}
           disabled={openInPlannerLoading}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          title="Track als Route im Planer öffnen"
+          title={t('activityActions.openRoutePlannerTitle')}
         >
           {openInPlannerLoading ? (
             <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -539,7 +558,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               <path fillRule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v.258a33.186 33.186 0 0 1 6.668 1.98A3.25 3.25 0 0 1 19 7.743V12.5a3.25 3.25 0 0 1-3.25 3.25H4.25A3.25 3.25 0 0 1 1 12.5V7.743a3.25 3.25 0 0 1 1.582-2.756 33.186 33.186 0 0 1 6.668-1.98V2.75A.75.75 0 0 1 10 2Zm0 3.539a31.68 31.68 0 0 0-7.543 1.897A1.75 1.75 0 0 0 1.5 9v3.5a1.75 1.75 0 0 0 1.75 1.75h13.5a1.75 1.75 0 0 0 1.75-1.75V9a1.75 1.75 0 0 0-.957-1.564A31.68 31.68 0 0 0 10 5.539Zm-1 4.711a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z" clipRule="evenodd" />
             </svg>
           )}
-          Im Routenplaner öffnen
+          {t('activityActions.openRoutePlanner')}
         </button>
       )}
       {/* Rename + Ungroup buttons — only for multisport parents */}
@@ -549,11 +568,13 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             onClick={() => { setTitleDraft(editSeed); setEditing(true) }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 cursor-pointer"
           >
-            &#9998; Umbenennen
+            &#9998; {t('activityActions.rename')}
           </button>
           {ungroupConfirm ? (
             <div className="inline-flex items-center gap-1.5 mt-1">
-              <span className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">Wirklich auflösen?</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                {t('activityActions.ungroupConfirm')}
+              </span>
               <button
                 onClick={async () => {
                   setUngroupLoading(true)
@@ -563,7 +584,12 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                     queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                     navigate('/activities')
                   } catch (err) {
-                    addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 })
+                    addToast({
+                      type: 'error',
+                      title: t('activityActions.toasts.ungroupFailed'),
+                      message: err instanceof Error ? err.message : t('activityActions.toasts.unknownError'),
+                      duration: 0,
+                    })
                   } finally {
                     setUngroupLoading(false)
                     setUngroupConfirm(false)
@@ -572,13 +598,13 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                 disabled={ungroupLoading}
                 className="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
-                {ungroupLoading ? '…' : 'Ja'}
+                {ungroupLoading ? '...' : t('activityActions.yes')}
               </button>
               <button
                 onClick={() => setUngroupConfirm(false)}
                 className="px-2 py-1 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
-                Nein
+                {t('activityActions.no')}
               </button>
             </div>
           ) : (
@@ -586,7 +612,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               onClick={() => setUngroupConfirm(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 transition-colors mt-1 cursor-pointer"
             >
-              Gruppe auflösen
+              {t('activityActions.ungroup')}
             </button>
           )}
         </>
@@ -598,14 +624,14 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowRevertFusionModal(false)} />
           <div className="relative bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-sm p-6 space-y-4">
             <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              Fusion rückgängig machen?
+              {t('activityActions.revertFusionTitle')}
             </h2>
             <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-3">
               <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
               </svg>
               <p className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
-                Die zusammengeführte Aktivität wird dauerhaft gelöscht. Die Quellaktivitäten werden wiederhergestellt und wieder sichtbar.
+                {t('activityActions.revertFusionWarning')}
               </p>
             </div>
             <div className="flex justify-end gap-3 pt-1">
@@ -614,7 +640,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                 disabled={revertFusionMutation.isPending}
                 className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -630,10 +656,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Wird rückgängig gemacht…
+                    {t('activityActions.reverting')}
                   </>
                 ) : (
-                  'Rückgängig machen'
+                  t('activityActions.revert')
                 )}
               </button>
             </div>
@@ -647,27 +673,27 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           onClick={() => setExportOpen(!exportOpen)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
-          &#8595; Export
+          &#8595; {t('activityActions.export.label')}
         </button>
         {exportOpen && (
           <div className="absolute right-0 mt-1 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg z-10">
             {activity.sport_type === 'multisport' ? (
               <button onClick={() => handleExport('zip')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-lg">
-                ZIP (Originaldateien)
+                {t('activityActions.export.zipOriginalFiles')}
               </button>
             ) : (
               <>
                 <button onClick={() => handleExport('original')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-t-lg">
-                  Original herunterladen
+                  {t('activityActions.export.downloadOriginal')}
                 </button>
                 <button onClick={() => handleExport('gpx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer">
-                  Als GPX exportieren
+                  {t('activityActions.export.exportAs', { format: 'GPX' })}
                 </button>
                 <button onClick={() => handleExport('tcx')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer">
-                  Als TCX exportieren
+                  {t('activityActions.export.exportAs', { format: 'TCX' })}
                 </button>
                 <button onClick={() => handleExport('fit')} className="w-full text-left px-4 py-2 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-b-lg">
-                  Als FIT exportieren
+                  {t('activityActions.export.exportAs', { format: 'FIT' })}
                 </button>
               </>
             )}
@@ -691,7 +717,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                        hover:text-neutral-600 dark:hover:text-neutral-300
                        disabled:opacity-50 disabled:cursor-not-allowed
                        transition-colors cursor-pointer"
-            title="Aktivität neu verarbeiten"
+            title={t('activityActions.reprocessTitle')}
           >
             {reprocessIcon}
           </button>
@@ -704,7 +730,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
               multisportConfirm ? (
                 <div className="px-4 py-3 space-y-2">
                   <p className="text-xs text-neutral-600 dark:text-neutral-400">
-                    Alle {childCount} Disziplinen + Zusammenfassung neu berechnen?
+                    {t('activityActions.recomputeMultisportConfirm', { count: childCount })}
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -726,7 +752,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                       className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700
                                  text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                     >
-                      Abbrechen
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </div>
@@ -736,9 +762,9 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
                              hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-lg transition-colors"
                 >
-                  <span className="font-medium">Alles neu berechnen</span>
+                  <span className="font-medium">{t('activityActions.recomputeAll')}</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-                    Alle Disziplinen + Zusammenfassung
+                    {t('activityActions.allDisciplinesSummary')}
                   </span>
                 </button>
               )
@@ -752,9 +778,9 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
                              hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-t-lg transition-colors"
                 >
-                  <span className="font-medium">Alles</span>
+                  <span className="font-medium">{t('common.all')}</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-                    Vollständig neu verarbeiten
+                    {t('activityActions.fullReprocess')}
                   </span>
                 </button>
                 <div className="border-t border-neutral-100 dark:border-neutral-800" />
@@ -766,9 +792,9 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
                              hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-b-lg transition-colors"
                 >
-                  <span className="font-medium">Details auswählen</span>
+                  <span className="font-medium">{t('activityActions.selectDetails')}</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-                    Nur bestimmte Bereiche
+                    {t('activityActions.selectedAreasOnly')}
                   </span>
                 </button>
               </>

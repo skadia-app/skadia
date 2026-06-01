@@ -1,15 +1,19 @@
+import { useTranslation } from 'react-i18next'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import type { Activity } from '@/api/types'
 import { correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance } from '@/api/activities'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToast } from '@/lib/toast'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface DataCorrectionsSectionProps {
   activity: Activity
 }
 
 export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps) {
+  const { t } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { data: routingCapabilities } = useCapabilities()
@@ -17,37 +21,37 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
   const elevationCorrectionMutation = useMutation({
     mutationFn: () => correctActivityElevation(activity.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'DEM-Höhenkorrektur gestartet', message: 'Im Hintergrund wird die Höhe korrigiert.' })
+      addToast({ type: 'success', title: t('activityDetail.dataCorrections.toasts.elevationCorrectionStarted'), message: t('activityDetail.dataCorrections.toasts.elevationCorrectionMessage') })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
     },
-    onError: () => addToast({ type: 'error', title: 'DEM-Korrektur fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
+    onError: () => addToast({ type: 'error', title: t('activityDetail.dataCorrections.toasts.elevationCorrectionFailed'), message: t('activityDetail.dataCorrections.toasts.retry') }),
   })
 
   const elevationResetMutation = useMutation({
     mutationFn: () => resetActivityElevation(activity.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Höhe wird zurückgesetzt', message: 'GPS-Höhenwerte werden aus der Originaldatei wiederhergestellt.' })
+      addToast({ type: 'success', title: t('activityDetail.dataCorrections.toasts.elevationResetStarted'), message: t('activityDetail.dataCorrections.toasts.elevationResetMessage') })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
     },
-    onError: () => addToast({ type: 'error', title: 'Höhen-Reset fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
+    onError: () => addToast({ type: 'error', title: t('activityDetail.dataCorrections.toasts.elevationResetFailed'), message: t('activityDetail.dataCorrections.toasts.retry') }),
   })
 
   const distanceCorrectionMutation = useMutation({
     mutationFn: () => correctActivityDistance(activity.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Distanzkorrektur gestartet', message: 'Distanz wird aus GPS-Track neu berechnet.' })
+      addToast({ type: 'success', title: t('activityDetail.dataCorrections.toasts.distanceCorrectionStarted'), message: t('activityDetail.dataCorrections.toasts.distanceCorrectionMessage') })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
     },
-    onError: () => addToast({ type: 'error', title: 'Distanzkorrektur fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
+    onError: () => addToast({ type: 'error', title: t('activityDetail.dataCorrections.toasts.distanceCorrectionFailed'), message: t('activityDetail.dataCorrections.toasts.retry') }),
   })
 
   const distanceResetMutation = useMutation({
     mutationFn: () => resetActivityDistance(activity.id),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Distanz wird zurückgesetzt', message: 'Originaldistanz aus der Datei wird wiederhergestellt.' })
+      addToast({ type: 'success', title: t('activityDetail.dataCorrections.toasts.distanceResetStarted'), message: t('activityDetail.dataCorrections.toasts.distanceResetMessage') })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
     },
-    onError: () => addToast({ type: 'error', title: 'Distanz-Reset fehlgeschlagen', message: 'Bitte erneut versuchen.' }),
+    onError: () => addToast({ type: 'error', title: t('activityDetail.dataCorrections.toasts.distanceResetFailed'), message: t('activityDetail.dataCorrections.toasts.retry') }),
   })
 
   const elevationSource = activity.elevation_source ?? 'device'
@@ -56,9 +60,7 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
   const isDistanceCorrected = distanceSource === 'computed'
   const demCorrectionAvailable = featureAvailable(routingCapabilities, 'dem_correction')
 
-  const distanceKm = activity.distance_m != null
-    ? (activity.distance_m / 1000).toFixed(2) + ' km'
-    : '—'
+  const distanceDisplay = formatDistance(activity.distance_m)
 
   const spinnerIcon = (
     <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -79,16 +81,16 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Datenkorrekturen</h3>
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('activityDetail.dataCorrections.title')}</h3>
       </div>
       <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {/* Elevation — XOR-Swap: nur EIN Button sichtbar */}
+        {/* Elevation uses an XOR swap: only one action is visible. */}
         <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Höhe</div>
+            <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('activityDetail.dataCorrections.elevation')}</div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Quelle: <span className={isElevationCorrected ? 'text-emerald-600 dark:text-emerald-400' : ''}>
-                {isElevationCorrected ? 'DEM (EEA-10)' : elevationSource === 'gps' ? 'GPS' : 'Gerät'}
+              {t('activityDetail.dataCorrections.source')}: <span className={isElevationCorrected ? 'text-emerald-600 dark:text-emerald-400' : ''}>
+                {isElevationCorrected ? 'DEM (EEA-10)' : elevationSource === 'gps' ? 'GPS' : t('activityDetail.dataCorrections.device')}
               </span>
             </div>
           </div>
@@ -100,10 +102,10 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
                          bg-emerald-50 text-emerald-700 hover:bg-emerald-100
                          dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50
                          disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Höhe via DEM-Raster (EEA-10) korrigieren"
+              title={t('activityDetail.dataCorrections.applyDemTitle')}
             >
               {elevationCorrectionMutation.isPending ? spinnerIcon : correctIcon}
-              DEM-Korrektur anwenden
+              {t('activityDetail.dataCorrections.applyDem')}
             </button>
           ) : isElevationCorrected ? (
             <button
@@ -113,22 +115,22 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
                          bg-neutral-100 text-neutral-600 hover:bg-neutral-200
                          dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
                          disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="GPS-Höhenwerte aus Originaldatei wiederherstellen"
+              title={t('activityDetail.dataCorrections.resetElevationTitle')}
             >
               {elevationResetMutation.isPending ? spinnerIcon : resetIcon}
-              Auf GPS zurücksetzen
+              {t('activityDetail.dataCorrections.resetToGps')}
             </button>
           ) : null}
         </div>
 
-        {/* Distance — XOR-Swap: nur EIN Button sichtbar */}
+        {/* Distance uses an XOR swap: only one action is visible. */}
         {activity.has_gps && (
           <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Distanz</div>
+              <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('activityDetail.dataCorrections.distance')}</div>
               <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                {distanceKm} · Quelle: <span className={isDistanceCorrected ? 'text-blue-600 dark:text-blue-400' : ''}>
-                  {isDistanceCorrected ? 'GPS (Haversine)' : 'Gerät'}
+                {distanceDisplay} · {t('activityDetail.dataCorrections.source')}: <span className={isDistanceCorrected ? 'text-blue-600 dark:text-blue-400' : ''}>
+                  {isDistanceCorrected ? 'GPS (Haversine)' : t('activityDetail.dataCorrections.device')}
                 </span>
               </div>
             </div>
@@ -140,10 +142,10 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
                            bg-blue-50 text-blue-700 hover:bg-blue-100
                            dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50
                            disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Distanz aus GPS-Track via Haversine neu berechnen"
+                title={t('activityDetail.dataCorrections.computeDistanceTitle')}
               >
                 {distanceCorrectionMutation.isPending ? spinnerIcon : correctIcon}
-                Aus GPS berechnen
+                {t('activityDetail.dataCorrections.computeFromGps')}
               </button>
             ) : (
               <button
@@ -153,10 +155,10 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
                            bg-neutral-100 text-neutral-600 hover:bg-neutral-200
                            dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700
                            disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Originaldistanz aus der Aktivitätsdatei wiederherstellen"
+                title={t('activityDetail.dataCorrections.resetDistanceTitle')}
               >
                 {distanceResetMutation.isPending ? spinnerIcon : resetIcon}
-                Zurücksetzen
+                {t('activityDetail.dataCorrections.reset')}
               </button>
             )}
           </div>

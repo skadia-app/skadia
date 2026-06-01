@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Info, Loader2 } from 'lucide-react'
 import type { ActivityTrackSummary, TrackSummarySurfaceItem } from '@/api/trackSummary'
 import type { HighlightKind } from '@/hooks/useStickyHighlight'
 import {
   SURFACE_COLORS,
   HIGHWAY_COLORS,
-  HIGHWAY_LABELS,
   aggregateSurfaces,
   aggregateHighways,
 } from '@/lib/surfaceConstants'
@@ -49,6 +49,22 @@ interface SurfaceDisplayRow {
   percentage: number
 }
 
+const OTHER_DISPLAY_KEY = '__other_display__'
+
+function localizedAggregated(
+  aggregated: ReturnType<typeof aggregateSurfaces>,
+): ReturnType<typeof aggregateSurfaces> {
+  return aggregated.map(item =>
+    item.surface_type === '__other__'
+      ? { ...item, surface_type: OTHER_DISPLAY_KEY }
+      : item,
+  )
+}
+
+function displayKeyToHighlightKey(key: string | null): string | null {
+  return key === OTHER_DISPLAY_KEY ? '__other__' : key
+}
+
 function summaryRows(
   summary: Pick<ActivityTrackSummary, 'surfaces' | 'highways'> | null
 ): SurfaceDisplayRow[] {
@@ -70,6 +86,7 @@ function summarySurfaceRow(item: TrackSummarySurfaceItem, category: 'surface' | 
 }
 
 export default function SurfacesSection({ summary, summaryLoading, activityId, onHighlight, pinnedType = null, onPin, streamsLoading, pills }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
   const { isJobActiveForEntity } = useActiveJobs()
@@ -83,6 +100,15 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
 
   const aggregatedSurfaces = aggregateSurfaces(surfaceRows)
   const aggregatedHighways = aggregateHighways(highwayRows)
+  const displayedSurfaces = localizedAggregated(aggregatedSurfaces)
+  const displayedHighways = localizedAggregated(aggregatedHighways)
+  const surfaceLabels = t('activityOperations.surfaces.surfaceLabels', { returnObjects: true }) as Record<string, string>
+  const highwayLabels = t('activityOperations.surfaces.highwayLabels', { returnObjects: true }) as Record<string, string>
+  const otherLabel = t('activityOperations.surfaces.other')
+  const displayedSurfaceLabels = { ...surfaceLabels, [OTHER_DISPLAY_KEY]: otherLabel }
+  const displayedHighwayLabels = { ...highwayLabels, [OTHER_DISPLAY_KEY]: otherLabel }
+  const displayedSurfaceColors = { ...SURFACE_COLORS, [OTHER_DISPLAY_KEY]: '#6b7280' }
+  const displayedHighwayColors = { ...HIGHWAY_COLORS, [OTHER_DISPLAY_KEY]: '#6b7280' }
 
   // Whether map highlight is available for this activity:
   // - graph_snap_used explicitly false → SQL fallback was used, ranges are null
@@ -141,11 +167,11 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
     return (
       <div>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-          Wege und Oberflächen
+          {t('activityOperations.surfaces.title')}
         </h2>
         <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
-          Wird verarbeitet…
+          {t('activityOperations.surfaces.processing')}
         </p>
       </div>
     )
@@ -154,8 +180,12 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
   if (rows.length === 0) return null
   if (!hasAnything) return null
 
-  const hwActiveKey = pinnedType?.kind === 'highway' ? pinnedType.key : null
-  const sfActiveKey = pinnedType?.kind === 'surface' ? pinnedType.key : null
+  const hwActiveKey = pinnedType?.kind === 'highway'
+    ? (pinnedType.key === '__other__' ? OTHER_DISPLAY_KEY : pinnedType.key)
+    : null
+  const sfActiveKey = pinnedType?.kind === 'surface'
+    ? (pinnedType.key === '__other__' ? OTHER_DISPLAY_KEY : pinnedType.key)
+    : null
 
   // Bars are interactive only when ranges are present and streams have loaded.
   const barsInteractive = rangesAvailable && !streamsLoading
@@ -173,7 +203,7 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Wege und Oberflächen
+          {t('activityOperations.surfaces.title')}
         </h2>
       </button>
 
@@ -185,23 +215,24 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
         <div className="space-y-5">
           {aggregatedHighways.length > 0 && (
             <StackedBar
-              aggregated={aggregatedHighways}
-              colorMap={HIGHWAY_COLORS}
-              labelMap={HIGHWAY_LABELS}
-              title="Wegearten"
-              onHover={barsInteractive ? handleHwHover : undefined}
-              onPin={barsInteractive ? handleHwPin : undefined}
+              aggregated={displayedHighways}
+              colorMap={displayedHighwayColors}
+              labelMap={displayedHighwayLabels}
+              title={t('activityOperations.surfaces.highways')}
+              onHover={barsInteractive ? key => handleHwHover(displayKeyToHighlightKey(key)) : undefined}
+              onPin={barsInteractive ? key => handleHwPin(displayKeyToHighlightKey(key) ?? key) : undefined}
               activeKey={hwActiveKey}
               streamsLoading={streamsLoading}
             />
           )}
           {aggregatedSurfaces.length > 0 && (
             <StackedBar
-              aggregated={aggregatedSurfaces}
-              colorMap={SURFACE_COLORS}
-              title="Oberflächen"
-              onHover={barsInteractive ? handleSfHover : undefined}
-              onPin={barsInteractive ? handleSfPin : undefined}
+              aggregated={displayedSurfaces}
+              colorMap={displayedSurfaceColors}
+              labelMap={displayedSurfaceLabels}
+              title={t('activityOperations.surfaces.surfaces')}
+              onHover={barsInteractive ? key => handleSfHover(displayKeyToHighlightKey(key)) : undefined}
+              onPin={barsInteractive ? key => handleSfPin(displayKeyToHighlightKey(key) ?? key) : undefined}
               activeKey={sfActiveKey}
               streamsLoading={streamsLoading}
             />
@@ -211,13 +242,13 @@ export default function SurfacesSection({ summary, summaryLoading, activityId, o
           {streamsLoading && (
             <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
               <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Kartendaten werden geladen…
+              {t('activityOperations.surfaces.mapDataLoading')}
             </p>
           )}
           {!streamsLoading && !rangesAvailable && (
             <p className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
               <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Karten-Highlight für Wege/Oberflächen ist für diese Aktivität nicht verfügbar (eingeschränkte Tile-Coverage).
+              {t('activityOperations.surfaces.highlightUnavailable')}
             </p>
           )}
         </div>

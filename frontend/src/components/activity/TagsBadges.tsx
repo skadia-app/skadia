@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const COMMUTE_RADIUS_M = 200
 import { haversineM } from '@/lib/geoUtils'
@@ -26,6 +27,7 @@ interface TagsBadgesProps {
 }
 
 export default function TagsBadges({ tags, activityId, isVirtual, commuteContext }: TagsBadgesProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -146,7 +148,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
           <button
             onClick={() => setAddOpen(!addOpen)}
             className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-            title="Tag hinzufügen"
+            title={t('tagsBadges.add')}
           >
             +
           </button>
@@ -158,7 +160,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
                   ref={searchRef}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Tag suchen..."
+                  placeholder={t('tagsBadges.searchPlaceholder')}
                   className="w-full rounded border border-neutral-200 bg-transparent px-2 py-1.5 text-sm text-neutral-900 outline-none focus:border-accent-400 dark:border-neutral-700 dark:text-neutral-100"
                 />
               </div>
@@ -178,11 +180,11 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
                     onClick={() => createAndAddMut.mutate(searchTrimmed)}
                     className="w-full px-3 py-1.5 text-left text-sm text-accent-600 hover:bg-neutral-100 dark:text-orange-400 dark:hover:bg-neutral-800"
                   >
-                    &ldquo;{searchTrimmed}&rdquo; erstellen
+                    {t('tagsBadges.create', { tag: searchTrimmed })}
                   </button>
                 )}
                 {filtered.length === 0 && !showCreate && (
-                  <div className="px-3 py-2 text-sm text-neutral-400">Keine Tags gefunden</div>
+                  <div className="px-3 py-2 text-sm text-neutral-400">{t('tagsBadges.empty')}</div>
                 )}
               </div>
             </div>
@@ -202,7 +204,7 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
                 <button
                   onClick={() => removeMut.mutate(tag)}
                   className="ml-1.5 text-xs opacity-0 transition-opacity group-hover:opacity-100"
-                  title={`Tag "${tag}" entfernen`}
+                  title={t('tagsBadges.remove', { tag })}
                 >
                   &times;
                 </button>

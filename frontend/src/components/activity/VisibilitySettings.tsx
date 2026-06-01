@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import type { Activity } from '@/api/types'
 import { updateActivity } from '@/api/activities'
@@ -8,6 +9,7 @@ interface VisibilitySettingsProps {
 }
 
 export function VisibilitySettings({ activity }: VisibilitySettingsProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const visibilityMut = useMutation({
@@ -34,31 +36,31 @@ export function VisibilitySettings({ activity }: VisibilitySettingsProps) {
   }
 
   const dataVisOptions: { key: keyof typeof dataVis; label: string }[] = [
-    { key: 'speed', label: 'Geschwindigkeit' },
-    { key: 'heart_rate', label: 'Herzfrequenz' },
-    { key: 'power', label: 'Leistung' },
-    { key: 'cadence', label: 'Kadenz' },
-    { key: 'temperature', label: 'Temperatur' },
-    { key: 'altitude', label: 'Höhe' },
+    { key: 'speed', label: t('activityDetail.visibility.data.speed') },
+    { key: 'heart_rate', label: t('activityDetail.visibility.data.heartRate') },
+    { key: 'power', label: t('activityDetail.visibility.data.power') },
+    { key: 'cadence', label: t('activityDetail.visibility.data.cadence') },
+    { key: 'temperature', label: t('activityDetail.visibility.data.temperature') },
+    { key: 'altitude', label: t('activityDetail.visibility.data.altitude') },
   ]
 
   const visibilityOptions: { value: Activity['visibility']; label: string }[] = [
-    { value: 'private', label: 'Privat' },
-    { value: 'bekannte', label: 'Bekannte' },
-    { value: 'instanz', label: 'Instanz' },
-    { value: 'federation', label: 'Federation' },
-    { value: 'public', label: 'Öffentlich' },
+    { value: 'private', label: t('activityDetail.visibility.options.private') },
+    { value: 'bekannte', label: t('activityDetail.visibility.options.known') },
+    { value: 'instanz', label: t('activityDetail.visibility.options.instance') },
+    { value: 'federation', label: t('activityDetail.visibility.options.federation') },
+    { value: 'public', label: t('activityDetail.visibility.options.public') },
   ]
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Sichtbarkeit</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('activityDetail.visibility.title')}</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Visibility dropdown */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Wer kann diese Aktivität sehen?
+            {t('activityDetail.visibility.whoCanSee')}
           </label>
           <select
             value={activity.visibility}
@@ -81,11 +83,11 @@ export function VisibilitySettings({ activity }: VisibilitySettingsProps) {
               className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
-              Karte ausblenden
+              {t('activityDetail.visibility.hideMap')}
             </span>
           </label>
           <p className="text-xs text-neutral-400 mt-1 ml-7">
-            Karte wird für andere Nutzer nicht angezeigt
+            {t('activityDetail.visibility.hideMapHint')}
           </p>
         </div>
       </div>
@@ -93,7 +95,7 @@ export function VisibilitySettings({ activity }: VisibilitySettingsProps) {
       {/* Data visibility checkboxes */}
       <div>
         <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          Sichtbare Daten
+          {t('activityDetail.visibility.visibleData')}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {dataVisOptions.map(({ key, label }) => (
@@ -109,7 +111,7 @@ export function VisibilitySettings({ activity }: VisibilitySettingsProps) {
           ))}
         </div>
         <p className="text-xs text-neutral-400 mt-2">
-          Nicht ausgewählte Daten werden für andere Nutzer ausgeblendet.
+          {t('activityDetail.visibility.dataHint')}
         </p>
       </div>
     </div>

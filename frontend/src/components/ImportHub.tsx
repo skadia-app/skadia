@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -154,6 +155,7 @@ async function uploadMediaFiles(files: File[]): Promise<MediaUploadResult> {
 // ---------------------------------------------------------------------------
 
 function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
+  const { t } = useTranslation()
   if (item.status === 'assigned' && item.activity_id) {
     return (
       <div className="flex items-start gap-2 text-xs">
@@ -176,8 +178,8 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
       <div className="flex items-start gap-2 text-xs">
         <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-orange-400 inline-block" />
           <span className="text-neutral-600 dark:text-neutral-300 truncate">
-            <span className="font-medium">{item.filename}</span>
-          {' – Zu prüfen'}
+          <span className="font-medium">{item.filename}</span>
+          {` – ${t('importHub.media.status.queued')}`}
         </span>
       </div>
     )
@@ -188,7 +190,7 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
         <CheckIcon className="w-3.5 h-3.5 shrink-0 mt-0.5 text-neutral-400" />
         <span className="text-neutral-600 dark:text-neutral-300 truncate">
           <span className="font-medium">{item.filename}</span>
-          {' – Duplikat'}
+          {` – ${t('importHub.media.status.duplicate')}`}
         </span>
       </div>
     )
@@ -199,7 +201,7 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
         <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-amber-500 inline-block" />
         <span className="text-neutral-600 dark:text-neutral-300 truncate">
           <span className="font-medium">{item.filename}</span>
-          {' – Limit erreicht'}
+          {` – ${t('importHub.media.status.limitReached')}`}
         </span>
       </div>
     )
@@ -210,7 +212,7 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
       <span className="text-neutral-600 dark:text-neutral-300 truncate">
         <span className="font-medium">{item.filename}</span>
         {' – '}
-        {item.error ?? 'Fehler'}
+        {item.error ?? t('importHub.media.status.error')}
       </span>
     </div>
   )
@@ -221,6 +223,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
   onReset: () => void
   onGoToQueue: () => void
 }) {
+  const { t } = useTranslation()
   const assigned = result.results.filter(r => r.status === 'assigned')
   const queued = result.results.filter(r => r.status === 'queued')
   const duplicate = result.results.filter(r => r.status === 'duplicate')
@@ -232,7 +235,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
       {assigned.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-green-700 dark:text-green-400">
-            Zugeordnet ({assigned.length})
+            {t('importHub.media.assigned', { count: assigned.length })}
           </p>
           {assigned.map((item, i) => <MediaResultItem key={i} item={item} />)}
         </div>
@@ -240,50 +243,58 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
       {queued.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">
-            Zu prüfen ({queued.length})
+            {t('importHub.media.queued', { count: queued.length })}
           </p>
           {queued.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
           {queued.length > 3 && (
-            <p className="text-xs text-neutral-500">{queued.length - 3} weitere…</p>
+            <p className="text-xs text-neutral-500">
+              {t('importHub.media.more', { count: queued.length - 3 })}
+            </p>
           )}
           <button
             onClick={onGoToQueue}
             className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
           >
-            Zu prüfen öffnen →
+            {t('importHub.media.openQueue')}
           </button>
         </div>
       )}
       {duplicate.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-            Duplikate ({duplicate.length})
+            {t('importHub.media.duplicates', { count: duplicate.length })}
           </p>
           {duplicate.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
           {duplicate.length > 3 && (
-            <p className="text-xs text-neutral-500">{duplicate.length - 3} weitere…</p>
+            <p className="text-xs text-neutral-500">
+              {t('importHub.media.more', { count: duplicate.length - 3 })}
+            </p>
           )}
         </div>
       )}
       {skipped.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-            Übersprungen ({skipped.length})
+            {t('importHub.media.skipped', { count: skipped.length })}
           </p>
           {skipped.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
           {skipped.length > 3 && (
-            <p className="text-xs text-neutral-500">{skipped.length - 3} weitere…</p>
+            <p className="text-xs text-neutral-500">
+              {t('importHub.media.more', { count: skipped.length - 3 })}
+            </p>
           )}
         </div>
       )}
       {failed.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-red-600 dark:text-red-400">
-            Fehlgeschlagen ({failed.length})
+            {t('importHub.media.failed', { count: failed.length })}
           </p>
           {failed.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
           {failed.length > 3 && (
-            <p className="text-xs text-neutral-500">{failed.length - 3} weitere…</p>
+            <p className="text-xs text-neutral-500">
+              {t('importHub.media.more', { count: failed.length - 3 })}
+            </p>
           )}
         </div>
       )}
@@ -291,7 +302,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
         onClick={onReset}
         className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
       >
-        Weitere hochladen
+        {t('importHub.uploadMore')}
       </button>
     </div>
   )
@@ -306,6 +317,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
   onReset: () => void
   onClose: (path: string) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-3 space-y-2">
       <div className="space-y-1.5">
@@ -323,7 +335,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
                         onClick={() => onClose(`/activities/${entry.activity_id}`)}
                         className="cursor-pointer text-accent-DEFAULT hover:underline"
                       >
-                        Aktivität öffnen
+                        {t('importHub.openActivity')}
                       </button>
                     </>
                   )}
@@ -338,12 +350,12 @@ function BatchResultsPanel({ results, onReset, onClose }: {
                 <span className="w-3.5 h-3.5 shrink-0 mt-0.5 text-yellow-500 font-bold leading-none">⚡</span>
                 <span className="text-neutral-600 dark:text-neutral-300 truncate min-w-0">
                   <span className="font-medium">{entry.filename}</span>
-                  {' – Fusionskandidat → '}
+                  {` – ${t('importHub.fusionCandidate')} → `}
                   <button
                     onClick={() => onClose('/workshop/fusion')}
                     className="cursor-pointer text-accent-DEFAULT hover:underline"
                   >
-                    Fusion
+                    {t('importHub.fusion')}
                   </button>
                 </span>
               </div>
@@ -368,7 +380,7 @@ function BatchResultsPanel({ results, onReset, onClose }: {
         onClick={onReset}
         className="cursor-pointer text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
       >
-        Weitere hochladen
+        {t('importHub.uploadMore')}
       </button>
     </div>
   )
@@ -384,6 +396,7 @@ interface DropZoneProps {
 }
 
 function DropZone({ onFiles, disabled }: DropZoneProps) {
+  const { t } = useTranslation()
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -439,9 +452,9 @@ function DropZone({ onFiles, disabled }: DropZoneProps) {
       />
       <UploadIcon className="w-5 h-5 mx-auto mb-1 text-neutral-400" />
       <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        FIT · GPX · TCX · Bilder · PDF
+        {t('importHub.dropZone.formats')}
       </p>
-      <p className="text-[11px] text-neutral-400 mt-0.5">Droppen oder klicken · mehrere Dateien</p>
+      <p className="text-[11px] text-neutral-400 mt-0.5">{t('importHub.dropZone.hint')}</p>
     </button>
   )
 }
@@ -456,6 +469,7 @@ interface ImportUploadPanelProps {
 }
 
 export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanelProps) {
+  const { t } = useTranslation()
   const [uploadState, setUploadState] = useState<UploadState>({ type: 'idle' })
 
   const { refetch: refetchQueueCount } = useQuery({
@@ -497,7 +511,10 @@ export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanel
     }
 
     if (mediaFiles.length > 0) {
-      setUploadState({ type: 'uploading', filename: mediaFiles.length === 1 ? mediaFiles[0].name : `${mediaFiles.length} Dateien` })
+      setUploadState({
+        type: 'uploading',
+        filename: mediaFiles.length === 1 ? mediaFiles[0].name : t('importHub.fileCount', { count: mediaFiles.length }),
+      })
       try {
         const result = await uploadMediaFiles(mediaFiles)
         setUploadState({ type: 'media_success', result })
@@ -527,14 +544,14 @@ export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanel
           <CheckIcon className="w-4 h-4 shrink-0 text-green-600 dark:text-green-400" />
           <span className="text-green-700 dark:text-green-300 font-medium">
             {uploadState.count === 0
-              ? 'Aktivität bereits vorhanden'
-              : `${uploadState.count} Aktivität${uploadState.count !== 1 ? 'en' : ''} importiert`}
+              ? t('importHub.activityAlreadyExists')
+              : t('importHub.activitiesImported', { count: uploadState.count })}
           </span>
           <button
             onClick={() => setUploadState({ type: 'idle' })}
             className="cursor-pointer ml-auto text-xs text-green-600 dark:text-green-400 hover:underline shrink-0"
           >
-            Weitere
+            {t('importHub.more')}
           </button>
         </div>
       )}
@@ -564,7 +581,7 @@ export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanel
             onClick={() => setUploadState({ type: 'idle' })}
             className="cursor-pointer text-xs text-red-600 dark:text-red-400 hover:underline"
           >
-            Erneut versuchen
+            {t('importHub.retry')}
           </button>
         </div>
       )}
@@ -577,6 +594,7 @@ export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanel
 // ---------------------------------------------------------------------------
 
 export default function ImportHub() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [uploadState, setUploadState] = useState<UploadState>({ type: 'idle' })
@@ -650,7 +668,10 @@ export default function ImportHub() {
 
     // Handle media files
     if (mediaFiles.length > 0) {
-      setUploadState({ type: 'uploading', filename: mediaFiles.length === 1 ? mediaFiles[0].name : `${mediaFiles.length} Dateien` })
+      setUploadState({
+        type: 'uploading',
+        filename: mediaFiles.length === 1 ? mediaFiles[0].name : t('importHub.fileCount', { count: mediaFiles.length }),
+      })
       try {
         const result = await uploadMediaFiles(mediaFiles)
         setUploadState({ type: 'media_success', result })
@@ -712,7 +733,7 @@ export default function ImportHub() {
       {/* Trigger button */}
       <button
         onClick={() => setOpen(v => !v)}
-        aria-label="Import-Hub öffnen"
+        aria-label={t('importHub.openHub')}
         className={`cursor-pointer relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
           ${open
             ? 'bg-accent-DEFAULT text-white'
@@ -720,7 +741,7 @@ export default function ImportHub() {
           }`}
       >
         <UploadIcon className="w-4 h-4 shrink-0" />
-        <span className="hidden sm:inline">Hochladen</span>
+        <span className="hidden sm:inline">{t('importHub.upload')}</span>
         {queueCount > 0 && (
           <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-bold leading-none">
             {queueCount > 9 ? '9+' : queueCount}
@@ -733,12 +754,12 @@ export default function ImportHub() {
         <div
           className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-xl z-50 overflow-hidden"
           role="dialog"
-          aria-label="Import-Hub"
+          aria-label={t('importHub.dialogLabel')}
         >
           {/* Header */}
           <div className="px-4 pt-3 pb-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              Hochladen
+              {t('importHub.upload')}
             </h2>
             {queueCount > 0 && (
               <button
@@ -746,7 +767,7 @@ export default function ImportHub() {
                 className="cursor-pointer flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
-                {queueCount} zu prüfen
+                {t('importHub.toReview', { count: queueCount })}
               </button>
             )}
           </div>
@@ -756,7 +777,7 @@ export default function ImportHub() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                 <FileIcon className="w-3.5 h-3.5" />
-                Datei hochladen
+                {t('importHub.uploadFile')}
               </div>
 
               {uploadState.type === 'idle' && (
@@ -775,14 +796,14 @@ export default function ImportHub() {
                   <CheckIcon className="w-4 h-4 shrink-0 text-green-600 dark:text-green-400" />
                   <span className="text-green-700 dark:text-green-300 font-medium">
                     {uploadState.count === 0
-                      ? 'Aktivität bereits vorhanden'
-                      : `${uploadState.count} Aktivität${uploadState.count !== 1 ? 'en' : ''} importiert`}
+                      ? t('importHub.activityAlreadyExists')
+                      : t('importHub.activitiesImported', { count: uploadState.count })}
                   </span>
                   <button
                     onClick={() => setUploadState({ type: 'idle' })}
                     className="cursor-pointer ml-auto text-xs text-green-600 dark:text-green-400 hover:underline shrink-0"
                   >
-                    Weitere
+                    {t('importHub.more')}
                   </button>
                 </div>
               )}
@@ -812,7 +833,7 @@ export default function ImportHub() {
                     onClick={() => setUploadState({ type: 'idle' })}
                     className="cursor-pointer text-xs text-red-600 dark:text-red-400 hover:underline"
                   >
-                    Erneut versuchen
+                    {t('importHub.retry')}
                   </button>
                 </div>
               )}
@@ -825,7 +846,7 @@ export default function ImportHub() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                 <PencilIcon className="w-3.5 h-3.5" />
-                Manuelle Aktivität
+                {t('importHub.manualActivity')}
               </div>
 
               <button
@@ -833,7 +854,7 @@ export default function ImportHub() {
                 className="cursor-pointer w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors group"
               >
                 <PencilIcon className="w-5 h-5 shrink-0 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
-                <span className="flex-1 font-medium">Aktivität manuell erstellen</span>
+                <span className="flex-1 font-medium">{t('importHub.createManualActivity')}</span>
                 <ChevronRightIcon className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
               </button>
             </div>
@@ -847,7 +868,7 @@ export default function ImportHub() {
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M8 12l4-4 4 4M12 8v8" />
                 </svg>
-                Bulk-Importer
+                {t('importHub.bulkImporter')}
               </div>
 
               <button
@@ -885,7 +906,7 @@ export default function ImportHub() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                 <FolderIcon className="w-3.5 h-3.5" />
-                Hotfolder
+                {t('importHub.hotfolderLabel')}
               </div>
 
               <button
@@ -903,10 +924,10 @@ export default function ImportHub() {
                 </span>
                 <span className="flex-1">
                   {hotfolderEnabled === null
-                    ? 'Lade…'
+                    ? t('importHub.loading')
                     : hotfolderEnabled
-                    ? 'Hotfolder aktiv'
-                    : 'Hotfolder nicht aktiv'}
+                    ? t('importHub.hotfolderActive')
+                    : t('importHub.hotfolderInactive')}
                 </span>
                 <ChevronRightIcon className="w-3.5 h-3.5 text-neutral-400 group-hover:text-neutral-600 dark:group-hover:text-neutral-200 transition-colors" />
               </button>

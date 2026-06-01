@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -21,6 +22,7 @@ const activityDetailMocks = vi.hoisted(() => ({
 
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'act-1' }),
+  useNavigate: () => vi.fn(),
   Link: ({ children }: { children: ReactNode }) => children,
 }))
 
@@ -55,6 +57,11 @@ vi.mock('@/hooks/useCapabilities', () => ({
   useCapabilities: () => ({
     data: activityDetailMocks.capabilities,
   }),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+  useCurrentUserId: () => 'user-1',
 }))
 
 vi.mock('@/hooks/useStickyHighlight', () => ({
@@ -152,6 +159,7 @@ import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
 import { apiFetch } from '@/lib/auth'
 import ActivityDetailPage from './ActivityDetailPage'
+import { i18n } from '@/i18n/i18n'
 
 const mockFetchActivity = fetchActivity as ReturnType<typeof vi.fn>
 const mockFetchActivityStreams = fetchActivityStreams as ReturnType<typeof vi.fn>
@@ -218,7 +226,8 @@ function wrapper(queryClient: QueryClient) {
 }
 
 describe('ActivityDetailPage mutation errors', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
     vi.clearAllMocks()
     activityDetailMocks.capabilities = {
       features: {
@@ -309,5 +318,19 @@ describe('ActivityDetailPage mutation errors', () => {
 
     await waitFor(() => expect(mockUseActivityTrackSummary).toHaveBeenCalled())
     expect(screen.queryByText('track summary loading')).toBeNull()
+  })
+
+  it('localizes the activity loading state in English', async () => {
+    await i18n.changeLanguage('en')
+    mockFetchActivity.mockImplementation(() => new Promise(() => {}))
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+
+    render(<ActivityDetailPage />, { wrapper: wrapper(queryClient) })
+
+    expect(screen.getByText('Loading activity...')).toBeInTheDocument()
+    expect(screen.queryByText('Lade Aktivität...')).not.toBeInTheDocument()
   })
 })

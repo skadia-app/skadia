@@ -1,16 +1,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { HelpCircle, Check, X, Undo2, XIcon } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
 import { ApiError, throwOnApiResponse } from '@/api/client'
 import { fetchActivityStreams } from '@/api/activities'
 import { useToast } from '@/lib/toast'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
 import LiftInspectorMap, {
   splitTrackAtGaps,
-  CONFIDENCE_LABEL,
-  CONFIDENCE_DESCRIPTIONS,
   getConfidenceKey,
 } from './LiftInspectorMap'
 import LiftHelpModal from './LiftHelpModal'
@@ -65,13 +65,11 @@ function useIsDesktop(): boolean {
 
 // Color-coded source+confidence badge matching the inspector map's liftColor() colors.
 // Uses both color AND text to be accessible without color vision (F16 a11y fix).
-// Fix 6a: each badge has a title attribute from CONFIDENCE_DESCRIPTIONS.
-// Phase 11.9: labels and descriptions sourced from centralised CONFIDENCE_LABEL /
-// CONFIDENCE_DESCRIPTIONS exports in LiftInspectorMap — single source of truth.
-function sourceConfidenceBadge(c: LiftCandidate) {
+// Fix 6a: each badge has a localized title attribute.
+function sourceConfidenceBadge(c: LiftCandidate, t: (key: string) => string) {
   const key = getConfidenceKey(c)
-  const label = CONFIDENCE_LABEL[key]
-  const description = CONFIDENCE_DESCRIPTIONS[key]
+  const label = t(`lift.review.confidence.${key}.label`)
+  const description = t(`lift.review.confidence.${key}.description`)
 
   const styleMap: Record<typeof key, { bg: string; text: string; dot: string; border?: string }> = {
     rejected: { bg: '#fef2f2', text: '#dc2626', dot: '#ef4444', border: '1px dashed #ef4444' },
@@ -94,12 +92,6 @@ function sourceConfidenceBadge(c: LiftCandidate) {
   )
 }
 
-function formatDistance(m?: number | null): string {
-  if (m == null) return '–'
-  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`
-  return `${Math.round(m)} m`
-}
-
 function apiErrorCode(err: unknown): string | undefined {
   if (err instanceof ApiError) {
     const code = err.json?.code ?? err.json?.error_code
@@ -120,10 +112,12 @@ function apiErrorMessage(err: unknown): string {
     const detail = err.json?.detail ?? err.json?.message
     return typeof detail === 'string' ? detail : (err.body || err.message)
   }
-  return err instanceof Error ? err.message : 'Unbekannter Fehler'
+  return err instanceof Error ? err.message : ''
 }
 
 export default function LiftReviewModal({ open, onClose, activity, candidates, osmSnapAvailable = true }: LiftReviewModalProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const activityId = activity.id
   const qc = useQueryClient()
   const { addToast } = useToast()
@@ -182,7 +176,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
       startTimeoutRef.current = setTimeout(() => {
         setJobPhase(prev => {
           if (prev !== 'starting') return prev
-          addToast({ type: 'warning', title: 'Job nicht gestartet — bitte erneut versuchen' })
+          addToast({ type: 'warning', title: t('lift.review.toasts.jobNotStarted') })
           return 'done'
         })
       }, JOB_START_TIMEOUT_MS)
@@ -293,8 +287,8 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
     onSuccess: () => invalidateAfterBulk(),
     onError: (err: unknown) => {
       const msg = apiErrorCode(err) === 'ALREADY_REJECTED'
-        ? 'Bereits abgelehnt — Liste aktualisiert.'
-        : apiErrorMessage(err)
+        ? t('lift.review.toasts.alreadyRejected')
+        : (apiErrorMessage(err) || t('common.viewLoadError'))
       addToast({ type: 'error', title: msg })
       // Re-fetch so the modal reflects the actual server-side state.
       invalidateAfterBulk()
@@ -323,9 +317,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
     },
     onError: (err: unknown) => {
       if (apiErrorStatus(err) === 409 || apiErrorCode(err) === 'LIFT_RECOMPUTE_RUNNING') {
-        addToast({ type: 'warning', title: 'Job läuft bereits — bitte warten' })
+        addToast({ type: 'warning', title: t('lift.review.toasts.jobAlreadyRunning') })
       } else {
-        addToast({ type: 'error', title: 'Fehler beim Neuberechnen', duration: 0 })
+        addToast({ type: 'error', title: t('lift.review.toasts.recalculateFailed'), duration: 0 })
       }
     },
   })
@@ -381,14 +375,14 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
       if (succeeded > 1) {
         addToast({
           type: 'success',
-          title: succeeded === 1 ? '1 Lift bestätigt' : `${succeeded} Lifte bestätigt`,
+          title: t('lift.review.toasts.confirmed', { count: succeeded }),
         })
       }
     } else {
       // Partial failure — keep selection open so the user can retry failed items.
       addToast({
         type: 'error',
-        title: `${succeeded} von ${results.length} bestätigt — ${failed} fehlgeschlagen`,
+        title: t('lift.review.toasts.confirmPartialFailed', { succeeded, total: results.length, failed }),
         duration: 0,
       })
     }
@@ -406,13 +400,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
       if (succeeded > 1) {
         addToast({
           type: 'success',
-          title: succeeded === 1 ? '1 Lift abgelehnt' : `${succeeded} Lifte abgelehnt`,
+          title: t('lift.review.toasts.rejected', { count: succeeded }),
         })
       }
     } else {
       addToast({
         type: 'error',
-        title: `${succeeded} von ${results.length} abgelehnt — ${failed} fehlgeschlagen`,
+        title: t('lift.review.toasts.rejectPartialFailed', { succeeded, total: results.length, failed }),
         duration: 0,
       })
     }
@@ -423,10 +417,10 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
   // ── Compact mode ─────────────────────────────────────────────────────────────
   if (mode === 'compact') {
     const isSingleLift = n === 1
-    const compactTitle = isSingleLift ? 'Liftfahrt erkannt' : 'Liftfahrten erkannt'
-    const summaryLabel = isSingleLift ? '1 offen' : `${n} offen`
-    const confirmLabel = isSingleLift ? 'Bestätigen' : 'Alle bestätigen'
-    const rejectLabel = isSingleLift ? 'Ablehnen' : 'Alle ablehnen'
+    const compactTitle = t('lift.review.compactTitle', { count: n })
+    const summaryLabel = t('lift.review.openCount', { count: n })
+    const confirmLabel = isSingleLift ? t('common.confirm') : t('lift.review.actions.confirmAll')
+    const rejectLabel = isSingleLift ? t('lift.review.actions.reject') : t('lift.review.actions.rejectAll')
 
     return (
       <ModalShell onClose={handleClose} maxWidth="max-w-md">
@@ -437,12 +431,12 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                 {compactTitle}
               </h2>
               <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
-                Bitte prüfe den erkannten Lift und wähle die passende Aktion.
+                {t('lift.review.compactDescription')}
               </p>
             </div>
             <button
               onClick={handleClose}
-              aria-label="Schließen"
+              aria-label={t('common.close')}
               className="cursor-pointer rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
             >
               <XIcon className="h-4 w-4" aria-hidden="true" />
@@ -451,16 +445,16 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
 
           <dl className="grid grid-cols-3 gap-2 text-sm">
             <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
-              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Offen</dt>
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">{t('lift.review.open')}</dt>
               <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{summaryLabel}</dd>
             </div>
             <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
-              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Aufstieg</dt>
-              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">+{totalAscent} m</dd>
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">{t('lift.review.ascent')}</dt>
+              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">+{formatElevation(totalAscent)}</dd>
             </div>
             <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
-              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Abstieg</dt>
-              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{totalDescent} m</dd>
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">{t('lift.review.descent')}</dt>
+              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{formatElevation(totalDescent)}</dd>
             </div>
           </dl>
 
@@ -484,7 +478,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
               className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Prüfen
+              {t('lift.review.actions.review')}
             </button>
           </div>
         </div>
@@ -531,7 +525,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                     checked={selectedIds.has(c.id)}
                     onChange={e => { e.stopPropagation(); toggleMultiSelect(c.id) }}
                     onClick={e => e.stopPropagation()}
-                    aria-label={`Lift ${idx + 1} auswählen`}
+                    aria-label={t('lift.review.selectLift', { index: idx + 1 })}
                     className="mt-0.5 rounded border-neutral-300 dark:border-neutral-600 cursor-pointer"
                   />
                 )}
@@ -563,8 +557,8 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                     <button
                       onClick={() => unconfirmMutation.mutate(c.id)}
                       disabled={unconfirmMutation.isPending}
-                      aria-label="Rückgängig machen"
-                      title="Rückgängig"
+                      aria-label={t('lift.review.actions.undo')}
+                      title={t('lift.review.actions.undo')}
                       className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
                     >
                       <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -574,8 +568,8 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                     <button
                       onClick={() => confirmMutation.mutate(c.id)}
                       disabled={confirmMutation.isPending}
-                      aria-label="Bestätigen"
-                      title="Bestätigen"
+                      aria-label={t('common.confirm')}
+                      title={t('common.confirm')}
                       className={`${iconBtn} border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20`}
                     >
                       <Check className="w-3.5 h-3.5" aria-hidden="true" />
@@ -585,8 +579,8 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                     <button
                       onClick={() => rejectMutation.mutate(c.id)}
                       disabled={rejectMutation.isPending}
-                      aria-label="Ablehnen"
-                      title="Ablehnen"
+                      aria-label={t('lift.review.actions.reject')}
+                      title={t('lift.review.actions.reject')}
                       className={`${iconBtn} border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20`}
                     >
                       <X className="w-3.5 h-3.5" aria-hidden="true" />
@@ -596,8 +590,8 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                     <button
                       onClick={() => restoreMutation.mutate(c.id)}
                       disabled={restoreMutation.isPending}
-                      aria-label="Wiederherstellen"
-                      title="Wiederherstellen"
+                      aria-label={t('lift.review.actions.restore')}
+                      title={t('lift.review.actions.restore')}
                       className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
                     >
                       <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -608,25 +602,25 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
 
               {/* Row 2 — detection method + status (compact, single line) */}
               <div className="mt-0.5 flex items-center gap-2 text-xs flex-wrap">
-                {sourceConfidenceBadge(c)}
+                {sourceConfidenceBadge(c, t)}
                 {!c.rejected_by_user && (
                   <span className={`shrink-0 ${
                     c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400 dark:text-neutral-500'
                   }`}>
-                    · {c.confirmed ? 'bestätigt' : 'offen'}
+                    · {c.confirmed ? t('lift.review.status.confirmed') : t('lift.review.status.open')}
                   </span>
                 )}
               </div>
 
               {/* Row 3 — distance / ascent / descent */}
               <div className="mt-0.5 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
-                <span>{formatDistance(c.distance_m)}</span>
-                <span>+{Math.round(c.ascent_m ?? 0)} m</span>
-                {(c.descent_m ?? 0) > 0 && <span>−{Math.round(c.descent_m!)} m</span>}
+                <span>{formatDistanceCompact(c.distance_m)}</span>
+                <span>+{formatElevation(c.ascent_m ?? 0)}</span>
+                {(c.descent_m ?? 0) > 0 && <span>−{formatElevation(c.descent_m!)}</span>}
                 {/* Warn when stream data does not cover this lift's time range — map will not show a track. */}
                 {!hasMapTrack && (
-                  <span className="text-amber-600 dark:text-amber-400" title="Stream-Daten fehlen für diesen Zeitraum">
-                    (keine Karten-Spur)
+                  <span className="text-amber-600 dark:text-amber-400" title={t('lift.review.missingTrackTitle')}>
+                    {t('lift.review.noMapTrack')}
                   </span>
                 )}
               </div>
@@ -635,7 +629,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
         })}
         {displayedCandidates.length === 0 && (
           <li className="px-3 py-6 text-sm text-neutral-400 dark:text-neutral-500 text-center">
-            Keine Liftfahrten gefunden
+            {t('lift.review.empty')}
           </li>
         )}
       </ul>
@@ -643,21 +637,21 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
         {multiSelectMode && selectedIds.size > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-auto text-sm font-medium text-neutral-600 dark:text-neutral-300">
-              {selectedIds.size === 1 ? '1 gewählt' : `${selectedIds.size} gewählt`}
+              {t('lift.review.selectedCount', { count: selectedIds.size })}
             </span>
             <button
               onClick={handleBulkConfirm}
               disabled={confirmMutation.isPending || bulkConfirmIds.length === 0}
               className="cursor-pointer rounded-lg border border-green-300 px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
             >
-              Bestätigen
+              {t('common.confirm')}
             </button>
             <button
               onClick={handleBulkReject}
               disabled={rejectMutation.isPending || bulkRejectIds.length === 0}
               className="cursor-pointer rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
             >
-              Ablehnen
+              {t('lift.review.actions.reject')}
             </button>
           </div>
         ) : (
@@ -672,7 +666,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                 : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
           >
-            {multiSelectMode ? 'Multi-Auswahl beenden' : 'Multi-Auswahl'}
+            {multiSelectMode ? t('lift.review.actions.endMultiSelect') : t('lift.review.actions.multiSelect')}
           </button>
         )}
       </div>
@@ -696,21 +690,21 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
         disabled={recalcMutation.isPending}
         className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        Neu erkennen
+        {t('lift.review.actions.recalculate')}
       </button>
       <button
         onClick={() => rejectAllMutation.mutate()}
         disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
         className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        Alle ablehnen
+        {t('lift.review.actions.rejectAll')}
       </button>
       <button
         onClick={() => confirmAllMutation.mutate()}
         disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
         className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        Alle bestätigen
+        {t('lift.review.actions.confirmAll')}
       </button>
     </div>
   )
@@ -720,24 +714,24 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 rounded-xl">
       <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl p-6 max-w-sm mx-4 space-y-4">
         <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Neu erkennen?
+          {t('lift.review.recalculate.title')}
         </h3>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          Alle erkannten Liftfahrten dieser Aktivität verwerfen und neu erkennen lassen? Bisher abgelehnte Lifte werden ggf. wieder vorgeschlagen.
+          {t('lift.review.recalculate.message')}
         </p>
         <div className="flex gap-2 justify-end">
           <button
             onClick={() => setShowRecalcConfirm(false)}
             className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             onClick={() => recalcMutation.mutate()}
             disabled={recalcMutation.isPending}
             className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Ja, neu erkennen
+            {t('lift.review.recalculate.confirm')}
           </button>
         </div>
       </div>
@@ -761,11 +755,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
         <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-              Lifte prüfen
+              {t('lift.review.title')}
             </h2>
             <button
               onClick={() => setHelpOpen(true)}
-              aria-label="Hilfe zur Lifterkennung öffnen"
+              aria-label={t('lift.review.openHelp')}
               className="text-neutral-400 dark:text-neutral-500 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT cursor-pointer transition-colors"
             >
               <HelpCircle className="w-5 h-5" aria-hidden="true" />
@@ -773,7 +767,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
           </div>
           <button
             onClick={handleClose}
-            aria-label="Schließen"
+            aria-label={t('common.close')}
             className="cursor-pointer rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
             <XIcon className="h-4 w-4" aria-hidden="true" />
@@ -802,19 +796,19 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                       <div className="flex-1 space-y-1 leading-snug">
                         <p>
                           <span className="font-semibold">
-                            Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
+                            {t('lift.review.pauseGapBanner.title', { count: pauseGapCount, seconds: PAUSE_GAP_THRESHOLD_S })}
                           </span>
                         </p>
                         <p>
-                          Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte
-                          aber gestrichelt. Solche Lücken werden vom Detektor{' '}
-                          <span className="font-semibold">nicht</span> als Lift erkannt.
+                          {t('lift.review.pauseGapBanner.messagePrefix')}{' '}
+                          <span className="font-semibold">{t('lift.review.pauseGapBanner.not')}</span>{' '}
+                          {t('lift.review.pauseGapBanner.messageSuffix')}
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() => setHelpOpen(true)}
-                        aria-label="Hilfe zur Lifterkennung öffnen"
+                        aria-label={t('lift.review.openHelp')}
                         className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-100 cursor-pointer transition-colors"
                       >
                         <HelpCircle className="w-4 h-4" aria-hidden="true" />
@@ -843,7 +837,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                   onClick={() => setMode('compact')}
                   className="ml-auto cursor-pointer whitespace-nowrap text-sm text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
                 >
-                  Zurück zur Übersicht
+                  {t('lift.review.actions.backToOverview')}
                 </button>
               </div>
               <div className="flex-[2.5] min-w-0 flex items-center justify-end">
@@ -866,7 +860,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                       : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
                     }`}
                 >
-                  {tab === 'list' ? 'Liste' : 'Karte'}
+                  {tab === 'list' ? t('lift.review.tabs.list') : t('lift.review.tabs.map')}
                 </button>
               ))}
             </div>
@@ -877,15 +871,15 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                   type="button"
                   onClick={() => setHelpOpen(true)}
                   className="animate-fade-in shrink-0 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 text-left flex items-center gap-2 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer transition-colors"
-                  aria-label="Pause-Lücken-Hinweis — Hilfe öffnen"
+                  aria-label={t('lift.review.pauseGapBanner.openHelp')}
                   data-testid="pause-gap-banner"
                 >
                   <span className="shrink-0 text-base leading-none" aria-hidden="true">⚠</span>
                   <span className="flex-1 leading-tight">
                     <span className="font-semibold">
-                      {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s)
+                      {t('lift.review.pauseGapBanner.shortTitle', { count: pauseGapCount, seconds: PAUSE_GAP_THRESHOLD_S })}
                     </span>{' '}
-                    <span className="opacity-90">— über Pausen kann der Detektor keinen Lift erkennen.</span>
+                    <span className="opacity-90">{t('lift.review.pauseGapBanner.shortMessage')}</span>
                   </span>
                   <HelpCircle className="w-4 h-4 shrink-0 opacity-70" aria-hidden="true" />
                 </button>
@@ -911,7 +905,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates, o
                 onClick={() => setMode('compact')}
                 className="ml-auto cursor-pointer text-sm text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
               >
-                Zurück zur Übersicht
+                {t('lift.review.actions.backToOverview')}
               </button>
             </div>
           </>

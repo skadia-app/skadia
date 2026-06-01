@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { SportIcon } from '@/components/SportIcon'
-import { formatDuration, formatDistance } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import type { Activity } from '@/api/types'
@@ -51,6 +52,8 @@ function ElevDownIcon() {
 }
 
 export default function MultisportSection({ children, onHoverChild }: Props) {
+  const { formatDistance, formatElevationGain, formatElevationLoss, formatSpeed } = useUnitFormatters()
+
   if (children.length === 0) return null
 
   return (
@@ -90,14 +93,14 @@ export default function MultisportSection({ children, onHoverChild }: Props) {
                 {hasGain && (
                   <span className="inline-flex items-center gap-0.5">
                     <ElevUpIcon />
-                    <span>{Math.round(child.elevation_gain_m!)}m</span>
+                    <span>{formatElevationGain(child.elevation_gain_m)}</span>
                   </span>
                 )}
                 {hasGain && hasLoss && <span className="text-neutral-300 dark:text-neutral-600">/</span>}
                 {hasLoss && (
                   <span className="inline-flex items-center gap-0.5">
                     <ElevDownIcon />
-                    <span>{Math.round(child.elevation_loss_m!)}m</span>
+                    <span>{formatElevationLoss(child.elevation_loss_m)}</span>
                   </span>
                 )}
               </span>
@@ -127,7 +130,7 @@ export default function MultisportSection({ children, onHoverChild }: Props) {
           })
 
         if (child.avg_speed_ms != null && !child.is_indoor)
-          stats.push({ key: 'spd', node: <span>{(child.avg_speed_ms * 3.6).toFixed(1)} km/h</span> })
+          stats.push({ key: 'spd', node: <span>{formatSpeed(child.avg_speed_ms)}</span> })
 
         return (
           <Link

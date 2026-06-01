@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   useLiftDetectionConfig,
   usePutLiftDetectionConfig,
@@ -63,12 +64,12 @@ function startsBackgroundRecompute(data: LiftDetectionConfigResponse, settings: 
   return data.master_enabled && (settings.osm || settings.heuristic)
 }
 
-function apiErrorMessage(err: unknown): string {
+function apiErrorMessage(err: unknown, fallbackUnknown: string): string {
   if (err instanceof ApiError) {
     const detail = err.json?.detail ?? err.json?.message
-    return typeof detail === 'string' ? detail : (err.body || `Fehler ${err.status}`)
+    return typeof detail === 'string' ? detail : (err.body || `Error ${err.status}`)
   }
-  return err instanceof Error ? err.message : 'Unbekannter Fehler'
+  return err instanceof Error ? err.message : fallbackUnknown
 }
 
 interface ToggleRowProps {
@@ -116,6 +117,7 @@ async function hasRunningLiftRecompute(activityId: string): Promise<boolean> {
 
 export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted, compact = false, osmSnapAvailable = true }: LiftDetectionHeaderProps) {
   const { addToast } = useToast()
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data, isLoading } = useLiftDetectionConfig(activityId)
   const putMutation = usePutLiftDetectionConfig(activityId)
@@ -132,7 +134,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
   const recomputeMutation = useMutation({
     mutationFn: async (update: DetectionUpdate): Promise<RecomputeResult> => {
-      if (!data) throw new Error('Lift-Erkennungskonfiguration fehlt')
+      if (!data) throw new Error(t('lift.detectionHeader.errors.configMissing'))
       if (await hasRunningLiftRecompute(activityId)) {
         return { status: 409, startsJob: true, alreadyRunning: true }
       }
@@ -156,7 +158,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     },
     onSuccess: async ({ status, startsJob, alreadyRunning }) => {
       if (alreadyRunning) {
-        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        addToast({ type: 'info', title: t('lift.detectionHeader.toasts.jobAlreadyRunning') })
         onJobStarted()
         return
       }
@@ -170,11 +172,11 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
-        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        addToast({ type: 'info', title: t('lift.detectionHeader.toasts.jobAlreadyRunning') })
         onJobStarted()
         return
       }
-      addToast({ type: 'error', title: apiErrorMessage(err) })
+      addToast({ type: 'error', title: apiErrorMessage(err, t('lift.detectionHeader.errors.unknown')) })
     },
   })
 
@@ -182,7 +184,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     return (
       <div className={`${compact ? '' : 'border-b border-neutral-200 dark:border-neutral-800 px-4 py-2'} flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 shrink-0`}>
         <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-        Erkennungsmodus wird geladen …
+        {t('lift.detectionHeader.loading')}
       </div>
     )
   }
@@ -217,7 +219,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     >
       <div className={`${compact ? 'contents' : 'flex items-center justify-between gap-2'}`}>
         <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          {compact ? 'Erkennung' : 'Erkennungsmodus'}
+          {compact ? t('lift.detectionHeader.compactTitle') : t('lift.detectionHeader.title')}
         </span>
         {compact && (
           <div className="flex flex-wrap items-center gap-3">
@@ -231,7 +233,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
               />
             )}
             <ToggleRow
-              label="Heuristik"
+              label={t('lift.detectionHeader.heuristic')}
               checked={local.heuristic}
               disabled={allDisabled}
               onChange={heuristic => handleToggle({ heuristic })}
@@ -246,15 +248,15 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
             disabled={allDisabled || resetUnavailable}
             className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="override-badge"
-            title={resetUnavailable ? 'Kein aktiver Lift-Detektor verfügbar' : 'Aktivitätsspezifische Einstellung zurücksetzen'}
+            title={resetUnavailable ? t('lift.detectionHeader.resetUnavailable') : t('lift.detectionHeader.resetOverride')}
           >
-            Override gesetzt
+            {t('lift.detectionHeader.overrideSet')}
           </button>
         )}
         {(jobRunning || isApplying) && (
           <span className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-            {disablingAll ? 'Wird deaktiviert …' : 'Wird berechnet …'}
+            {disablingAll ? t('lift.detectionHeader.disabling') : t('lift.detectionHeader.calculating')}
           </span>
         )}
       </div>
@@ -271,7 +273,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
             />
           )}
           <ToggleRow
-            label="Heuristik"
+            label={t('lift.detectionHeader.heuristic')}
             checked={local.heuristic}
             disabled={allDisabled}
             onChange={heuristic => handleToggle({ heuristic })}
@@ -282,12 +284,12 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
       {masterOff && (
         <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="master-off-notice">
-          Globale Lift-Erkennung deaktiviert, siehe Einstellungen
+          {t('lift.detectionHeader.masterOff')}
         </p>
       )}
       {!masterOff && resetUnavailable && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          Kein aktiver Lift-Detektor verfügbar.
+          {t('lift.detectionHeader.resetUnavailable')}
         </p>
       )}
 

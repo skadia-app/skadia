@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSearchParams } from 'react-router-dom'
 import type { StreamPoint } from '@/api/types'
@@ -34,29 +35,30 @@ interface Props {
 }
 
 export function ChartTabs({ streams, children }: Props) {
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') ?? CHART_TAB.alles
 
   const visibleTabs = useMemo(() => {
     const tabs: TabDef[] = [
-      { value: CHART_TAB.alles, label: 'Alles', visible: true },
-      { value: CHART_TAB.uebersicht, label: 'Übersicht', visible: true },
-      { value: CHART_TAB.leistung, label: 'Leistung', visible: streams.some(s => s.power_w != null) },
-      { value: CHART_TAB.dynamik, label: 'Dynamik', visible: streams.some(s => s.ground_contact_time_ms != null) },
-      { value: CHART_TAB.pedal, label: 'Pedal-Analytik', visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
-      { value: CHART_TAB.electric, label: 'E-Bike', visible: streams.some(s => s.motor_power_w != null) },
-      { value: CHART_TAB.tauchgang, label: 'Tauchgang', visible: streams.some(s => s.depth_m != null) },
-      { value: CHART_TAB.deko, label: 'Deko', visible: streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null || (s.po2 != null && s.po2 > 0)) },
-      { value: CHART_TAB.sensoren, label: 'Sensoren', visible: streams.some(s => s.core_temperature_c != null) },
-      { value: CHART_TAB.barometer, label: 'Barometer', visible: streams.some(s => s.absolute_pressure_pa != null)
-          && !streams.some(s => s.depth_m != null) },  // Hide for dive activities
-      { value: CHART_TAB.mtb, label: 'MTB', visible: streams.some(s => s.grit != null || s.flow != null) },
-      { value: CHART_TAB.ausdauer, label: 'Ausdauer', visible: streams.some(s => s.potential_stamina != null) },
-      { value: CHART_TAB.glucose, label: 'Glucose', visible: streams.some(s => s.glucose_mg_dl != null) },
-      { value: CHART_TAB.developerFields, label: 'Entwickler-Felder', visible: streams.some(s => s.developer_fields != null && Object.keys(s.developer_fields as object).length > 0) },
+      { value: CHART_TAB.alles, label: t('activityDetail.chartTabs.all'), visible: true },
+      { value: CHART_TAB.uebersicht, label: t('activityDetail.chartTabs.overview'), visible: true },
+      { value: CHART_TAB.leistung, label: t('activityDetail.chartTabs.power'), visible: streams.some(s => s.power_w != null) },
+      { value: CHART_TAB.dynamik, label: t('activityDetail.chartTabs.dynamics'), visible: streams.some(s => s.ground_contact_time_ms != null) },
+      { value: CHART_TAB.pedal, label: t('activityDetail.chartTabs.pedalAnalytics'), visible: streams.some(s => s.left_torque_effectiveness_pct != null) },
+      { value: CHART_TAB.electric, label: t('activityDetail.chartTabs.eBike'), visible: streams.some(s => s.motor_power_w != null) },
+      { value: CHART_TAB.tauchgang, label: t('activityDetail.chartTabs.dive'), visible: streams.some(s => s.depth_m != null) },
+      { value: CHART_TAB.deko, label: t('activityDetail.chartTabs.deco'), visible: streams.some(s => s.ndl_time_s != null || s.cns_load_pct != null || (s.po2 != null && s.po2 > 0)) },
+      { value: CHART_TAB.sensoren, label: t('activityDetail.chartTabs.sensors'), visible: streams.some(s => s.core_temperature_c != null) },
+      { value: CHART_TAB.barometer, label: t('activityDetail.chartTabs.barometer'), visible: streams.some(s => s.absolute_pressure_pa != null)
+          && !streams.some(s => s.depth_m != null) },
+      { value: CHART_TAB.mtb, label: t('activityDetail.chartTabs.mtb'), visible: streams.some(s => s.grit != null || s.flow != null) },
+      { value: CHART_TAB.ausdauer, label: t('activityDetail.chartTabs.endurance'), visible: streams.some(s => s.potential_stamina != null) },
+      { value: CHART_TAB.glucose, label: t('activityDetail.chartTabs.glucose'), visible: streams.some(s => s.glucose_mg_dl != null) },
+      { value: CHART_TAB.developerFields, label: t('activityDetail.chartTabs.developerFields'), visible: streams.some(s => s.developer_fields != null && Object.keys(s.developer_fields as object).length > 0) },
     ]
     return tabs.filter(t => t.visible)
-  }, [streams])
+  }, [streams, t])
   const showTabs = visibleTabs.length > 2
 
   const handleTabChange = (value: string) => {

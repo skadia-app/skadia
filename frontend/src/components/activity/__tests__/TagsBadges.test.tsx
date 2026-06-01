@@ -31,8 +31,8 @@ describe('TagsBadges', () => {
     renderTags()
 
     fireEvent.click(screen.getByTitle('Tag hinzufügen'))
-    fireEvent.change(screen.getByPlaceholderText('Tag suchen...'), { target: { value: 'Neu' } })
-    fireEvent.click(screen.getByText('“Neu” erstellen'))
+    fireEvent.change(screen.getByPlaceholderText('Tag suchen oder erstellen...'), { target: { value: 'Neu' } })
+    fireEvent.click(screen.getByText('„Neu“ erstellen'))
 
     await waitFor(() => {
       expect(createTag).toHaveBeenCalledWith({ name: 'Neu' })

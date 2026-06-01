@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { getWeatherSettings, updateWeatherSettings } from '@/api/settings'
@@ -7,10 +8,33 @@ import type { WeatherPrefs } from '@/api/types'
 import { WEATHER_DISPLAY_FIELD_OPTIONS } from '@/api/types'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  elevationFromDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  type UnitSystem,
+} from '@/lib/units'
+
+function roundWeatherThresholdValue(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function elevationDisplayValue(meters: number, units: UnitSystem): number {
+  return roundWeatherThresholdValue(elevationToDisplayValue(meters, units))
+}
+
+function elevationStoredValue(value: string, units: UnitSystem): number | null {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return roundWeatherThresholdValue(elevationFromDisplayValue(numeric, units))
+}
 
 export function WeatherSettings() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const queryClient = useQueryClient()
+  const { options: unitOptions } = useUnitFormatters()
 
   const { data: prefs, isLoading } = useQuery({
     queryKey: ['weatherSettings'],
@@ -38,17 +62,17 @@ export function WeatherSettings() {
       setLocalPrefs(null)
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler', message: 'Einstellungen konnten nicht gespeichert werden.', duration: 0 })
+      addToast({ type: 'error', title: t('settings.weather.toasts.errorTitle'), message: t('settings.weather.toasts.saveFailed'), duration: 0 })
     },
   })
 
   const backfillMutation = useMutation({
     mutationFn: () => apiClient<void>('/admin/backfill-weather', { method: 'POST' }),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Wetter-Backfill gestartet', message: 'Läuft im Hintergrund.' })
+      addToast({ type: 'success', title: t('settings.weather.toasts.backfillStarted'), message: t('settings.weather.toasts.runsInBackground') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler', message: 'Backfill konnte nicht gestartet werden.', duration: 0 })
+      addToast({ type: 'error', title: t('settings.weather.toasts.errorTitle'), message: t('settings.weather.toasts.backfillFailed'), duration: 0 })
     },
   })
 
@@ -59,41 +83,43 @@ export function WeatherSettings() {
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => mutation.mutate(next), 800)
   }
+  const elevationUnit = elevationInputUnit(unitOptions.units)
+  const elevationUnitText = t('settings.weather.thresholds.elevationUnit').replace(/^m\b/, elevationUnit)
 
   if (isLoading || !localPrefs) {
     return (
-      <SettingsSection title="Wetterdaten">
-        <div className="text-sm text-neutral-500 dark:text-neutral-400">Lade Einstellungen…</div>
+      <SettingsSection title={t('settings.weather.title')}>
+        <div className="text-sm text-neutral-500 dark:text-neutral-400">{t('settings.weather.loadingSettings')}</div>
       </SettingsSection>
     )
   }
 
   return (
     <SettingsSection
-      title="Wetterdaten"
-      description="Konfiguriere wie Wetterdaten für Aktivitäten abgerufen und angezeigt werden."
+      title={t('settings.weather.title')}
+      description={t('settings.weather.description')}
       className="space-y-6"
     >
 
-      {/* Section 1: Anzahl Messwerte */}
+      {/* Section 1: reading count */}
       <div className="space-y-2">
-        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Messwerte pro Aktivität</div>
+        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.weather.readingMode.title')}</div>
         <div className="space-y-2">
           {[
             {
               value: 'auto' as const,
-              label: 'Automatisch',
-              hint: 'Basierend auf Höhendifferenz und Dauer',
+              label: t('settings.weather.readingMode.auto'),
+              hint: t('settings.weather.readingMode.autoHint'),
             },
             {
               value: 'always_one' as const,
-              label: 'Immer ein Wert',
+              label: t('settings.weather.readingMode.alwaysOne'),
               hint: null,
             },
             {
               value: 'always_two' as const,
-              label: 'Immer zwei Werte',
-              hint: 'Start + Gipfel/Durchschnitt',
+              label: t('settings.weather.readingMode.alwaysTwo'),
+              hint: t('settings.weather.readingMode.alwaysTwoHint'),
             },
           ].map(({ value, label, hint }) => (
             <label key={value} className="flex items-start gap-2.5 cursor-pointer">
@@ -116,36 +142,39 @@ export function WeatherSettings() {
         </div>
       </div>
 
-      {/* Section 2: Schwellenwerte (nur bei auto oder always_two) */}
+      {/* Section 2: thresholds (only for auto or always_two) */}
       {localPrefs.reading_mode !== 'always_one' && (
         <div className="space-y-4">
-          <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Schwellenwerte</div>
+          <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.weather.thresholds.title')}</div>
 
           <div className="space-y-1">
             <label htmlFor="mountain-threshold" className="text-xs text-neutral-500 dark:text-neutral-400">
-              Berg/Tal-Wetter ab Höhendifferenz
+              {t('settings.weather.thresholds.elevationLabel')}
             </label>
             <div className="flex items-center gap-2">
               <input
                 id="mountain-threshold"
                 type="number"
-                min={50}
-                max={3000}
-                step={50}
-                value={localPrefs.mountain_threshold_m}
-                onChange={(e) => update({ mountain_threshold_m: Number(e.target.value) })}
+                min={elevationDisplayValue(50, unitOptions.units)}
+                max={elevationDisplayValue(3000, unitOptions.units)}
+                step={elevationDisplayValue(50, unitOptions.units)}
+                value={elevationDisplayValue(localPrefs.mountain_threshold_m, unitOptions.units)}
+                onChange={(e) => {
+                  const storedValue = elevationStoredValue(e.target.value, unitOptions.units)
+                  if (storedValue != null) update({ mountain_threshold_m: storedValue })
+                }}
                 className="w-24 rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
               />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">m Höhendifferenz</span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">{elevationUnitText}</span>
             </div>
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Zwei Messwerte wenn Höhendifferenz größer als dieser Wert
+              {t('settings.weather.thresholds.elevationHint')}
             </p>
           </div>
 
           <div className="space-y-1">
             <label htmlFor="long-duration" className="text-xs text-neutral-500 dark:text-neutral-400">
-              Zwei Werte ab Tourdauer
+              {t('settings.weather.thresholds.durationLabel')}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -158,10 +187,10 @@ export function WeatherSettings() {
                 onChange={(e) => update({ long_duration_s: Number(e.target.value) * 60 })}
                 className="w-24 rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
               />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">Minuten Tourdauer</span>
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">{t('settings.weather.thresholds.durationUnit')}</span>
             </div>
             <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Zwei Messwerte bei langen Touren ohne starke Höhenänderung
+              {t('settings.weather.thresholds.durationHint')}
             </p>
           </div>
         </div>
@@ -169,7 +198,7 @@ export function WeatherSettings() {
 
       {/* Section 3: Angezeigte Felder */}
       <div className="space-y-2">
-        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">In Aktivitäten angezeigte Werte</div>
+        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.weather.displayFields.title')}</div>
         <div className="grid grid-cols-2 gap-2">
           {WEATHER_DISPLAY_FIELD_OPTIONS.map((opt) => {
             const checked = localPrefs.display_fields.includes(opt.key)
@@ -188,41 +217,41 @@ export function WeatherSettings() {
                   }}
                   className="accent-accent-DEFAULT disabled:opacity-40 disabled:cursor-not-allowed"
                 />
-                <span className="text-sm text-neutral-800 dark:text-neutral-200">{opt.label}</span>
+                <span className="text-sm text-neutral-800 dark:text-neutral-200">{t(`settings.weather.displayFields.options.${opt.key}`)}</span>
               </label>
             )
           })}
         </div>
       </div>
 
-      {/* Automatische Wetter-Tags */}
+      {/* Automatic weather tags */}
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium text-neutral-900 dark:text-white">
-            Automatische Wetter-Tags
+            {t('settings.weather.autoTags.title')}
           </h4>
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Vergibt automatisch Tags wie &ldquo;Sonnig&rdquo; oder &ldquo;Regen&rdquo; basierend auf den Wetterdaten
+            {t('settings.weather.autoTags.description')}
           </p>
         </div>
         <Toggle
           checked={localPrefs?.auto_tags ?? true}
           onChange={() => update({ auto_tags: !(localPrefs?.auto_tags ?? true) })}
-          aria-label="Automatische Wetter-Tags"
+          aria-label={t('settings.weather.autoTags.title')}
         />
       </div>
 
       {/* Backfill-Button */}
       <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60">
         <p className="text-xs text-neutral-400 dark:text-neutral-500 mb-3">
-          Fehlende Wetterdaten für bereits importierte Aktivitäten nachträglich abrufen.
+          {t('settings.weather.backfill.description')}
         </p>
         <button
           onClick={() => backfillMutation.mutate()}
           disabled={backfillMutation.isPending}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {backfillMutation.isPending ? 'Wird gestartet…' : 'Wetter-Daten nachfüllen'}
+          {backfillMutation.isPending ? t('settings.weather.backfill.starting') : t('settings.weather.backfill.start')}
         </button>
       </div>
     </SettingsSection>

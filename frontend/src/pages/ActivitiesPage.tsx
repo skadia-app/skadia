@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Pill } from '@/components/ui/Pill'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
@@ -11,10 +12,8 @@ import type { Activity, RecordingGroupMember } from '@/api/types'
 import type { ExportFormat } from '@/api/activities'
 import { apiDownload } from '@/api/client'
 import { apiFetch } from '@/lib/auth'
-import {
-  formatDuration, formatDistance,
-  formatElevationGain, formatElevationLoss, triggerBlobDownload,
-} from '@/lib/utils'
+import { formatDuration, triggerBlobDownload } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
@@ -37,7 +36,7 @@ type PageSize = 20 | 50 | 100 | 0
 type SortColumn = 'started_at' | 'distance_m' | 'elevation_gain_m' | 'elapsed_time_s'
 type SortDir = 'asc' | 'desc'
 
-// ── sessionStorage-Schlüssel für Pagination-Persistenz ──────────────────────
+// sessionStorage keys for pagination persistence.
 const SS_CURSORS = 'skadia-activities-cursors'
 const SS_LAST_ACTIVITY = 'skadia-last-activity-id'
 
@@ -74,7 +73,7 @@ function clearLastActivity() {
 }
 
 /**
- * Erzeugt einen Cursor für ein bestimmtes Datum.
+ * Builds a cursor for a specific date.
  * Format: base64url(RFC3339Nano_timestamp + "|" + uuid)
  */
 function buildCursorForDate(dateStr: string, direction: SortDir): string {
@@ -92,7 +91,7 @@ function buildCursorForDate(dateStr: string, direction: SortDir): string {
     .replace(/\//g, '_')
 }
 
-// ── Export-Untermenü (single activity) ──────────────────────────────────────
+// Export submenu for a single activity.
 const EXPORT_FORMATS: [ExportFormat, string][] = [
   ['original', 'Original'],
   ['gpx', 'GPX'],
@@ -101,6 +100,7 @@ const EXPORT_FORMATS: [ExportFormat, string][] = [
 ]
 
 function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string; sportType: string; onClose: () => void }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const isMultisport = sportType === 'multisport'
 
@@ -115,7 +115,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
   }
 
   const formats: [ExportFormat, string][] = isMultisport
-    ? [['zip', 'ZIP (Originaldateien)']]
+    ? [['zip', `ZIP (${t('activities.export.originalFiles')})`]]
     : EXPORT_FORMATS
 
   return (
@@ -125,7 +125,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
-          Exportieren
+          {t('activities.export.label')}
         </span>
         <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -148,7 +148,7 @@ function ExportSubMenu({ activityId, sportType, onClose }: { activityId: string;
   )
 }
 
-// ── ZIP-Eintrag (multi-select Kontextmenü) ────────────────────────────────────
+// ZIP entry in the multi-select context menu.
 function ZipSubMenu({
   ids,
   onZip,
@@ -160,6 +160,7 @@ function ZipSubMenu({
   onClose: () => void
   zipLoading: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <button
       disabled={zipLoading}
@@ -169,12 +170,12 @@ function ZipSubMenu({
       <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
       </svg>
-      {zipLoading ? 'Lädt…' : 'Als ZIP herunterladen'}
+      {zipLoading ? t('activities.export.loading') : t('activities.export.downloadZip')}
     </button>
   )
 }
 
-// ── ZIP-Button / Format-Dropdown für Bulk-Aktionsleiste ──────────────────────
+// ZIP button / format dropdown for the bulk action bar.
 function ZipDropdown({
   ids,
   loading,
@@ -186,6 +187,7 @@ function ZipDropdown({
   onDownload: (ids: string[], format: ExportFormat) => void
   showFormats: boolean
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -198,7 +200,7 @@ function ZipDropdown({
         disabled={loading}
         className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? 'Lädt…' : 'Herunterladen'}
+        {loading ? t('activities.export.loading') : t('activities.export.download')}
       </button>
     )
   }
@@ -210,7 +212,7 @@ function ZipDropdown({
         disabled={loading}
         className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {loading ? 'Lädt…' : 'Herunterladen'}
+        {loading ? t('activities.export.loading') : t('activities.export.download')}
         <svg className="w-3 h-3 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -232,13 +234,14 @@ function ZipDropdown({
   )
 }
 
-// ── Dialog: "Alle in neuen Tabs öffnen" ──────────────────────────────────────
+// Dialog for opening multiple activities in separate tabs.
 // Browsers block window.open() in loops after the first call (popup blocker).
 // We show a dialog with real <a target="_blank"> links instead so the user
 // can open each tab with a single deliberate click.
 interface OpenTabsItem { id: string; title: string | null }
 
 function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: () => void }) {
+  const { t } = useTranslation()
   useEffect(() => {
     function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', handleKey)
@@ -256,10 +259,11 @@ function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: ()
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
           <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-            {items.length} Aktivitäten öffnen
+            {t('activities.openTabsDialog.title', { count: items.length })}
           </span>
           <button
             onClick={onClose}
+            aria-label={t('activities.openTabsDialog.close')}
             className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -268,7 +272,7 @@ function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: ()
           </button>
         </div>
         <p className="px-4 pt-3 pb-1 text-xs text-neutral-500 dark:text-neutral-400">
-          Browser-Popup-Blocker verhindern das automatische Öffnen mehrerer Tabs. Klicke jeden Link einzeln an.
+          {t('activities.openTabsDialog.popupHint')}
         </p>
         <ul className="overflow-y-auto max-h-72 py-2 divide-y divide-neutral-100 dark:divide-neutral-800">
           {items.map(({ id, title }) => (
@@ -294,7 +298,7 @@ function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: ()
             onClick={onClose}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
-            Schließen
+            {t('activities.openTabsDialog.close')}
           </button>
         </div>
       </div>
@@ -302,7 +306,7 @@ function OpenTabsDialog({ items, onClose }: { items: OpenTabsItem[]; onClose: ()
   )
 }
 
-// ── Kontext-Menü-Komponente ──────────────────────────────────────────────────
+// Context menu component.
 interface ContextMenuState {
   x: number
   y: number
@@ -338,6 +342,7 @@ function ActivityContextMenu({
   onGroup,
   onUngroup,
 }: ContextMenuProps) {
+  const { t } = useTranslation()
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -373,7 +378,7 @@ function ActivityContextMenu({
         className={menuClass}
       >
         <div className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500 border-b border-neutral-100 dark:border-neutral-700 font-medium">
-          {count} ausgewählt
+          {t('activities.contextMenu.selected', { count })}
         </div>
         <button
           onClick={() => { onOpenTabs(ids.map(id => ({ id, title: null }))); onClose() }}
@@ -382,7 +387,7 @@ function ActivityContextMenu({
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
           </svg>
-          Alle in neuen Tabs öffnen
+          {t('activities.contextMenu.openAllTabs')}
         </button>
         <ZipSubMenu ids={ids} onZip={onZip} onClose={onClose} zipLoading={zipLoading} />
         <button
@@ -392,7 +397,7 @@ function ActivityContextMenu({
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          Als Multisport gruppieren
+          {t('activities.contextMenu.groupAsMultisport')}
         </button>
         <button
           onClick={() => { onRecompute(ids); onClose() }}
@@ -401,7 +406,7 @@ function ActivityContextMenu({
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          Neu berechnen
+          {t('activities.contextMenu.recompute')}
         </button>
         <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
         <button
@@ -411,7 +416,7 @@ function ActivityContextMenu({
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-          {count} Aktivitäten löschen
+          {t('activities.contextMenu.deleteSelected', { count })}
         </button>
       </div>
     )
@@ -435,14 +440,14 @@ function ActivityContextMenu({
         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
         </svg>
-        In neuem Tab öffnen
+        {t('activities.contextMenu.openInNewTab')}
       </a>
       <button
         onClick={() => { onQuickEdit(state.activityId); onClose() }}
         className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
       >
         <Pencil className="w-3.5 h-3.5 text-neutral-400" />
-        Schnell bearbeiten
+        {t('activities.contextMenu.quickEdit')}
       </button>
       <ExportSubMenu activityId={state.activityId} sportType={state.sportType ?? ''} onClose={onClose} />
       <button
@@ -452,7 +457,7 @@ function ActivityContextMenu({
         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
-        Neu berechnen
+        {t('activities.contextMenu.recompute')}
       </button>
       {state.sportType === 'multisport' && (
         <button
@@ -462,7 +467,7 @@ function ActivityContextMenu({
           <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          Multisport-Gruppe auflösen
+          {t('activities.contextMenu.ungroupMultisport')}
         </button>
       )}
       <div className="border-t border-neutral-100 dark:border-neutral-700 my-1" />
@@ -473,18 +478,20 @@ function ActivityContextMenu({
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
-        Löschen
+        {t('activities.contextMenu.delete')}
       </button>
     </div>
   )
 }
 
 export default function ActivitiesPage() {
+  const { t, i18n } = useTranslation()
+  const { formatDistance, formatElevationGain, formatElevationLoss } = useUnitFormatters()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // ── Seitenposition: aus URL (page) + sessionStorage (cursors) wiederherstellen ──
+  // Restore page position from URL and sessionStorage cursors.
   const initialPageFromUrl = Math.max(0, (parseInt(searchParams.get('page') ?? '1', 10) || 1) - 1)
 
   const [pageSize, setPageSize] = useState<PageSize>(20)
@@ -498,8 +505,8 @@ export default function ActivitiesPage() {
     if (stored && stored.length > initialPageFromUrl) return initialPageFromUrl
     return 0
   })
-  // Wenn URL ?page=X angibt, aber sessionStorage leer ist, muss nach dem ersten
-  // Render per jumpToPage gesprungen werden (Cursors sind erst nach Fetches bekannt).
+  // If ?page=X is present but sessionStorage has no cursors, jump after the
+  // first render because cursors only become known after fetching.
   const needsMountJumpRef = useRef(
     initialPageFromUrl > 0 &&
     (() => { const s = loadCursors(); return !s || s.length <= initialPageFromUrl })()
@@ -514,10 +521,10 @@ export default function ActivitiesPage() {
 
   const [lastActivityId, setLastActivityId] = useState<string | null>(() => loadLastActivity())
 
-  // Kontext-Menü-State
+  // Context menu state.
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
-  // Multi-Select-State
+  // Multi-select state.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
@@ -657,7 +664,7 @@ export default function ActivitiesPage() {
     saveCursors(cursors)
   }, [cursors])
 
-  // ── Seitenzahl in URL schreiben ──────────────────────────────────────────
+  // Write page number into the URL.
   useEffect(() => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -744,7 +751,7 @@ export default function ActivitiesPage() {
     return sortDir === 'asc' ? ' \u25B2' : ' \u25BC'
   }
 
-  // ── Fusionskandidaten-Badge ───────────────────────────────────────────────
+  // Fusion candidate badge.
   const { data: fusionData } = useQuery({
     queryKey: ['recording-groups-badge'],
     queryFn: () => fetchRecordingGroups(1000),
@@ -793,7 +800,7 @@ export default function ActivitiesPage() {
     if (infiniteData?.pages[0]?.total != null) setTotal(infiniteData.pages[0].total)
   }, [infiniteData])
 
-  // Sentinel für Infinite Scroll
+  // Infinite-scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!isInfinite || !sentinelRef.current) return
@@ -897,7 +904,7 @@ export default function ActivitiesPage() {
     void jumpToPage(n - 1)
   }
 
-  // URL-Seite wiederherstellen wenn sessionStorage leer war (nur einmal beim Mount)
+  // Restore URL page when sessionStorage was empty, once on mount.
   useEffect(() => {
     if (needsMountJumpRef.current) {
       needsMountJumpRef.current = false
@@ -905,7 +912,7 @@ export default function ActivitiesPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Datumssprung ─────────────────────────────────────────────────────────
+  // Date jump.
   const isDateJumpEnabled = sortBy === null || sortBy === 'started_at'
 
   function handleJumpDateChange(dateStr: string) {
@@ -944,7 +951,7 @@ export default function ActivitiesPage() {
     clearSelection()
   }
 
-  // ── Daten ────────────────────────────────────────────────────────────────
+  // Data.
   const activities = isInfinite
     ? (infiniteData?.pages.flatMap(p => p.activities) ?? [])
     : (pageData?.activities ?? [])
@@ -956,7 +963,7 @@ export default function ActivitiesPage() {
     : null
   const maxNavigablePage = cursors.length
 
-  // ── Sortierbare Spaltenheader ─────────────────────────────────────────────
+  // Sortable column headers.
   const sortableHeaderClass = (column: SortColumn) => {
     const base = 'px-4 py-3 font-medium select-none cursor-pointer transition-colors'
     const active = sortBy === column
@@ -968,16 +975,15 @@ export default function ActivitiesPage() {
   const allOnPageSelected = activities.length > 0 && activities.every(a => selectedIds.has(a.id))
   const someSelected = selectedIds.size > 0 && !allOnPageSelected
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  // Nur beim allerersten Laden (keine Daten vorhanden) den Vollbild-Ladeindikator zeigen.
-  // Beim Suchen/Filtern bleiben vorherige Daten via keepPreviousData sichtbar.
+  // Render. Only show the full-page loading indicator on the initial load.
+  // During search/filter changes, keepPreviousData keeps existing rows visible.
   if (isLoading && activities.length === 0 && !isFetching) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivitäten...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('activities.page.loading')}</div>
   }
 
   return (
     <div>
-      {/* Kontext-Menü */}
+      {/* Context menu */}
       {contextMenu && (
         <ActivityContextMenu
           state={contextMenu}
@@ -1066,23 +1072,23 @@ export default function ActivitiesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Aktivitäten</h1>
+          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('activities.page.title')}</h1>
           {total != null && (
             <span className="text-sm text-neutral-400">
-              {`${total.toLocaleString('de-DE')} gesamt`}
+              {t('activities.page.total', { total: total.toLocaleString(i18n.language) })}
             </span>
           )}
           {fusionCount > 0 && (
             <Link to="/workshop/fusion">
-              {/* active={false} (default): Notification-Badge, keine User-Selektion.
-                  Appearance ausschließlich via className — kein accent-border-Konflikt. */}
+              {/* active={false} (default): notification badge, not user selection.
+                  Appearance is className-only, avoiding accent-border conflicts. */}
               <Pill
                 as="span"
                 size="sm"
                 leftSlot={<span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />}
                 className="bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors"
               >
-                {fusionCount} Fusionskandidat{fusionCount !== 1 ? 'en' : ''}
+                {t('activities.page.fusionCandidates', { count: fusionCount })}
               </Pill>
             </Link>
           )}
@@ -1093,9 +1099,9 @@ export default function ActivitiesPage() {
             to="/workouts"
             className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
-            Workouts
+            {t('activities.page.workouts')}
           </Link>
-          {/* Suche (server-side, debounced) */}
+          {/* Search (server-side, debounced) */}
           <div className="relative">
             {isFetching && activities.length > 0 ? (
               <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1111,7 +1117,7 @@ export default function ActivitiesPage() {
               type="text"
               value={searchInput}
               onChange={e => handleSearchChange(e.target.value)}
-              placeholder="Suchen…"
+              placeholder={t('activities.search.placeholder')}
               className="border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 pl-8 text-xs w-48
                          bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                          placeholder:text-neutral-400 dark:placeholder:text-neutral-600
@@ -1130,9 +1136,9 @@ export default function ActivitiesPage() {
           {/* Activity Filters */}
           <ActivityFilters filters={filters} onChange={setFilters} />
 
-          {/* Datumssprung (nur bei Sortierung nach Datum) */}
+          {/* Date jump, only while sorting by date. */}
           <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <label htmlFor="jump-date" className={`whitespace-nowrap${!isDateJumpEnabled ? ' opacity-40' : ''}`}>Springe zu</label>
+            <label htmlFor="jump-date" className={`whitespace-nowrap${!isDateJumpEnabled ? ' opacity-40' : ''}`}>{t('activities.dateJump.label')}</label>
             <input
               id="jump-date"
               type="date"
@@ -1148,7 +1154,7 @@ export default function ActivitiesPage() {
             {jumpDate && isDateJumpEnabled && (
               <button
                 onClick={resetDateJump}
-                title="Datumsfilter zurücksetzen"
+                title={t('activities.dateJump.reset')}
                 className="cursor-pointer text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors text-xs"
               >
                 &times;
@@ -1156,9 +1162,9 @@ export default function ActivitiesPage() {
             )}
           </div>
 
-          {/* Seitengrößen-Auswahl */}
+          {/* Page size selection. */}
           <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-            <span>Zeige</span>
+            <span>{t('activities.pageSize.show')}</span>
             <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
               {PAGE_SIZES.map(size => (
                 <button
@@ -1175,7 +1181,7 @@ export default function ActivitiesPage() {
               ))}
               <button
                 onClick={() => onPageSizeChange(0)}
-                title="Endlos scrollen"
+                title={t('activities.pageSize.infinite')}
                 className={
                   isInfinite
                     ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
@@ -1185,17 +1191,17 @@ export default function ActivitiesPage() {
                 ∞
               </button>
             </div>
-            {!isInfinite && <span>pro Seite</span>}
+            {!isInfinite && <span>{t('activities.pageSize.perPage')}</span>}
           </div>
         </div>
       </div>
 
-      {/* Tabelle */}
+      {/* Table */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
-              {/* Checkbox-Spalte */}
+              {/* Checkbox column */}
               <th className="w-8 pl-3 pr-2 py-3">
                 <input
                   type="checkbox"
@@ -1203,36 +1209,36 @@ export default function ActivitiesPage() {
                   ref={el => { if (el) el.indeterminate = someSelected }}
                   onChange={() => allOnPageSelected ? clearSelection() : selectAll()}
                   className="w-4 h-4 rounded accent-accent-DEFAULT cursor-pointer"
-                  aria-label="Alle auswählen"
+                  aria-label={t('activities.table.selectAll')}
                 />
               </th>
               <th
                 className={`text-left ${sortableHeaderClass('started_at')}`}
                 onClick={() => toggleSort('started_at')}
               >
-                Datum{sortIndicator('started_at')}
+                {t('activities.table.date')}{sortIndicator('started_at')}
               </th>
-              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Sport</th>
-              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">Titel</th>
+              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">{t('activities.table.sport')}</th>
+              <th className="text-left px-4 py-3 text-neutral-500 dark:text-neutral-400 font-medium">{t('activities.table.title')}</th>
               <th
                 className={`text-right ${sortableHeaderClass('distance_m')}`}
                 onClick={() => toggleSort('distance_m')}
               >
-                Distanz{sortIndicator('distance_m')}
+                {t('activities.table.distance')}{sortIndicator('distance_m')}
               </th>
               <th
                 className={`text-right ${sortableHeaderClass('elapsed_time_s')}`}
                 onClick={() => toggleSort('elapsed_time_s')}
               >
-                Zeit{sortIndicator('elapsed_time_s')}
+                {t('activities.table.time')}{sortIndicator('elapsed_time_s')}
               </th>
               <th
                 className={`text-right ${sortableHeaderClass('elevation_gain_m')}`}
                 onClick={() => toggleSort('elevation_gain_m')}
               >
-                Höhenmeter{sortIndicator('elevation_gain_m')}
+                {t('activities.table.elevation')}{sortIndicator('elevation_gain_m')}
               </th>
-              {/* 3-Punkt-Menü-Spalte (Platzhalter für Ausrichtung) */}
+              {/* Three-dot menu spacer column. */}
               <th className="w-16 pr-2" />
             </tr>
           </thead>
@@ -1283,7 +1289,9 @@ export default function ActivitiesPage() {
                           <td className="py-1.5 pl-3 pr-2 w-8">
                             <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
                           </td>
-                          <td colSpan={7} className="py-1.5 px-4 text-xs text-neutral-400">Lade...</td>
+                          <td colSpan={7} className="py-1.5 px-4 text-xs text-neutral-400">
+                            {t('activities.recordingGroup.loading')}
+                          </td>
                         </tr>
                       )}
                       {/* Error state */}
@@ -1292,7 +1300,9 @@ export default function ActivitiesPage() {
                           <td className="py-1.5 pl-3 pr-2 w-8">
                             <div className="w-4 h-4 border-l-2 border-b-2 border-orange-300 dark:border-orange-700 ml-2" />
                           </td>
-                          <td colSpan={7} className="py-1.5 px-4 text-xs text-red-500">Fehler beim Laden der Aufnahmegruppe</td>
+                          <td colSpan={7} className="py-1.5 px-4 text-xs text-red-500">
+                            {t('activities.recordingGroup.loadFailed')}
+                          </td>
                         </tr>
                       )}
                       {/* Member rows */}
@@ -1300,7 +1310,9 @@ export default function ActivitiesPage() {
                         const isPrimary = member.is_primary || member.activity_id === groupData?.primaryActivityId
                         const formatInfo = [
                           member.original_file_format?.toUpperCase(),
-                          member.field_richness != null ? `${member.field_richness} Felder` : null,
+                          member.field_richness != null
+                            ? t('activities.recordingGroup.fieldCount', { count: member.field_richness })
+                            : null,
                         ].filter(Boolean).join(' · ')
                         return (
                           <tr
@@ -1320,7 +1332,8 @@ export default function ActivitiesPage() {
                                   style={{ background: getSourceColor(i) }}
                                 />
                                 <span className="font-medium truncate text-neutral-700 dark:text-neutral-300">
-                                  {deviceLabel(member.recording_device_name ?? member.source_device, member.source) ?? 'Unbekannt'}
+                                  {deviceLabel(member.recording_device_name ?? member.source_device, member.source)
+                                    ?? t('activities.recordingGroup.unknownDevice')}
                                 </span>
                                 {formatInfo && (
                                   <span className="text-neutral-400 dark:text-neutral-500 text-xs truncate">
@@ -1329,12 +1342,12 @@ export default function ActivitiesPage() {
                                 )}
                                 {isPrimary && (
                                   <span className="shrink-0 px-1.5 py-0.5 rounded text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-900/30 text-xs font-medium">
-                                    ★ Primär
+                                    {t('activities.recordingGroup.primary')}
                                   </span>
                                 )}
                                 {member.is_fused && (
                                   <span className="shrink-0 px-1.5 py-0.5 rounded text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 text-xs font-medium">
-                                    ⚡ Fusioniert
+                                    {t('activities.recordingGroup.fused')}
                                   </span>
                                 )}
                               </div>
@@ -1370,7 +1383,7 @@ export default function ActivitiesPage() {
                           </tr>
                         )
                       })}
-                      {/* Gruppenansicht link row */}
+                      {/* Group view link row */}
                       <tr key={`group-link-${activity.id}`} className="bg-orange-50/20 dark:bg-orange-900/5">
                         <td className="py-1 pl-3 pr-2 w-8">
                           <div className="w-4 h-4 border-l-2 border-orange-200 dark:border-orange-800 ml-2" />
@@ -1381,7 +1394,7 @@ export default function ActivitiesPage() {
                             className="text-orange-600 dark:text-orange-400 text-xs hover:underline inline-flex items-center gap-1"
                             onClick={e => e.stopPropagation()}
                           >
-                            Gruppenansicht öffnen →
+                            {t('activities.recordingGroup.openGroupView')}
                           </Link>
                         </td>
                       </tr>
@@ -1393,11 +1406,11 @@ export default function ActivitiesPage() {
                     <tr key={child.id} className="bg-neutral-50/80 dark:bg-neutral-800/30 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800/50 transition-colors"
                       onClick={() => { saveLastActivity(child.id); setLastActivityId(child.id); navigate(`/activities/${child.id}`) }}
                     >
-                      {/* Indent-Marker */}
+                      {/* Indent marker */}
                       <td className="py-1.5 pl-3 pr-2 w-8">
                         <div className="w-4 h-4 border-l-2 border-b-2 border-neutral-300 dark:border-neutral-600 ml-2" />
                       </td>
-                      {/* Titel + Sport + Datum */}
+                      {/* Title + sport + date */}
                       <td colSpan={3} className="py-1.5 px-4">
                         <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
                           <SportIcon sport={child.sport_type} subType={child.sub_type} isElectric={child.is_electric} className="w-4 h-4 shrink-0 text-neutral-400" />
@@ -1406,15 +1419,15 @@ export default function ActivitiesPage() {
                           </span>
                         </div>
                       </td>
-                      {/* Distanz */}
+                      {/* Distance */}
                       <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
                         {formatDistance(child.distance_m)}
                       </td>
-                      {/* Zeit */}
+                      {/* Time */}
                       <td className="py-1.5 px-4 text-right text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
                         {formatDuration(child.elapsed_time_s ?? 0)}
                       </td>
-                      {/* Höhenmeter */}
+                      {/* Elevation gain/loss */}
                       <td className="py-1.5 px-4">
                         {(formatElevationGain(child.elevation_gain_m) ?? formatElevationLoss(child.elevation_loss_m)) ? (
                           <div className="flex items-center justify-end gap-1 tabular-nums text-xs">
@@ -1432,7 +1445,7 @@ export default function ActivitiesPage() {
                           <div className="text-right text-neutral-400 dark:text-neutral-600 text-xs">—</div>
                         )}
                       </td>
-                      {/* 3-Punkt-Platzhalter */}
+                      {/* Three-dot placeholder */}
                       <td className="w-8" />
                     </tr>
                   ))
@@ -1443,29 +1456,29 @@ export default function ActivitiesPage() {
         </table>
       </div>
 
-      {/* Infinite-Scroll-Sentinel */}
+      {/* Infinite-scroll sentinel. */}
       {isInfinite && (
         <div ref={sentinelRef} className="flex justify-center py-6">
           {isFetchingNextPage && (
-            <span className="text-sm text-neutral-400">Lade weitere Aktivitäten...</span>
+            <span className="text-sm text-neutral-400">{t('activities.infiniteScroll.loadingMore')}</span>
           )}
           {!hasNextPage && activities.length > 0 && (
-            <span className="text-sm text-neutral-400">Alle {total?.toLocaleString('de-DE')} Aktivitäten geladen</span>
+            <span className="text-sm text-neutral-400">{t('activities.infiniteScroll.allLoaded', { total: total?.toLocaleString(i18n.language) })}</span>
           )}
         </div>
       )}
 
-      {/* Bulk-Aktionsleiste */}
+      {/* Bulk action bar. */}
       {selectedIds.size > 0 && (
         <div className="sticky bottom-0 z-20 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-800 px-4 py-3 flex items-center gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mr-auto">
-            {selectedIds.size} ausgewählt
+            {t('activities.selectionBar.selected', { count: selectedIds.size })}
           </span>
           <button
             onClick={clearSelection}
             className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
           >
-            Abwählen
+            {t('activities.selectionBar.clear')}
           </button>
           <button
             onClick={() => {
@@ -1474,14 +1487,14 @@ export default function ActivitiesPage() {
             }}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
-            Alle öffnen
+            {t('activities.selectionBar.openAll')}
           </button>
           {selectedIds.size >= 2 && selectedIds.size <= 3 && (
             <button
               onClick={() => navigate(`/activities/compare?ids=${[...selectedIds].join(',')}`)}
               className="text-xs px-3 py-1.5 rounded-lg border border-accent-DEFAULT text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-DEFAULT/15 cursor-pointer font-medium"
             >
-              Vergleichen
+              {t('activities.selectionBar.compare')}
             </button>
           )}
           <ZipDropdown
@@ -1497,13 +1510,13 @@ export default function ActivitiesPage() {
             onClick={() => setGroupModalIds([...selectedIds])}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
-            Gruppieren
+            {t('activities.selectionBar.group')}
           </button>
           <button
             onClick={() => setRecomputeIds([...selectedIds])}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
-            Neu berechnen
+            {t('activities.selectionBar.recompute')}
           </button>
           <button
             onClick={() => setDeleteIds([...selectedIds])}
@@ -1512,12 +1525,12 @@ export default function ActivitiesPage() {
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
-            Löschen
+            {t('activities.selectionBar.delete')}
           </button>
         </div>
       )}
 
-      {/* Pagination (nur im paginierten Modus) */}
+      {/* Pagination in paginated mode only. */}
       {!isInfinite && (
         <div className="flex items-center justify-between mt-4 gap-4">
           <button
@@ -1528,11 +1541,11 @@ export default function ActivitiesPage() {
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
                        disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            ← Zurück
+            ← {t('activities.pagination.previous')}
           </button>
 
           <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
-            <span>Seite</span>
+            <span>{t('activities.pagination.page')}</span>
             <input
               type="number"
               min={1}
@@ -1551,13 +1564,13 @@ export default function ActivitiesPage() {
             />
             {totalPages != null && (
               <span className="text-neutral-400 dark:text-neutral-600">
-                von {totalPages}
+                {t('activities.pagination.of', { total: totalPages })}
               </span>
             )}
           </div>
 
           {isJumping && (
-            <span className="text-xs text-neutral-400 px-2">Lade...</span>
+            <span className="text-xs text-neutral-400 px-2">{t('common.loading')}</span>
           )}
 
           <button
@@ -1568,7 +1581,7 @@ export default function ActivitiesPage() {
                        hover:bg-neutral-50 dark:hover:bg-neutral-800
                        disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            Weiter →
+            {t('activities.pagination.next')} →
           </button>
         </div>
       )}
@@ -1615,6 +1628,8 @@ function ActivityRow({
   onThreeDotClick,
   onConflictClick,
 }: ActivityRowProps) {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevationGain, formatElevationLoss } = useUnitFormatters()
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const title = displayActivityTitle(activity, '')
@@ -1643,6 +1658,20 @@ function ActivityRow({
     ? 'text-accent-600 dark:text-orange-400 font-medium'
     : 'text-neutral-800 dark:text-neutral-200 font-medium group-hover:text-accent-DEFAULT dark:group-hover:text-orange-400 transition-colors'
 
+  const rowBadge = activity.is_indoor
+    ? { letter: 'I', className: 'text-blue-500', label: t('workshopOperations.activityModifiers.indoor') }
+    : activity.is_electric
+      ? { letter: 'E', className: 'text-green-600', label: t('workshopOperations.activityModifiers.electric') }
+      : activity.is_virtual
+        ? { letter: 'V', className: 'text-purple-500', label: t('workshopOperations.activityModifiers.virtual') }
+        : activity.sport_type === 'multisport'
+          ? { letter: 'M', className: 'text-red-800', label: t('activities.groupModal.defaultTitle') }
+          : (activity.fusion_memberships?.length ?? 0) > 0
+            ? { letter: 'F', className: 'text-violet-600', label: t('activities.row.fusionResult') }
+            : activity.recording_group_id
+              ? { letter: 'G', className: 'text-orange-600', label: t('activities.row.recordingGroup') }
+              : null
+
   return (
     <tr
       onClick={handleClick}
@@ -1656,7 +1685,7 @@ function ActivityRow({
           checked={isSelected}
           onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
           className="w-4 h-4 rounded accent-accent-DEFAULT cursor-pointer"
-          aria-label={`Aktivität ${menuTitle} auswählen`}
+          aria-label={t('activities.row.selectActivity', { title: menuTitle })}
         />
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
@@ -1666,7 +1695,16 @@ function ActivityRow({
       <td className="px-4 py-3">
         <span className="inline-flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
           <span className="w-4 text-center text-xs flex-shrink-0">
-            {activity.is_indoor ? <span className="text-blue-500 font-bold text-sm">I</span> : activity.is_electric ? <span className="text-green-600 font-bold text-sm">E</span> : activity.is_virtual ? <span className="text-purple-500 font-bold text-sm">V</span> : activity.sport_type === 'multisport' ? <span className="text-red-800 font-bold text-sm">M</span> : (activity.fusion_memberships?.length ?? 0) > 0 ? <span className="text-violet-600 font-bold text-sm" title="Fusion Ergebnis">F</span> : activity.recording_group_id ? <span className="text-orange-600 font-bold text-sm" title="Gruppenaufzeichnung">G</span> : null}
+            {rowBadge && (
+              <span
+                className={`${rowBadge.className} font-bold text-sm`}
+                role="img"
+                aria-label={rowBadge.label}
+                title={rowBadge.label}
+              >
+                {rowBadge.letter}
+              </span>
+            )}
           </span>
           <SportIcon sport={activity.sport_type} subType={activity.sub_type} isElectric={activity.is_electric} className="w-4 h-4 flex-shrink-0" />
           <span className="text-xs">{label}</span>
@@ -1683,7 +1721,7 @@ function ActivityRow({
             <button
               onClick={e => { e.stopPropagation(); onExpand?.(activity.id) }}
               className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors shrink-0"
-              title="Disziplinen anzeigen"
+              title={t('activities.row.showDisciplines')}
             >
               <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
@@ -1694,7 +1732,7 @@ function ActivityRow({
             <button
               onClick={e => { e.stopPropagation(); onGroupExpand?.(activity.id, activity.recording_group_id!) }}
               className="text-orange-400 hover:text-orange-600 dark:hover:text-orange-300 cursor-pointer transition-colors shrink-0"
-              title="Aufnahmegruppe anzeigen"
+              title={t('activities.row.showRecordingGroup')}
             >
               <svg className={`w-3 h-3 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
@@ -1703,7 +1741,7 @@ function ActivityRow({
           )}
           <span>
             {title || (
-              <span className="text-neutral-400 font-normal italic">Kein Titel</span>
+              <span className="text-neutral-400 font-normal italic">{t('activities.row.noTitle')}</span>
             )}
           </span>
         </div>
@@ -1714,7 +1752,7 @@ function ActivityRow({
       <td className="px-4 py-3 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
         {formatDuration(activity.elapsed_time_s ?? 0)}
       </td>
-      {/* Höhenmeter */}
+      {/* Elevation gain/loss */}
       <td className="px-4 py-3">
         {(gain ?? loss) ? (
           <div className="flex items-center justify-end gap-1 tabular-nums text-sm">
@@ -1732,20 +1770,20 @@ function ActivityRow({
           <div className="text-right text-neutral-400 dark:text-neutral-600">—</div>
         )}
       </td>
-      {/* 3-Punkt-Menü */}
+      {/* Three-dot menu */}
       <td className="py-3 pl-0 pr-2 w-16" onClick={e => e.stopPropagation()}>
         <button
           onClick={() => onQuickEdit(activity)}
           className="rounded p-1 text-neutral-400 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-600 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-          aria-label="Aktivität schnell bearbeiten"
-          title="Schnell bearbeiten"
+          aria-label={t('activities.row.quickEditAria')}
+          title={t('activities.contextMenu.quickEdit')}
         >
           <Pencil className="h-4 w-4" />
         </button>
         <button
           onClick={e => onThreeDotClick(e, activity.id, menuTitle, activity.sport_type)}
           className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="Aktivitätsmenü"
+          aria-label={t('activities.row.activityMenu')}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
@@ -1754,7 +1792,7 @@ function ActivityRow({
   )
 }
 
-// ── GroupModal ────────────────────────────────────────────────────────────────
+// Group modal.
 function GroupModal({
   activityIds,
   onClose,
@@ -1764,6 +1802,7 @@ function GroupModal({
   onClose: () => void
   onGrouped: (parentId: string) => void
 }) {
+  const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1775,11 +1814,11 @@ function GroupModal({
       const resp = await apiFetch('/api/v1/activities/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activity_ids: activityIds, title: title.trim() || 'Multisport' }),
+        body: JSON.stringify({ activity_ids: activityIds, title: title.trim() || t('activities.groupModal.defaultTitle') }),
       })
       if (!resp.ok) {
         const text = await resp.text()
-        setError(`Fehler ${resp.status}: ${text}`)
+        setError(t('activities.groupModal.error', { status: resp.status, message: text }))
         return
       }
       const parent = await resp.json() as { id: string }
@@ -1798,21 +1837,20 @@ function GroupModal({
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Als Multisport gruppieren
+          {t('activities.groupModal.title')}
         </h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          {activityIds.length} Aktivitäten werden zu einer Multisport-Gruppe zusammengefasst.
-          Die Originalaktivitäten bleiben vollständig erhalten.
+          {t('activities.groupModal.description', { count: activityIds.length })}
         </p>
         <div>
           <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
-            Gruppenname (optional)
+            {t('activities.groupModal.nameLabel')}
           </label>
           <input
             type="text"
             value={title}
             onChange={e => setTitle(e.target.value)}
-            placeholder="Multisport"
+            placeholder={t('activities.groupModal.namePlaceholder')}
             className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
             onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
             autoFocus
@@ -1826,14 +1864,14 @@ function GroupModal({
             onClick={onClose}
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
           >
-            Abbrechen
+            {t('activities.groupModal.cancel')}
           </button>
           <button
             onClick={handleCreate}
             disabled={loading}
             className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            {loading ? 'Erstelle...' : 'Gruppe erstellen'}
+            {loading ? t('activities.groupModal.creating') : t('activities.groupModal.create')}
           </button>
         </div>
       </div>
