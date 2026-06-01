@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { MapPin } from 'lucide-react'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { SegmentEffort, GlobalTopSegmentEffort } from '@/api/segments'
@@ -27,6 +28,7 @@ interface SegmentSectionProps {
 }
 
 export function SegmentSection({ personalPRs, globalTop, effortFilter }: SegmentSectionProps) {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<'personal' | 'global'>('personal')
 
   const filteredPersonal = effortFilter
@@ -43,7 +45,7 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
       <div className="px-5 py-3 bg-neutral-50 dark:bg-neutral-800/60 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-3">
         <MapPin className="w-4 h-4 text-neutral-500" />
-        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Segmente</span>
+        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('records.segments.title')}</span>
         <div className="flex gap-1 ml-3">
           <button
             onClick={() => setTab('personal')}
@@ -54,7 +56,7 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
                 : 'text-neutral-500 border-neutral-300 dark:border-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
             )}
           >
-            Persönlich
+            {t('records.segments.personal')}
           </button>
           <button
             onClick={() => setTab('global')}
@@ -65,13 +67,13 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
                 : 'text-neutral-500 border-neutral-300 dark:border-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300',
             )}
           >
-            Global Top 10
+            {t('records.segments.globalTop10')}
           </button>
         </div>
       </div>
       <div className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
         {tab === 'personal' && (filteredPersonal.length === 0
-          ? <div className="px-4 py-6 text-center text-sm text-neutral-500">Keine Segment-Daten</div>
+          ? <div className="px-4 py-6 text-center text-sm text-neutral-500">{t('records.segments.empty')}</div>
           : filteredPersonal.map((effort) => {
               const style = rankStyle(effort.personal_rank)
               return (
@@ -81,7 +83,7 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
                     {effort.personal_rank ? `#${effort.personal_rank}` : '—'}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{effort.segment_name ?? 'Segment'}</div>
+                    <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{effort.segment_name ?? t('records.segments.unknown')}</div>
                     <div className="text-[10px] text-neutral-500">{fmtDateMedium(effort.started_at)}</div>
                   </div>
                   <span className="text-sm font-bold tabular-nums">{fmtDuration(effort.elapsed_time_s)}</span>
@@ -90,7 +92,7 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
             })
         )}
         {tab === 'global' && (filteredGlobal.length === 0
-          ? <div className="px-4 py-6 text-center text-sm text-neutral-500">Keine Segment-Daten</div>
+          ? <div className="px-4 py-6 text-center text-sm text-neutral-500">{t('records.segments.empty')}</div>
           : filteredGlobal.map((effort) => {
               const style = rankStyle(effort.rank_overall)
               return (
@@ -100,15 +102,15 @@ export function SegmentSection({ personalPRs, globalTop, effortFilter }: Segment
                     {effort.rank_overall ? `#${effort.rank_overall}` : '—'}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{effort.segment_name ?? 'Segment'}</div>
+                    <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{effort.segment_name ?? t('records.segments.unknown')}</div>
                     <div className="text-[10px] text-neutral-500">
-                      {fmtDuration(effort.elapsed_time_s)} · #{effort.rank_overall} von {effort.athlete_count} Athleten
+                      {t('records.segments.globalMeta', { duration: fmtDuration(effort.elapsed_time_s), rank: effort.rank_overall, count: effort.athlete_count })}
                     </div>
                   </div>
                   <span className="text-sm font-bold tabular-nums">{fmtDuration(effort.elapsed_time_s)}</span>
                   {effort.rank_overall === 1 && (
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20">
-                      Rekord
+                      {t('records.segments.record')}
                     </span>
                   )}
                 </Link>

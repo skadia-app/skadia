@@ -7,6 +7,9 @@ import {
   SPORT_GROUP_BADGE_LABELS,
   SPORT_GROUP_LABELS,
   SUB_FILTERS,
+  getSportGroupBadgeLabel,
+  getSportGroupLabel,
+  getSubFilters,
   matchesSportGroup,
 } from '../recordsConstants'
 import { GENERATED_RECORD_GROUPS } from '../generatedRecordProjections'
@@ -17,10 +20,26 @@ describe('records projection constants', () => {
     expect(MAIN_CATEGORY_ORDER).toEqual(['laufen', 'radfahren', 'wandern', 'schwimmen'])
     expect(Object.keys(MAIN_CATEGORIES)).toEqual(['laufen', 'radfahren', 'wandern', 'schwimmen'])
     expect(SUB_FILTERS.radfahren.map(filter => filter.label)).toEqual(['Alle', 'Radfahren', 'E-Bike', 'Stationär'])
+    expect(SUB_FILTERS.radfahren.map(filter => filter.key)).toEqual(['all', 'cycling', 'electric', 'stationary'])
     expect(POWER_CURVE_GROUPS.radfahren).toEqual(['cycling'])
     expect(SPORT_GROUP_BADGE_LABELS.cycling_electric).toBe('E-Bike')
     expect(SPORT_GROUP_BADGE_LABELS.swim_pool).toBe('Becken')
     expect(RECORD_GROUP_BADGES.swim_ow).toBe('FW')
+  })
+
+  it('localizes record labels without changing functional keys', () => {
+    expect(SPORT_GROUP_LABELS.cycling).toBe('Radfahren')
+    expect(SPORT_GROUP_LABELS.cycling).not.toBe('Cycling')
+    expect(SPORT_GROUP_LABELS.cycling).toBe(getSportGroupLabel('cycling', 'de'))
+    expect(getSportGroupLabel('cycling', 'en')).toBe('Cycling')
+    expect(getSubFilters('radfahren', 'en').map(filter => [filter.key, filter.label])).toEqual([
+      ['all', 'All'],
+      ['cycling', 'Cycling'],
+      ['electric', 'E-bike'],
+      ['stationary', 'Stationary'],
+    ])
+    expect(getSportGroupBadgeLabel('cycling_virtual', 'en')).toBe('Stationary')
+    expect(getSportGroupBadgeLabel('swim_pool', 'en')).toBe('Pool')
   })
 })
 

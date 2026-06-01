@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { useRef } from 'react'
+import { i18n } from '@/i18n/i18n'
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
 
 // Capture click handlers registered on the chart instance so tests can invoke them.
 const chartClickHandlers: Map<string, ((params: unknown) => void)[]> = new Map()
+const chartOptionBuilders: Array<() => any> = []
 
 const mockChartInstance = {
   setOption: vi.fn(),
@@ -35,8 +38,9 @@ vi.mock('echarts/components', () => ({
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 
 vi.mock('@/hooks/useECharts', () => ({
-  useECharts: (_buildOption: unknown, _deps: unknown, onMount?: (chart: unknown) => void) => {
+  useECharts: (buildOption: () => any, _deps: unknown, onMount?: (chart: unknown) => void) => {
     const ref = useRef<HTMLDivElement>(null)
+    chartOptionBuilders.push(buildOption)
     if (onMount) onMount(mockChartInstance)
     return ref
   },
@@ -46,6 +50,11 @@ vi.mock('@/hooks/useECharts', () => ({
 
 const mockToQueryString = vi.fn(() => '')
 const mockSetFilters = vi.fn()
+const mockUserPrefs = vi.hoisted(() => ({ locale: 'en', units: 'imperial' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
 
 vi.mock('@/lib/analyticsFilters', () => ({
   useAnalyticsFilters: () => ({
@@ -95,6 +104,10 @@ describe('DistributionCharts — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     chartClickHandlers.clear()
+    chartOptionBuilders.length = 0
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    void i18n.changeLanguage('en')
     mockToQueryString.mockReturnValue('')
     mockFetchDistributions.mockResolvedValue(makeDistributionResponse())
   })
@@ -162,5 +175,21 @@ describe('DistributionCharts — global filter', () => {
     for (const call of mockFetchDistributions.mock.calls) {
       expect(call[0] as string).toContain('sport_type=cycling%3Aroad')
     }
+  })
+
+  it('formats distribution distances with the user unit preference', async () => {
+    const user = userEvent.setup()
+    mockFetchDistributions.mockResolvedValue([{ label: 'cycling', value: 1609.344 }])
+    renderWithProviders()
+
+    await user.click(await screen.findByRole('button', { name: 'Distance' }))
+    await waitFor(() => {
+      expect(mockFetchDistributions.mock.calls.some(call => String(call[0]).includes('metric=distance_m'))).toBe(true)
+    })
+
+    const option = chartOptionBuilders.at(-1)?.()
+    const html = option.tooltip.formatter({ name: 'Cycling', value: 1609.344, percent: 100 })
+    expect(html).toContain('1.0 mi')
+    expect(html).not.toContain('km')
   })
 })

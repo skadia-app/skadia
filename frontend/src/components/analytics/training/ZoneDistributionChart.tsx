@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
 import {
@@ -33,10 +34,8 @@ const ZONE_COLORS = [
   '#ef4444', // Zone 5
 ]
 
-const ZONE_LABELS = ['Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5']
-
-
 export default function ZoneDistributionChart() {
+  const { t } = useTranslation()
   const { toQueryString } = useAnalyticsFilters()
   const [zoneType, setZoneType] = useState<ZoneType>('hr')
   const [granularity, setGranularity] = useState<Granularity>('month')
@@ -75,9 +74,11 @@ export default function ZoneDistributionChart() {
         zoneTotals.set(point.zone_index, (zoneTotals.get(point.zone_index) ?? 0) + point.total_seconds)
       }
 
+      const zoneLabel = (zoneIdx: number) => t('activityTables.zoneTable.defaultName', { number: zoneIdx })
+
       if (chartView === 'pie') {
         const pieData = zoneIndices.map(zoneIdx => ({
-          name: ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`,
+          name: zoneLabel(zoneIdx),
           value: zoneTotals.get(zoneIdx) ?? 0,
           itemStyle: { color: ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af' },
         })).filter(d => d.value > 0)
@@ -127,7 +128,7 @@ export default function ZoneDistributionChart() {
           return match ? match.total_seconds : 0
         })
         const color = ZONE_COLORS[zoneIdx - 1] ?? '#9ca3af'
-        const label = ZONE_LABELS[zoneIdx - 1] ?? `Zone ${zoneIdx}`
+        const label = zoneLabel(zoneIdx)
         return {
           name: label,
           type: 'bar' as const,
@@ -146,9 +147,9 @@ export default function ZoneDistributionChart() {
           right: 8,
           top: 2,
           feature: {
-            brush: lineXBrushToolboxFeature,
-            restore: { title: 'Zurücksetzen' },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            brush: lineXBrushToolboxFeature(t),
+            restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+            saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -157,7 +158,7 @@ export default function ZoneDistributionChart() {
           { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
         ],
         legend: {
-          data: zoneIndices.map(i => ZONE_LABELS[i - 1] ?? `Zone ${i}`),
+          data: zoneIndices.map(zoneLabel),
           top: 4,
           textStyle: { fontSize: 10, color: '#9ca3af' },
           itemWidth: 12,
@@ -185,7 +186,7 @@ export default function ZoneDistributionChart() {
               total += p.value
             }
             html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
-              Gesamt: <strong style="color:#f9fafb">${fmtDuration(total, 'abbr')}</strong>
+              ${t('analyticsTrainingStats.tooltip.total')}: <strong style="color:#f9fafb">${fmtDuration(total, 'abbr')}</strong>
             </div>`
             return html
           },
@@ -215,7 +216,7 @@ export default function ZoneDistributionChart() {
         series,
       }
     },
-    [data, chartView],
+    [data, chartView, t],
     (chart) => {
       if (chartView !== 'bar') return
       const periodCount = new Set((data ?? []).map(point => point.period)).size
@@ -225,13 +226,17 @@ export default function ZoneDistributionChart() {
 
   const hasData = data && data.length > 0
 
-  const zoneTypeLabel: Record<ZoneType, string> = { hr: 'Herzfrequenz', power: 'Leistung', cadence: 'Kadenz' }
+  const zoneTypeLabel: Record<ZoneType, string> = {
+    hr: t('analyticsTrainingStats.zoneDistribution.zoneTypes.hr'),
+    power: t('analyticsTrainingStats.zoneDistribution.zoneTypes.power'),
+    cadence: t('analyticsTrainingStats.zoneDistribution.zoneTypes.cadence'),
+  }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          Zonenverteilung
+          {t('analyticsTrainingStats.zoneDistribution.title')}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Zone type toggle */}
@@ -257,7 +262,7 @@ export default function ZoneDistributionChart() {
                   ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                   : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
               >
-                Woche
+                {t('analyticsTrainingStats.units.week', { count: 1 })}
               </button>
               <button
                 onClick={() => setGranularity('month')}
@@ -265,7 +270,7 @@ export default function ZoneDistributionChart() {
                   ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                   : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
               >
-                Monat
+                {t('analyticsTrainingStats.units.month', { count: 1 })}
               </button>
             </div>
           )}
@@ -273,21 +278,21 @@ export default function ZoneDistributionChart() {
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setChartView('bar')}
-              title="Zeitverlauf (Balken)"
+              title={t('analyticsTrainingStats.zoneDistribution.barTitle')}
               className={chartView === 'bar'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Balken
+              {t('analyticsTrainingStats.chartView.bar')}
             </button>
             <button
               onClick={() => setChartView('pie')}
-              title="Gesamtverteilung (Kreis)"
+              title={t('analyticsTrainingStats.zoneDistribution.pieTitle')}
               className={chartView === 'pie'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Kreis
+              {t('analyticsTrainingStats.chartView.pie')}
             </button>
           </div>
         </div>
@@ -297,18 +302,18 @@ export default function ZoneDistributionChart() {
         <div className="relative h-[280px]">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Lade Zonenverteilung…
+              {t('analyticsTrainingStats.zoneDistribution.loading')}
             </div>
           )}
           {!isLoading && isError && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Fehler beim Laden
+              {t('analyticsTrainingStats.states.loadError')}
             </div>
           )}
           {!isLoading && !isError && !hasData && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400">
-              <span className="text-sm">Keine Zonen-Daten vorhanden</span>
-              <span className="text-xs">Für {zoneTypeLabel[zoneType]}-Zonen werden Aktivitäten mit entsprechenden Messwerten benötigt</span>
+              <span className="text-sm">{t('analyticsTrainingStats.zoneDistribution.emptyTitle')}</span>
+              <span className="text-xs">{t('analyticsTrainingStats.zoneDistribution.emptyDescription', { zoneType: zoneTypeLabel[zoneType] })}</span>
             </div>
           )}
           <div ref={containerRef} className={cn("w-full h-full", { invisible: isLoading || isError || !hasData })} />

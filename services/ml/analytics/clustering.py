@@ -8,6 +8,80 @@ from sklearn.preprocessing import StandardScaler
 logger = logging.getLogger(__name__)
 
 _MIN_ACTIVITIES = 10
+_DEFAULT_LOCALE = "de"
+_SUPPORTED_LOCALES = {"de", "en", "fr", "es", "it"}
+
+_LABELS: dict[str, dict[str, str]] = {
+    "mountain": {
+        "de": "Berg",
+        "en": "Climb",
+        "fr": "Montée",
+        "es": "Montaña",
+        "it": "Salita",
+    },
+    "recovery": {
+        "de": "Erholung",
+        "en": "Recovery",
+        "fr": "Récupération",
+        "es": "Recuperación",
+        "it": "Recupero",
+    },
+    "endurance": {
+        "de": "Ausdauer",
+        "en": "Endurance",
+        "fr": "Endurance",
+        "es": "Resistencia",
+        "it": "Resistenza",
+    },
+    "interval": {
+        "de": "Intervall",
+        "en": "Interval",
+        "fr": "Intervalle",
+        "es": "Intervalo",
+        "it": "Intervallo",
+    },
+    "race": {
+        "de": "Wettkampf",
+        "en": "Race",
+        "fr": "Course",
+        "es": "Competición",
+        "it": "Gara",
+    },
+    "mixed": {
+        "de": "Gemischt",
+        "en": "Mixed",
+        "fr": "Mixte",
+        "es": "Mixto",
+        "it": "Misto",
+    },
+}
+
+
+def _normalize_locale(locale: str | None) -> str:
+    if not locale:
+        return _DEFAULT_LOCALE
+    normalized = (
+        locale.strip().lower().split("-", maxsplit=1)[0].split("_", maxsplit=1)[0]
+    )
+    if normalized in _SUPPORTED_LOCALES:
+        return normalized
+    return _DEFAULT_LOCALE
+
+
+async def _fetch_user_locale(conn, user_id: str) -> str:
+    try:
+        row = await conn.fetchrow(
+            "SELECT locale FROM users WHERE id = $1::uuid",
+            user_id,
+        )
+    except Exception as e:
+        logger.warning(
+            "cluster_activities: locale query failed for user %s: %s", user_id, e
+        )
+        return _DEFAULT_LOCALE
+    if row is None:
+        return _DEFAULT_LOCALE
+    return _normalize_locale(row["locale"])
 
 
 async def cluster_activities(conn, user_id: str) -> list:
@@ -54,6 +128,7 @@ async def cluster_activities(conn, user_id: str) -> list:
         )
         return []
 
+    locale = await _fetch_user_locale(conn, user_id)
     ids = [str(r["id"]) for r in rows]
 
     def safe_float(v) -> float:
@@ -113,7 +188,8 @@ async def cluster_activities(conn, user_id: str) -> list:
         clusters.append(
             {
                 "id": cluster_id,
-                "label": _auto_label(center_dict),
+                "label_key": _auto_label_key(center_dict),
+                "label": _auto_label(center_dict, locale=locale),
                 "center": center_dict,
                 "count": len(member_ids),
                 "activity_ids": member_ids,
@@ -125,8 +201,8 @@ async def cluster_activities(conn, user_id: str) -> list:
     return clusters
 
 
-def _auto_label(center: dict) -> str:
-    """Heuristische Cluster-Benennung anhand des Cluster-Zentrums."""
+def _auto_label_key(center: dict) -> str:
+    """Stable cluster label code derived from the cluster center."""
     dur = center["duration_h"]
     hr = center["hr_pct"]
     elev = center["elevation_m"]
@@ -139,13 +215,18 @@ def _auto_label(center: dict) -> str:
     hilly = elev >= 500.0
 
     if hilly:
-        return "Berg"
+        return "mountain"
     if short and easy:
-        return "Erholung"
+        return "recovery"
     if long_ and easy:
-        return "Ausdauer"
+        return "endurance"
     if short and intense:
-        return "Intervall"
+        return "interval"
     if long_ and intense:
-        return "Wettkampf"
-    return "Gemischt"
+        return "race"
+    return "mixed"
+
+
+def _auto_label(center: dict, locale: str | None = None) -> str:
+    """Heuristische Cluster-Benennung anhand des Cluster-Zentrums."""
+    return _LABELS[_auto_label_key(center)][_normalize_locale(locale)]

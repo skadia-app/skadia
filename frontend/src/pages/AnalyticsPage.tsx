@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAnalyticsFilters, getPresets, savePreset, deletePreset, activeFilterCount } from '@/lib/analyticsFilters'
@@ -14,23 +15,24 @@ import type { GearFilter } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabilities'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
-const tabs: Array<{ to: string; label: string; requiresCapability?: CapabilityKey }> = [
-  { to: '/analytics/training', label: 'Training' },
-  { to: '/analytics/health', label: 'Gesundheit' },
-  { to: '/analytics/stats', label: 'Statistiken' },
-  { to: '/analytics/insights', label: 'Insights' },
-  { to: '/analytics/records', label: 'Bestleistungen' },
-  { to: '/analytics/summits', label: 'Gipfelsammlung', requiresCapability: 'geo_poi_enrichment' },
+const tabs: Array<{ to: string; labelKey: string; requiresCapability?: CapabilityKey }> = [
+  { to: '/analytics/training', labelKey: 'training' },
+  { to: '/analytics/health', labelKey: 'health' },
+  { to: '/analytics/stats', labelKey: 'stats' },
+  { to: '/analytics/insights', labelKey: 'insights' },
+  { to: '/analytics/records', labelKey: 'records' },
+  { to: '/analytics/summits', labelKey: 'summits', requiresCapability: 'geo_poi_enrichment' },
 ]
 
 // Quick-select date presets
-const DATE_PRESETS: { label: string; days: number | null }[] = [
-  { label: '30 Tage', days: 30 },
-  { label: '90 Tage', days: 90 },
-  { label: '6 Monate', days: 180 },
-  { label: '1 Jahr', days: 365 },
-  { label: 'Alles', days: null },
+const DATE_PRESETS: { labelKey: string; days: number | null }[] = [
+  { labelKey: 'days30', days: 30 },
+  { labelKey: 'days90', days: 90 },
+  { labelKey: 'months6', days: 180 },
+  { labelKey: 'year1', days: 365 },
+  { labelKey: 'all', days: null },
 ]
 
 function toISODate(d: Date): string {
@@ -38,8 +40,6 @@ function toISODate(d: Date): string {
 }
 
 // ── Sport Type Selector (checkbox tree — matches ActivityFilters layout) ─────
-
-const ANALYTICS_SPORT_OPTIONS = generateActivityFilterOptions()
 
 interface SportTypeSelectorProps {
   selected: string[]
@@ -55,14 +55,15 @@ function ModifierTriState({
   value: boolean | null
   onChange: (value: boolean | null) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div>
       <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">{label}</div>
       <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
         {([
-          [null, 'Alle'],
-          [true, 'Nur'],
-          [false, 'Ohne'],
+          [null, t('analyticsPage.filters.triState.all')],
+          [true, t('analyticsPage.filters.triState.only')],
+          [false, t('analyticsPage.filters.triState.without')],
         ] as [boolean | null, string][]).map(([val, optionLabel]) => (
           <button
             key={String(val)}
@@ -82,6 +83,8 @@ function ModifierTriState({
 }
 
 function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [sportSearch, setSportSearch] = useState('')
   const { hideUnused } = useGlobalSportSettings()
@@ -94,12 +97,13 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
     if (!statsData) return new Set()
     return new Set(statsData.map((s) => s.sub_type ? `${s.sport_type}:${s.sub_type}` : s.sport_type))
   }, [statsData])
+  const sportOptions = useMemo(() => generateActivityFilterOptions(language), [language])
   const visibleOptions = useMemo(() => {
     if (hideUnused && existingSportKeys.size > 0) {
-      return filterToExistingSports(ANALYTICS_SPORT_OPTIONS, existingSportKeys)
+      return filterToExistingSports(sportOptions, existingSportKeys)
     }
-    return ANALYTICS_SPORT_OPTIONS
-  }, [hideUnused, existingSportKeys])
+    return sportOptions
+  }, [hideUnused, existingSportKeys, sportOptions])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
@@ -156,7 +160,7 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportarten</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.sports')}</span>
         <button
           onClick={() => {
             if (selected.length > 0) onChange([])
@@ -177,14 +181,14 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
           }}
           className="text-xs text-[var(--color-accent-DEFAULT)] hover:text-[var(--color-accent-600)] cursor-pointer"
         >
-          {selected.length > 0 ? 'Keine' : 'Alle'}
+          {selected.length > 0 ? t('analyticsPage.filters.none') : t('analyticsPage.filters.all')}
         </button>
       </div>
       <input
         type="text"
         value={sportSearch}
         onChange={e => setSportSearch(e.target.value)}
-        placeholder="Sportart suchen..."
+        placeholder={t('analyticsPage.filters.searchSport')}
         className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5
                    text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-DEFAULT)]"
       />
@@ -264,23 +268,24 @@ interface FilterPanelProps {
 }
 
 const SEASON_OPTIONS = [
-  { value: 'fruehling', label: 'Frühling' },
-  { value: 'sommer', label: 'Sommer' },
-  { value: 'herbst', label: 'Herbst' },
-  { value: 'winter', label: 'Winter' },
+  { value: 'fruehling', labelKey: 'spring' },
+  { value: 'sommer', labelKey: 'summer' },
+  { value: 'herbst', labelKey: 'autumn' },
+  { value: 'winter', labelKey: 'winter' },
 ]
 
 const WEEKDAY_OPTIONS = [
-  { value: 1, label: 'Mo' },
-  { value: 2, label: 'Di' },
-  { value: 3, label: 'Mi' },
-  { value: 4, label: 'Do' },
-  { value: 5, label: 'Fr' },
-  { value: 6, label: 'Sa' },
-  { value: 0, label: 'So' },
+  { value: 1, labelKey: 'mon' },
+  { value: 2, labelKey: 'tue' },
+  { value: 3, labelKey: 'wed' },
+  { value: 4, labelKey: 'thu' },
+  { value: 5, labelKey: 'fri' },
+  { value: 6, labelKey: 'sat' },
+  { value: 0, labelKey: 'sun' },
 ]
 
 function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelProps) {
+  const { t } = useTranslation()
   const [presets, setPresets] = useState<FilterPreset[]>(getPresets)
   const [presetName, setPresetName] = useState('')
   const [showSavePreset, setShowSavePreset] = useState(false)
@@ -357,19 +362,19 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-lg p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Filter</h3>
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('analyticsPage.filters.title')}</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={onReset}
             className="text-xs px-2.5 py-1 rounded-md border border-neutral-200 dark:border-neutral-700
                        text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
-            Zurücksetzen
+            {t('analyticsPage.filters.reset')}
           </button>
           <button
             onClick={onClose}
             className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors p-1"
-            aria-label="Filter schließen"
+            aria-label={t('analyticsPage.filters.close')}
           >
             ✕
           </button>
@@ -379,7 +384,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
       {/* Presets */}
       {presets.length > 0 && (
         <div>
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">Gespeicherte Filter</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">{t('analyticsPage.filters.savedFilters')}</div>
           <div className="flex flex-wrap gap-1.5">
             {presets.map(p => (
               <div key={p.name} className="flex items-center gap-1 rounded-full bg-neutral-100 dark:bg-neutral-800 pl-2.5 pr-1 py-0.5">
@@ -392,7 +397,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                 <button
                   onClick={() => handleDeletePreset(p.name)}
                   className="text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors text-xs leading-none"
-                  aria-label="Preset löschen"
+                  aria-label={t('analyticsPage.filters.deletePreset')}
                 >
                   ✕
                 </button>
@@ -405,16 +410,16 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Date range */}
         <div className="space-y-2">
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeitraum</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.period')}</div>
           <div className="flex flex-wrap gap-1">
             {DATE_PRESETS.map(p => (
               <button
-                key={p.label}
+                key={p.labelKey}
                 onClick={() => applyDatePreset(p.days)}
                 className="text-xs px-2 py-1 rounded-md border border-neutral-200 dark:border-neutral-700
                            text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
-                {p.label}
+                {t(`analyticsPage.filters.datePresets.${p.labelKey}`)}
               </button>
             ))}
           </div>
@@ -439,11 +444,11 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
 
         {/* Distance & elevation */}
         <div className="space-y-2">
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Distanz (km)</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.distanceKm')}</div>
           <div className="flex items-center gap-1.5">
             <input
               type="number"
-              placeholder="Von"
+              placeholder={t('analyticsPage.filters.from')}
               value={filters.distMin}
               onChange={e => onFilterChange({ distMin: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -452,18 +457,18 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             <span className="text-xs text-neutral-400">–</span>
             <input
               type="number"
-              placeholder="Bis"
+              placeholder={t('analyticsPage.filters.to')}
               value={filters.distMax}
               onChange={e => onFilterChange({ distMax: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
                          text-neutral-900 dark:text-neutral-100 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-DEFAULT)]"
             />
           </div>
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mt-2">Höhenmeter (m)</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mt-2">{t('analyticsPage.filters.elevationM')}</div>
           <div className="flex items-center gap-1.5">
             <input
               type="number"
-              placeholder="Von"
+              placeholder={t('analyticsPage.filters.from')}
               value={filters.elevMin}
               onChange={e => onFilterChange({ elevMin: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -472,7 +477,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             <span className="text-xs text-neutral-400">–</span>
             <input
               type="number"
-              placeholder="Bis"
+              placeholder={t('analyticsPage.filters.to')}
               value={filters.elevMax}
               onChange={e => onFilterChange({ elevMax: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -483,11 +488,11 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
 
         {/* HR & Power */}
         <div className="space-y-2">
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Herzfrequenz (bpm)</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.heartRateBpm')}</div>
           <div className="flex items-center gap-1.5">
             <input
               type="number"
-              placeholder="Von"
+              placeholder={t('analyticsPage.filters.from')}
               value={filters.hrMin}
               onChange={e => onFilterChange({ hrMin: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -496,18 +501,18 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             <span className="text-xs text-neutral-400">–</span>
             <input
               type="number"
-              placeholder="Bis"
+              placeholder={t('analyticsPage.filters.to')}
               value={filters.hrMax}
               onChange={e => onFilterChange({ hrMax: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
                          text-neutral-900 dark:text-neutral-100 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-DEFAULT)]"
             />
           </div>
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mt-2">Leistung (W)</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mt-2">{t('analyticsPage.filters.powerW')}</div>
           <div className="flex items-center gap-1.5">
             <input
               type="number"
-              placeholder="Von"
+              placeholder={t('analyticsPage.filters.from')}
               value={filters.powerMin}
               onChange={e => onFilterChange({ powerMin: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -516,7 +521,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             <span className="text-xs text-neutral-400">–</span>
             <input
               type="number"
-              placeholder="Bis"
+              placeholder={t('analyticsPage.filters.to')}
               value={filters.powerMax}
               onChange={e => onFilterChange({ powerMax: e.target.value })}
               className="flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800
@@ -529,7 +534,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
       {/* Seasons & Weekdays — full width row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Jahreszeit</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.season')}</div>
           <div className="flex gap-1.5">
             {SEASON_OPTIONS.map(s => (
               <button
@@ -541,13 +546,13 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
                 }`}
               >
-                {s.label}
+                {t(`analyticsPage.filters.seasons.${s.labelKey}`)}
               </button>
             ))}
           </div>
         </div>
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Wochentag</div>
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.weekday')}</div>
           <div className="flex gap-1">
             {WEEKDAY_OPTIONS.map(d => (
               <button
@@ -559,7 +564,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
                 }`}
               >
-                {d.label}
+                {t(`analyticsPage.filters.weekdays.${d.labelKey}`)}
               </button>
             ))}
           </div>
@@ -568,7 +573,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
 
       {/* Activity flags */}
       <div className="space-y-1.5">
-        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Aktivitätstyp</div>
+        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.activityType')}</div>
         <div className="flex gap-2">
           <button
             onClick={() => onFilterChange({ isCommute: filters.isCommute === 'true' ? '' : 'true' })}
@@ -578,7 +583,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
           >
-            Pendeln
+            {t('analyticsPage.filters.commute')}
           </button>
           <button
             onClick={() => onFilterChange({ isRace: filters.isRace === 'true' ? '' : 'true' })}
@@ -588,20 +593,20 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
           >
-            Wettkampf
+            {t('analyticsPage.filters.race')}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <ModifierTriState label="E-Antrieb" value={filters.isElectric} onChange={(isElectric) => onFilterChange({ isElectric })} />
-        <ModifierTriState label="Indoor" value={filters.isIndoor} onChange={(isIndoor) => onFilterChange({ isIndoor })} />
-        <ModifierTriState label="Virtuell" value={filters.isVirtual} onChange={(isVirtual) => onFilterChange({ isVirtual })} />
+        <ModifierTriState label={t('analyticsPage.filters.electricAssist')} value={filters.isElectric} onChange={(isElectric) => onFilterChange({ isElectric })} />
+        <ModifierTriState label={t('analyticsPage.filters.indoor')} value={filters.isIndoor} onChange={(isIndoor) => onFilterChange({ isIndoor })} />
+        <ModifierTriState label={t('analyticsPage.filters.virtual')} value={filters.isVirtual} onChange={(isVirtual) => onFilterChange({ isVirtual })} />
       </div>
 
       {/* Sport Type Selector */}
       <div className="space-y-1.5">
-        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</div>
+        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsPage.filters.sportType')}</div>
         <SportTypeSelector
           selected={filters.sportTypes}
           onChange={types => onFilterChange({ sportTypes: types })}
@@ -626,7 +631,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
           <div className="flex items-center gap-2">
             <input
               type="text"
-              placeholder="Filter-Name…"
+              placeholder={t('analyticsPage.filters.presetNamePlaceholder')}
               value={presetName}
               onChange={e => setPresetName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSavePreset()}
@@ -638,13 +643,13 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
               onClick={handleSavePreset}
               className="text-xs px-2.5 py-1 rounded-md bg-[var(--color-accent-DEFAULT)] text-white font-medium hover:opacity-90 cursor-pointer transition-opacity"
             >
-              Speichern
+              {t('analyticsPage.filters.save')}
             </button>
             <button
               onClick={() => setShowSavePreset(false)}
               className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
             >
-              Abbrechen
+              {t('analyticsPage.filters.cancel')}
             </button>
           </div>
         ) : (
@@ -652,7 +657,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
             onClick={() => setShowSavePreset(true)}
             className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
           >
-            + Als Filter-Preset speichern
+            {t('analyticsPage.filters.saveAsPreset')}
           </button>
         )}
       </div>
@@ -663,6 +668,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
 // ── AnalyticsPage ─────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const { t } = useTranslation()
   const { filters, setFilters, toQueryString } = useAnalyticsFilters()
   const [filterOpen, setFilterOpen] = useState(false)
   const location = useLocation()
@@ -712,10 +718,10 @@ export default function AnalyticsPage() {
     filterSummary.push(parts.join(' – '))
   }
   if (filters.sportTypes.length > 0) {
-    filterSummary.push(filters.sportTypes.length === 1 ? filters.sportTypes[0] : `${filters.sportTypes.length} Sportarten`)
+    filterSummary.push(filters.sportTypes.length === 1 ? filters.sportTypes[0] : t('analyticsPage.summary.sportTypes', { count: filters.sportTypes.length }))
   }
-  if (filters.isCommute === 'true') filterSummary.push('Pendeln')
-  if (filters.isRace === 'true') filterSummary.push('Wettkampf')
+  if (filters.isCommute === 'true') filterSummary.push(t('analyticsPage.filters.commute'))
+  if (filters.isRace === 'true') filterSummary.push(t('analyticsPage.filters.race'))
 
   void toQueryString // used by child components via the hook
   const visibleTabs = tabs.filter(tab => !tab.requiresCapability || featureAvailable(capabilities, tab.requiresCapability))
@@ -737,7 +743,7 @@ export default function AnalyticsPage() {
                 }`
               }
             >
-              {tab.label}
+              {t(`analyticsPage.tabs.${tab.labelKey}`)}
             </NavLink>
           ))}
         </div>
@@ -755,7 +761,7 @@ export default function AnalyticsPage() {
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M7 8h10M10 12h4" />
             </svg>
-            Filter
+            {t('analyticsPage.filters.title')}
             {filterCount > 0 && (
               <span className="rounded-full bg-[var(--color-accent-DEFAULT)] text-white text-xs font-bold w-4 h-4 flex items-center justify-center leading-none">
                 {filterCount}
@@ -768,7 +774,7 @@ export default function AnalyticsPage() {
       {/* Active filter chips summary — hidden on tabs with their own filter model */}
       {!hideFilterControls && filterCount > 0 && !filterOpen && filterSummary.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">Aktiv:</span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{t('analyticsPage.summary.active')}</span>
           {filterSummary.map((s, i) => (
             <span
               key={i}
@@ -781,7 +787,7 @@ export default function AnalyticsPage() {
             onClick={resetFilters}
             className="text-xs text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors"
           >
-            Alles löschen
+            {t('analyticsPage.summary.clearAll')}
           </button>
         </div>
       )}

@@ -72,6 +72,18 @@ describe('RangePresetBar', () => {
     expect(screen.getByTestId('date-range-picker')).toBeInTheDocument()
   })
 
+  it('falls back to the localized custom label when a custom label is not provided', () => {
+    const unlabeledPresets = [
+      { value: '30d', label: '30d' },
+      { value: 'custom' },
+    ] as Preset[]
+
+    render(<RangePresetBar presets={unlabeledPresets} value="30d" onChange={onChange} />)
+
+    expect(screen.getByRole('button', { name: 'Benutzerdefiniert' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'custom' })).not.toBeInTheDocument()
+  })
+
   it('confirming a custom range calls onChange with custom preset and given dates', () => {
     render(<RangePresetBar presets={PRESETS} value="30d" onChange={onChange} />)
 

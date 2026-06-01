@@ -1,7 +1,6 @@
-// ReadinessCard.tsx — Readiness score card (compact for Dashboard, full for Insights).
-// UI strings in German; comments in English.
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Lightbulb, AlertTriangle, AlertCircle, RefreshCw, HeartPulse } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import {
   fetchReadiness,
   fetchReadinessPreferences,
@@ -14,16 +13,6 @@ import {
 } from '@/api/analytics'
 import { recommendationText } from './readinessRecommendations'
 
-// ── Const maps (i18n-prepared, DE strings) ────────────────────────────────────
-
-const LEVEL_LABELS: Record<ReadinessLevel, string> = {
-  critical: 'kritisch',
-  low: 'niedrig',
-  moderate: 'moderat',
-  good: 'gut',
-  optimal: 'optimal',
-}
-
 const LEVEL_COLORS: Record<ReadinessLevel, string> = {
   critical: '#ef4444',
   low: '#f97316',
@@ -32,85 +21,100 @@ const LEVEL_COLORS: Record<ReadinessLevel, string> = {
   optimal: '#10b981',
 }
 
-const CONFIDENCE_LABELS: Record<ReadinessConfidence, string> = {
-  high: 'Hoch',
-  medium: 'Mittel',
-  low: 'Niedrig',
-}
+const READINESS_FACTOR_KEYS = new Set([
+  'hrv_status',
+  'sleep',
+  'training_load',
+  'dfa_alpha1',
+  'sample_entropy',
+  'rhr_changepoint',
+  'stress_history',
+  'recovery_time',
+])
 
-const FACTOR_LABELS: Record<string, string> = {
-  hrv_status: 'HRV-Status',
-  sleep: 'Schlaf',
-  training_load: 'Trainingslast',
-  dfa_alpha1: 'DFA-α1',
-  sample_entropy: 'Sample Entropy',
-  rhr_changepoint: 'Ruhepuls-Veränderung',
-  stress_history: 'Stress (Historie)',
-  recovery_time: 'Erholungszeit',
-}
+const READINESS_SOURCE_KEYS = new Set([
+  'garmin',
+  'garmin_fit',
+  'manual_override',
+  'skadia',
+  'strava',
+  'komoot',
+  'manual',
+  'mobile',
+])
 
-const SOURCE_LABELS: Record<ReadinessSource, string> = {
-  garmin: 'Garmin',
-  garmin_fit: 'Garmin (FIT-Datei)',
-  manual_override: 'Manuell',
-  skadia: 'Skadia',
-  strava: 'Strava',
-  komoot: 'Komoot',
-  manual: 'Manuell (Import)',
-  mobile: 'Mobile App',
-}
+const READINESS_REFUSAL_KEYS = new Set([
+  'insufficient_factors',
+  'no_data',
+  'service_unavailable',
+])
 
-const REFUSAL_TEXTS: Record<string, string> = {
-  insufficient_factors:
-    'Noch nicht berechenbar — aktuelle HRV-, Schlaf- und Trainingslast-Daten werden benötigt.',
-  no_data:
-    'Noch keine Gesundheitsdaten vorhanden — verbinde ein Wearable oder importiere FIT-Dateien.',
-  service_unavailable:
-    'Bereitschaft wird im Hintergrund berechnet. Falls keine HRV-, Schlaf- oder Trainingslastdaten vorhanden sind, bleibt diese Karte leer.',
-}
+const READINESS_MISSING_REASON_KEYS = new Set([
+  'no_data',
+  'no_data_today',
+  'stale',
+  'no_baseline',
+])
 
-// Single-line refusal hints for the compact/dashboard variant — must fit in ~1 line.
-const REFUSAL_TEXTS_COMPACT: Record<string, string> = {
-  insufficient_factors: 'Datenbasis fehlt',
-  no_data:              'Keine Daten',
-  service_unavailable:  'Berechnung läuft…',
-}
-
-// Reason labels for per-factor missing explanations.
-const MISSING_REASON_LABELS: Record<string, string> = {
-  no_data:       'Noch keine Daten',
-  no_data_today: 'Heute keine Messung',
-  stale:         'Letzte Messung zu alt',
-  no_baseline:   'Basislinie noch nicht ausreichend',
-}
+const READINESS_CONFIDENCE_KEYS = new Set([
+  'high',
+  'medium',
+  'low',
+])
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function factorLabel(key: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!READINESS_FACTOR_KEYS.has(key)) return t('analyticsReadiness.factors.unknown')
+  return t(`analyticsReadiness.factors.${key}`)
+}
+
+function sourceLabel(source: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!READINESS_SOURCE_KEYS.has(source)) return t('analyticsReadiness.sources.unknown')
+  return t(`analyticsReadiness.sources.${source}`)
+}
+
+function refusalText(reason: string | null, compact: boolean, t: ReturnType<typeof useTranslation>['t']): string {
+  const namespace = compact ? 'refusalsCompact' : 'refusals'
+  if (reason && READINESS_REFUSAL_KEYS.has(reason)) return t(`analyticsReadiness.${namespace}.${reason}`)
+  return t(`analyticsReadiness.${namespace}.fallback`)
+}
+
+function missingReasonLabel(reason: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!READINESS_MISSING_REASON_KEYS.has(reason)) return t('analyticsReadiness.missingReasons.unknown')
+  return t(`analyticsReadiness.missingReasons.${reason}`)
+}
+
+function confidenceLabel(confidence: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!READINESS_CONFIDENCE_KEYS.has(confidence)) return t('analyticsReadiness.confidence.unknown')
+  return t(`analyticsReadiness.confidence.${confidence}`)
+}
+
 /** Derive a display status from the factor's 0-100 value.
  * Thresholds mirror backend _score_to_level for consistency:
- * optimal ≥80, gut ≥60, moderat ≥40, niedrig ≥20, kritisch <20. */
-function factorStatus(factor: ReadinessFactor): 'optimal' | 'gut' | 'moderat' | 'niedrig' | 'kritisch' | 'fehlend' {
-  if (factor.missing || factor.value === null) return 'fehlend'
+ * optimal >=80, good >=60, moderate >=40, low >=20, critical <20. */
+function factorStatus(factor: ReadinessFactor): 'optimal' | 'good' | 'moderate' | 'low' | 'critical' | 'missing' {
+  if (factor.missing || factor.value === null) return 'missing'
   if (factor.value >= 80) return 'optimal'
-  if (factor.value >= 60) return 'gut'
-  if (factor.value >= 40) return 'moderat'
-  if (factor.value >= 20) return 'niedrig'
-  return 'kritisch'
+  if (factor.value >= 60) return 'good'
+  if (factor.value >= 40) return 'moderate'
+  if (factor.value >= 20) return 'low'
+  return 'critical'
 }
 
 function statusBadgeClasses(status: ReturnType<typeof factorStatus>): string {
   switch (status) {
     case 'optimal':
       return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    case 'gut':
+    case 'good':
       return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-    case 'moderat':
+    case 'moderate':
       return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-    case 'niedrig':
+    case 'low':
       return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-    case 'kritisch':
+    case 'critical':
       return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-    case 'fehlend':
+    case 'missing':
       return 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
   }
 }
@@ -127,11 +131,11 @@ function sourceBadgeClasses(source: ReadinessSource): string {
 // ── Level scale thresholds — defines the boundary positions on the 0-100 bar ──
 // Levels: critical <20, low <40, moderate <60, good <80, optimal ≤100.
 // Labels are rendered below each tick mark for visual orientation.
-const LEVEL_THRESHOLDS: { level: ReadinessLevel; pct: number; label: string }[] = [
-  { level: 'critical', pct: 20, label: 'Niedrig'  },
-  { level: 'low',      pct: 40, label: 'Moderat'  },
-  { level: 'moderate', pct: 60, label: 'Gut'      },
-  { level: 'good',     pct: 80, label: 'Optimal'  },
+const LEVEL_THRESHOLDS: { level: ReadinessLevel; pct: number }[] = [
+  { level: 'critical', pct: 20 },
+  { level: 'low', pct: 40 },
+  { level: 'moderate', pct: 60 },
+  { level: 'good', pct: 80 },
 ]
 
 // ── ScoreRing ─────────────────────────────────────────────────────────────────
@@ -157,6 +161,7 @@ function ringFontSize(size: number): number {
 }
 
 function ScoreRing({ score, level, size = 64 }: ScoreRingProps) {
+  const { t } = useTranslation()
   const stroke = ringStroke(size)
   const r = size / 2 - stroke
   const cx = size / 2
@@ -172,7 +177,7 @@ function ScoreRing({ score, level, size = 64 }: ScoreRingProps) {
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      aria-label={score !== null ? `Bereitschaftswert ${score} von 100` : 'Kein Bereitschaftswert'}
+      aria-label={score !== null ? t('analyticsReadiness.scoreAria', { score }) : t('analyticsReadiness.noScoreAria')}
       role="img"
       style={{ filter: level ? `drop-shadow(0 1px 3px ${color}55)` : undefined }}
     >
@@ -258,7 +263,7 @@ function GhostRing({ size = 64 }: GhostRingProps) {
   )
 }
 
-// ── ScaleBar — horizontal Schlecht→Optimal progress bar ───────────────────────
+// ── ScaleBar — horizontal bad-to-optimal progress bar ─────────────────────────
 
 interface ScaleBarProps {
   score: number | null
@@ -266,6 +271,7 @@ interface ScaleBarProps {
 }
 
 function ScaleBar({ score, level }: ScaleBarProps) {
+  const { t } = useTranslation()
   const pct = score !== null ? Math.max(0, Math.min(100, score)) : 0
   const color = level ? LEVEL_COLORS[level] : '#6b7280'
 
@@ -278,7 +284,7 @@ function ScaleBar({ score, level }: ScaleBarProps) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct}
-        aria-label={`Bereitschaftswert ${pct} von 100`}
+        aria-label={t('analyticsReadiness.scoreAria', { score: pct })}
       >
         {/* Coloured fill */}
         <div
@@ -290,33 +296,33 @@ function ScaleBar({ score, level }: ScaleBarProps) {
           }}
         />
         {/* Level boundary tick marks — higher contrast in dark mode */}
-        {LEVEL_THRESHOLDS.map(t => (
+        {LEVEL_THRESHOLDS.map(threshold => (
           <div
-            key={t.level}
+            key={threshold.level}
             className="absolute top-[-2px] bottom-[-2px] w-px bg-neutral-300 dark:bg-neutral-500 opacity-70"
-            style={{ left: `${t.pct}%` }}
+            style={{ left: `${threshold.pct}%` }}
           />
         ))}
       </div>
 
       {/* Tick labels — one per boundary, anchored at tick position */}
       <div className="relative h-3 select-none">
-        {LEVEL_THRESHOLDS.map(t => (
+        {LEVEL_THRESHOLDS.map(threshold => (
           <span
-            key={t.level}
+            key={threshold.level}
             className="absolute text-[8px] text-neutral-400 dark:text-neutral-500 -translate-x-1/2"
-            style={{ left: `${t.pct}%` }}
+            style={{ left: `${threshold.pct}%` }}
             aria-hidden="true"
           >
-            {t.label}
+            {t(`analyticsReadiness.scale.${threshold.level}`)}
           </span>
         ))}
       </div>
 
       {/* End labels */}
       <div className="flex justify-between text-[10px] text-neutral-400 dark:text-neutral-500 select-none">
-        <span>Schlecht</span>
-        <span>Optimal</span>
+        <span>{t('analyticsReadiness.scale.bad')}</span>
+        <span>{t('analyticsReadiness.scale.optimal')}</span>
       </div>
     </div>
   )
@@ -325,9 +331,10 @@ function ScaleBar({ score, level }: ScaleBarProps) {
 // ── FactorRow ─────────────────────────────────────────────────────────────────
 
 function FactorRow({ factor }: { factor: ReadinessFactor }) {
+  const { t } = useTranslation()
   const status = factorStatus(factor)
-  const label = FACTOR_LABELS[factor.key] ?? factor.key
-  const sourceLabel = SOURCE_LABELS[factor.source] ?? factor.source
+  const label = factorLabel(factor.key, t)
+  const displaySourceLabel = sourceLabel(factor.source, t)
 
   return (
     <div
@@ -347,13 +354,13 @@ function FactorRow({ factor }: { factor: ReadinessFactor }) {
           className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${statusBadgeClasses(status)}`}
           data-testid={`status-badge-${factor.key}`}
         >
-          {status}
+          {t(`analyticsReadiness.factorStatus.${status}`)}
         </span>
         <span
           className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceBadgeClasses(factor.source)}`}
           data-testid={`source-badge-${factor.key}`}
         >
-          {sourceLabel}
+          {displaySourceLabel}
         </span>
       </div>
     </div>
@@ -363,11 +370,12 @@ function FactorRow({ factor }: { factor: ReadinessFactor }) {
 // ── ConfidenceBadge ───────────────────────────────────────────────────────────
 
 function ConfidenceBadge({ confidence }: { confidence: ReadinessConfidence }) {
+  const { t } = useTranslation()
   return (
     <span className="text-xs text-neutral-500 dark:text-neutral-400">
-      {'Konfidenz: '}
+      {`${t('analyticsReadiness.confidenceLabel')} `}
       <span className="font-medium text-neutral-700 dark:text-neutral-200">
-        {CONFIDENCE_LABELS[confidence]}
+        {confidenceLabel(confidence, t)}
       </span>
     </span>
   )
@@ -382,6 +390,7 @@ interface SourceToggleProps {
 }
 
 function SourceToggle({ preferred, onChange, disabled }: SourceToggleProps) {
+  const { t } = useTranslation()
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const val = e.target.value
     if (val === 'null') onChange(null)
@@ -395,7 +404,7 @@ function SourceToggle({ preferred, onChange, disabled }: SourceToggleProps) {
         htmlFor="readiness-source-toggle"
         className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
       >
-        Datenquelle:
+        {t('analyticsReadiness.sourceToggle.label')}
       </label>
       <select
         id="readiness-source-toggle"
@@ -403,12 +412,12 @@ function SourceToggle({ preferred, onChange, disabled }: SourceToggleProps) {
         onChange={handleChange}
         disabled={disabled}
         className="text-xs rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-        aria-label="Datenquelle für Bereitschaftsberechnung"
+        aria-label={t('analyticsReadiness.sourceToggle.aria')}
         data-testid="source-toggle"
       >
-        <option value="null">Automatisch</option>
-        <option value="manufacturer">Hersteller (Garmin)</option>
-        <option value="skadia">Skadia-Berechnung</option>
+        <option value="null">{t('analyticsReadiness.sourceToggle.auto')}</option>
+        <option value="manufacturer">{t('analyticsReadiness.sourceToggle.manufacturer')}</option>
+        <option value="skadia">{t('analyticsReadiness.sourceToggle.skadia')}</option>
       </select>
     </div>
   )
@@ -423,9 +432,10 @@ interface MissingFactorsBannerProps {
 }
 
 function MissingFactorsBanner({ refused, refusalReason, missingFactors }: MissingFactorsBannerProps) {
+  const { t } = useTranslation()
   if (refused) {
     // Defensive: render fallback even when backend omits refusal_reason.
-    const text = (refusalReason ? REFUSAL_TEXTS[refusalReason] : null) ?? 'Berechnung nicht möglich.'
+    const text = refusalText(refusalReason, false, t)
     return (
       <div
         className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
@@ -443,13 +453,13 @@ function MissingFactorsBanner({ refused, refusalReason, missingFactors }: Missin
         className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400"
         data-testid="missing-factors-banner"
       >
-        <p className="font-medium mb-1">Fehlende Faktoren:</p>
+        <p className="font-medium mb-1">{t('analyticsReadiness.missingFactors')}</p>
         <ul className="space-y-0.5">
           {missingFactors.map(f => (
             <li key={f.key} className="flex items-center justify-between gap-2">
-              <span>{FACTOR_LABELS[f.key] ?? f.key}</span>
+              <span>{factorLabel(f.key, t)}</span>
               <span className="text-neutral-400 dark:text-neutral-500 shrink-0">
-                {MISSING_REASON_LABELS[f.reason] ?? f.reason}
+                {missingReasonLabel(f.reason, t)}
               </span>
             </li>
           ))}
@@ -464,6 +474,7 @@ function MissingFactorsBanner({ refused, refusalReason, missingFactors }: Missin
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 
 function CardSkeleton({ compact }: { compact?: boolean }) {
+  const { t } = useTranslation()
   // Compact skeleton ring: 64 px (matches compact ScoreRing/GhostRing size={64}).
   // Full skeleton ring: 72 px (matches full ScoreRing/GhostRing size={72}).
   const ringSize = compact ? 'w-16 h-16' : 'w-[72px] h-[72px]'
@@ -471,7 +482,7 @@ function CardSkeleton({ compact }: { compact?: boolean }) {
     <div
       className={`rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 animate-pulse${compact ? ' flex flex-col justify-center h-full' : ''}`}
       aria-busy="true"
-      aria-label="Lade Bereitschaftswert"
+      aria-label={t('analyticsReadiness.loadingAria')}
     >
       <div className="h-3 w-40 bg-neutral-200 dark:bg-neutral-700 rounded mb-3" />
       <div className={`flex items-center gap-4 ${compact ? '' : 'mb-3'}`}>
@@ -491,6 +502,7 @@ function CardSkeleton({ compact }: { compact?: boolean }) {
 // ── ReadinessCardCompact — Dashboard variant ──────────────────────────────────
 
 export function ReadinessCardCompact() {
+  const { t } = useTranslation()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'readiness'],
     queryFn: fetchReadiness,
@@ -509,11 +521,11 @@ export function ReadinessCardCompact() {
           <GhostRing size={64} />
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-wide font-medium text-neutral-400 dark:text-neutral-500">
-              Bereitschaft
+              {t('analyticsReadiness.title')}
             </p>
             <p className="flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500">
               <AlertCircle size={11} aria-hidden="true" className="flex-shrink-0" />
-              Nicht verfügbar
+              {t('analyticsReadiness.notAvailable')}
             </p>
           </div>
         </div>
@@ -537,19 +549,19 @@ export function ReadinessCardCompact() {
         <ScoreRing score={data?.score ?? null} level={level} size={64} />
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-wide font-medium text-neutral-500 dark:text-neutral-400">
-            Bereitschaft
+            {t('analyticsReadiness.title')}
           </p>
           {data?.refused ? (
             // Compact refused: ghost ring layout with single-line hint (no heavy amber banner).
             <p className="text-xs text-neutral-400 dark:text-neutral-500 line-clamp-1">
-              {REFUSAL_TEXTS_COMPACT[data.refusal_reason ?? ''] ?? 'Nicht berechenbar'}
+              {refusalText(data.refusal_reason ?? null, true, t)}
             </p>
           ) : level ? (
             <p className="text-sm font-semibold" style={{ color }}>
-              {LEVEL_LABELS[level]}
+              {t(`analyticsReadiness.levels.${level}`)}
             </p>
           ) : (
-            <p className="text-sm text-neutral-400">Keine Daten</p>
+            <p className="text-sm text-neutral-400">{t('analyticsReadiness.noData')}</p>
           )}
           {data?.confidence && (
             <ConfidenceBadge confidence={data.confidence} />
@@ -563,6 +575,7 @@ export function ReadinessCardCompact() {
 // ── ReadinessCardFull — Insights variant (default export) ─────────────────────
 
 export default function ReadinessCardFull() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const { data, isLoading, isError } = useQuery({
@@ -601,17 +614,17 @@ export default function ReadinessCardFull() {
       >
         {/* Header mirrors populated layout */}
         <h3 className="text-xs font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">
-          Bereitschaft
+            {t('analyticsReadiness.title')}
         </h3>
         {/* Ghost ring + error message — vertically centred */}
         <div className="flex flex-col items-center gap-3 py-2">
           <GhostRing size={72} />
           <p className="text-sm text-neutral-400 dark:text-neutral-500 text-center leading-snug">
-            Bereitschaftswert konnte nicht geladen werden.
+            {t('analyticsReadiness.loadFailed')}
           </p>
           <p className="flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500">
             <RefreshCw size={11} aria-hidden="true" className="flex-shrink-0" />
-            Seite neu laden
+            {t('analyticsReadiness.reloadPage')}
           </p>
         </div>
       </div>
@@ -621,7 +634,7 @@ export default function ReadinessCardFull() {
   const level = data?.level ?? null
   const color = level ? LEVEL_COLORS[level] : '#6b7280'
   const recCode = data?.recommendation_code ?? null
-  const recText = recommendationText(recCode)
+  const recText = recommendationText(recCode, t)
   const factors = data?.factors ?? []
   const missingFactors = data?.missing_factors ?? []
 
@@ -637,7 +650,7 @@ export default function ReadinessCardFull() {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Bereitschaft
+          {t('analyticsReadiness.title')}
         </h3>
         {data?.confidence && <ConfidenceBadge confidence={data.confidence} />}
       </div>
@@ -648,7 +661,7 @@ export default function ReadinessCardFull() {
           <ScoreRing score={data?.score ?? null} level={level} size={72} />
           {level && (
             <span className="text-[10px] font-medium" style={{ color }}>
-              {LEVEL_LABELS[level]}
+              {t(`analyticsReadiness.levels.${level}`)}
             </span>
           )}
         </div>
@@ -662,7 +675,7 @@ export default function ReadinessCardFull() {
         )}
       </div>
 
-      {/* Schlecht→Optimal scale bar — only when a score is available */}
+      {/* Bad-to-optimal scale bar — only when a score is available */}
       {data?.score !== null && data?.score !== undefined && (
         <ScaleBar score={data.score} level={level} />
       )}
@@ -715,7 +728,7 @@ export default function ReadinessCardFull() {
             aria-hidden="true"
           />
           <p className="text-[10px] text-amber-700 dark:text-amber-300 leading-relaxed">
-            Hinweis: Ruhepuls-Veränderung erkannt.
+            {t('analyticsReadiness.rhrChangepointNotice')}
           </p>
         </div>
       )}

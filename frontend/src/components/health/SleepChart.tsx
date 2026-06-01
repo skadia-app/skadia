@@ -2,6 +2,7 @@ import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { useECharts } from '@/hooks/useECharts'
 import type { HealthSleep } from '@/api/health'
 
@@ -23,6 +24,11 @@ function fmtHHmm(seconds: number): string {
 }
 
 export default function SleepChart({ data }: Props) {
+  const { t } = useTranslation()
+  const deepSleepLabel = t('healthCharts.sleepStages.deep')
+  const lightSleepLabel = t('healthCharts.sleepStages.light')
+  const remLabel = t('healthCharts.sleepStages.rem')
+  const awakeLabel = t('healthCharts.sleepStages.awake')
   const containerRef = useECharts(
     (theme) => {
       const dates = data.map(d => d.calendar_date)
@@ -31,7 +37,7 @@ export default function SleepChart({ data }: Props) {
         backgroundColor: 'transparent',
         grid: { left: 50, right: 16, top: 40, bottom: 50 },
         legend: {
-          data: ['Tiefschlaf', 'Leichtschlaf', 'REM', 'Wach'],
+          data: [deepSleepLabel, lightSleepLabel, remLabel, awakeLabel],
           top: 8,
           textStyle: { fontSize: 10, color: theme.textColor },
           itemHeight: 8,
@@ -48,7 +54,7 @@ export default function SleepChart({ data }: Props) {
             const totalSec = (entry?.deep_seconds ?? 0) + (entry?.light_seconds ?? 0) + (entry?.rem_seconds ?? 0)
             let html = `<div style="font-size:12px;margin-bottom:4px"><strong>${items[0].axisValueLabel}</strong>`
             if (totalSec > 0) html += ` · ${fmtHHmm(totalSec)}`
-            if (entry?.score_overall != null) html += ` · Score: ${entry.score_overall}`
+            if (entry?.score_overall != null) html += ` · ${t('healthCharts.score', { value: entry.score_overall })}`
             html += `</div>`
             for (const p of items) {
               if (p.value > 0) {
@@ -75,7 +81,7 @@ export default function SleepChart({ data }: Props) {
         },
         series: [
           {
-            name: 'Tiefschlaf',
+            name: deepSleepLabel,
             type: 'bar',
             stack: 'sleep',
             data: data.map(d => fmtHours(d.deep_seconds)),
@@ -83,7 +89,7 @@ export default function SleepChart({ data }: Props) {
             barMaxWidth: 20,
           },
           {
-            name: 'Leichtschlaf',
+            name: lightSleepLabel,
             type: 'bar',
             stack: 'sleep',
             data: data.map(d => fmtHours(d.light_seconds)),
@@ -91,7 +97,7 @@ export default function SleepChart({ data }: Props) {
             barMaxWidth: 20,
           },
           {
-            name: 'REM',
+            name: remLabel,
             type: 'bar',
             stack: 'sleep',
             data: data.map(d => fmtHours(d.rem_seconds)),
@@ -99,7 +105,7 @@ export default function SleepChart({ data }: Props) {
             barMaxWidth: 20,
           },
           {
-            name: 'Wach',
+            name: awakeLabel,
             type: 'bar',
             stack: 'sleep',
             data: data.map(d => fmtHours(d.awake_seconds)),
@@ -109,13 +115,13 @@ export default function SleepChart({ data }: Props) {
         ],
       }
     },
-    [data],
+    [data, awakeLabel, deepSleepLabel, lightSleepLabel, remLabel, t],
   )
 
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[220px] text-sm text-neutral-400">
-        Keine Schlaf-Daten vorhanden
+        {t('healthCharts.noSleepData')}
       </div>
     )
   }

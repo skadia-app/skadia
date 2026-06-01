@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   fetchHealthOverview,
   fetchHealthDailySummary,
@@ -62,6 +63,7 @@ function ChartCard({ title, children, action }: { title: string; children: React
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function HealthDashboardPage() {
+  const { t } = useTranslation()
   const [period, setPeriod] = useState<Period>('30d')
   const [showBPDialog, setShowBPDialog] = useState(false)
   const [showWeightDialog, setShowWeightDialog] = useState(false)
@@ -124,7 +126,7 @@ export default function HealthDashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Gesundheit</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('healthDashboard.title')}</h1>
         <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {(Object.keys(periodLabels) as Period[]).map(p => (
             <button
@@ -154,20 +156,20 @@ export default function HealthDashboardPage() {
 
       {/* 2-column chart grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Schritte">
+        <ChartCard title={t('healthDashboard.charts.steps')}>
           <StepsChart data={dailySummary} />
         </ChartCard>
 
-        <ChartCard title="Schlaf">
+        <ChartCard title={t('healthDashboard.charts.sleep')}>
           <SleepChart data={sleep} />
         </ChartCard>
 
-        <ChartCard title="HRV — Herzratenvariabilität">
+        <ChartCard title={t('healthDashboard.charts.hrv')}>
           <HRVChart data={hrv} />
         </ChartCard>
 
         <ChartCard
-          title="Gewicht"
+          title={t('healthDashboard.charts.weight')}
           action={
             <button
               onClick={() => setShowWeightDialog(true)}
@@ -176,7 +178,7 @@ export default function HealthDashboardPage() {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Messung
+              {t('healthDashboard.measurement')}
             </button>
           }
         >
@@ -186,7 +188,7 @@ export default function HealthDashboardPage() {
 
       {/* Blood pressure (full width) */}
       <ChartCard
-        title="Blutdruck"
+        title={t('healthDashboard.charts.bloodPressure')}
         action={
           <button
             onClick={() => setShowBPDialog(true)}
@@ -195,17 +197,17 @@ export default function HealthDashboardPage() {
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Messung
+            {t('healthDashboard.measurement')}
           </button>
         }
       >
         <div className="px-2 text-sm text-neutral-400 dark:text-neutral-500 py-4 text-center">
-          Blutdruckdaten werden im Analytics-Bereich angezeigt.
+          {t('healthDashboard.bloodPressureAnalyticsHint')}
         </div>
       </ChartCard>
 
       {/* Training load (full width) */}
-      <ChartCard title="Trainingsbelastung">
+      <ChartCard title={t('healthDashboard.charts.trainingLoad')}>
         <TrainingLoadChart data={trainingLoad} />
       </ChartCard>
 

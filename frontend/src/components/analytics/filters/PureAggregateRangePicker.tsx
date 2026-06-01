@@ -1,16 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import RangePresetBar, { type Preset, type PresetValue, type DateRange, presetToRange } from './RangePresetBar'
-
-const PURE_AGGREGATE_PRESETS: Preset[] = [
-  { value: '7d',     label: 'Letzte 7 Tage' },
-  { value: '30d',    label: '30 Tage' },
-  { value: '90d',    label: '90 Tage' },
-  { value: '180d',   label: '180 Tage' },
-  { value: '1y',     label: '1 Jahr' },
-  { value: 'all',    label: 'Alle' },
-  { value: 'custom', label: 'Benutzerdefiniert' },
-]
 
 interface Props {
   defaultPreset?: '7d' | '30d' | '90d' | '180d' | '1y' | 'all'
@@ -19,7 +10,17 @@ interface Props {
 }
 
 export default function PureAggregateRangePicker({ defaultPreset = '90d', onChange }: Props) {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
+  const presets: Preset[] = [
+    { value: '7d', label: t('analyticsTrainingStats.filters.ranges.last7Days') },
+    { value: '30d', label: t('analyticsTrainingStats.filters.ranges.days30') },
+    { value: '90d', label: t('analyticsTrainingStats.filters.ranges.days90') },
+    { value: '180d', label: t('analyticsTrainingStats.filters.ranges.days180') },
+    { value: '1y', label: t('analyticsTrainingStats.filters.ranges.year1') },
+    { value: 'all', label: t('common.all') },
+    { value: 'custom', label: t('analyticsTrainingStats.filters.ranges.custom') },
+  ]
 
   // On first mount: initialize from URL params if present, then detach (no URL sync).
   const [activePreset, setActivePreset] = useState<PresetValue>(() => {
@@ -52,7 +53,7 @@ export default function PureAggregateRangePicker({ defaultPreset = '90d', onChan
 
   return (
     <RangePresetBar
-      presets={PURE_AGGREGATE_PRESETS}
+      presets={presets}
       value={activePreset}
       onChange={handleChange}
     />

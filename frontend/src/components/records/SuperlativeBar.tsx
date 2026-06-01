@@ -1,20 +1,17 @@
 import { Link } from 'react-router-dom'
-import { formatBestEffortValue } from '@/lib/bestEffortLabels'
+import { categoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
 import { fmtDateMedium } from '@/lib/format'
+import type { SupportedLanguage } from '@/i18n/languages'
 import type { BestEffortRanked } from '@/api/bestEfforts'
-
-const SUP_LABELS: Record<string, string> = {
-  sup_longest_distance: 'Längste Distanz',
-  sup_most_elevation:   'Meiste Höhenmeter',
-  sup_biggest_climb:    'Größter Anstieg',
-  sup_longest_duration: 'Längste Dauer',
-}
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface SuperlativeBarProps {
   records: BestEffortRanked[]
+  language?: SupportedLanguage
 }
 
-export function SuperlativeBar({ records }: SuperlativeBarProps) {
+export function SuperlativeBar({ records, language }: SuperlativeBarProps) {
+  const unitFormatters = useUnitFormatters()
   const sups = records.filter((r) => r.rank === 1 && r.category.startsWith('sup_'))
   if (sups.length === 0) return null
 
@@ -38,10 +35,10 @@ export function SuperlativeBar({ records }: SuperlativeBarProps) {
           className="rounded-lg bg-purple-500/5 border border-purple-500/15 p-2.5 hover:border-purple-500/30 transition-colors"
         >
           <div className="text-[10px] text-purple-400 font-medium">
-            {SUP_LABELS[s.category] ?? s.category}
+            {categoryLabel(s.category, language)}
           </div>
           <div className="text-base font-bold">
-            {formatBestEffortValue(s.category, s.elapsed_time_s, s.value_numeric)}
+            {formatBestEffortValue(s.category, s.elapsed_time_s, s.value_numeric, unitFormatters.options)}
           </div>
           <div className="text-[9px] text-neutral-500 dark:text-neutral-400">{fmtDateMedium(s.achieved_at)}</div>
         </Link>

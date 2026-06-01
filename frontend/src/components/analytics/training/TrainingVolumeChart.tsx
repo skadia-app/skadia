@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import {
@@ -17,6 +18,8 @@ import { useECharts } from '@/hooks/useECharts'
 import { sportChartColor } from '@/lib/sportColors'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { distanceInputUnit, distanceToDisplayValue } from '@/lib/units'
 import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
 // BrushComponent backs the line-brush toolbox action used for chart zoom.
@@ -44,7 +47,21 @@ function getMetricField(metric: VolumeMetric): 'distance_m' | 'moving_time_s' | 
   }
 }
 
+type MetricDisplay = {
+  displayValue: (raw: number) => number
+  formatLabel: (raw: number) => string
+}
+
+function formatDisplayNumber(value: number, locale: string, decimals: number): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value)
+}
+
 export default function TrainingVolumeChart() {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const { toQueryString } = useAnalyticsFilters()
   const [granularity, setGranularity] = useState<Granularity>('month')
   const [volumeMetric, setVolumeMetric] = useState<VolumeMetric>('distance')
@@ -100,9 +117,20 @@ export default function TrainingVolumeChart() {
         }
       })
 
-      const metricLabel = volumeMetric === 'distance' ? 'km' : volumeMetric === 'duration' ? 'h' : 'TSS'
-      const metricFactor = volumeMetric === 'distance' ? 0.001 : volumeMetric === 'duration' ? 1 / 3600 : 1
-      const metricDecimals = volumeMetric === 'tss' ? 0 : 1
+      const metricDisplay: MetricDisplay = volumeMetric === 'distance'
+        ? {
+            displayValue: raw => distanceToDisplayValue(raw, unitFormatters.options.units),
+            formatLabel: unitFormatters.formatDistance,
+          }
+        : volumeMetric === 'duration'
+          ? {
+              displayValue: raw => raw / 3600,
+              formatLabel: raw => `${formatDisplayNumber(raw / 3600, unitFormatters.options.locale, 1)} h`,
+            }
+          : {
+              displayValue: raw => raw,
+              formatLabel: raw => `${formatDisplayNumber(raw, unitFormatters.options.locale, 0)} TSS`,
+            }
 
       return {
         backgroundColor: 'transparent',
@@ -111,9 +139,9 @@ export default function TrainingVolumeChart() {
         toolbox: {
           right: 8, top: 2,
           feature: {
-            brush: lineXBrushToolboxFeature,
-            restore: { title: 'Zurücksetzen' },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            brush: lineXBrushToolboxFeature(t),
+            restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+            saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -133,17 +161,15 @@ export default function TrainingVolumeChart() {
             let total = 0
             for (const p of items) {
               if (p.value == null || p.value <= 0) continue
-              const v = (p.value * metricFactor).toFixed(metricDecimals)
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
-                <strong style="color:#f9fafb">${v} ${metricLabel}</strong>
+                <strong style="color:#f9fafb">${metricDisplay.formatLabel(p.value)}</strong>
               </div>`
               total += p.value
             }
-            const totalFormatted = (total * metricFactor).toFixed(metricDecimals)
             html += `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #374151;color:#9ca3af;font-size:11px">
-              Gesamt: <strong style="color:#f9fafb">${totalFormatted} ${metricLabel}</strong>
+              ${t('analyticsTrainingStats.tooltip.total')}: <strong style="color:#f9fafb">${metricDisplay.formatLabel(total)}</strong>
             </div>`
             return html
           },
@@ -158,7 +184,7 @@ export default function TrainingVolumeChart() {
           axisLabel: {
             fontSize: 10, color: '#6b7280',
             formatter: (v: number) => {
-              const converted = v * metricFactor
+              const converted = metricDisplay.displayValue(v)
               return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
             },
           },
@@ -168,7 +194,7 @@ export default function TrainingVolumeChart() {
         series,
       }
     },
-    [data, volumeMetric, chartType],
+    [data, volumeMetric, chartType, unitFormatters, t],
     (chart) => {
       const periodCount = new Set((data ?? []).map(point => point.period)).size
       return bindLineXBrushZoom(chart, { dataZoomIndexes: [0], maxValue: Math.max(0, periodCount - 1) })
@@ -188,7 +214,7 @@ export default function TrainingVolumeChart() {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          Trainingsvolumen
+          {t('analyticsTrainingStats.trainingVolume.title')}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Granularity toggle */}
@@ -199,7 +225,7 @@ export default function TrainingVolumeChart() {
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Woche
+              {t('analyticsTrainingStats.units.week', { count: 1 })}
             </button>
             <button
               onClick={() => setGranularity('month')}
@@ -207,7 +233,7 @@ export default function TrainingVolumeChart() {
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Monat
+              {t('analyticsTrainingStats.units.month', { count: 1 })}
             </button>
           </div>
           {/* Metric toggle */}
@@ -218,7 +244,7 @@ export default function TrainingVolumeChart() {
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Distanz
+              {t('analyticsTrainingStats.metrics.distance')} ({distanceInputUnit(unitFormatters.options.units)})
             </button>
             <button
               onClick={() => setVolumeMetric('duration')}
@@ -226,7 +252,7 @@ export default function TrainingVolumeChart() {
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Dauer
+              {t('analyticsTrainingStats.metrics.duration')}
             </button>
             <button
               onClick={() => setVolumeMetric('tss')}
@@ -234,28 +260,28 @@ export default function TrainingVolumeChart() {
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              TSS
+              {t('analyticsTrainingStats.metrics.tss')}
             </button>
           </div>
           {/* Chart type toggle */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setChartType('bar')}
-              title="Balkendiagramm"
+              title={t('analyticsTrainingStats.chartView.barChart')}
               className={chartType === 'bar'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Balken
+              {t('analyticsTrainingStats.chartView.bar')}
             </button>
             <button
               onClick={() => setChartType('line')}
-              title="Liniendiagramm"
+              title={t('analyticsTrainingStats.chartView.lineChart')}
               className={chartType === 'line'
                 ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Linie
+              {t('analyticsTrainingStats.chartView.line')}
             </button>
           </div>
         </div>
@@ -265,24 +291,24 @@ export default function TrainingVolumeChart() {
         <div className="relative h-[280px]">
           {showLoading && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Lade Trainingsvolumen…
+              {t('analyticsTrainingStats.trainingVolume.loading')}
             </div>
           )}
           {showError && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Fehler beim Laden
+              {t('analyticsTrainingStats.states.loadError')}
             </div>
           )}
           {showEmpty && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400">
-              <span className="text-sm">Keine Daten vorhanden</span>
+              <span className="text-sm">{t('analyticsTrainingStats.states.noData')}</span>
             </div>
           )}
           {showTSSEmpty && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
-              <span className="text-sm font-medium">Keine TSS-Daten</span>
+              <span className="text-sm font-medium">{t('analyticsTrainingStats.trainingVolume.noTssTitle')}</span>
               <span className="text-xs leading-relaxed">
-                Trainingsstress (TSS) wird aus Powermeter- oder HF-Daten berechnet — für die Aktivitäten in diesem Zeitraum sind keine TSS-Werte verfügbar.
+                {t('analyticsTrainingStats.trainingVolume.noTssDescription')}
               </span>
             </div>
           )}
@@ -296,7 +322,7 @@ export default function TrainingVolumeChart() {
       {/* Quick info */}
       {hasData && data && (
         <p className="text-xs text-neutral-400">
-          {data.length} Datenpunkte — je Sport-Typ gestapelt
+          {t('analyticsTrainingStats.trainingVolume.dataPointHint', { count: data.length })}
         </p>
       )}
     </div>

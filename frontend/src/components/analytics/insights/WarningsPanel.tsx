@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchInsightsWarnings } from '@/api/analytics'
 import type { Warning } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
@@ -46,16 +47,16 @@ function severityIcon(severity: Warning['severity']): string {
   }
 }
 
-function severityLabel(severity: Warning['severity']): string {
+function severityLabel(severity: Warning['severity'], t: ReturnType<typeof useTranslation>['t']): string {
   switch (severity) {
-    case 'critical': return 'Kritisch'
-    case 'danger': return 'Kritisch'
-    case 'warning': return 'Warnung'
-    case 'info': return 'Info'
+    case 'critical': return t('analyticsHealthInsights.warnings.severity.critical')
+    case 'danger': return t('analyticsHealthInsights.warnings.severity.critical')
+    case 'warning': return t('analyticsHealthInsights.warnings.severity.warning')
+    case 'info': return t('analyticsHealthInsights.warnings.severity.info')
     default: {
       const _: never = severity
       void _
-      return 'Unbekannt'
+      return t('analyticsHealthInsights.warnings.severity.unknown')
     }
   }
 }
@@ -74,24 +75,27 @@ function severityBadge(severity: Warning['severity']): string {
   }
 }
 
-function formatWarningType(type: string): string {
-  const labels: Record<string, string> = {
-    hrv_rmssd_anomaly: 'HRV-Anomalie (RMSSD)',
-    resting_hr_anomaly: 'Ruhepuls-Anomalie',
-    sleep_score_anomaly: 'Schlafqualitäts-Anomalie',
-    spo2_anomaly: 'SpO₂-Anomalie',
-    overtraining_risk: 'Übertrainingsrisiko',
-    high_acwr: 'Hohe Belastungsrate (ACWR)',
-    low_acwr: 'Niedrige Belastungsrate (ACWR)',
-    monotony_risk: 'Monotonie-Risiko',
-    ramp_rate_risk: 'Kritische Belastungsrampe',
-    recovery_deficit: 'Erholungsdefizit',
-  }
-  return labels[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+const WARNING_TYPE_LABEL_KEYS: Record<string, string> = {
+  hrv_rmssd_anomaly: 'analyticsHealthInsights.warnings.types.hrvRmssdAnomaly',
+  resting_hr_anomaly: 'analyticsHealthInsights.warnings.types.restingHrAnomaly',
+  sleep_score_anomaly: 'analyticsHealthInsights.warnings.types.sleepScoreAnomaly',
+  spo2_anomaly: 'analyticsHealthInsights.warnings.types.spo2Anomaly',
+  overtraining_risk: 'analyticsHealthInsights.warnings.types.overtrainingRisk',
+  high_acwr: 'analyticsHealthInsights.warnings.types.highAcwr',
+  low_acwr: 'analyticsHealthInsights.warnings.types.lowAcwr',
+  monotony_risk: 'analyticsHealthInsights.warnings.types.monotonyRisk',
+  ramp_rate_risk: 'analyticsHealthInsights.warnings.types.rampRateRisk',
+  recovery_deficit: 'analyticsHealthInsights.warnings.types.recoveryDeficit',
+}
+
+export function formatWarningType(type: string, t: (key: string) => string): string {
+  const labelKey = WARNING_TYPE_LABEL_KEYS[type]
+  return t(labelKey ?? 'analyticsHealthInsights.warnings.types.unknown')
 }
 
 
 export default function WarningsPanel() {
+  const { t } = useTranslation()
   const { toQueryString } = useAnalyticsFilters()
   const queryParams = toQueryString()
 
@@ -127,11 +131,11 @@ export default function WarningsPanel() {
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Warnungen &amp; Hinweise</h3>
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">{t('analyticsHealthInsights.warnings.title')}</h3>
 
       {isError && !data && (
         <div className="text-sm text-neutral-400 text-center py-4">
-          Fehler beim Laden der Warnungen
+          {t('analyticsHealthInsights.warnings.loadFailed')}
         </div>
       )}
 
@@ -141,8 +145,8 @@ export default function WarningsPanel() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">Keine Warnungen</span>
-          <span className="text-xs text-neutral-400">Alles sieht gut aus!</span>
+          <span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">{t('analyticsHealthInsights.warnings.noWarnings')}</span>
+          <span className="text-xs text-neutral-400">{t('analyticsHealthInsights.warnings.allGood')}</span>
         </div>
       )}
 
@@ -156,12 +160,12 @@ export default function WarningsPanel() {
               <div className="flex items-center gap-2">
                 <span className="text-base leading-none" aria-hidden="true">{severityIcon(warning.severity)}</span>
                 <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-100">
-                  {formatWarningType(warning.type)}
+                  {formatWarningType(warning.type, t)}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${severityBadge(warning.severity)}`}>
-                  {severityLabel(warning.severity)}
+                  {severityLabel(warning.severity, t)}
                 </span>
               </div>
             </div>
@@ -169,8 +173,8 @@ export default function WarningsPanel() {
             <p className="text-xs text-neutral-600 dark:text-neutral-300">{warning.message}</p>
 
             <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-              <span>Wert: <strong className="text-neutral-700 dark:text-neutral-200">{warning.value.toFixed(1)}</strong></span>
-              <span>Schwelle: <strong className="text-neutral-700 dark:text-neutral-200">{warning.threshold.toFixed(1)}</strong></span>
+              <span>{t('analyticsHealthInsights.common.value')}: <strong className="text-neutral-700 dark:text-neutral-200">{warning.value.toFixed(1)}</strong></span>
+              <span>{t('analyticsHealthInsights.warnings.threshold')}: <strong className="text-neutral-700 dark:text-neutral-200">{warning.threshold.toFixed(1)}</strong></span>
             </div>
 
             {warning.explanation && (

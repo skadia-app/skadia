@@ -311,6 +311,7 @@ export interface Projection {
 export interface ActivityCluster {
   id: number
   label: string
+  label_key?: string
   size: number
   avg_distance_m: number
   avg_hr: number | null

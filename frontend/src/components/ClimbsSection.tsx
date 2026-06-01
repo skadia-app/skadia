@@ -1,31 +1,33 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { CircleHelp } from 'lucide-react'
 import { fetchActivityClimbs } from '@/api/enrichment'
 import type { Climb } from '@/api/types'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   activityId: string
   onClimbHover?: (range: { startKm: number; endKm: number } | null) => void
 }
 
-const categoryStyles: Record<string, { label: string; bg: string; text: string }> = {
-  HC: { label: 'HC', bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300' },
-  '1': { label: 'Kat. 1', bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300' },
-  '2': { label: 'Kat. 2', bg: 'bg-accent-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300' },
-  '3': { label: 'Kat. 3', bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300' },
-  '4': { label: 'Kat. 4', bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
+const categoryStyles: Record<string, { bg: string; text: string }> = {
+  HC: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300' },
+  '1': { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300' },
+  '2': { bg: 'bg-accent-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300' },
+  '3': { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300' },
+  '4': { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
 }
 
-const sportClassStyles: Record<string, { bg: string; text: string; label: string }> = {
-  S1: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Flach' },
-  S2: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Moderat' },
-  S3: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300', label: 'Steil' },
-  S4: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', label: 'Sehr steil' },
-  S5: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Extrem' },
-  leicht: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300', label: 'Leicht' },
-  mittel: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300', label: 'Mittel' },
-  schwer: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Schwer' },
+const sportClassStyles: Record<string, { bg: string; text: string }> = {
+  S1: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
+  S2: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300' },
+  S3: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300' },
+  S4: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300' },
+  S5: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300' },
+  leicht: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
+  mittel: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300' },
+  schwer: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300' },
 }
 
 function gradientColor(pct: number): string {
@@ -36,6 +38,7 @@ function gradientColor(pct: number): string {
 }
 
 function CategoryBadge({ climb }: { climb: Climb }) {
+  const { t } = useTranslation()
   const displayKey = climb.sport_class ?? climb.category
   const style = sportClassStyles[displayKey] ?? categoryStyles[climb.category]
   if (!style) {
@@ -46,18 +49,19 @@ function CategoryBadge({ climb }: { climb: Climb }) {
     )
   }
   const isSportClass = climb.sport_class != null && sportClassStyles[climb.sport_class] != null
+  const label = t(`climbs.categoryLabels.${displayKey}`)
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold ${style.bg} ${style.text}`}
-      title={isSportClass ? `${climb.sport_class} — ${style.label}` : style.label}
+      title={isSportClass ? `${climb.sport_class} — ${label}` : label}
     >
       {isSportClass ? (
         <>
           <span>{climb.sport_class}</span>
-          <span className="font-normal opacity-75">{style.label}</span>
+          <span className="font-normal opacity-75">{label}</span>
         </>
       ) : (
-        style.label
+        label
       )}
     </span>
   )
@@ -81,6 +85,8 @@ function GradientBar({ pct }: { pct: number }) {
 }
 
 export default function ClimbsSection({ activityId, onClimbHover }: Props) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const [collapsed, setCollapsed] = useState(false)
   const [pinnedId, setPinnedId] = useState<string | null>(null)
 
@@ -95,9 +101,9 @@ export default function ClimbsSection({ activityId, onClimbHover }: Props) {
   if (climbs.length === 0) {
     return (
       <div>
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">Anstiege</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-2">{t('climbs.title')}</h2>
         <p className="text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Anstiege erkannt. Die Aktivität muss Höhendaten enthalten und die Anstiegserkennung muss unter Einstellungen → Automatische Analysen aktiviert sein.
+          {t('climbs.empty')}
         </p>
       </div>
     )
@@ -116,7 +122,7 @@ export default function ClimbsSection({ activityId, onClimbHover }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Anstiege
+          {t('climbs.title')}
         </h2>
         <span className="text-sm text-neutral-400">({climbs.length})</span>
       </button>
@@ -127,21 +133,21 @@ export default function ClimbsSection({ activityId, onClimbHover }: Props) {
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">#</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Länge</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Höhengewinn</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Steigung</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('climbs.table.length')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('climbs.table.elevationGain')}</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('climbs.table.gradient')}</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                   <span className="inline-flex items-center gap-1">
-                    Max. Steigung
+                    {t('climbs.table.maxGradient')}
                     <span
-                      aria-label="Hinweis zur maximalen Steigung"
-                      title="Max. Steigung ist der steilste geglättete 50-m-Abschnitt innerhalb des Anstiegs."
+                      aria-label={t('climbs.maxGradientHintAria')}
+                      title={t('climbs.maxGradientHint')}
                     >
                       <CircleHelp className="h-3.5 w-3.5 text-neutral-400" aria-hidden="true" />
                     </span>
                   </span>
                 </th>
-                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Kategorie</th>
+                <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('climbs.table.category')}</th>
               </tr>
             </thead>
             <tbody>
@@ -173,12 +179,10 @@ export default function ClimbsSection({ activityId, onClimbHover }: Props) {
                     {climb.climb_number}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-900 dark:text-neutral-100 font-medium">
-                    {climb.length_m >= 1000
-                      ? `${(climb.length_m / 1000).toFixed(1)} km`
-                      : `${Math.round(climb.length_m)} m`}
+                    {formatDistanceCompact(climb.length_m)}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
-                    {Math.round(climb.elevation_gain_m)} m
+                    {formatElevation(climb.elevation_gain_m)}
                   </td>
                   <td className="px-3 py-2">
                     <GradientBar pct={climb.avg_gradient_pct} />

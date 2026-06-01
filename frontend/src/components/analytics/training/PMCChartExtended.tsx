@@ -13,6 +13,7 @@ import {
   BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchAnalyticsPMC, fetchAnalyticsPMCSplit, type PMCDay } from '@/api/analytics'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
@@ -35,37 +36,7 @@ echarts.use([
 
 type TimeRange = '1m' | '3m' | '6m' | '1y' | 'ly' | 'all'
 
-const rangeLabels: Record<TimeRange, string> = {
-  '1m': '1M',
-  '3m': '3M',
-  '6m': '6M',
-  '1y': '1J',
-  'ly': 'VJ',
-  'all': 'Alles',
-}
-
-const rangeTooltips: Record<TimeRange, string> = {
-  '1m': 'Letzter Monat',
-  '3m': 'Letzte 3 Monate',
-  '6m': 'Letzte 6 Monate',
-  '1y': 'Letztes Jahr (365 Tage)',
-  'ly': `Vorjahr (${new Date().getFullYear() - 1})`,
-  'all': 'Gesamter Zeitraum',
-}
-
-// Sport group display config
-const SPORT_GROUP_LABELS: Record<string, string> = {
-  __combined__: 'Gesamt',
-  cycling: 'Radfahren',
-  running: 'Laufen',
-  swimming: 'Schwimmen',
-  strength: 'Kraft',
-  // NOTE: hiking currently maps to "running" in DeterminePMCSportGroup (pmc.go)
-  // for statistical significance. These entries are intentional future-proofing
-  // for when PMC sport groups are split more finely. Not dead code.
-  hiking: 'Wandern',
-  other: 'Andere',
-}
+const TIME_RANGES: TimeRange[] = ['1m', '3m', '6m', '1y', 'ly', 'all']
 
 const SPORT_GROUP_COLORS: Record<string, string> = {
   cycling: '#3b82f6',    // blue-500
@@ -75,14 +46,16 @@ const SPORT_GROUP_COLORS: Record<string, string> = {
   hiking: '#22c55e',     // green-500  // see NOTE above
   other: '#f59e0b',      // amber-500
 }
+const KNOWN_SPORT_GROUPS = new Set(Object.keys(SPORT_GROUP_COLORS))
 
 const COMBINED_CTL_COLOR = '#3b82f6'
 const SPARSE_THRESHOLD = 5
 
 const STORAGE_KEY_SPORT_GROUPS = 'pmc_selected_sport_groups'
 
-function getSportGroupLabel(key: string): string {
-  return SPORT_GROUP_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1)
+function getSportGroupLabel(key: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!KNOWN_SPORT_GROUPS.has(key)) return t('analyticsPmc.sportGroups.unknown')
+  return t(`analyticsPmc.sportGroups.${key}`)
 }
 
 function getSportGroupColor(key: string): string {
@@ -119,12 +92,12 @@ function acwrStatusColor(status: string): string {
   }
 }
 
-function acwrStatusLabel(status: string): string {
+function acwrStatusLabel(status: string, t: ReturnType<typeof useTranslation>['t']): string {
   switch (status) {
-    case 'optimal':   return 'Optimal'
-    case 'reduced':   return 'Reduziert'
-    case 'overreach': return 'Erhöhtes Risiko'
-    case 'danger':    return 'Spike'
+    case 'optimal':   return t('analyticsPmc.acwrStatus.optimal')
+    case 'reduced':   return t('analyticsPmc.acwrStatus.reduced')
+    case 'overreach': return t('analyticsPmc.acwrStatus.overreach')
+    case 'danger':    return t('analyticsPmc.acwrStatus.danger')
     default:          return '—'
   }
 }
@@ -158,6 +131,11 @@ function buildDateMap(days: PMCDay[]): Map<string, PMCDay> {
 }
 
 export default function PMCChartExtended() {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language || 'de'
+  const formatZeroDecimals = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }), [locale])
+  const formatOneDecimal = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), [locale])
+  const formatTwoDecimals = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), [locale])
   const [range, setRange] = useState<TimeRange>('6m')
   const changepoints = useChangepoints('ctl', 180)
   const [localFrom, setLocalFrom] = useState<string>('')
@@ -166,6 +144,13 @@ export default function PMCChartExtended() {
   const [isZoomed, setIsZoomed] = useState(false)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
   const today = toLocalISO(new Date())
+  const ctlCombinedLabel = t('analyticsPmc.series.ctlCombined')
+  const ctlFitnessLabel = t('analyticsPmc.series.ctlFitness')
+  const atlFatigueLabel = t('analyticsPmc.series.atlFatigue')
+  const tsbFormLabel = t('analyticsPmc.series.tsbForm')
+  const ctlProjectionLabel = t('analyticsPmc.series.ctlProjection')
+  const atlProjectionLabel = t('analyticsPmc.series.atlProjection')
+  const tsbProjectionLabel = t('analyticsPmc.series.tsbProjection')
 
   // Sport group selection — persisted in localStorage
   const [selectedSportGroups, setSelectedSportGroups] = useState<Set<string>>(() => readStoredGroups())
@@ -337,25 +322,25 @@ export default function PMCChartExtended() {
           if (!sportDays) continue
           const dateMap = buildDateMap(sportDays)
           const ctlValues = allDates.map(d => dateMap.get(d)?.ctl ?? null)
-          activeSportGroupSeries.push(buildSportGroupSeries(key, ctlValues))
+          activeSportGroupSeries.push(buildSportGroupSeries(key, ctlValues, t))
         }
       }
 
       const legendData = hasSportGroupsActive
         ? [
-            'CTL Gesamt',
+            ctlCombinedLabel,
             ...activeSportGroupSeries.map(s => s.name),
-            'ATL (Ermüdung)',
-            'TSB (Form)',
-            'CTL Prognose',
-            'ATL Prognose',
-            'TSB Prognose',
+            atlFatigueLabel,
+            tsbFormLabel,
+            ctlProjectionLabel,
+            atlProjectionLabel,
+            tsbProjectionLabel,
           ]
-        : ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)', 'CTL Prognose', 'ATL Prognose', 'TSB Prognose']
+        : [ctlFitnessLabel, atlFatigueLabel, tsbFormLabel, ctlProjectionLabel, atlProjectionLabel, tsbProjectionLabel]
 
       const ctlCombinedSeries = hasSportGroupsActive
         ? {
-            name: 'CTL Gesamt',
+            name: ctlCombinedLabel,
             type: 'line' as const,
             data: ctlFull,
             showSymbol: false,
@@ -365,7 +350,7 @@ export default function PMCChartExtended() {
             connectNulls: false,
           }
         : {
-            name: 'CTL (Fitness)',
+            name: ctlFitnessLabel,
             type: 'line' as const,
             data: ctlFull,
             showSymbol: false,
@@ -396,12 +381,12 @@ export default function PMCChartExtended() {
           feature: {
             dataZoom: {
               yAxisIndex: 'none',
-              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
+              title: { zoom: t('analyticsPmc.toolbox.zoom'), back: t('analyticsPmc.toolbox.zoomReset') },
               brushStyle: { borderWidth: 1, color: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.6)' },
             },
-            restore: { title: 'Zurücksetzen' },
+            restore: { title: t('analyticsPmc.reset') },
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            saveAsImage: { title: t('analyticsPmc.toolbox.savePng'), pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -428,7 +413,7 @@ export default function PMCChartExtended() {
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
-                <strong style="color:#f9fafb">${p.value.toFixed(1)}</strong>
+                <strong style="color:#f9fafb">${formatOneDecimal.format(p.value)}</strong>
               </div>`
             }
             return html
@@ -461,7 +446,7 @@ export default function PMCChartExtended() {
         ],
         series: [
           {
-            name: 'TSB (Form)',
+            name: tsbFormLabel,
             type: 'bar',
             data: tsbFull.map(v => ({
               value: v,
@@ -483,7 +468,7 @@ export default function PMCChartExtended() {
           },
           ctlCombinedSeries,
           {
-            name: 'ATL (Ermüdung)',
+            name: atlFatigueLabel,
             type: 'line',
             data: atlFull,
             showSymbol: false,
@@ -494,7 +479,7 @@ export default function PMCChartExtended() {
           },
           ...activeSportGroupSeries,
           {
-            name: 'CTL Prognose',
+            name: ctlProjectionLabel,
             type: 'line',
             data: ctlProjFull,
             showSymbol: false,
@@ -504,7 +489,7 @@ export default function PMCChartExtended() {
             connectNulls: false,
           },
           {
-            name: 'ATL Prognose',
+            name: atlProjectionLabel,
             type: 'line',
             data: atlProjFull,
             showSymbol: false,
@@ -514,7 +499,7 @@ export default function PMCChartExtended() {
             connectNulls: false,
           },
           {
-            name: 'TSB Prognose',
+            name: tsbProjectionLabel,
             type: 'bar',
             data: tsbProjFull,
             showSymbol: false,
@@ -525,7 +510,7 @@ export default function PMCChartExtended() {
         ],
       }
     },
-    [effectiveCombinedData, splitData, selectedSportGroups, hasSportGroupsActive, changepoints],
+    [effectiveCombinedData, splitData, selectedSportGroups, hasSportGroupsActive, changepoints, ctlCombinedLabel, ctlFitnessLabel, atlFatigueLabel, tsbFormLabel, ctlProjectionLabel, atlProjectionLabel, tsbProjectionLabel, formatOneDecimal, t],
     (chart) => {
       chartInstanceRef.current = chart
 
@@ -602,29 +587,29 @@ export default function PMCChartExtended() {
       {/* Header row */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Performance Management (PMC)
+          {t('analyticsPmc.title')}
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
           {isZoomed && (
             <button onClick={handleResetZoom}
               className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
-              Zoom zurücksetzen
+              {t('analyticsPmc.zoomReset')}
             </button>
           )}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-            {(Object.keys(rangeLabels) as TimeRange[]).map(r => (
+            {TIME_RANGES.map(r => (
               <button
                 key={r}
                 onClick={() => handleRangeClick(r)}
-                title={rangeTooltips[r]}
+                title={t(`analyticsPmc.rangeTooltips.${r}`, { year: new Date().getFullYear() - 1 })}
                 className={
                   r === range && !isCustomRange
                     ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                     : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
                 }
               >
-                {rangeLabels[r]}
+                {t(`analyticsPmc.rangeLabels.${r}`)}
               </button>
             ))}
           </div>
@@ -654,17 +639,17 @@ export default function PMCChartExtended() {
       {/* Sport group chips — only shown when split data is available */}
       {availableSportGroups.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-neutral-400 dark:text-neutral-500 mr-0.5">CTL nach Sport:</span>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500 mr-0.5">{t('analyticsPmc.ctlBySport')}</span>
           {availableSportGroups.map(({ key, count }) => {
             const isSparse = count < SPARSE_THRESHOLD
             const isActive = selectedSportGroups.has(key)
             const color = getSportGroupColor(key)
-            const label = getSportGroupLabel(key)
+            const label = getSportGroupLabel(key, t)
             return (
               <button
                 key={key}
                 onClick={() => !isSparse && toggleSportGroup(key)}
-                title={isSparse ? 'Wenig Daten' : label}
+                title={isSparse ? t('analyticsPmc.sparseData') : label}
                 disabled={isSparse}
                 className={[
                   'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border cursor-pointer',
@@ -682,7 +667,7 @@ export default function PMCChartExtended() {
                 />
                 {label}
                 {isSparse && (
-                  <span className="ml-0.5 text-neutral-400 dark:text-neutral-500">(wenig Daten)</span>
+                  <span className="ml-0.5 text-neutral-400 dark:text-neutral-500">{t('analyticsPmc.sparseDataShort')}</span>
                 )}
               </button>
             )
@@ -694,9 +679,9 @@ export default function PMCChartExtended() {
                 writeStoredGroups(new Set())
               }}
               className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors cursor-pointer ml-1"
-              title="Sportgruppen-Filter zurücksetzen"
+              title={t('analyticsPmc.resetSportFilter')}
             >
-              Zurücksetzen
+              {t('analyticsPmc.reset')}
             </button>
           )}
         </div>
@@ -707,7 +692,7 @@ export default function PMCChartExtended() {
         const lastDate = effectiveCombinedData?.days[effectiveCombinedData.days.length - 1]?.date
         const todayISO = new Date().toISOString().slice(0, 10)
         const isHistorical = lastDate && lastDate !== todayISO
-        const dateSuffix = isHistorical ? ` (${new Date(lastDate).toLocaleDateString('de-DE')})` : ''
+        const dateSuffix = isHistorical ? ` (${new Date(lastDate).toLocaleDateString(locale)})` : ''
         return (
           <div className="flex items-center gap-2 flex-wrap">
             {/* CTL / ATL / TSB badges */}
@@ -715,15 +700,15 @@ export default function PMCChartExtended() {
               <>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                   <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-                  CTL {latest.ctl.toFixed(1)}{dateSuffix}
+                  CTL {formatOneDecimal.format(latest.ctl)}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
                   <span className="w-2 h-2 rounded-full bg-accent-DEFAULT inline-block" />
-                  ATL {latest.atl.toFixed(1)}{dateSuffix}
+                  ATL {formatOneDecimal.format(latest.atl)}{dateSuffix}
                 </span>
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${latest.tsb >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}`}>
                   <span className={`w-2 h-2 rounded-full inline-block ${latest.tsb >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                  TSB {latest.tsb >= 0 ? '+' : ''}{latest.tsb.toFixed(1)}{dateSuffix}
+                  TSB {latest.tsb >= 0 ? '+' : ''}{formatOneDecimal.format(latest.tsb)}{dateSuffix}
                 </span>
               </>
             )}
@@ -733,19 +718,23 @@ export default function PMCChartExtended() {
                 {effectiveCombinedData.acwr_status && (
                   <span
                     className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${acwrStatusColor(effectiveCombinedData.acwr_status)}`}
-                    title={`${acwrStatusLabel(effectiveCombinedData.acwr_status)} — Rolling 7:28 uncoupled${effectiveCombinedData.acwr_status === 'reduced' ? '. Kann geplanten Taper, Erholung oder Detraining anzeigen.' : ''}`}
+                    title={[
+                      acwrStatusLabel(effectiveCombinedData.acwr_status, t),
+                      t('analyticsPmc.acwrRollingHint'),
+                      effectiveCombinedData.acwr_status === 'reduced' ? t('analyticsPmc.acwrReducedHint') : null,
+                    ].filter(Boolean).join(' - ')}
                   >
-                    ACWR {effectiveCombinedData.acwr.toFixed(2)}{dateSuffix}
+                    ACWR {formatTwoDecimals.format(effectiveCombinedData.acwr)}{dateSuffix}
                   </span>
                 )}
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Rampe {effectiveCombinedData.ramp_rate >= 0 ? '+' : ''}{effectiveCombinedData.ramp_rate.toFixed(1)}/Wo{dateSuffix}
+                  {t('analyticsPmc.ramp')} {effectiveCombinedData.ramp_rate >= 0 ? '+' : ''}{formatOneDecimal.format(effectiveCombinedData.ramp_rate)}/{t('analyticsPmc.weekShort')}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Mono {effectiveCombinedData.monotony.toFixed(2)}{dateSuffix}
+                  {t('analyticsPmc.monotony')} {formatTwoDecimals.format(effectiveCombinedData.monotony)}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Belastung {effectiveCombinedData.strain.toFixed(0)}{dateSuffix}
+                  {t('analyticsPmc.strain')} {formatZeroDecimals.format(effectiveCombinedData.strain)}{dateSuffix}
                 </span>
               </>
             )}
@@ -756,11 +745,11 @@ export default function PMCChartExtended() {
       {/* Fallback warning banner */}
       {effectiveCombinedData?.using_default_thresholds && (
         <div className="mb-4 px-4 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
-          TSS-Berechnung nutzt geschätzte Schwellenwerte
+          {t('analyticsPmc.defaultThresholds')}
           {effectiveCombinedData.default_threshold_fields?.length ? (
-            <> für: <strong>{effectiveCombinedData.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
+            <> {t('analyticsPmc.forFields')} <strong>{effectiveCombinedData.default_threshold_fields.map(f => f.toUpperCase()).join(', ')}</strong></>
           ) : null}.{' '}
-          Für genauere Ergebnisse im Profil oder pro Sportart hinterlegen.
+          {t('analyticsPmc.thresholdsHint')}
         </div>
       )}
 
@@ -769,12 +758,12 @@ export default function PMCChartExtended() {
         <div className="relative h-[340px]">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Lade PMC-Daten…
+              {t('analyticsPmc.loading')}
             </div>
           )}
           {!isLoading && isError && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Fehler beim Laden der PMC-Daten
+              {t('analyticsPmc.loadFailed')}
             </div>
           )}
           {!isLoading && !isError && (!effectiveCombinedData || (effectiveCombinedData.days?.length ?? 0) === 0) && (
@@ -783,7 +772,7 @@ export default function PMCChartExtended() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              <span className="text-sm">Keine Daten für diesen Zeitraum</span>
+              <span className="text-sm">{t('analyticsPmc.noDataForRange')}</span>
             </div>
           )}
           <div
@@ -797,9 +786,9 @@ export default function PMCChartExtended() {
 
       {/* TSB zone legend */}
       <div className="flex items-center gap-3 flex-wrap text-xs text-neutral-500 dark:text-neutral-400">
-        <span className="flex items-center gap-1.5" title="Hoher TSB kann Erholung ODER Formverlust durch Trainingsunterbrechung bedeuten.">
+        <span className="flex items-center gap-1.5" title={t('analyticsPmc.tsbFreshHint')}>
           <span className="w-3 h-3 rounded-sm inline-block bg-blue-400/30" />
-          Frisch / Formverlust (&gt;+15)
+          {t('analyticsPmc.tsbZones.fresh')}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-emerald-400/30" />
@@ -807,11 +796,11 @@ export default function PMCChartExtended() {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-yellow-400/30" />
-          Überbelastung (−30…−10)
+          {t('analyticsPmc.tsbZones.overload')}
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-red-400/30" />
-          Überlastung (&lt;−30)
+          {t('analyticsPmc.tsbZones.severeOverload')}
         </span>
       </div>
     </div>
@@ -819,11 +808,11 @@ export default function PMCChartExtended() {
 }
 
 // Helper: build a single sport-group CTL series config
-function buildSportGroupSeries(key: string, ctlValues: (number | null)[]) {
+function buildSportGroupSeries(key: string, ctlValues: (number | null)[], t: ReturnType<typeof useTranslation>['t']) {
   const color = getSportGroupColor(key)
-  const label = getSportGroupLabel(key)
+  const label = getSportGroupLabel(key, t)
   return {
-    name: `CTL ${label}`,
+    name: `${t('analyticsPmc.series.ctl')} ${label}`,
     type: 'line' as const,
     data: ctlValues,
     showSymbol: false,

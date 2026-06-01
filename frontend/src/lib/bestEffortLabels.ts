@@ -1,4 +1,13 @@
 import { fmtDuration, fmtDist } from '@/lib/format'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
+import {
+  formatDistance as formatUnitDistance,
+  formatElevation as formatUnitElevation,
+  formatPower as formatUnitPower,
+  formatSpeed as formatUnitSpeed,
+  type UnitFormatOptions,
+} from '@/lib/units'
 import {
   GENERATED_RECORD_CATEGORIES,
   GENERATED_RECORD_CATEGORY_LABELS,
@@ -7,7 +16,18 @@ import {
   GENERATED_RECORD_POWER_CATEGORY_ORDER,
 } from '@/lib/generatedRecordProjections'
 
-export const CATEGORY_LABELS: Record<string, string> = GENERATED_RECORD_CATEGORY_LABELS
+export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(GENERATED_RECORD_CATEGORY_LABELS).map(([key, label]) => [
+    key,
+    typeof label === 'string' ? label : label.de,
+  ]),
+)
+const CATEGORY_LABEL_MAPS: Record<string, LocalizedString> = Object.fromEntries(
+  Object.entries(GENERATED_RECORD_CATEGORY_LABELS).map(([key, label]) => [
+    key,
+    typeof label === 'string' ? { de: label } : label,
+  ]),
+)
 export const CATEGORY_METADATA = GENERATED_RECORD_CATEGORIES
 export const CATEGORY_KEYS: string[] = [...GENERATED_RECORD_CATEGORY_ORDER]
 export const POWER_DURATIONS: string[] = [...GENERATED_RECORD_POWER_CATEGORY_ORDER]
@@ -16,8 +36,8 @@ const CATEGORY_KEYS_BY_RECORD_GROUP: Record<string, string[]> = Object.fromEntri
   GENERATED_RECORD_GROUPS.map(group => [group.key, group.categories.map(category => category.key)]),
 )
 
-export function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category.replace(/_/g, ' ')
+export function categoryLabel(category: string, language?: SupportedLanguage): string {
+  return localizeString(CATEGORY_LABEL_MAPS[category], language) || category
 }
 
 export function categoryKeysForRecordGroup(recordGroup?: string): string[] {
@@ -39,21 +59,26 @@ export function formatBestEffortValue(
   category: string,
   elapsed_time_s?: number | null,
   value_numeric?: number | null,
+  unitOptions?: UnitFormatOptions,
 ): string {
   if (category.startsWith('dist_') || category.startsWith('elev_')) {
     if (elapsed_time_s != null) return fmtDuration(elapsed_time_s)
     return '—'
   }
   if (category.startsWith('power_')) {
-    if (value_numeric != null) return `${Math.round(value_numeric)} W`
+    if (value_numeric != null) {
+      return unitOptions
+        ? formatUnitPower(value_numeric, unitOptions)
+        : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.round(value_numeric))} W`
+    }
     return '—'
   }
   if (category === 'sup_longest_distance') {
-    if (value_numeric != null) return fmtDist(value_numeric)
+    if (value_numeric != null) return unitOptions ? formatUnitDistance(value_numeric, unitOptions) : fmtDist(value_numeric)
     return '—'
   }
   if (category === 'sup_most_elevation' || category === 'sup_biggest_climb') {
-    if (value_numeric != null) return `${Math.round(value_numeric)} m`
+    if (value_numeric != null) return unitOptions ? formatUnitElevation(value_numeric, unitOptions) : `${Math.round(value_numeric)} m`
     return '—'
   }
   if (category === 'sup_longest_duration') {
@@ -62,7 +87,7 @@ export function formatBestEffortValue(
   }
   // Fallback
   if (elapsed_time_s != null) return fmtDuration(elapsed_time_s)
-  if (value_numeric != null) return value_numeric.toLocaleString('de-DE', { maximumFractionDigits: 1 })
+  if (value_numeric != null) return value_numeric.toLocaleString(unitOptions?.locale, { maximumFractionDigits: 1 })
   return '—'
 }
 
@@ -88,6 +113,7 @@ export function formatBestEffortDisplay(
   elapsed_time_s?: number | null,
   value_numeric?: number | null,
   sportGroup?: string,
+  unitOptions?: UnitFormatOptions,
 ): BestEffortDisplay {
   // Cycling distance: show km/h as primary, time as secondary
   if (
@@ -98,14 +124,15 @@ export function formatBestEffortDisplay(
   ) {
     const distM = DIST_METERS[category]
     if (distM) {
-      const kmh = (distM / 1000) / (elapsed_time_s / 3600)
       return {
-        primary: kmh.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' km/h',
+        primary: unitOptions
+          ? formatUnitSpeed(distM / elapsed_time_s, unitOptions)
+          : ((distM / 1000) / (elapsed_time_s / 3600)).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' km/h',
         secondary: fmtDuration(elapsed_time_s),
       }
     }
   }
 
   // Default: use existing formatter
-  return { primary: formatBestEffortValue(category, elapsed_time_s, value_numeric) }
+  return { primary: formatBestEffortValue(category, elapsed_time_s, value_numeric, unitOptions) }
 }

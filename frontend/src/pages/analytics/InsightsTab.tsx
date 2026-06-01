@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { refreshInsights } from '@/api/analytics'
 import WarningsPanel from '@/components/analytics/insights/WarningsPanel'
 import FitnessProjection from '@/components/analytics/insights/FitnessProjection'
@@ -8,6 +9,7 @@ import CorrelationsPanel from '@/components/analytics/insights/CorrelationsPanel
 import ReadinessCardFull from '@/components/analytics/ReadinessCard'
 
 export default function InsightsTab() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -24,7 +26,7 @@ export default function InsightsTab() {
       {/* Header with refresh button */}
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-100">
-          Intelligente Insights
+          {t('analyticsInsights.title')}
         </h2>
         <button
           onClick={() => refreshMutation.mutate()}
@@ -40,7 +42,7 @@ export default function InsightsTab() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Aktualisiere…
+              {t('analyticsInsights.refreshing')}
             </>
           ) : (
             <>
@@ -48,7 +50,7 @@ export default function InsightsTab() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Insights aktualisieren
+              {t('analyticsInsights.refresh')}
             </>
           )}
         </button>
@@ -56,20 +58,20 @@ export default function InsightsTab() {
 
       {refreshMutation.isSuccess && (
         <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-          Insights wurden erfolgreich aktualisiert.
+          {t('analyticsInsights.refreshSuccess')}
         </div>
       )}
 
       {refreshMutation.isError && (
         <div className="rounded-lg bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-          Fehler beim Aktualisieren der Insights.
+          {t('analyticsInsights.refreshError')}
         </div>
       )}
 
       {/* Readiness — always rendered; ReadinessCardFull manages its own empty/error state */}
       <ReadinessCardFull />
 
-      {/* Frag den Assistenten */}
+      {/* Ask the assistant */}
       <div className="flex justify-end">
         <button
           onClick={() => navigate(`/chat?context=readiness&date=${new Date().toISOString().slice(0, 10)}`)}
@@ -80,7 +82,7 @@ export default function InsightsTab() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
-          Frag den Assistenten
+          {t('analyticsInsights.askAssistant')}
         </button>
       </div>
 
