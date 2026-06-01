@@ -1,4 +1,5 @@
 import { generateActivityFilterOptions, generateMapFilterOptions, type SportOption } from '@/lib/sportOptions'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 export type SportFilterPreset = 'MAP_PANEL_GPS' | 'ACTIVITY_ALL' | 'RECORDS_RECORDABLE'
 
@@ -14,8 +15,8 @@ function filterRecordable(options: SportOption[]): SportOption[] {
   })
 }
 
-export function sportFilterOptionsForPreset(preset: SportFilterPreset): SportOption[] {
-  if (preset === 'MAP_PANEL_GPS') return generateMapFilterOptions()
-  if (preset === 'RECORDS_RECORDABLE') return filterRecordable(generateActivityFilterOptions())
-  return generateActivityFilterOptions()
+export function sportFilterOptionsForPreset(preset: SportFilterPreset, language?: SupportedLanguage): SportOption[] {
+  if (preset === 'MAP_PANEL_GPS') return generateMapFilterOptions(language)
+  if (preset === 'RECORDS_RECORDABLE') return filterRecordable(generateActivityFilterOptions(language))
+  return generateActivityFilterOptions(language)
 }

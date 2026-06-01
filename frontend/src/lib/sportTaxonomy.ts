@@ -6,6 +6,8 @@ import { GENERATED_ACTIVITY_FILTER_PRESETS } from './generatedSportFilterProject
 import { GENERATED_LEGACY_ALIASES, GENERATED_LEGACY_SUBTYPE_ALIASES } from './generatedSportAliases'
 import { GENERATED_CATEGORIES, GENERATED_SPORT_DEFS } from './generatedSportTaxonomy'
 import { GENERATED_SEGMENT_PROJECTION } from './generatedSegmentProjections'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 import type { SportModifierTSField } from './generatedSportModifiers'
 
 // ── Types ────────────────────────────────────────────────────────────────────────
@@ -13,6 +15,7 @@ import type { SportModifierTSField } from './generatedSportModifiers'
 export interface SportCategory {
   key: string
   label: string
+  labels: LocalizedString
   color: string
 }
 
@@ -39,7 +42,9 @@ export type ModifierDefaults = Partial<Record<SportModifierTSField, boolean>>
 export interface SubTypeDef {
   subType: string
   label: string
+  labels: LocalizedString
   detail: string
+  details: LocalizedString
   movingThreshold?: number
   selectable: boolean
   traits: SportTraits
@@ -51,6 +56,7 @@ export interface SportDef {
   categoryKey: string
   segmentGroup: 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic'
   label: string
+  labels: LocalizedString
   typicallyHasGPS: boolean
   isIndoor: boolean
   lifecycle: 'canonical' | 'broad_fallback' | 'deprecated'
@@ -68,6 +74,7 @@ export interface SportTuple {
 
 export interface SportLabelOptions {
   mode?: 'compact' | 'withParent'
+  language?: SupportedLanguage
 }
 
 export interface SportOption {
@@ -84,9 +91,24 @@ export interface RouteSportOption {
 
 // ── Categories ──────────────────────────────────────────────────────────────────
 
-export const CATEGORIES: SportCategory[] = GENERATED_CATEGORIES.map((c) => ({ ...c }))
+export const CATEGORIES: SportCategory[] = GENERATED_CATEGORIES.map((c) => ({
+  ...c,
+  labels: c.labels,
+}))
 
 const categoryMap = new Map<string, SportCategory>(CATEGORIES.map((c) => [c.key, c]))
+const UNKNOWN_CATEGORY: SportCategory = {
+  key: 'other',
+  label: 'Sonstiges',
+  labels: {
+    de: 'Sonstiges',
+    en: 'Other',
+    fr: 'Autre',
+    it: 'Altro',
+    es: 'Otros',
+  },
+  color: '#6B7280',
+}
 
 // ── Sport Definitions ───────────────────────────────────────────────────────────
 
@@ -102,6 +124,7 @@ export const SPORT_DEFS: SportDef[] = [
   categoryKey: s.categoryKey,
   segmentGroup: s.segmentGroup,
   label: s.label,
+  labels: s.labels,
   typicallyHasGPS: s.typicallyHasGPS,
   isIndoor: s.isIndoor,
   lifecycle: s.lifecycle,
@@ -110,6 +133,8 @@ export const SPORT_DEFS: SportDef[] = [
   modifierDefaults: copyModifierDefaults('modifierDefaults' in s ? s.modifierDefaults : undefined),
   subTypes: s.subTypes.map((st) => ({
     ...st,
+    labels: st.labels,
+    details: st.details,
     traits: copyTraits(st.traits),
     modifierDefaults: copyModifierDefaults('modifierDefaults' in st ? st.modifierDefaults : undefined),
   })),
@@ -255,21 +280,13 @@ export function getSegmentGroup(sportType: string): 'bike' | 'foot' | 'swim' | '
 }
 
 /**
- * German display label with sub-type promotion for training, fitness_equipment,
+ * Display label with sub-type promotion for training, fitness_equipment,
  * and racket sport types.
- *
- * Examples:
- *   sportLabel("running", "trail")             → "Trail"
- *   sportLabel("training", "yoga")             → "Yoga"
- *   sportLabel("training", "strength_training") → "Krafttraining"
- *   sportLabel("racket", "squash")             → "Squash"
- *   sportLabel("cycling")                      → "Radfahren"
- *   sportLabel("some_unknown_type")            → "Some Unknown Type"
  */
 export function sportLabel(sportType: string, subType?: string | null, opts?: SportLabelOptions): string {
   const trimmedSport = sportType.trim()
   if (legacyAliasMap.has(trimmedSport)) {
-    return `Veraltete Sportart (${humanize(trimmedSport)})`
+    return opts?.language === 'en' ? `Legacy sport (${humanize(trimmedSport)})` : `Veraltete Sportart (${humanize(trimmedSport)})`
   }
   const tuple = { sportType: trimmedSport, subType: subType?.trim() ?? '' }
   const d = sportMap.get(tuple.sportType)
@@ -279,26 +296,20 @@ export function sportLabel(sportType: string, subType?: string | null, opts?: Sp
     const st = d.subTypes.find((s) => s.subType === tuple.subType)
     if (st) {
       if (opts?.mode === 'withParent' && !subTypeLabelCanStandAlone(d)) {
-        return `${d.label} (${st.label})`
+        return `${localizeString(d.labels, opts?.language)} (${localizeString(st.labels, opts?.language)})`
       }
-      return st.label
+      return localizeString(st.labels, opts?.language)
     }
   }
 
-  return d.label
+  return localizeString(d.labels, opts?.language)
 }
 
 /**
  * Full detail label including both sport and sub-type when applicable.
- *
- * Examples:
- *   sportDetailLabel("alpine_skiing", "backcountry") → "Alpin-Ski (Backcountry)"
- *   sportDetailLabel("training", "yoga")             → "Training (Yoga)"
- *   sportDetailLabel("cycling")                      → "Radfahren"
- *   sportDetailLabel("some_unknown_type")            → "Some Unknown Type"
  */
-export function sportDetailLabel(sportType: string, subType?: string | null): string {
-  return sportLabel(sportType, subType, { mode: 'withParent' })
+export function sportDetailLabel(sportType: string, subType?: string | null, language?: SupportedLanguage): string {
+  return sportLabel(sportType, subType, { mode: 'withParent', language })
 }
 
 function subTypeLabelCanStandAlone(d: SportDef): boolean {
@@ -320,7 +331,7 @@ export function sportColor(sportType: string): string {
 export function categoryForSport(sportType: string): SportCategory {
   const d = getSportDef(sportType)
   const cat = d ? categoryMap.get(d.categoryKey) : undefined
-  return cat ?? { key: 'other', label: 'Sonstiges', color: '#6B7280' }
+  return cat ?? UNKNOWN_CATEGORY
 }
 
 /**
@@ -330,25 +341,25 @@ export function sportsInCategory(categoryKey: string): SportDef[] {
   return catSportsMap.get(categoryKey) ?? []
 }
 
-export function canonicalSportOptions(): SportOption[] {
-  return SPORT_DEFS.map((s) => ({ value: s.sportType, label: s.label }))
+export function canonicalSportOptions(language?: SupportedLanguage): SportOption[] {
+  return SPORT_DEFS.map((s) => ({ value: s.sportType, label: localizeString(s.labels, language) }))
 }
 
-export function selectableParentSportOptions(): SportOption[] {
+export function selectableParentSportOptions(language?: SupportedLanguage): SportOption[] {
   return SPORT_DEFS
     .filter((s) => s.selectable && s.sportType !== 'unknown')
-    .map((s) => ({ value: s.sportType, label: s.label }))
+    .map((s) => ({ value: s.sportType, label: localizeString(s.labels, language) }))
 }
 
-export function selectableSportTupleOptions(): SportOption[] {
+export function selectableSportTupleOptions(language?: SupportedLanguage): SportOption[] {
   const options: SportOption[] = []
   for (const s of SPORT_DEFS) {
     if (s.selectable && s.sportType !== 'unknown') {
-      options.push({ value: s.sportType, label: s.label })
+      options.push({ value: s.sportType, label: localizeString(s.labels, language) })
     }
     for (const st of s.subTypes) {
       if (st.selectable) {
-        options.push({ value: s.sportType, subType: st.subType, label: sportLabel(s.sportType, st.subType) })
+        options.push({ value: s.sportType, subType: st.subType, label: sportLabel(s.sportType, st.subType, { language }) })
       }
     }
   }
@@ -359,11 +370,11 @@ export function manualActivitySportOptions(): SportDef[] {
   return SPORT_DEFS.filter((s) => s.sportType !== 'unknown' && (s.selectable || s.subTypes.some((st) => st.selectable)))
 }
 
-export function routeSportOptions(): RouteSportOption[] {
+export function routeSportOptions(language?: SupportedLanguage): RouteSportOption[] {
   return GENERATED_SEGMENT_PROJECTION.routeOptions
     .map((option) => ({
       sportType: option.sportType,
       subType: 'subType' in option ? option.subType : undefined,
-      label: sportLabel(option.sportType, 'subType' in option ? option.subType : undefined),
+      label: sportLabel(option.sportType, 'subType' in option ? option.subType : undefined, { language }),
     }))
 }

@@ -5,15 +5,25 @@ export interface ShowWhenSpec {
   value: string;
 }
 
+export interface LocalizedString {
+  de: string;
+  en?: string;
+  fr?: string;
+  it?: string;
+  es?: string;
+}
+
 export interface AssignmentRole {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   uniquePerActivity: boolean;
 }
 
 export interface OptionValue {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
 }
 
 export interface OptionSet {
@@ -24,6 +34,7 @@ export interface OptionSet {
 export interface UnitGroup {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   allowedUnits: string[];
   canonicalUnit?: string;
 }
@@ -40,6 +51,7 @@ export interface Condition {
 export interface Attribute {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   valueType: string;
   optionSetKey?: string;
   subfields?: Attribute[];
@@ -55,6 +67,7 @@ export interface Attribute {
 export interface GearTypeSlot {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   componentType: string;
   optional?: boolean;
 }
@@ -71,6 +84,7 @@ export interface RecommendedConstraints {
 export interface GearType {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   scope: string;
   parentKey?: string;
   defaultAssignmentRoleKey: string;
@@ -83,6 +97,7 @@ export interface GearType {
 export interface ComponentType {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   parentKey?: string;
   subtypeKeys?: string[];
   attributeKeys?: string[];
@@ -102,31 +117,73 @@ export const gearSchema: GearSchema = {
     {
       "key": "primary",
       "labelDe": "Hauptausrüstung",
+      "labels": {
+        "de": "Hauptausrüstung",
+        "en": "Primary gear",
+        "es": "Equipamiento principal",
+        "fr": "Équipement principal",
+        "it": "Attrezzatura principale"
+      },
       "uniquePerActivity": true
     },
     {
       "key": "additional",
       "labelDe": "Zusatz",
+      "labels": {
+        "de": "Zusatz",
+        "en": "Additional",
+        "es": "Adicional",
+        "fr": "Complémentaire",
+        "it": "Aggiuntiva"
+      },
       "uniquePerActivity": false
     },
     {
       "key": "carried",
       "labelDe": "Mitgeführt",
+      "labels": {
+        "de": "Mitgeführt",
+        "en": "Carried",
+        "es": "Llevado",
+        "fr": "Transporté",
+        "it": "Trasportata"
+      },
       "uniquePerActivity": false
     },
     {
       "key": "worn",
       "labelDe": "Getragen",
+      "labels": {
+        "de": "Getragen",
+        "en": "Worn",
+        "es": "Usado",
+        "fr": "Porté",
+        "it": "Indossata"
+      },
       "uniquePerActivity": false
     },
     {
       "key": "sensor",
       "labelDe": "Sensor",
+      "labels": {
+        "de": "Sensor",
+        "en": "Sensor",
+        "es": "Sensor",
+        "fr": "Capteur",
+        "it": "Sensore"
+      },
       "uniquePerActivity": false
     },
     {
       "key": "consumable",
       "labelDe": "Verbrauchsmaterial",
+      "labels": {
+        "de": "Verbrauchsmaterial",
+        "en": "Consumable",
+        "es": "Consumible",
+        "fr": "Consommable",
+        "it": "Materiale di consumo"
+      },
       "uniquePerActivity": false
     }
   ],
@@ -136,11 +193,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "yes",
-          "labelDe": "Ja"
+          "labelDe": "Ja",
+          "labels": {
+            "de": "Ja",
+            "en": "Yes",
+            "es": "Sí",
+            "fr": "Oui",
+            "it": "Sì"
+          }
         },
         {
           "key": "no",
-          "labelDe": "Nein"
+          "labelDe": "Nein",
+          "labels": {
+            "de": "Nein",
+            "en": "No",
+            "es": "No",
+            "fr": "Non",
+            "it": "No"
+          }
         }
       ]
     },
@@ -149,27 +220,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "left",
-          "labelDe": "Links"
+          "labelDe": "Links",
+          "labels": {
+            "de": "Links",
+            "en": "Left",
+            "es": "Izquierda",
+            "fr": "Gauche",
+            "it": "Sinistra"
+          }
         },
         {
           "key": "right",
-          "labelDe": "Rechts"
+          "labelDe": "Rechts",
+          "labels": {
+            "de": "Rechts",
+            "en": "Right",
+            "es": "Derecha",
+            "fr": "Droite",
+            "it": "Destra"
+          }
         },
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         },
         {
           "key": "upper",
-          "labelDe": "Oben"
+          "labelDe": "Oben",
+          "labels": {
+            "de": "Oben",
+            "en": "Upper",
+            "es": "Superior",
+            "fr": "Supérieur",
+            "it": "Superiore"
+          }
         },
         {
           "key": "lower",
-          "labelDe": "Unten"
+          "labelDe": "Unten",
+          "labels": {
+            "de": "Unten",
+            "en": "Lower",
+            "es": "Inferior",
+            "fr": "Inférieur",
+            "it": "Inferiore"
+          }
         }
       ]
     },
@@ -178,11 +291,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         }
       ]
     },
@@ -191,11 +318,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "left",
-          "labelDe": "Links"
+          "labelDe": "Links",
+          "labels": {
+            "de": "Links",
+            "en": "Left",
+            "es": "Izquierda",
+            "fr": "Gauche",
+            "it": "Sinistra"
+          }
         },
         {
           "key": "right",
-          "labelDe": "Rechts"
+          "labelDe": "Rechts",
+          "labels": {
+            "de": "Rechts",
+            "en": "Right",
+            "es": "Derecha",
+            "fr": "Droite",
+            "it": "Destra"
+          }
         }
       ]
     },
@@ -204,27 +345,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "steel",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titanium",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "wood",
-          "labelDe": "Holz"
+          "labelDe": "Holz",
+          "labels": {
+            "de": "Holz",
+            "en": "Wood",
+            "es": "Madera",
+            "fr": "Bois",
+            "it": "Legno"
+          }
         }
       ]
     },
@@ -233,27 +416,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "steel",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titanium",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "wood",
-          "labelDe": "Holz"
+          "labelDe": "Holz",
+          "labels": {
+            "de": "Holz",
+            "en": "Wood",
+            "es": "Madera",
+            "fr": "Bois",
+            "it": "Legno"
+          }
         }
       ]
     },
@@ -262,55 +487,146 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "mullet",
-          "labelDe": "Mullet (vorne/hinten separat)"
+          "labelDe": "Mullet (vorne/hinten separat)",
+          "labels": {
+            "de": "Mullet (vorne/hinten separat)",
+            "en": "Mullet (separate front/rear)",
+            "es": "Mullet (delantera/trasera separadas)",
+            "fr": "Mullet (avant/arrière séparés)",
+            "it": "Mullet (anteriore/posteriore separati)"
+          }
         },
         {
           "key": "36",
-          "labelDe": "36 Zoll"
+          "labelDe": "36 Zoll",
+          "labels": {
+            "de": "36 Zoll",
+            "en": "36 inch",
+            "es": "36 pulgadas",
+            "fr": "36 pouces",
+            "it": "36 pollici"
+          }
         },
         {
           "key": "32",
-          "labelDe": "32 Zoll"
+          "labelDe": "32 Zoll",
+          "labels": {
+            "de": "32 Zoll",
+            "en": "32 inch",
+            "es": "32 pulgadas",
+            "fr": "32 pouces",
+            "it": "32 pollici"
+          }
         },
         {
           "key": "29",
-          "labelDe": "29 Zoll"
+          "labelDe": "29 Zoll",
+          "labels": {
+            "de": "29 Zoll",
+            "en": "29 inch",
+            "es": "29 pulgadas",
+            "fr": "29 pouces",
+            "it": "29 pollici"
+          }
         },
         {
           "key": "28",
-          "labelDe": "28 Zoll"
+          "labelDe": "28 Zoll",
+          "labels": {
+            "de": "28 Zoll",
+            "en": "28 inch",
+            "es": "28 pulgadas",
+            "fr": "28 pouces",
+            "it": "28 pollici"
+          }
         },
         {
           "key": "27_5",
-          "labelDe": "27,5 Zoll"
+          "labelDe": "27,5 Zoll",
+          "labels": {
+            "de": "27,5 Zoll",
+            "en": "27.5 inch",
+            "es": "27,5 pulgadas",
+            "fr": "27,5 pouces",
+            "it": "27,5 pollici"
+          }
         },
         {
           "key": "26",
-          "labelDe": "26 Zoll"
+          "labelDe": "26 Zoll",
+          "labels": {
+            "de": "26 Zoll",
+            "en": "26 inch",
+            "es": "26 pulgadas",
+            "fr": "26 pouces",
+            "it": "26 pollici"
+          }
         },
         {
           "key": "24",
-          "labelDe": "24 Zoll"
+          "labelDe": "24 Zoll",
+          "labels": {
+            "de": "24 Zoll",
+            "en": "24 inch",
+            "es": "24 pulgadas",
+            "fr": "24 pouces",
+            "it": "24 pollici"
+          }
         },
         {
           "key": "20",
-          "labelDe": "20 Zoll"
+          "labelDe": "20 Zoll",
+          "labels": {
+            "de": "20 Zoll",
+            "en": "20 inch",
+            "es": "20 pulgadas",
+            "fr": "20 pouces",
+            "it": "20 pollici"
+          }
         },
         {
           "key": "18",
-          "labelDe": "18 Zoll"
+          "labelDe": "18 Zoll",
+          "labels": {
+            "de": "18 Zoll",
+            "en": "18 inch",
+            "es": "18 pulgadas",
+            "fr": "18 pouces",
+            "it": "18 pollici"
+          }
         },
         {
           "key": "16",
-          "labelDe": "16 Zoll"
+          "labelDe": "16 Zoll",
+          "labels": {
+            "de": "16 Zoll",
+            "en": "16 inch",
+            "es": "16 pulgadas",
+            "fr": "16 pouces",
+            "it": "16 pollici"
+          }
         },
         {
           "key": "14",
-          "labelDe": "14 Zoll"
+          "labelDe": "14 Zoll",
+          "labels": {
+            "de": "14 Zoll",
+            "en": "14 inch",
+            "es": "14 pulgadas",
+            "fr": "14 pouces",
+            "it": "14 pollici"
+          }
         },
         {
           "key": "12",
-          "labelDe": "12 Zoll"
+          "labelDe": "12 Zoll",
+          "labels": {
+            "de": "12 Zoll",
+            "en": "12 inch",
+            "es": "12 pulgadas",
+            "fr": "12 pouces",
+            "it": "12 pollici"
+          }
         }
       ]
     },
@@ -319,15 +635,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "none",
-          "labelDe": "Nicht steigeisenfest"
+          "labelDe": "Nicht steigeisenfest",
+          "labels": {
+            "de": "Nicht steigeisenfest",
+            "en": "Not crampon-compatible",
+            "es": "No compatible con crampones",
+            "fr": "Non compatible avec crampons",
+            "it": "Non compatibile con ramponi"
+          }
         },
         {
           "key": "conditional",
-          "labelDe": "Bedingt steigeisenfest"
+          "labelDe": "Bedingt steigeisenfest",
+          "labels": {
+            "de": "Bedingt steigeisenfest",
+            "en": "Semi-crampon-compatible",
+            "es": "Compatible con crampones semiautomáticos",
+            "fr": "Compatible avec crampons semi-automatiques",
+            "it": "Compatibile con ramponi semiautomatici"
+          }
         },
         {
           "key": "full",
-          "labelDe": "Voll steigeisenfest"
+          "labelDe": "Voll steigeisenfest",
+          "labels": {
+            "de": "Voll steigeisenfest",
+            "en": "Fully crampon-compatible",
+            "es": "Totalmente compatible con crampones",
+            "fr": "Entièrement compatible avec crampons",
+            "it": "Completamente compatibile con ramponi"
+          }
         }
       ]
     },
@@ -336,31 +673,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "a",
-          "labelDe": "A"
+          "labelDe": "A",
+          "labels": {
+            "de": "A",
+            "en": "A",
+            "es": "A",
+            "fr": "A",
+            "it": "A"
+          }
         },
         {
           "key": "a_b",
-          "labelDe": "A/B"
+          "labelDe": "A/B",
+          "labels": {
+            "de": "A/B",
+            "en": "A/B",
+            "es": "A/B",
+            "fr": "A/B",
+            "it": "A/B"
+          }
         },
         {
           "key": "b",
-          "labelDe": "B"
+          "labelDe": "B",
+          "labels": {
+            "de": "B",
+            "en": "B",
+            "es": "B",
+            "fr": "B",
+            "it": "B"
+          }
         },
         {
           "key": "b_c",
-          "labelDe": "B/C"
+          "labelDe": "B/C",
+          "labels": {
+            "de": "B/C",
+            "en": "B/C",
+            "es": "B/C",
+            "fr": "B/C",
+            "it": "B/C"
+          }
         },
         {
           "key": "light_mountaineering",
-          "labelDe": "Leichtbergstiefel"
+          "labelDe": "Leichtbergstiefel",
+          "labels": {
+            "de": "Leichtbergstiefel",
+            "en": "Light mountaineering boots",
+            "es": "Botas de alpinismo ligeras",
+            "fr": "Chaussures d’alpinisme légères",
+            "it": "Scarponi da alpinismo leggeri"
+          }
         },
         {
           "key": "c",
-          "labelDe": "C"
+          "labelDe": "C",
+          "labels": {
+            "de": "C",
+            "en": "C",
+            "es": "C",
+            "fr": "C",
+            "it": "C"
+          }
         },
         {
           "key": "d",
-          "labelDe": "D"
+          "labelDe": "D",
+          "labels": {
+            "de": "D",
+            "en": "D",
+            "es": "D",
+            "fr": "D",
+            "it": "D"
+          }
         }
       ]
     },
@@ -369,31 +755,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "xxs",
-          "labelDe": "XXS"
+          "labelDe": "XXS",
+          "labels": {
+            "de": "XXS",
+            "en": "XXS",
+            "es": "XXS",
+            "fr": "XXS",
+            "it": "XXS"
+          }
         },
         {
           "key": "xs",
-          "labelDe": "XS"
+          "labelDe": "XS",
+          "labels": {
+            "de": "XS",
+            "en": "XS",
+            "es": "XS",
+            "fr": "XS",
+            "it": "XS"
+          }
         },
         {
           "key": "s",
-          "labelDe": "S"
+          "labelDe": "S",
+          "labels": {
+            "de": "S",
+            "en": "S",
+            "es": "S",
+            "fr": "S",
+            "it": "S"
+          }
         },
         {
           "key": "m",
-          "labelDe": "M"
+          "labelDe": "M",
+          "labels": {
+            "de": "M",
+            "en": "M",
+            "es": "M",
+            "fr": "M",
+            "it": "M"
+          }
         },
         {
           "key": "l",
-          "labelDe": "L"
+          "labelDe": "L",
+          "labels": {
+            "de": "L",
+            "en": "L",
+            "es": "L",
+            "fr": "L",
+            "it": "L"
+          }
         },
         {
           "key": "xl",
-          "labelDe": "XL"
+          "labelDe": "XL",
+          "labels": {
+            "de": "XL",
+            "en": "XL",
+            "es": "XL",
+            "fr": "XL",
+            "it": "XL"
+          }
         },
         {
           "key": "xxl",
-          "labelDe": "XXL"
+          "labelDe": "XXL",
+          "labels": {
+            "de": "XXL",
+            "en": "XXL",
+            "es": "XXL",
+            "fr": "XXL",
+            "it": "XXL"
+          }
         }
       ]
     },
@@ -402,47 +837,124 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "44",
-          "labelDe": "44 cm"
+          "labelDe": "44 cm",
+          "labels": {
+            "de": "44 cm",
+            "en": "44 cm",
+            "es": "44 cm",
+            "fr": "44 cm",
+            "it": "44 cm"
+          }
         },
         {
           "key": "46",
-          "labelDe": "46 cm"
+          "labelDe": "46 cm",
+          "labels": {
+            "de": "46 cm",
+            "en": "46 cm",
+            "es": "46 cm",
+            "fr": "46 cm",
+            "it": "46 cm"
+          }
         },
         {
           "key": "48",
-          "labelDe": "48 cm"
+          "labelDe": "48 cm",
+          "labels": {
+            "de": "48 cm",
+            "en": "48 cm",
+            "es": "48 cm",
+            "fr": "48 cm",
+            "it": "48 cm"
+          }
         },
         {
           "key": "50",
-          "labelDe": "50 cm"
+          "labelDe": "50 cm",
+          "labels": {
+            "de": "50 cm",
+            "en": "50 cm",
+            "es": "50 cm",
+            "fr": "50 cm",
+            "it": "50 cm"
+          }
         },
         {
           "key": "52",
-          "labelDe": "52 cm"
+          "labelDe": "52 cm",
+          "labels": {
+            "de": "52 cm",
+            "en": "52 cm",
+            "es": "52 cm",
+            "fr": "52 cm",
+            "it": "52 cm"
+          }
         },
         {
           "key": "54",
-          "labelDe": "54 cm"
+          "labelDe": "54 cm",
+          "labels": {
+            "de": "54 cm",
+            "en": "54 cm",
+            "es": "54 cm",
+            "fr": "54 cm",
+            "it": "54 cm"
+          }
         },
         {
           "key": "56",
-          "labelDe": "56 cm"
+          "labelDe": "56 cm",
+          "labels": {
+            "de": "56 cm",
+            "en": "56 cm",
+            "es": "56 cm",
+            "fr": "56 cm",
+            "it": "56 cm"
+          }
         },
         {
           "key": "58",
-          "labelDe": "58 cm"
+          "labelDe": "58 cm",
+          "labels": {
+            "de": "58 cm",
+            "en": "58 cm",
+            "es": "58 cm",
+            "fr": "58 cm",
+            "it": "58 cm"
+          }
         },
         {
           "key": "60",
-          "labelDe": "60 cm"
+          "labelDe": "60 cm",
+          "labels": {
+            "de": "60 cm",
+            "en": "60 cm",
+            "es": "60 cm",
+            "fr": "60 cm",
+            "it": "60 cm"
+          }
         },
         {
           "key": "62",
-          "labelDe": "62 cm"
+          "labelDe": "62 cm",
+          "labels": {
+            "de": "62 cm",
+            "en": "62 cm",
+            "es": "62 cm",
+            "fr": "62 cm",
+            "it": "62 cm"
+          }
         },
         {
           "key": "64",
-          "labelDe": "64 cm"
+          "labelDe": "64 cm",
+          "labels": {
+            "de": "64 cm",
+            "en": "64 cm",
+            "es": "64 cm",
+            "fr": "64 cm",
+            "it": "64 cm"
+          }
         }
       ]
     },
@@ -451,15 +963,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "hardtail",
-          "labelDe": "Hardtail"
+          "labelDe": "Hardtail",
+          "labels": {
+            "de": "Hardtail",
+            "en": "Hardtail",
+            "es": "Hardtail",
+            "fr": "Hardtail",
+            "it": "Hardtail"
+          }
         },
         {
           "key": "full_suspension",
-          "labelDe": "Fully"
+          "labelDe": "Fully",
+          "labels": {
+            "de": "Fully",
+            "en": "Fully",
+            "es": "Fully",
+            "fr": "Fully",
+            "it": "Fully"
+          }
         },
         {
           "key": "rigid",
-          "labelDe": "Starr"
+          "labelDe": "Starr",
+          "labels": {
+            "de": "Starr",
+            "en": "Rigid",
+            "es": "Rígida",
+            "fr": "Rigide",
+            "it": "Rigida"
+          }
         }
       ]
     },
@@ -468,139 +1001,377 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "bike.road.endurance",
-          "labelDe": "Endurance"
+          "labelDe": "Endurance",
+          "labels": {
+            "de": "Endurance",
+            "en": "Endurance",
+            "es": "Endurance",
+            "fr": "Endurance",
+            "it": "Endurance"
+          }
         },
         {
           "key": "bike.road.aero",
-          "labelDe": "Aero"
+          "labelDe": "Aero",
+          "labels": {
+            "de": "Aero",
+            "en": "Aero",
+            "es": "Aero",
+            "fr": "Aéro",
+            "it": "Aero"
+          }
         },
         {
           "key": "bike.road.time_trial",
-          "labelDe": "Zeitfahrrad"
+          "labelDe": "Zeitfahrrad",
+          "labels": {
+            "de": "Zeitfahrrad",
+            "en": "Time trial bike",
+            "es": "Bicicleta de contrarreloj",
+            "fr": "Vélo de contre-la-montre",
+            "it": "Bici da cronometro"
+          }
         },
         {
           "key": "bike.road.track",
-          "labelDe": "Bahnrad"
+          "labelDe": "Bahnrad",
+          "labels": {
+            "de": "Bahnrad",
+            "en": "Track bike",
+            "es": "Bicicleta de pista",
+            "fr": "Vélo de piste",
+            "it": "Bici da pista"
+          }
         },
         {
           "key": "bike.mtb.xc",
-          "labelDe": "XC"
+          "labelDe": "XC",
+          "labels": {
+            "de": "XC",
+            "en": "XC",
+            "es": "XC",
+            "fr": "XC",
+            "it": "XC"
+          }
         },
         {
           "key": "bike.mtb.all_mountain_trail",
-          "labelDe": "AM/Trail"
+          "labelDe": "AM/Trail",
+          "labels": {
+            "de": "AM/Trail",
+            "en": "AM/Trail",
+            "es": "AM/Trail",
+            "fr": "AM/Trail",
+            "it": "AM/Trail"
+          }
         },
         {
           "key": "bike.mtb.enduro",
-          "labelDe": "Enduro"
+          "labelDe": "Enduro",
+          "labels": {
+            "de": "Enduro",
+            "en": "Enduro",
+            "es": "Enduro",
+            "fr": "Enduro",
+            "it": "Enduro"
+          }
         },
         {
           "key": "bike.mtb.downhill",
-          "labelDe": "Downhill"
+          "labelDe": "Downhill",
+          "labels": {
+            "de": "Downhill",
+            "en": "Downhill",
+            "es": "Downhill",
+            "fr": "Downhill",
+            "it": "Downhill"
+          }
         },
         {
           "key": "bike.mtb.dirt",
-          "labelDe": "Dirtbike"
+          "labelDe": "Dirtbike",
+          "labels": {
+            "de": "Dirtbike",
+            "en": "Dirt bike",
+            "es": "Dirt bike",
+            "fr": "Dirt bike",
+            "it": "Dirt bike"
+          }
         },
         {
           "key": "bike.mtb.fat",
-          "labelDe": "Fatbike"
+          "labelDe": "Fatbike",
+          "labels": {
+            "de": "Fatbike",
+            "en": "Fatbike",
+            "es": "Fatbike",
+            "fr": "Fatbike",
+            "it": "Fatbike"
+          }
         },
         {
           "key": "bike.mtb.trial",
-          "labelDe": "Trial"
+          "labelDe": "Trial",
+          "labels": {
+            "de": "Trial",
+            "en": "Trial",
+            "es": "Trial",
+            "fr": "Trial",
+            "it": "Trial"
+          }
         },
         {
           "key": "bike.gravel.gravelbike",
-          "labelDe": "Gravelbike"
+          "labelDe": "Gravelbike",
+          "labels": {
+            "de": "Gravelbike",
+            "en": "Gravel bike",
+            "es": "Bicicleta gravel",
+            "fr": "Vélo gravel",
+            "it": "Bici gravel"
+          }
         },
         {
           "key": "bike.gravel.cyclocross",
-          "labelDe": "Cyclocross"
+          "labelDe": "Cyclocross",
+          "labels": {
+            "de": "Cyclocross",
+            "en": "Cyclocross",
+            "es": "Cyclocross",
+            "fr": "Cyclocross",
+            "it": "Cyclocross"
+          }
         },
         {
           "key": "bike.bmx.race",
-          "labelDe": "BMX Race"
+          "labelDe": "BMX Race",
+          "labels": {
+            "de": "BMX Race",
+            "en": "BMX Race",
+            "es": "BMX Race",
+            "fr": "BMX Race",
+            "it": "BMX Race"
+          }
         },
         {
           "key": "bike.bmx.freestyle",
-          "labelDe": "BMX Freestyle"
+          "labelDe": "BMX Freestyle",
+          "labels": {
+            "de": "BMX Freestyle",
+            "en": "BMX Freestyle",
+            "es": "BMX Freestyle",
+            "fr": "BMX Freestyle",
+            "it": "BMX Freestyle"
+          }
         },
         {
           "key": "bike.bmx.dirt",
-          "labelDe": "BMX Dirt"
+          "labelDe": "BMX Dirt",
+          "labels": {
+            "de": "BMX Dirt",
+            "en": "BMX Dirt",
+            "es": "BMX Dirt",
+            "fr": "BMX Dirt",
+            "it": "BMX Dirt"
+          }
         },
         {
           "key": "bike.bmx.flatland",
-          "labelDe": "BMX Flatland"
+          "labelDe": "BMX Flatland",
+          "labels": {
+            "de": "BMX Flatland",
+            "en": "BMX Flatland",
+            "es": "BMX Flatland",
+            "fr": "BMX Flatland",
+            "it": "BMX Flatland"
+          }
         },
         {
           "key": "bike.city.citybike",
-          "labelDe": "Citybike"
+          "labelDe": "Citybike",
+          "labels": {
+            "de": "Citybike",
+            "en": "City bike",
+            "es": "Bicicleta urbana",
+            "fr": "Vélo de ville",
+            "it": "Bici da città"
+          }
         },
         {
           "key": "bike.city.dutch",
-          "labelDe": "Hollandrad"
+          "labelDe": "Hollandrad",
+          "labels": {
+            "de": "Hollandrad",
+            "en": "Dutch bike",
+            "es": "Bicicleta holandesa",
+            "fr": "Vélo hollandais",
+            "it": "Bici olandese"
+          }
         },
         {
           "key": "bike.city.urban",
-          "labelDe": "Urban Bike"
+          "labelDe": "Urban Bike",
+          "labels": {
+            "de": "Urban Bike",
+            "en": "Urban bike",
+            "es": "Bicicleta urbana",
+            "fr": "Vélo urbain",
+            "it": "Bici urbana"
+          }
         },
         {
           "key": "bike.city.fitness",
-          "labelDe": "Fitnessbike"
+          "labelDe": "Fitnessbike",
+          "labels": {
+            "de": "Fitnessbike",
+            "en": "Fitness bike",
+            "es": "Bicicleta fitness",
+            "fr": "Vélo fitness",
+            "it": "Bici fitness"
+          }
         },
         {
           "key": "bike.city.folding",
-          "labelDe": "Klapprad"
+          "labelDe": "Klapprad",
+          "labels": {
+            "de": "Klapprad",
+            "en": "Folding bike",
+            "es": "Bicicleta plegable",
+            "fr": "Vélo pliant",
+            "it": "Bici pieghevole"
+          }
         },
         {
           "key": "bike.city.cruiser",
-          "labelDe": "Cruiser"
+          "labelDe": "Cruiser",
+          "labels": {
+            "de": "Cruiser",
+            "en": "Cruiser",
+            "es": "Cruiser",
+            "fr": "Cruiser",
+            "it": "Cruiser"
+          }
         },
         {
           "key": "bike.trekking.trekking",
-          "labelDe": "Trekking"
+          "labelDe": "Trekking",
+          "labels": {
+            "de": "Trekking",
+            "en": "Trekking",
+            "es": "Trekking",
+            "fr": "Trekking",
+            "it": "Trekking"
+          }
         },
         {
           "key": "bike.trekking.expedition",
-          "labelDe": "Reiserad (Expedition)"
+          "labelDe": "Reiserad (Expedition)",
+          "labels": {
+            "de": "Reiserad (Expedition)",
+            "en": "Touring bike (expedition)",
+            "es": "Bicicleta de viaje (expedición)",
+            "fr": "Vélo de voyage (expédition)",
+            "it": "Bici da viaggio (spedizione)"
+          }
         },
         {
           "key": "bike.cargo.long_john",
-          "labelDe": "Long John"
+          "labelDe": "Long John",
+          "labels": {
+            "de": "Long John",
+            "en": "Long John",
+            "es": "Long John",
+            "fr": "Long John",
+            "it": "Long John"
+          }
         },
         {
           "key": "bike.cargo.longtail",
-          "labelDe": "Longtail"
+          "labelDe": "Longtail",
+          "labels": {
+            "de": "Longtail",
+            "en": "Longtail",
+            "es": "Longtail",
+            "fr": "Longtail",
+            "it": "Longtail"
+          }
         },
         {
           "key": "bike.cargo.backpacker",
-          "labelDe": "Backpacker"
+          "labelDe": "Backpacker",
+          "labels": {
+            "de": "Backpacker",
+            "en": "Backpacker",
+            "es": "Backpacker",
+            "fr": "Backpacker",
+            "it": "Backpacker"
+          }
         },
         {
           "key": "bike.tandem",
-          "labelDe": "Tandem"
+          "labelDe": "Tandem",
+          "labels": {
+            "de": "Tandem",
+            "en": "Tandem",
+            "es": "Tándem",
+            "fr": "Tandem",
+            "it": "Tandem"
+          }
         },
         {
           "key": "bike.recumbent",
-          "labelDe": "Liegerad"
+          "labelDe": "Liegerad",
+          "labels": {
+            "de": "Liegerad",
+            "en": "Recumbent bike",
+            "es": "Bicicleta reclinada",
+            "fr": "Vélo couché",
+            "it": "Bici reclinata"
+          }
         },
         {
           "key": "bike.unicycle",
-          "labelDe": "Einrad"
+          "labelDe": "Einrad",
+          "labels": {
+            "de": "Einrad",
+            "en": "Unicycle",
+            "es": "Monociclo",
+            "fr": "Monocycle",
+            "it": "Monociclo"
+          }
         },
         {
           "key": "bike.tricycle",
-          "labelDe": "Dreirad"
+          "labelDe": "Dreirad",
+          "labels": {
+            "de": "Dreirad",
+            "en": "Tricycle",
+            "es": "Triciclo",
+            "fr": "Tricycle",
+            "it": "Triciclo"
+          }
         },
         {
           "key": "bike.kids",
-          "labelDe": "Kinder-/Jugendrad"
+          "labelDe": "Kinder-/Jugendrad",
+          "labels": {
+            "de": "Kinder-/Jugendrad",
+            "en": "Kids/youth bike",
+            "es": "Bicicleta infantil/juvenil",
+            "fr": "Vélo enfant/jeune",
+            "it": "Bici bambino/ragazzo"
+          }
         },
         {
           "key": "bike.balance",
-          "labelDe": "Laufrad"
+          "labelDe": "Laufrad",
+          "labels": {
+            "de": "Laufrad",
+            "en": "Balance bike",
+            "es": "Bicicleta sin pedales",
+            "fr": "Draisienne",
+            "it": "Bici senza pedali"
+          }
         }
       ]
     },
@@ -609,23 +1380,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "internal",
-          "labelDe": "Intern"
+          "labelDe": "Intern",
+          "labels": {
+            "de": "Intern",
+            "en": "Internal",
+            "es": "Interno",
+            "fr": "Interne",
+            "it": "Interno"
+          }
         },
         {
           "key": "external",
-          "labelDe": "Extern"
+          "labelDe": "Extern",
+          "labels": {
+            "de": "Extern",
+            "en": "External",
+            "es": "Externo",
+            "fr": "Externe",
+            "it": "Esterno"
+          }
         },
         {
           "key": "partial_internal",
-          "labelDe": "Teilintegriert"
+          "labelDe": "Teilintegriert",
+          "labels": {
+            "de": "Teilintegriert",
+            "en": "Partly internal",
+            "es": "Parcialmente interno",
+            "fr": "Partiellement interne",
+            "it": "Parzialmente interno"
+          }
         },
         {
           "key": "fully_integrated",
-          "labelDe": "Vollintegriert"
+          "labelDe": "Vollintegriert",
+          "labels": {
+            "de": "Vollintegriert",
+            "en": "Fully integrated",
+            "es": "Totalmente integrado",
+            "fr": "Entièrement intégré",
+            "it": "Completamente integrato"
+          }
         },
         {
           "key": "wireless",
-          "labelDe": "Kabellos"
+          "labelDe": "Kabellos",
+          "labels": {
+            "de": "Kabellos",
+            "en": "Wireless",
+            "es": "Inalámbrico",
+            "fr": "Sans fil",
+            "it": "Wireless"
+          }
         }
       ]
     },
@@ -634,71 +1440,190 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "135_qr",
-          "labelDe": "135mm QR"
+          "labelDe": "135mm QR",
+          "labels": {
+            "de": "135mm QR",
+            "en": "135mm QR",
+            "es": "135mm QR",
+            "fr": "135mm QR",
+            "it": "135mm QR"
+          }
         },
         {
           "key": "142x12",
-          "labelDe": "142x12mm"
+          "labelDe": "142x12mm",
+          "labels": {
+            "de": "142x12mm",
+            "en": "142x12mm",
+            "es": "142x12mm",
+            "fr": "142x12mm",
+            "it": "142x12mm"
+          }
         },
         {
           "key": "148x12_boost",
-          "labelDe": "148x12mm (Boost)"
+          "labelDe": "148x12mm (Boost)",
+          "labels": {
+            "de": "148x12mm (Boost)",
+            "en": "148x12mm (Boost)",
+            "es": "148x12mm (Boost)",
+            "fr": "148x12mm (Boost)",
+            "it": "148x12mm (Boost)"
+          }
         },
         {
           "key": "157x12_superboost",
-          "labelDe": "157x12mm (SuperBoost)"
+          "labelDe": "157x12mm (SuperBoost)",
+          "labels": {
+            "de": "157x12mm (SuperBoost)",
+            "en": "157x12mm (SuperBoost)",
+            "es": "157x12mm (SuperBoost)",
+            "fr": "157x12mm (SuperBoost)",
+            "it": "157x12mm (SuperBoost)"
+          }
         },
         {
           "key": "197x12_fatbike",
-          "labelDe": "197x12mm (Fatbike)"
+          "labelDe": "197x12mm (Fatbike)",
+          "labels": {
+            "de": "197x12mm (Fatbike)",
+            "en": "197x12mm (Fatbike)",
+            "es": "197x12mm (Fatbike)",
+            "fr": "197x12mm (Fatbike)",
+            "it": "197x12mm (Fatbike)"
+          }
         },
         {
           "key": "5x135_qr",
-          "labelDe": "5x135 QR"
+          "labelDe": "5x135 QR",
+          "labels": {
+            "de": "5x135 QR",
+            "en": "5x135 QR",
+            "es": "5x135 QR",
+            "fr": "5x135 QR",
+            "it": "5x135 QR"
+          }
         },
         {
           "key": "5x100_qr",
-          "labelDe": "5x100 QR"
+          "labelDe": "5x100 QR",
+          "labels": {
+            "de": "5x100 QR",
+            "en": "5x100 QR",
+            "es": "5x100 QR",
+            "fr": "5x100 QR",
+            "it": "5x100 QR"
+          }
         },
         {
           "key": "12x142_ta",
-          "labelDe": "12x142 TA"
+          "labelDe": "12x142 TA",
+          "labels": {
+            "de": "12x142 TA",
+            "en": "12x142 TA",
+            "es": "12x142 TA",
+            "fr": "12x142 TA",
+            "it": "12x142 TA"
+          }
         },
         {
           "key": "12x148_boost",
-          "labelDe": "12x148 Boost"
+          "labelDe": "12x148 Boost",
+          "labels": {
+            "de": "12x148 Boost",
+            "en": "12x148 Boost",
+            "es": "12x148 Boost",
+            "fr": "12x148 Boost",
+            "it": "12x148 Boost"
+          }
         },
         {
           "key": "12x157_superboost",
-          "labelDe": "12x157 SuperBoost"
+          "labelDe": "12x157 SuperBoost",
+          "labels": {
+            "de": "12x157 SuperBoost",
+            "en": "12x157 SuperBoost",
+            "es": "12x157 SuperBoost",
+            "fr": "12x157 SuperBoost",
+            "it": "12x157 SuperBoost"
+          }
         },
         {
           "key": "12x197_fat",
-          "labelDe": "12x197 Fat"
+          "labelDe": "12x197 Fat",
+          "labels": {
+            "de": "12x197 Fat",
+            "en": "12x197 Fat",
+            "es": "12x197 Fat",
+            "fr": "12x197 Fat",
+            "it": "12x197 Fat"
+          }
         },
         {
           "key": "12x100_ta",
-          "labelDe": "12x100 TA"
+          "labelDe": "12x100 TA",
+          "labels": {
+            "de": "12x100 TA",
+            "en": "12x100 TA",
+            "es": "12x100 TA",
+            "fr": "12x100 TA",
+            "it": "12x100 TA"
+          }
         },
         {
           "key": "15x110_boost",
-          "labelDe": "15x110 Boost"
+          "labelDe": "15x110 Boost",
+          "labels": {
+            "de": "15x110 Boost",
+            "en": "15x110 Boost",
+            "es": "15x110 Boost",
+            "fr": "15x110 Boost",
+            "it": "15x110 Boost"
+          }
         },
         {
           "key": "20x110_dh",
-          "labelDe": "20x110 DH"
+          "labelDe": "20x110 DH",
+          "labels": {
+            "de": "20x110 DH",
+            "en": "20x110 DH",
+            "es": "20x110 DH",
+            "fr": "20x110 DH",
+            "it": "20x110 DH"
+          }
         },
         {
           "key": "10x135_bolt_on",
-          "labelDe": "10x135 Bolt-On"
+          "labelDe": "10x135 Bolt-On",
+          "labels": {
+            "de": "10x135 Bolt-On",
+            "en": "10x135 Bolt-On",
+            "es": "10x135 Bolt-On",
+            "fr": "10x135 Bolt-On",
+            "it": "10x135 Bolt-On"
+          }
         },
         {
           "key": "3_8_bmx",
-          "labelDe": "3/8\" BMX"
+          "labelDe": "3/8\" BMX",
+          "labels": {
+            "de": "3/8\" BMX",
+            "en": "3/8\" BMX",
+            "es": "3/8\" BMX",
+            "fr": "3/8\" BMX",
+            "it": "3/8\" BMX"
+          }
         },
         {
           "key": "m10",
-          "labelDe": "M10"
+          "labelDe": "M10",
+          "labels": {
+            "de": "M10",
+            "en": "M10",
+            "es": "M10",
+            "fr": "M10",
+            "it": "M10"
+          }
         }
       ]
     },
@@ -707,67 +1632,179 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "postmount_140",
-          "labelDe": "Postmount 140"
+          "labelDe": "Postmount 140",
+          "labels": {
+            "de": "Postmount 140",
+            "en": "Postmount 140",
+            "es": "Postmount 140",
+            "fr": "Postmount 140",
+            "it": "Postmount 140"
+          }
         },
         {
           "key": "postmount_160",
-          "labelDe": "Postmount 160"
+          "labelDe": "Postmount 160",
+          "labels": {
+            "de": "Postmount 160",
+            "en": "Postmount 160",
+            "es": "Postmount 160",
+            "fr": "Postmount 160",
+            "it": "Postmount 160"
+          }
         },
         {
           "key": "postmount_180",
-          "labelDe": "Postmount 180"
+          "labelDe": "Postmount 180",
+          "labels": {
+            "de": "Postmount 180",
+            "en": "Postmount 180",
+            "es": "Postmount 180",
+            "fr": "Postmount 180",
+            "it": "Postmount 180"
+          }
         },
         {
           "key": "postmount_200",
-          "labelDe": "Postmount 200"
+          "labelDe": "Postmount 200",
+          "labels": {
+            "de": "Postmount 200",
+            "en": "Postmount 200",
+            "es": "Postmount 200",
+            "fr": "Postmount 200",
+            "it": "Postmount 200"
+          }
         },
         {
           "key": "postmount_203",
-          "labelDe": "Postmount 203"
+          "labelDe": "Postmount 203",
+          "labels": {
+            "de": "Postmount 203",
+            "en": "Postmount 203",
+            "es": "Postmount 203",
+            "fr": "Postmount 203",
+            "it": "Postmount 203"
+          }
         },
         {
           "key": "postmount_220",
-          "labelDe": "Postmount 220"
+          "labelDe": "Postmount 220",
+          "labels": {
+            "de": "Postmount 220",
+            "en": "Postmount 220",
+            "es": "Postmount 220",
+            "fr": "Postmount 220",
+            "it": "Postmount 220"
+          }
         },
         {
           "key": "flat_mount_140",
-          "labelDe": "Flat Mount 140"
+          "labelDe": "Flat Mount 140",
+          "labels": {
+            "de": "Flat Mount 140",
+            "en": "Flat Mount 140",
+            "es": "Flat Mount 140",
+            "fr": "Flat Mount 140",
+            "it": "Flat Mount 140"
+          }
         },
         {
           "key": "flat_mount_160",
-          "labelDe": "Flat Mount 160"
+          "labelDe": "Flat Mount 160",
+          "labels": {
+            "de": "Flat Mount 160",
+            "en": "Flat Mount 160",
+            "es": "Flat Mount 160",
+            "fr": "Flat Mount 160",
+            "it": "Flat Mount 160"
+          }
         },
         {
           "key": "flat_mount_180",
-          "labelDe": "Flat Mount 180"
+          "labelDe": "Flat Mount 180",
+          "labels": {
+            "de": "Flat Mount 180",
+            "en": "Flat Mount 180",
+            "es": "Flat Mount 180",
+            "fr": "Flat Mount 180",
+            "it": "Flat Mount 180"
+          }
         },
         {
           "key": "is_2000",
-          "labelDe": "IS 2000"
+          "labelDe": "IS 2000",
+          "labels": {
+            "de": "IS 2000",
+            "en": "IS 2000",
+            "es": "IS 2000",
+            "fr": "IS 2000",
+            "it": "IS 2000"
+          }
         },
         {
           "key": "canti_sockets",
-          "labelDe": "Canti-Sockel"
+          "labelDe": "Canti-Sockel",
+          "labels": {
+            "de": "Canti-Sockel",
+            "en": "Canti base",
+            "es": "base canti",
+            "fr": "Socle canti",
+            "it": "Fondo Canti"
+          }
         },
         {
           "key": "central_bore",
-          "labelDe": "Zentralbohrung"
+          "labelDe": "Zentralbohrung",
+          "labels": {
+            "de": "Zentralbohrung",
+            "en": "Center bore",
+            "es": "Taladro central",
+            "fr": "Perçage central",
+            "it": "Foro centrale"
+          }
         },
         {
           "key": "direct_mount",
-          "labelDe": "Direct Mount"
+          "labelDe": "Direct Mount",
+          "labels": {
+            "de": "Direct Mount",
+            "en": "Direct Mount",
+            "es": "Direct Mount",
+            "fr": "Direct Mount",
+            "it": "Direct Mount"
+          }
         },
         {
           "key": "u_brake_sockets",
-          "labelDe": "U-Brake-Sockel"
+          "labelDe": "U-Brake-Sockel",
+          "labels": {
+            "de": "U-Brake-Sockel",
+            "en": "U-Brake base",
+            "es": "Base de freno en U",
+            "fr": "Base de frein en U",
+            "it": "Base del freno a U"
+          }
         },
         {
           "key": "coaster_brake_mount",
-          "labelDe": "Rücktrittbremse-Aufnahme"
+          "labelDe": "Rücktrittbremse-Aufnahme",
+          "labels": {
+            "de": "Rücktrittbremse-Aufnahme",
+            "en": "Coaster brake mount",
+            "es": "Soporte de freno contrapedal",
+            "fr": "Fixation de frein à rétropédalage",
+            "it": "Attacco freno a contropedale"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -776,79 +1813,212 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "bsa",
-          "labelDe": "BSA"
+          "labelDe": "BSA",
+          "labels": {
+            "de": "BSA",
+            "en": "BSA",
+            "es": "BSA",
+            "fr": "BSA",
+            "it": "BSA"
+          }
         },
         {
           "key": "ita",
-          "labelDe": "ITA"
+          "labelDe": "ITA",
+          "labels": {
+            "de": "ITA",
+            "en": "ITA",
+            "es": "ITA",
+            "fr": "ITA",
+            "it": "ITA"
+          }
         },
         {
           "key": "t47",
-          "labelDe": "T47"
+          "labelDe": "T47",
+          "labels": {
+            "de": "T47",
+            "en": "T47",
+            "es": "T47",
+            "fr": "T47",
+            "it": "T47"
+          }
         },
         {
           "key": "bb86",
-          "labelDe": "BB86"
+          "labelDe": "BB86",
+          "labels": {
+            "de": "BB86",
+            "en": "BB86",
+            "es": "BB86",
+            "fr": "BB86",
+            "it": "BB86"
+          }
         },
         {
           "key": "bb90",
-          "labelDe": "BB90"
+          "labelDe": "BB90",
+          "labels": {
+            "de": "BB90",
+            "en": "BB90",
+            "es": "BB90",
+            "fr": "BB90",
+            "it": "BB90"
+          }
         },
         {
           "key": "bb92",
-          "labelDe": "BB92"
+          "labelDe": "BB92",
+          "labels": {
+            "de": "BB92",
+            "en": "BB92",
+            "es": "BB92",
+            "fr": "BB92",
+            "it": "BB92"
+          }
         },
         {
           "key": "bb95",
-          "labelDe": "BB95"
+          "labelDe": "BB95",
+          "labels": {
+            "de": "BB95",
+            "en": "BB95",
+            "es": "BB95",
+            "fr": "BB95",
+            "it": "BB95"
+          }
         },
         {
           "key": "bb30",
-          "labelDe": "BB30"
+          "labelDe": "BB30",
+          "labels": {
+            "de": "BB30",
+            "en": "BB30",
+            "es": "BB30",
+            "fr": "BB30",
+            "it": "BB30"
+          }
         },
         {
           "key": "pf30",
-          "labelDe": "PF30"
+          "labelDe": "PF30",
+          "labels": {
+            "de": "PF30",
+            "en": "PF30",
+            "es": "PF30",
+            "fr": "PF30",
+            "it": "PF30"
+          }
         },
         {
           "key": "bb386_evo",
-          "labelDe": "BB386EVO"
+          "labelDe": "BB386EVO",
+          "labels": {
+            "de": "BB386EVO",
+            "en": "BB386EVO",
+            "es": "BB386EVO",
+            "fr": "BB386EVO",
+            "it": "BB386EVO"
+          }
         },
         {
           "key": "bb_right",
-          "labelDe": "BBRight"
+          "labelDe": "BBRight",
+          "labels": {
+            "de": "BBRight",
+            "en": "BBRight",
+            "es": "BBRight",
+            "fr": "BBRight",
+            "it": "BBRight"
+          }
         },
         {
           "key": "bb_right_direct_fit",
-          "labelDe": "BBRight Direct Fit"
+          "labelDe": "BBRight Direct Fit",
+          "labels": {
+            "de": "BBRight Direct Fit",
+            "en": "BBRight Direct Fit",
+            "es": "BBRight Direct Fit",
+            "fr": "BBRight Direct Fit",
+            "it": "BBRight Direct Fit"
+          }
         },
         {
           "key": "press_fit_41",
-          "labelDe": "Press Fit 41 mm"
+          "labelDe": "Press Fit 41 mm",
+          "labels": {
+            "de": "Press Fit 41 mm",
+            "en": "Press Fit 41 mm",
+            "es": "Press Fit 41 mm",
+            "fr": "Press Fit 41 mm",
+            "it": "Press Fit 41 mm"
+          }
         },
         {
           "key": "press_fit_46",
-          "labelDe": "Press Fit 46 mm"
+          "labelDe": "Press Fit 46 mm",
+          "labels": {
+            "de": "Press Fit 46 mm",
+            "en": "Press Fit 46 mm",
+            "es": "Press Fit 46 mm",
+            "fr": "Press Fit 46 mm",
+            "it": "Press Fit 46 mm"
+          }
         },
         {
           "key": "mid_bmx",
-          "labelDe": "Mid (BMX)"
+          "labelDe": "Mid (BMX)",
+          "labels": {
+            "de": "Mid (BMX)",
+            "en": "Mid (BMX)",
+            "es": "Mid (BMX)",
+            "fr": "Mid (BMX)",
+            "it": "Mid (BMX)"
+          }
         },
         {
           "key": "spanish_bmx",
-          "labelDe": "Spanish (BMX)"
+          "labelDe": "Spanish (BMX)",
+          "labels": {
+            "de": "Spanish (BMX)",
+            "en": "Spanish (BMX)",
+            "es": "Spanish (BMX)",
+            "fr": "Spanish (BMX)",
+            "it": "Spanish (BMX)"
+          }
         },
         {
           "key": "american_bmx",
-          "labelDe": "American (BMX)"
+          "labelDe": "American (BMX)",
+          "labels": {
+            "de": "American (BMX)",
+            "en": "American (BMX)",
+            "es": "American (BMX)",
+            "fr": "American (BMX)",
+            "it": "American (BMX)"
+          }
         },
         {
           "key": "euro_bmx",
-          "labelDe": "Euro (BMX)"
+          "labelDe": "Euro (BMX)",
+          "labels": {
+            "de": "Euro (BMX)",
+            "en": "Euro (BMX)",
+            "es": "Euro (BMX)",
+            "fr": "Euro (BMX)",
+            "it": "Euro (BMX)"
+          }
         },
         {
           "key": "isis_unicycle",
-          "labelDe": "ISIS (Einrad)"
+          "labelDe": "ISIS (Einrad)",
+          "labels": {
+            "de": "ISIS (Einrad)",
+            "en": "ISIS (Einrad)",
+            "es": "ISIS (Einrad)",
+            "fr": "ISIS (Einrad)",
+            "it": "ISIS (Einrad)"
+          }
         }
       ]
     },
@@ -857,27 +2027,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "straight_1_1_8",
-          "labelDe": "1 1/8\" Straight"
+          "labelDe": "1 1/8\" Straight",
+          "labels": {
+            "de": "1 1/8\" Straight",
+            "en": "1 1/8\" Straight",
+            "es": "1 1/8\" Straight",
+            "fr": "1 1/8\" Straight",
+            "it": "1 1/8\" Straight"
+          }
         },
         {
           "key": "tapered_zs44_zs56",
-          "labelDe": "Tapered (ZS44/ZS56)"
+          "labelDe": "Tapered (ZS44/ZS56)",
+          "labels": {
+            "de": "Tapered (ZS44/ZS56)",
+            "en": "Tapered (ZS44/ZS56)",
+            "es": "Tapered (ZS44/ZS56)",
+            "fr": "Tapered (ZS44/ZS56)",
+            "it": "Tapered (ZS44/ZS56)"
+          }
         },
         {
           "key": "tapered_is42_is52",
-          "labelDe": "Tapered (IS42/IS52)"
+          "labelDe": "Tapered (IS42/IS52)",
+          "labels": {
+            "de": "Tapered (IS42/IS52)",
+            "en": "Tapered (IS42/IS52)",
+            "es": "Tapered (IS42/IS52)",
+            "fr": "Tapered (IS42/IS52)",
+            "it": "Tapered (IS42/IS52)"
+          }
         },
         {
           "key": "straight_1_5",
-          "labelDe": "1.5\" Straight"
+          "labelDe": "1.5\" Straight",
+          "labels": {
+            "de": "1.5\" Straight",
+            "en": "1.5\" Straight",
+            "es": "1.5\" Straight",
+            "fr": "1.5\" Straight",
+            "it": "1.5\" Straight"
+          }
         },
         {
           "key": "threaded_1_inch",
-          "labelDe": "1\" Gewinde"
+          "labelDe": "1\" Gewinde",
+          "labels": {
+            "de": "1\" Gewinde",
+            "en": "1\" Gewinde",
+            "es": "1\" Gewinde",
+            "fr": "1\" Gewinde",
+            "it": "1\" Gewinde"
+          }
         },
         {
           "key": "threaded_1_1_8",
-          "labelDe": "1 1/8\" Gewinde"
+          "labelDe": "1 1/8\" Gewinde",
+          "labels": {
+            "de": "1 1/8\" Gewinde",
+            "en": "1 1/8\" Gewinde",
+            "es": "1 1/8\" Gewinde",
+            "fr": "1 1/8\" Gewinde",
+            "it": "1 1/8\" Gewinde"
+          }
         }
       ]
     },
@@ -886,27 +2098,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "25_4",
-          "labelDe": "25.4 mm"
+          "labelDe": "25.4 mm",
+          "labels": {
+            "de": "25.4 mm",
+            "en": "25.4 mm",
+            "es": "25.4 mm",
+            "fr": "25.4 mm",
+            "it": "25.4 mm"
+          }
         },
         {
           "key": "26_8",
-          "labelDe": "26.8 mm"
+          "labelDe": "26.8 mm",
+          "labels": {
+            "de": "26.8 mm",
+            "en": "26.8 mm",
+            "es": "26.8 mm",
+            "fr": "26.8 mm",
+            "it": "26.8 mm"
+          }
         },
         {
           "key": "27_2",
-          "labelDe": "27.2 mm"
+          "labelDe": "27.2 mm",
+          "labels": {
+            "de": "27.2 mm",
+            "en": "27.2 mm",
+            "es": "27.2 mm",
+            "fr": "27.2 mm",
+            "it": "27.2 mm"
+          }
         },
         {
           "key": "30_9",
-          "labelDe": "30.9 mm"
+          "labelDe": "30.9 mm",
+          "labels": {
+            "de": "30.9 mm",
+            "en": "30.9 mm",
+            "es": "30.9 mm",
+            "fr": "30.9 mm",
+            "it": "30.9 mm"
+          }
         },
         {
           "key": "31_6",
-          "labelDe": "31.6 mm"
+          "labelDe": "31.6 mm",
+          "labels": {
+            "de": "31.6 mm",
+            "en": "31.6 mm",
+            "es": "31.6 mm",
+            "fr": "31.6 mm",
+            "it": "31.6 mm"
+          }
         },
         {
           "key": "34_9",
-          "labelDe": "34.9 mm"
+          "labelDe": "34.9 mm",
+          "labels": {
+            "de": "34.9 mm",
+            "en": "34.9 mm",
+            "es": "34.9 mm",
+            "fr": "34.9 mm",
+            "it": "34.9 mm"
+          }
         }
       ]
     },
@@ -915,39 +2169,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "28_6",
-          "labelDe": "28.6 mm"
+          "labelDe": "28.6 mm",
+          "labels": {
+            "de": "28.6 mm",
+            "en": "28.6 mm",
+            "es": "28.6 mm",
+            "fr": "28.6 mm",
+            "it": "28.6 mm"
+          }
         },
         {
           "key": "30_0",
-          "labelDe": "30.0 mm"
+          "labelDe": "30.0 mm",
+          "labels": {
+            "de": "30.0 mm",
+            "en": "30.0 mm",
+            "es": "30.0 mm",
+            "fr": "30.0 mm",
+            "it": "30.0 mm"
+          }
         },
         {
           "key": "31_8",
-          "labelDe": "31.8 mm"
+          "labelDe": "31.8 mm",
+          "labels": {
+            "de": "31.8 mm",
+            "en": "31.8 mm",
+            "es": "31.8 mm",
+            "fr": "31.8 mm",
+            "it": "31.8 mm"
+          }
         },
         {
           "key": "34_9",
-          "labelDe": "34.9 mm"
+          "labelDe": "34.9 mm",
+          "labels": {
+            "de": "34.9 mm",
+            "en": "34.9 mm",
+            "es": "34.9 mm",
+            "fr": "34.9 mm",
+            "it": "34.9 mm"
+          }
         },
         {
           "key": "35_4",
-          "labelDe": "35.4 mm"
+          "labelDe": "35.4 mm",
+          "labels": {
+            "de": "35.4 mm",
+            "en": "35.4 mm",
+            "es": "35.4 mm",
+            "fr": "35.4 mm",
+            "it": "35.4 mm"
+          }
         },
         {
           "key": "36_4",
-          "labelDe": "36.4 mm"
+          "labelDe": "36.4 mm",
+          "labels": {
+            "de": "36.4 mm",
+            "en": "36.4 mm",
+            "es": "36.4 mm",
+            "fr": "36.4 mm",
+            "it": "36.4 mm"
+          }
         },
         {
           "key": "38_0",
-          "labelDe": "38.0 mm"
+          "labelDe": "38.0 mm",
+          "labels": {
+            "de": "38.0 mm",
+            "en": "38.0 mm",
+            "es": "38.0 mm",
+            "fr": "38.0 mm",
+            "it": "38.0 mm"
+          }
         },
         {
           "key": "38_5",
-          "labelDe": "38.5 mm"
+          "labelDe": "38.5 mm",
+          "labels": {
+            "de": "38.5 mm",
+            "en": "38.5 mm",
+            "es": "38.5 mm",
+            "fr": "38.5 mm",
+            "it": "38.5 mm"
+          }
         },
         {
           "key": "39_7",
-          "labelDe": "39.7 mm"
+          "labelDe": "39.7 mm",
+          "labels": {
+            "de": "39.7 mm",
+            "en": "39.7 mm",
+            "es": "39.7 mm",
+            "fr": "39.7 mm",
+            "it": "39.7 mm"
+          }
         }
       ]
     },
@@ -956,27 +2273,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "high_direct_mount",
-          "labelDe": "High Direct Mount"
+          "labelDe": "High Direct Mount",
+          "labels": {
+            "de": "High Direct Mount",
+            "en": "High Direct Mount",
+            "es": "High Direct Mount",
+            "fr": "High Direct Mount",
+            "it": "High Direct Mount"
+          }
         },
         {
           "key": "low_direct_mount",
-          "labelDe": "Low Direct Mount"
+          "labelDe": "Low Direct Mount",
+          "labels": {
+            "de": "Low Direct Mount",
+            "en": "Low Direct Mount",
+            "es": "Low Direct Mount",
+            "fr": "Low Direct Mount",
+            "it": "Low Direct Mount"
+          }
         },
         {
           "key": "braze_on",
-          "labelDe": "Anlöt"
+          "labelDe": "Anlöt",
+          "labels": {
+            "de": "Anlöt",
+            "en": "Braze-on",
+            "es": "Soldado",
+            "fr": "Brasé",
+            "it": "A saldare"
+          }
         },
         {
           "key": "clamp",
-          "labelDe": "Schelle"
+          "labelDe": "Schelle",
+          "labels": {
+            "de": "Schelle",
+            "en": "Clamp",
+            "es": "Abrazadera",
+            "fr": "Collier",
+            "it": "Fascetta"
+          }
         },
         {
           "key": "s3_e_type",
-          "labelDe": "S3/E-Type"
+          "labelDe": "S3/E-Type",
+          "labels": {
+            "de": "S3/E-Type",
+            "en": "S3/E-Type",
+            "es": "S3/E-Type",
+            "fr": "S3/E-Type",
+            "it": "S3/E-Type"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -985,47 +2344,124 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "165",
-          "labelDe": "165 mm"
+          "labelDe": "165 mm",
+          "labels": {
+            "de": "165 mm",
+            "en": "165 mm",
+            "es": "165 mm",
+            "fr": "165 mm",
+            "it": "165 mm"
+          }
         },
         {
           "key": "185",
-          "labelDe": "185 mm"
+          "labelDe": "185 mm",
+          "labels": {
+            "de": "185 mm",
+            "en": "185 mm",
+            "es": "185 mm",
+            "fr": "185 mm",
+            "it": "185 mm"
+          }
         },
         {
           "key": "190",
-          "labelDe": "190 mm"
+          "labelDe": "190 mm",
+          "labels": {
+            "de": "190 mm",
+            "en": "190 mm",
+            "es": "190 mm",
+            "fr": "190 mm",
+            "it": "190 mm"
+          }
         },
         {
           "key": "200",
-          "labelDe": "200 mm"
+          "labelDe": "200 mm",
+          "labels": {
+            "de": "200 mm",
+            "en": "200 mm",
+            "es": "200 mm",
+            "fr": "200 mm",
+            "it": "200 mm"
+          }
         },
         {
           "key": "205",
-          "labelDe": "205 mm"
+          "labelDe": "205 mm",
+          "labels": {
+            "de": "205 mm",
+            "en": "205 mm",
+            "es": "205 mm",
+            "fr": "205 mm",
+            "it": "205 mm"
+          }
         },
         {
           "key": "210",
-          "labelDe": "210 mm"
+          "labelDe": "210 mm",
+          "labels": {
+            "de": "210 mm",
+            "en": "210 mm",
+            "es": "210 mm",
+            "fr": "210 mm",
+            "it": "210 mm"
+          }
         },
         {
           "key": "216",
-          "labelDe": "216 mm"
+          "labelDe": "216 mm",
+          "labels": {
+            "de": "216 mm",
+            "en": "216 mm",
+            "es": "216 mm",
+            "fr": "216 mm",
+            "it": "216 mm"
+          }
         },
         {
           "key": "222",
-          "labelDe": "222 mm"
+          "labelDe": "222 mm",
+          "labels": {
+            "de": "222 mm",
+            "en": "222 mm",
+            "es": "222 mm",
+            "fr": "222 mm",
+            "it": "222 mm"
+          }
         },
         {
           "key": "230",
-          "labelDe": "230 mm"
+          "labelDe": "230 mm",
+          "labels": {
+            "de": "230 mm",
+            "en": "230 mm",
+            "es": "230 mm",
+            "fr": "230 mm",
+            "it": "230 mm"
+          }
         },
         {
           "key": "240",
-          "labelDe": "240 mm"
+          "labelDe": "240 mm",
+          "labels": {
+            "de": "240 mm",
+            "en": "240 mm",
+            "es": "240 mm",
+            "fr": "240 mm",
+            "it": "240 mm"
+          }
         },
         {
           "key": "250",
-          "labelDe": "250 mm"
+          "labelDe": "250 mm",
+          "labels": {
+            "de": "250 mm",
+            "en": "250 mm",
+            "es": "250 mm",
+            "fr": "250 mm",
+            "it": "250 mm"
+          }
         }
       ]
     },
@@ -1034,59 +2470,157 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "37_5",
-          "labelDe": "37.5 mm"
+          "labelDe": "37.5 mm",
+          "labels": {
+            "de": "37.5 mm",
+            "en": "37.5 mm",
+            "es": "37.5 mm",
+            "fr": "37.5 mm",
+            "it": "37.5 mm"
+          }
         },
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         },
         {
           "key": "42_5",
-          "labelDe": "42.5 mm"
+          "labelDe": "42.5 mm",
+          "labels": {
+            "de": "42.5 mm",
+            "en": "42.5 mm",
+            "es": "42.5 mm",
+            "fr": "42.5 mm",
+            "it": "42.5 mm"
+          }
         },
         {
           "key": "45",
-          "labelDe": "45 mm"
+          "labelDe": "45 mm",
+          "labels": {
+            "de": "45 mm",
+            "en": "45 mm",
+            "es": "45 mm",
+            "fr": "45 mm",
+            "it": "45 mm"
+          }
         },
         {
           "key": "47_5",
-          "labelDe": "47.5 mm"
+          "labelDe": "47.5 mm",
+          "labels": {
+            "de": "47.5 mm",
+            "en": "47.5 mm",
+            "es": "47.5 mm",
+            "fr": "47.5 mm",
+            "it": "47.5 mm"
+          }
         },
         {
           "key": "50",
-          "labelDe": "50 mm"
+          "labelDe": "50 mm",
+          "labels": {
+            "de": "50 mm",
+            "en": "50 mm",
+            "es": "50 mm",
+            "fr": "50 mm",
+            "it": "50 mm"
+          }
         },
         {
           "key": "52_5",
-          "labelDe": "52.5 mm"
+          "labelDe": "52.5 mm",
+          "labels": {
+            "de": "52.5 mm",
+            "en": "52.5 mm",
+            "es": "52.5 mm",
+            "fr": "52.5 mm",
+            "it": "52.5 mm"
+          }
         },
         {
           "key": "55",
-          "labelDe": "55 mm"
+          "labelDe": "55 mm",
+          "labels": {
+            "de": "55 mm",
+            "en": "55 mm",
+            "es": "55 mm",
+            "fr": "55 mm",
+            "it": "55 mm"
+          }
         },
         {
           "key": "57_5",
-          "labelDe": "57.5 mm"
+          "labelDe": "57.5 mm",
+          "labels": {
+            "de": "57.5 mm",
+            "en": "57.5 mm",
+            "es": "57.5 mm",
+            "fr": "57.5 mm",
+            "it": "57.5 mm"
+          }
         },
         {
           "key": "60",
-          "labelDe": "60 mm"
+          "labelDe": "60 mm",
+          "labels": {
+            "de": "60 mm",
+            "en": "60 mm",
+            "es": "60 mm",
+            "fr": "60 mm",
+            "it": "60 mm"
+          }
         },
         {
           "key": "62_5",
-          "labelDe": "62.5 mm"
+          "labelDe": "62.5 mm",
+          "labels": {
+            "de": "62.5 mm",
+            "en": "62.5 mm",
+            "es": "62.5 mm",
+            "fr": "62.5 mm",
+            "it": "62.5 mm"
+          }
         },
         {
           "key": "65",
-          "labelDe": "65 mm"
+          "labelDe": "65 mm",
+          "labels": {
+            "de": "65 mm",
+            "en": "65 mm",
+            "es": "65 mm",
+            "fr": "65 mm",
+            "it": "65 mm"
+          }
         },
         {
           "key": "70",
-          "labelDe": "70 mm"
+          "labelDe": "70 mm",
+          "labels": {
+            "de": "70 mm",
+            "en": "70 mm",
+            "es": "70 mm",
+            "fr": "70 mm",
+            "it": "70 mm"
+          }
         },
         {
           "key": "75",
-          "labelDe": "75 mm"
+          "labelDe": "75 mm",
+          "labels": {
+            "de": "75 mm",
+            "en": "75 mm",
+            "es": "75 mm",
+            "fr": "75 mm",
+            "it": "75 mm"
+          }
         }
       ]
     },
@@ -1095,27 +2629,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "ksa_18",
-          "labelDe": "KSA 18"
+          "labelDe": "KSA 18",
+          "labels": {
+            "de": "KSA 18",
+            "en": "KSA 18",
+            "es": "KSA 18",
+            "fr": "KSA 18",
+            "it": "KSA 18"
+          }
         },
         {
           "key": "ksa_40",
-          "labelDe": "KSA 40"
+          "labelDe": "KSA 40",
+          "labels": {
+            "de": "KSA 40",
+            "en": "KSA 40",
+            "es": "KSA 40",
+            "fr": "KSA 40",
+            "it": "KSA 40"
+          }
         },
         {
           "key": "mid_mount_plate",
-          "labelDe": "Mittelplatte"
+          "labelDe": "Mittelplatte",
+          "labels": {
+            "de": "Mittelplatte",
+            "en": "Center plate",
+            "es": "Placa central",
+            "fr": "Plaque centrale",
+            "it": "Piastra centrale"
+          }
         },
         {
           "key": "rear_chainstay",
-          "labelDe": "Kettenstrebe hinten"
+          "labelDe": "Kettenstrebe hinten",
+          "labels": {
+            "de": "Kettenstrebe hinten",
+            "en": "Rear chainstay",
+            "es": "Vaina trasera",
+            "fr": "Base arrière",
+            "it": "Fodero basso posteriore"
+          }
         },
         {
           "key": "two_leg",
-          "labelDe": "Zweibeinständer"
+          "labelDe": "Zweibeinständer",
+          "labels": {
+            "de": "Zweibeinständer",
+            "en": "Double-leg stand",
+            "es": "Pata de cabra doble",
+            "fr": "Béquille double",
+            "it": "Cavalletto doppio"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -1124,23 +2700,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "schrader",
-          "labelDe": "Schrader"
+          "labelDe": "Schrader",
+          "labels": {
+            "de": "Schrader",
+            "en": "Schrader",
+            "es": "Schrader",
+            "fr": "Schrader",
+            "it": "Schrader"
+          }
         },
         {
           "key": "presta",
-          "labelDe": "Presta/Sclaverand"
+          "labelDe": "Presta/Sclaverand",
+          "labels": {
+            "de": "Presta/Sclaverand",
+            "en": "Presta/Sclaverand",
+            "es": "Presta/Sclaverand",
+            "fr": "Presta/Sclaverand",
+            "it": "Presta/Sclaverand"
+          }
         },
         {
           "key": "dunlop",
-          "labelDe": "Dunlop"
+          "labelDe": "Dunlop",
+          "labels": {
+            "de": "Dunlop",
+            "en": "Dunlop",
+            "es": "Dunlop",
+            "fr": "Dunlop",
+            "it": "Dunlop"
+          }
         },
         {
           "key": "tubeless",
-          "labelDe": "Tubeless"
+          "labelDe": "Tubeless",
+          "labels": {
+            "de": "Tubeless",
+            "en": "Tubeless",
+            "es": "Tubeless",
+            "fr": "Tubeless",
+            "it": "Tubeless"
+          }
         },
         {
           "key": "tubeless_presta",
-          "labelDe": "Tubeless-Presta"
+          "labelDe": "Tubeless-Presta",
+          "labels": {
+            "de": "Tubeless-Presta",
+            "en": "Tubeless-Presta",
+            "es": "Tubeless-Presta",
+            "fr": "Tubeless-Presta",
+            "it": "Tubeless-Presta"
+          }
         }
       ]
     },
@@ -1149,43 +2760,113 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "disc",
-          "labelDe": "Scheibenbremse"
+          "labelDe": "Scheibenbremse",
+          "labels": {
+            "de": "Scheibenbremse",
+            "en": "Disc brake",
+            "es": "Freno de disco",
+            "fr": "Frein à disque",
+            "it": "Freno a disco"
+          }
         },
         {
           "key": "v_brake",
-          "labelDe": "V-Brake"
+          "labelDe": "V-Brake",
+          "labels": {
+            "de": "V-Brake",
+            "en": "V brake",
+            "es": "freno en V",
+            "fr": "Frein V",
+            "it": "Freno a V"
+          }
         },
         {
           "key": "cantilever",
-          "labelDe": "Cantilever"
+          "labelDe": "Cantilever",
+          "labels": {
+            "de": "Cantilever",
+            "en": "Cantilever brake",
+            "es": "Freno cantilever",
+            "fr": "Frein cantilever",
+            "it": "Freno cantilever"
+          }
         },
         {
           "key": "road_caliper",
-          "labelDe": "Rennrad-Felgenbremse"
+          "labelDe": "Rennrad-Felgenbremse",
+          "labels": {
+            "de": "Rennrad-Felgenbremse",
+            "en": "Road rim brake",
+            "es": "Freno de llanta de carretera",
+            "fr": "Frein sur jante route",
+            "it": "Freno su cerchio da strada"
+          }
         },
         {
           "key": "u_brake",
-          "labelDe": "U-Brake"
+          "labelDe": "U-Brake",
+          "labels": {
+            "de": "U-Brake",
+            "en": "U Brake",
+            "es": "Freno en U",
+            "fr": "Frein en U",
+            "it": "Freno a U"
+          }
         },
         {
           "key": "drum",
-          "labelDe": "Trommelbremse"
+          "labelDe": "Trommelbremse",
+          "labels": {
+            "de": "Trommelbremse",
+            "en": "Drum brake",
+            "es": "Freno de tambor",
+            "fr": "Frein à tambour",
+            "it": "Freno a tamburo"
+          }
         },
         {
           "key": "roller",
-          "labelDe": "Rollenbremse"
+          "labelDe": "Rollenbremse",
+          "labels": {
+            "de": "Rollenbremse",
+            "en": "Roller brake",
+            "es": "Freno roller",
+            "fr": "Frein roller",
+            "it": "Freno roller"
+          }
         },
         {
           "key": "coaster",
-          "labelDe": "Rücktrittbremse"
+          "labelDe": "Rücktrittbremse",
+          "labels": {
+            "de": "Rücktrittbremse",
+            "en": "Coaster brake",
+            "es": "Freno contrapedal",
+            "fr": "Frein à rétropédalage",
+            "it": "Freno a contropedale"
+          }
         },
         {
           "key": "plunger",
-          "labelDe": "Stempelbremse"
+          "labelDe": "Stempelbremse",
+          "labels": {
+            "de": "Stempelbremse",
+            "en": "Plunger brake",
+            "es": "Freno de varilla",
+            "fr": "Frein à tampon",
+            "it": "Freno a tampone"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -1194,19 +2875,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "mechanical",
-          "labelDe": "Mechanisch"
+          "labelDe": "Mechanisch",
+          "labels": {
+            "de": "Mechanisch",
+            "en": "Mechanical",
+            "es": "Mecánico",
+            "fr": "Mécanique",
+            "it": "Meccanico"
+          }
         },
         {
           "key": "hydraulic",
-          "labelDe": "Hydraulisch"
+          "labelDe": "Hydraulisch",
+          "labels": {
+            "de": "Hydraulisch",
+            "en": "Hydraulic",
+            "es": "Hidráulico",
+            "fr": "Hydraulique",
+            "it": "Idraulico"
+          }
         },
         {
           "key": "mechanical_hydraulic",
-          "labelDe": "Mech.-Hydraulisch"
+          "labelDe": "Mech.-Hydraulisch",
+          "labels": {
+            "de": "Mech.-Hydraulisch",
+            "en": "Mechanical-hydraulic",
+            "es": "Mecánico-hidráulico",
+            "fr": "Mécanique-hydraulique",
+            "it": "Meccanico-idraulico"
+          }
         },
         {
           "key": "electronic",
-          "labelDe": "Elektronisch"
+          "labelDe": "Elektronisch",
+          "labels": {
+            "de": "Elektronisch",
+            "en": "Electronic",
+            "es": "Electrónico",
+            "fr": "Électronique",
+            "it": "Elettronico"
+          }
         }
       ]
     },
@@ -1215,11 +2924,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "disc",
-          "labelDe": "Scheibenbremse"
+          "labelDe": "Scheibenbremse",
+          "labels": {
+            "de": "Scheibenbremse",
+            "en": "Disc brake",
+            "es": "Freno de disco",
+            "fr": "Frein à disque",
+            "it": "Freno a disco"
+          }
         },
         {
           "key": "rim",
-          "labelDe": "Felgenbremse"
+          "labelDe": "Felgenbremse",
+          "labels": {
+            "de": "Felgenbremse",
+            "en": "Rim brake",
+            "es": "Freno de llanta",
+            "fr": "Frein sur jante",
+            "it": "Freno su cerchio"
+          }
         }
       ]
     },
@@ -1228,27 +2951,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "organic",
-          "labelDe": "Organisch"
+          "labelDe": "Organisch",
+          "labels": {
+            "de": "Organisch",
+            "en": "Organic",
+            "es": "Orgánico",
+            "fr": "Organique",
+            "it": "Organico"
+          }
         },
         {
           "key": "sintered",
-          "labelDe": "Sinter"
+          "labelDe": "Sinter",
+          "labels": {
+            "de": "Sinter",
+            "en": "Sintered",
+            "es": "Sinterizado",
+            "fr": "Fritté",
+            "it": "Sinterizzato"
+          }
         },
         {
           "key": "semi_metallic",
-          "labelDe": "Semi-Metallic"
+          "labelDe": "Semi-Metallic",
+          "labels": {
+            "de": "Semi-Metallic",
+            "en": "Semi-metallic",
+            "es": "semimetálico",
+            "fr": "Semi-métallique",
+            "it": "Semimetallico"
+          }
         },
         {
           "key": "ceramic",
-          "labelDe": "Keramik"
+          "labelDe": "Keramik",
+          "labels": {
+            "de": "Keramik",
+            "en": "Ceramics",
+            "es": "Cerámica",
+            "fr": "Céramique",
+            "it": "Ceramica"
+          }
         },
         {
           "key": "cork",
-          "labelDe": "Kork"
+          "labelDe": "Kork",
+          "labels": {
+            "de": "Kork",
+            "en": "Cork",
+            "es": "Corcho",
+            "fr": "Liège",
+            "it": "Sughero"
+          }
         },
         {
           "key": "rubber",
-          "labelDe": "Gummi"
+          "labelDe": "Gummi",
+          "labels": {
+            "de": "Gummi",
+            "en": "Rubber",
+            "es": "Goma",
+            "fr": "Caoutchouc",
+            "it": "Gomma"
+          }
         }
       ]
     },
@@ -1257,47 +3022,124 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "flat",
-          "labelDe": "Flatbar"
+          "labelDe": "Flatbar",
+          "labels": {
+            "de": "Flatbar",
+            "en": "Flat bar",
+            "es": "barra plana",
+            "fr": "Barre plate",
+            "it": "Barra piatta"
+          }
         },
         {
           "key": "riser",
-          "labelDe": "Riser"
+          "labelDe": "Riser",
+          "labels": {
+            "de": "Riser",
+            "en": "Riser bar",
+            "es": "Manillar riser",
+            "fr": "Cintre riser",
+            "it": "Manubrio riser"
+          }
         },
         {
           "key": "drop",
-          "labelDe": "Dropbar"
+          "labelDe": "Dropbar",
+          "labels": {
+            "de": "Dropbar",
+            "en": "Drop bar",
+            "es": "Manillar drop",
+            "fr": "Cintre route",
+            "it": "Manubrio drop"
+          }
         },
         {
           "key": "aero",
-          "labelDe": "Aero"
+          "labelDe": "Aero",
+          "labels": {
+            "de": "Aero",
+            "en": "Aero",
+            "es": "Aero",
+            "fr": "Aéro",
+            "it": "Aero"
+          }
         },
         {
           "key": "bullhorn",
-          "labelDe": "Bullhorn"
+          "labelDe": "Bullhorn",
+          "labels": {
+            "de": "Bullhorn",
+            "en": "Bullhorn bar",
+            "es": "Manillar bullhorn",
+            "fr": "Cintre bullhorn",
+            "it": "Manubrio bullhorn"
+          }
         },
         {
           "key": "cruiser",
-          "labelDe": "Cruiser"
+          "labelDe": "Cruiser",
+          "labels": {
+            "de": "Cruiser",
+            "en": "Cruiser",
+            "es": "Cruiser",
+            "fr": "Cruiser",
+            "it": "Cruiser"
+          }
         },
         {
           "key": "bmx",
-          "labelDe": "BMX"
+          "labelDe": "BMX",
+          "labels": {
+            "de": "BMX",
+            "en": "BMX",
+            "es": "BMX",
+            "fr": "BMX",
+            "it": "BMX"
+          }
         },
         {
           "key": "trekking_multi_position",
-          "labelDe": "Trekking/Multiposition"
+          "labelDe": "Trekking/Multiposition",
+          "labels": {
+            "de": "Trekking/Multiposition",
+            "en": "Trekking/Multiposition",
+            "es": "Trekking/Multiposition",
+            "fr": "Trekking/Multiposition",
+            "it": "Trekking/Multiposition"
+          }
         },
         {
           "key": "tt_aero",
-          "labelDe": "TT/Aero"
+          "labelDe": "TT/Aero",
+          "labels": {
+            "de": "TT/Aero",
+            "en": "TT/Aero",
+            "es": "TT/Aero",
+            "fr": "TT/Aero",
+            "it": "TT/Aero"
+          }
         },
         {
           "key": "recumbent",
-          "labelDe": "Liegerad"
+          "labelDe": "Liegerad",
+          "labels": {
+            "de": "Liegerad",
+            "en": "Recumbent bike",
+            "es": "Bicicleta reclinada",
+            "fr": "Vélo couché",
+            "it": "Bici reclinata"
+          }
         },
         {
           "key": "unicycle_grip",
-          "labelDe": "Einrad-Griff"
+          "labelDe": "Einrad-Griff",
+          "labels": {
+            "de": "Einrad-Griff",
+            "en": "Unicycle grip",
+            "es": "Puño de monociclo",
+            "fr": "Poignée de monocycle",
+            "it": "Impugnatura monociclo"
+          }
         }
       ]
     },
@@ -1306,19 +3148,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "drivetrain",
-          "labelDe": "Schaltung"
+          "labelDe": "Schaltung",
+          "labels": {
+            "de": "Schaltung",
+            "en": "Shifting",
+            "es": "Cambio",
+            "fr": "Transmission",
+            "it": "Cambio"
+          }
         },
         {
           "key": "seatpost",
-          "labelDe": "Sattelstütze"
+          "labelDe": "Sattelstütze",
+          "labels": {
+            "de": "Sattelstütze",
+            "en": "Seatpost",
+            "es": "Tija",
+            "fr": "Tige de selle",
+            "it": "Reggisella"
+          }
         },
         {
           "key": "lighting",
-          "labelDe": "Beleuchtung"
+          "labelDe": "Beleuchtung",
+          "labels": {
+            "de": "Beleuchtung",
+            "en": "Lighting",
+            "es": "Iluminación",
+            "fr": "Éclairage",
+            "it": "Illuminazione"
+          }
         },
         {
           "key": "drive",
-          "labelDe": "Antrieb"
+          "labelDe": "Antrieb",
+          "labels": {
+            "de": "Antrieb",
+            "en": "Drivetrain",
+            "es": "Transmisión",
+            "fr": "Transmission",
+            "it": "Trasmissione"
+          }
         }
       ]
     },
@@ -1327,15 +3197,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "ebike",
-          "labelDe": "E-Bike"
+          "labelDe": "E-Bike",
+          "labels": {
+            "de": "E-Bike",
+            "en": "E-Bike",
+            "es": "E-Bike",
+            "fr": "E-Bike",
+            "it": "E-Bike"
+          }
         },
         {
           "key": "ebike.speed",
-          "labelDe": "S-Pedelec"
+          "labelDe": "S-Pedelec",
+          "labels": {
+            "de": "S-Pedelec",
+            "en": "S-Pedelec",
+            "es": "S-Pedelec",
+            "fr": "S-Pedelec",
+            "it": "S-Pedelec"
+          }
         },
         {
           "key": "virtual",
-          "labelDe": "Virtuell"
+          "labelDe": "Virtuell",
+          "labels": {
+            "de": "Virtuell",
+            "en": "Virtual",
+            "es": "Virtual",
+            "fr": "Virtuel",
+            "it": "Virtuale"
+          }
         }
       ]
     },
@@ -1344,27 +3235,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "n1",
-          "labelDe": "1"
+          "labelDe": "1",
+          "labels": {
+            "de": "1",
+            "en": "1",
+            "es": "1",
+            "fr": "1",
+            "it": "1"
+          }
         },
         {
           "key": "n2",
-          "labelDe": "2"
+          "labelDe": "2",
+          "labels": {
+            "de": "2",
+            "en": "2",
+            "es": "2",
+            "fr": "2",
+            "it": "2"
+          }
         },
         {
           "key": "n3",
-          "labelDe": "3"
+          "labelDe": "3",
+          "labels": {
+            "de": "3",
+            "en": "3",
+            "es": "3",
+            "fr": "3",
+            "it": "3"
+          }
         },
         {
           "key": "n4",
-          "labelDe": "4"
+          "labelDe": "4",
+          "labels": {
+            "de": "4",
+            "en": "4",
+            "es": "4",
+            "fr": "4",
+            "it": "4"
+          }
         },
         {
           "key": "n5",
-          "labelDe": "5"
+          "labelDe": "5",
+          "labels": {
+            "de": "5",
+            "en": "5",
+            "es": "5",
+            "fr": "5",
+            "it": "5"
+          }
         },
         {
           "key": "n6",
-          "labelDe": "6"
+          "labelDe": "6",
+          "labels": {
+            "de": "6",
+            "en": "6",
+            "es": "6",
+            "fr": "6",
+            "it": "6"
+          }
         }
       ]
     },
@@ -1373,23 +3306,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         },
         {
           "key": "both",
-          "labelDe": "Vorne und hinten"
+          "labelDe": "Vorne und hinten",
+          "labels": {
+            "de": "Vorne und hinten",
+            "en": "Front and rear",
+            "es": "Delantero y trasero",
+            "fr": "Avant et arrière",
+            "it": "Anteriore e posteriore"
+          }
         },
         {
           "key": "yes",
-          "labelDe": "Ja"
+          "labelDe": "Ja",
+          "labels": {
+            "de": "Ja",
+            "en": "Yes",
+            "es": "Sí",
+            "fr": "Oui",
+            "it": "Sì"
+          }
         },
         {
           "key": "no",
-          "labelDe": "Nein"
+          "labelDe": "Nein",
+          "labels": {
+            "de": "Nein",
+            "en": "No",
+            "es": "No",
+            "fr": "Non",
+            "it": "No"
+          }
         }
       ]
     },
@@ -1398,11 +3366,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "rigid",
-          "labelDe": "Starr"
+          "labelDe": "Starr",
+          "labels": {
+            "de": "Starr",
+            "en": "Rigid",
+            "es": "Rígida",
+            "fr": "Rigide",
+            "it": "Rigida"
+          }
         },
         {
           "key": "suspension",
-          "labelDe": "Federgabel"
+          "labelDe": "Federgabel",
+          "labels": {
+            "de": "Federgabel",
+            "en": "Suspension fork",
+            "es": "Horquilla de suspensión",
+            "fr": "Fourche suspendue",
+            "it": "Forcella ammortizzata"
+          }
         }
       ]
     },
@@ -1411,11 +3393,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "air",
-          "labelDe": "Luftfederdämpfer"
+          "labelDe": "Luftfederdämpfer",
+          "labels": {
+            "de": "Luftfederdämpfer",
+            "en": "Air shock",
+            "es": "Amortiguador de aire",
+            "fr": "Amortisseur à air",
+            "it": "Ammortizzatore ad aria"
+          }
         },
         {
           "key": "coil",
-          "labelDe": "Stahlfederdämpfer"
+          "labelDe": "Stahlfederdämpfer",
+          "labels": {
+            "de": "Stahlfederdämpfer",
+            "en": "Coil shock",
+            "es": "Amortiguador de muelle",
+            "fr": "Amortisseur à ressort hélicoïdal",
+            "it": "Ammortizzatore a molla"
+          }
         }
       ]
     },
@@ -1424,39 +3420,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "left",
-          "labelDe": "Links"
+          "labelDe": "Links",
+          "labels": {
+            "de": "Links",
+            "en": "Left",
+            "es": "Izquierda",
+            "fr": "Gauche",
+            "it": "Sinistra"
+          }
         },
         {
           "key": "right",
-          "labelDe": "Rechts"
+          "labelDe": "Rechts",
+          "labels": {
+            "de": "Rechts",
+            "en": "Right",
+            "es": "Derecha",
+            "fr": "Droite",
+            "it": "Destra"
+          }
         },
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         },
         {
           "key": "upper",
-          "labelDe": "Oben"
+          "labelDe": "Oben",
+          "labels": {
+            "de": "Oben",
+            "en": "Upper",
+            "es": "Superior",
+            "fr": "Supérieur",
+            "it": "Superiore"
+          }
         },
         {
           "key": "lower",
-          "labelDe": "Unten"
+          "labelDe": "Unten",
+          "labels": {
+            "de": "Unten",
+            "en": "Lower",
+            "es": "Inferior",
+            "fr": "Inférieur",
+            "it": "Inferiore"
+          }
         },
         {
           "key": "horstlink",
-          "labelDe": "Horstlink"
+          "labelDe": "Horstlink",
+          "labels": {
+            "de": "Horstlink",
+            "en": "Horstlink",
+            "es": "Horstlink",
+            "fr": "Horstlink",
+            "it": "Horstlink"
+          }
         },
         {
           "key": "main_pivot",
-          "labelDe": "Hauptlager"
+          "labelDe": "Hauptlager",
+          "labels": {
+            "de": "Hauptlager",
+            "en": "Main pivot",
+            "es": "Pivote principal",
+            "fr": "Pivot principal",
+            "it": "Perno principale"
+          }
         },
         {
           "key": "rocker_link",
-          "labelDe": "Umlenkhebel"
+          "labelDe": "Umlenkhebel",
+          "labels": {
+            "de": "Umlenkhebel",
+            "en": "Rocker link",
+            "es": "Balancín",
+            "fr": "Biellette",
+            "it": "Bilanciere"
+          }
         }
       ]
     },
@@ -1465,15 +3524,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "standard_eyelet",
-          "labelDe": "Standardauge"
+          "labelDe": "Standardauge",
+          "labels": {
+            "de": "Standardauge",
+            "en": "Standard eyelet",
+            "es": "Ojal estándar",
+            "fr": "Oeillet standard",
+            "it": "Occhiello standard"
+          }
         },
         {
           "key": "trunnion",
-          "labelDe": "Trunnion"
+          "labelDe": "Trunnion",
+          "labels": {
+            "de": "Trunnion",
+            "en": "Trunnion",
+            "es": "muñón",
+            "fr": "Tourillon",
+            "it": "Perno"
+          }
         },
         {
           "key": "bearing_mount",
-          "labelDe": "Lageraufnahme"
+          "labelDe": "Lageraufnahme",
+          "labels": {
+            "de": "Lageraufnahme",
+            "en": "Bearing mount",
+            "es": "Montaje con rodamiento",
+            "fr": "Fixation sur roulement",
+            "it": "Attacco con cuscinetto"
+          }
         }
       ]
     },
@@ -1482,27 +3562,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "air",
-          "labelDe": "Luft"
+          "labelDe": "Luft",
+          "labels": {
+            "de": "Luft",
+            "en": "Air",
+            "es": "Aire",
+            "fr": "Air",
+            "it": "Aria"
+          }
         },
         {
           "key": "nitrox",
-          "labelDe": "Nitrox"
+          "labelDe": "Nitrox",
+          "labels": {
+            "de": "Nitrox",
+            "en": "Nitrox",
+            "es": "nitrox",
+            "fr": "Nitrox",
+            "it": "Nitrox"
+          }
         },
         {
           "key": "heliox",
-          "labelDe": "Heliox"
+          "labelDe": "Heliox",
+          "labels": {
+            "de": "Heliox",
+            "en": "Heliox",
+            "es": "heliox",
+            "fr": "Héliox",
+            "it": "Eliox"
+          }
         },
         {
           "key": "trimix",
-          "labelDe": "Trimix"
+          "labelDe": "Trimix",
+          "labels": {
+            "de": "Trimix",
+            "en": "Trimix",
+            "es": "Trimix",
+            "fr": "Trimix",
+            "it": "Trimix"
+          }
         },
         {
           "key": "oxygen",
-          "labelDe": "Sauerstoff"
+          "labelDe": "Sauerstoff",
+          "labels": {
+            "de": "Sauerstoff",
+            "en": "Oxygen",
+            "es": "Oxígeno",
+            "fr": "Oxygène",
+            "it": "Ossigeno"
+          }
         },
         {
           "key": "argon",
-          "labelDe": "Argon"
+          "labelDe": "Argon",
+          "labels": {
+            "de": "Argon",
+            "en": "Argon",
+            "es": "argón",
+            "fr": "Argon",
+            "it": "Argon"
+          }
         }
       ]
     },
@@ -1511,27 +3633,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "road_bike",
-          "labelDe": "Rennrad"
+          "labelDe": "Rennrad",
+          "labels": {
+            "de": "Rennrad",
+            "en": "Road bike",
+            "es": "Bicicleta de carretera",
+            "fr": "Vélo de route",
+            "it": "Bici da strada"
+          }
         },
         {
           "key": "mtb",
-          "labelDe": "MTB"
+          "labelDe": "MTB",
+          "labels": {
+            "de": "MTB",
+            "en": "MTB",
+            "es": "MTB",
+            "fr": "MTB",
+            "it": "MTB"
+          }
         },
         {
           "key": "full_face_dh",
-          "labelDe": "Fullface/DH"
+          "labelDe": "Fullface/DH",
+          "labels": {
+            "de": "Fullface/DH",
+            "en": "Fullface/DH",
+            "es": "Fullface/DH",
+            "fr": "Fullface/DH",
+            "it": "Fullface/DH"
+          }
         },
         {
           "key": "ski",
-          "labelDe": "Ski"
+          "labelDe": "Ski",
+          "labels": {
+            "de": "Ski",
+            "en": "Skis",
+            "es": "Esquís",
+            "fr": "Skis",
+            "it": "Sci"
+          }
         },
         {
           "key": "climb",
-          "labelDe": "Klettern"
+          "labelDe": "Klettern",
+          "labels": {
+            "de": "Klettern",
+            "en": "Climbing",
+            "es": "Escalada",
+            "fr": "Escalade",
+            "it": "Arrampicata"
+          }
         },
         {
           "key": "equestrian",
-          "labelDe": "Reiten"
+          "labelDe": "Reiten",
+          "labels": {
+            "de": "Reiten",
+            "en": "Equestrian",
+            "es": "Equitación",
+            "fr": "Équitation",
+            "it": "Equitazione"
+          }
         }
       ]
     },
@@ -1540,27 +3704,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "en1078",
-          "labelDe": "EN 1078"
+          "labelDe": "EN 1078",
+          "labels": {
+            "de": "EN 1078",
+            "en": "EN 1078",
+            "es": "EN 1078",
+            "fr": "EN 1078",
+            "it": "EN 1078"
+          }
         },
         {
           "key": "en1080",
-          "labelDe": "EN 1080"
+          "labelDe": "EN 1080",
+          "labels": {
+            "de": "EN 1080",
+            "en": "EN 1080",
+            "es": "EN 1080",
+            "fr": "EN 1080",
+            "it": "EN 1080"
+          }
         },
         {
           "key": "en966",
-          "labelDe": "EN 966"
+          "labelDe": "EN 966",
+          "labels": {
+            "de": "EN 966",
+            "en": "EN 966",
+            "es": "EN 966",
+            "fr": "EN 966",
+            "it": "EN 966"
+          }
         },
         {
           "key": "astm_f1447",
-          "labelDe": "ASTM F1447"
+          "labelDe": "ASTM F1447",
+          "labels": {
+            "de": "ASTM F1447",
+            "en": "ASTM F1447",
+            "es": "ASTM F1447",
+            "fr": "ASTM F1447",
+            "it": "ASTM F1447"
+          }
         },
         {
           "key": "astm_f2040",
-          "labelDe": "ASTM F2040"
+          "labelDe": "ASTM F2040",
+          "labels": {
+            "de": "ASTM F2040",
+            "en": "ASTM F2040",
+            "es": "ASTM F2040",
+            "fr": "ASTM F2040",
+            "it": "ASTM F2040"
+          }
         },
         {
           "key": "ce_en397",
-          "labelDe": "CE EN 397"
+          "labelDe": "CE EN 397",
+          "labels": {
+            "de": "CE EN 397",
+            "en": "CE EN 397",
+            "es": "CE EN 397",
+            "fr": "CE EN 397",
+            "it": "CE EN 397"
+          }
         }
       ]
     },
@@ -1569,23 +3775,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "ski",
-          "labelDe": "Ski/Snowboard"
+          "labelDe": "Ski/Snowboard",
+          "labels": {
+            "de": "Ski/Snowboard",
+            "en": "Ski/Snowboard",
+            "es": "Ski/Snowboard",
+            "fr": "Ski/Snowboard",
+            "it": "Ski/Snowboard"
+          }
         },
         {
           "key": "swim",
-          "labelDe": "Schwimmen"
+          "labelDe": "Schwimmen",
+          "labels": {
+            "de": "Schwimmen",
+            "en": "Schwimmen",
+            "es": "Schwimmen",
+            "fr": "Schwimmen",
+            "it": "Schwimmen"
+          }
         },
         {
           "key": "mx",
-          "labelDe": "Motocross/Enduro"
+          "labelDe": "Motocross/Enduro",
+          "labels": {
+            "de": "Motocross/Enduro",
+            "en": "Motocross/Enduro",
+            "es": "Motocross/Enduro",
+            "fr": "Motocross/Enduro",
+            "it": "Motocross/Enduro"
+          }
         },
         {
           "key": "dh",
-          "labelDe": "Downhill"
+          "labelDe": "Downhill",
+          "labels": {
+            "de": "Downhill",
+            "en": "Downhill",
+            "es": "Downhill",
+            "fr": "Downhill",
+            "it": "Downhill"
+          }
         },
         {
           "key": "sun",
-          "labelDe": "Sonne"
+          "labelDe": "Sonne",
+          "labels": {
+            "de": "Sonne",
+            "en": "Sun",
+            "es": "Sol",
+            "fr": "Soleil",
+            "it": "Sole"
+          }
         }
       ]
     },
@@ -1594,31 +3835,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "cycling",
-          "labelDe": "Radfahren"
+          "labelDe": "Radfahren",
+          "labels": {
+            "de": "Radfahren",
+            "en": "Cycling",
+            "es": "Ciclismo",
+            "fr": "Cyclisme",
+            "it": "Ciclismo"
+          }
         },
         {
           "key": "running",
-          "labelDe": "Laufen"
+          "labelDe": "Laufen",
+          "labels": {
+            "de": "Laufen",
+            "en": "Running",
+            "es": "Correr",
+            "fr": "Course à pied",
+            "it": "Corsa"
+          }
         },
         {
           "key": "hiking",
-          "labelDe": "Wandern"
+          "labelDe": "Wandern",
+          "labels": {
+            "de": "Wandern",
+            "en": "Hiking",
+            "es": "Senderismo",
+            "fr": "Randonnée",
+            "it": "Escursionismo"
+          }
         },
         {
           "key": "ski",
-          "labelDe": "Ski/Snowboard"
+          "labelDe": "Ski/Snowboard",
+          "labels": {
+            "de": "Ski/Snowboard",
+            "en": "Ski/Snowboard",
+            "es": "Ski/Snowboard",
+            "fr": "Ski/Snowboard",
+            "it": "Ski/Snowboard"
+          }
         },
         {
           "key": "climbing",
-          "labelDe": "Klettern"
+          "labelDe": "Klettern",
+          "labels": {
+            "de": "Klettern",
+            "en": "Climbing",
+            "es": "Escalada",
+            "fr": "Escalade",
+            "it": "Arrampicata"
+          }
         },
         {
           "key": "swimming",
-          "labelDe": "Schwimmen"
+          "labelDe": "Schwimmen",
+          "labels": {
+            "de": "Schwimmen",
+            "en": "Schwimmen",
+            "es": "Schwimmen",
+            "fr": "Schwimmen",
+            "it": "Schwimmen"
+          }
         },
         {
           "key": "general",
-          "labelDe": "Allgemein"
+          "labelDe": "Allgemein",
+          "labels": {
+            "de": "Allgemein",
+            "en": "General",
+            "es": "General",
+            "fr": "Général",
+            "it": "Generale"
+          }
         }
       ]
     },
@@ -1627,11 +3917,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "starr",
-          "labelDe": "Starrgabel"
+          "labelDe": "Starrgabel",
+          "labels": {
+            "de": "Starrgabel",
+            "en": "Rigid fork",
+            "es": "Horquilla rígida",
+            "fr": "Fourche rigide",
+            "it": "Forcella rigida"
+          }
         },
         {
           "key": "federgabel",
-          "labelDe": "Federgabel"
+          "labelDe": "Federgabel",
+          "labels": {
+            "de": "Federgabel",
+            "en": "Suspension fork",
+            "es": "Horquilla de suspensión",
+            "fr": "Fourche suspendue",
+            "it": "Forcella ammortizzata"
+          }
         }
       ]
     },
@@ -1640,23 +3944,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminium",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "stahl",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titan",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         }
       ]
     },
@@ -1665,19 +4004,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "26",
-          "labelDe": "26 Zoll"
+          "labelDe": "26 Zoll",
+          "labels": {
+            "de": "26 Zoll",
+            "en": "26 inch",
+            "es": "26 pulgadas",
+            "fr": "26 pouces",
+            "it": "26 pollici"
+          }
         },
         {
           "key": "27_5",
-          "labelDe": "27,5 Zoll"
+          "labelDe": "27,5 Zoll",
+          "labels": {
+            "de": "27,5 Zoll",
+            "en": "27.5 inch",
+            "es": "27,5 pulgadas",
+            "fr": "27,5 pouces",
+            "it": "27,5 pollici"
+          }
         },
         {
           "key": "28",
-          "labelDe": "28 Zoll"
+          "labelDe": "28 Zoll",
+          "labels": {
+            "de": "28 Zoll",
+            "en": "28 inch",
+            "es": "28 pulgadas",
+            "fr": "28 pouces",
+            "it": "28 pollici"
+          }
         },
         {
           "key": "29",
-          "labelDe": "29 Zoll"
+          "labelDe": "29 Zoll",
+          "labels": {
+            "de": "29 Zoll",
+            "en": "29 inch",
+            "es": "29 pulgadas",
+            "fr": "29 pouces",
+            "it": "29 pollici"
+          }
         }
       ]
     },
@@ -1686,19 +4053,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "1_1_8_gerade",
-          "labelDe": "1 1/8\" Gerade"
+          "labelDe": "1 1/8\" Gerade",
+          "labels": {
+            "de": "1 1/8\" Gerade",
+            "en": "1 1/8\" Gerade",
+            "es": "1 1/8\" Gerade",
+            "fr": "1 1/8\" Gerade",
+            "it": "1 1/8\" Gerade"
+          }
         },
         {
           "key": "tapered_1_5",
-          "labelDe": "Tapered 1.5\""
+          "labelDe": "Tapered 1.5\"",
+          "labels": {
+            "de": "Tapered 1.5\"",
+            "en": "Tapered 1.5\"",
+            "es": "Tapered 1.5\"",
+            "fr": "Tapered 1.5\"",
+            "it": "Tapered 1.5\""
+          }
         },
         {
           "key": "tapered_1_8_overdrive",
-          "labelDe": "Tapered 1.8\" Overdrive"
+          "labelDe": "Tapered 1.8\" Overdrive",
+          "labels": {
+            "de": "Tapered 1.8\" Overdrive",
+            "en": "Tapered 1.8\" Overdrive",
+            "es": "Tapered 1.8\" Overdrive",
+            "fr": "Tapered 1.8\" Overdrive",
+            "it": "Tapered 1.8\" Overdrive"
+          }
         },
         {
           "key": "1_5_gerade",
-          "labelDe": "1.5\" Gerade"
+          "labelDe": "1.5\" Gerade",
+          "labels": {
+            "de": "1.5\" Gerade",
+            "en": "1.5\" Gerade",
+            "es": "1.5\" Gerade",
+            "fr": "1.5\" Gerade",
+            "it": "1.5\" Gerade"
+          }
         }
       ]
     },
@@ -1707,27 +4102,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "9x100_qr",
-          "labelDe": "9×100 QR"
+          "labelDe": "9×100 QR",
+          "labels": {
+            "de": "9×100 QR",
+            "en": "9×100 QR",
+            "es": "9×100 QR",
+            "fr": "9×100 QR",
+            "it": "9×100 QR"
+          }
         },
         {
           "key": "12x100_ta",
-          "labelDe": "12×100 TA"
+          "labelDe": "12×100 TA",
+          "labels": {
+            "de": "12×100 TA",
+            "en": "12×100 TA",
+            "es": "12×100 TA",
+            "fr": "12×100 TA",
+            "it": "12×100 TA"
+          }
         },
         {
           "key": "15x100_ta",
-          "labelDe": "15×100 TA"
+          "labelDe": "15×100 TA",
+          "labels": {
+            "de": "15×100 TA",
+            "en": "15×100 TA",
+            "es": "15×100 TA",
+            "fr": "15×100 TA",
+            "it": "15×100 TA"
+          }
         },
         {
           "key": "15x110_boost",
-          "labelDe": "15×110 Boost"
+          "labelDe": "15×110 Boost",
+          "labels": {
+            "de": "15×110 Boost",
+            "en": "15×110 Boost",
+            "es": "15×110 Boost",
+            "fr": "15×110 Boost",
+            "it": "15×110 Boost"
+          }
         },
         {
           "key": "20x110_boost",
-          "labelDe": "20×110 Boost"
+          "labelDe": "20×110 Boost",
+          "labels": {
+            "de": "20×110 Boost",
+            "en": "20×110 Boost",
+            "es": "20×110 Boost",
+            "fr": "20×110 Boost",
+            "it": "20×110 Boost"
+          }
         },
         {
           "key": "20x110_dh",
-          "labelDe": "20×110 DH"
+          "labelDe": "20×110 DH",
+          "labels": {
+            "de": "20×110 DH",
+            "en": "20×110 DH",
+            "es": "20×110 DH",
+            "fr": "20×110 DH",
+            "it": "20×110 DH"
+          }
         }
       ]
     },
@@ -1736,19 +4173,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "postmount_160",
-          "labelDe": "Postmount 160"
+          "labelDe": "Postmount 160",
+          "labels": {
+            "de": "Postmount 160",
+            "en": "Postmount 160",
+            "es": "Postmount 160",
+            "fr": "Postmount 160",
+            "it": "Postmount 160"
+          }
         },
         {
           "key": "postmount_180",
-          "labelDe": "Postmount 180"
+          "labelDe": "Postmount 180",
+          "labels": {
+            "de": "Postmount 180",
+            "en": "Postmount 180",
+            "es": "Postmount 180",
+            "fr": "Postmount 180",
+            "it": "Postmount 180"
+          }
         },
         {
           "key": "flatmount",
-          "labelDe": "Flat Mount"
+          "labelDe": "Flat Mount",
+          "labels": {
+            "de": "Flat Mount",
+            "en": "Flat Mount",
+            "es": "Flat Mount",
+            "fr": "Flat Mount",
+            "it": "Flat Mount"
+          }
         },
         {
           "key": "is_2000",
-          "labelDe": "IS 2000"
+          "labelDe": "IS 2000",
+          "labels": {
+            "de": "IS 2000",
+            "en": "IS 2000",
+            "es": "IS 2000",
+            "fr": "IS 2000",
+            "it": "IS 2000"
+          }
         }
       ]
     },
@@ -1757,35 +4222,91 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "28",
-          "labelDe": "28 mm"
+          "labelDe": "28 mm",
+          "labels": {
+            "de": "28 mm",
+            "en": "28 mm",
+            "es": "28 mm",
+            "fr": "28 mm",
+            "it": "28 mm"
+          }
         },
         {
           "key": "30",
-          "labelDe": "30 mm"
+          "labelDe": "30 mm",
+          "labels": {
+            "de": "30 mm",
+            "en": "30 mm",
+            "es": "30 mm",
+            "fr": "30 mm",
+            "it": "30 mm"
+          }
         },
         {
           "key": "32",
-          "labelDe": "32 mm"
+          "labelDe": "32 mm",
+          "labels": {
+            "de": "32 mm",
+            "en": "32 mm",
+            "es": "32 mm",
+            "fr": "32 mm",
+            "it": "32 mm"
+          }
         },
         {
           "key": "34",
-          "labelDe": "34 mm"
+          "labelDe": "34 mm",
+          "labels": {
+            "de": "34 mm",
+            "en": "34 mm",
+            "es": "34 mm",
+            "fr": "34 mm",
+            "it": "34 mm"
+          }
         },
         {
           "key": "35",
-          "labelDe": "35 mm"
+          "labelDe": "35 mm",
+          "labels": {
+            "de": "35 mm",
+            "en": "35 mm",
+            "es": "35 mm",
+            "fr": "35 mm",
+            "it": "35 mm"
+          }
         },
         {
           "key": "36",
-          "labelDe": "36 mm"
+          "labelDe": "36 mm",
+          "labels": {
+            "de": "36 mm",
+            "en": "36 mm",
+            "es": "36 mm",
+            "fr": "36 mm",
+            "it": "36 mm"
+          }
         },
         {
           "key": "38",
-          "labelDe": "38 mm"
+          "labelDe": "38 mm",
+          "labels": {
+            "de": "38 mm",
+            "en": "38 mm",
+            "es": "38 mm",
+            "fr": "38 mm",
+            "it": "38 mm"
+          }
         },
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         }
       ]
     },
@@ -1794,19 +4315,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "luft",
-          "labelDe": "Luft"
+          "labelDe": "Luft",
+          "labels": {
+            "de": "Luft",
+            "en": "Air",
+            "es": "Aire",
+            "fr": "Air",
+            "it": "Aria"
+          }
         },
         {
           "key": "stahlfeder",
-          "labelDe": "Stahlfeder"
+          "labelDe": "Stahlfeder",
+          "labels": {
+            "de": "Stahlfeder",
+            "en": "Coil spring",
+            "es": "Muelle helicoidal",
+            "fr": "Ressort hélicoïdal",
+            "it": "Molla elicoidale"
+          }
         },
         {
           "key": "elastomer",
-          "labelDe": "Elastomer"
+          "labelDe": "Elastomer",
+          "labels": {
+            "de": "Elastomer",
+            "en": "Elastomer",
+            "es": "Elastómero",
+            "fr": "Élastomère",
+            "it": "Elastomero"
+          }
         },
         {
           "key": "starr",
-          "labelDe": "Starr"
+          "labelDe": "Starr",
+          "labels": {
+            "de": "Starr",
+            "en": "Rigid",
+            "es": "Rígida",
+            "fr": "Rigide",
+            "it": "Rigida"
+          }
         }
       ]
     },
@@ -1815,19 +4364,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "solo_air",
-          "labelDe": "Einkammer-Luftfeder"
+          "labelDe": "Einkammer-Luftfeder",
+          "labels": {
+            "de": "Einkammer-Luftfeder",
+            "en": "Einkammer-Luftfeder",
+            "es": "Einkammer-Luftfeder",
+            "fr": "Einkammer-Luftfeder",
+            "it": "Einkammer-Luftfeder"
+          }
         },
         {
           "key": "dual_air",
-          "labelDe": "Zweikammer-Luftfeder"
+          "labelDe": "Zweikammer-Luftfeder",
+          "labels": {
+            "de": "Zweikammer-Luftfeder",
+            "en": "Zweikammer-Luftfeder",
+            "es": "Zweikammer-Luftfeder",
+            "fr": "Zweikammer-Luftfeder",
+            "it": "Zweikammer-Luftfeder"
+          }
         },
         {
           "key": "negative_positive_chamber",
-          "labelDe": "Positiv- + Negativkammer"
+          "labelDe": "Positiv- + Negativkammer",
+          "labels": {
+            "de": "Positiv- + Negativkammer",
+            "en": "Positiv- + Negativkammer",
+            "es": "Positiv- + Negativkammer",
+            "fr": "Positiv- + Negativkammer",
+            "it": "Positiv- + Negativkammer"
+          }
         },
         {
           "key": "twin_tube",
-          "labelDe": "Twin-Tube"
+          "labelDe": "Twin-Tube",
+          "labels": {
+            "de": "Twin-Tube",
+            "en": "Twin-Tube",
+            "es": "Twin-Tube",
+            "fr": "Twin-Tube",
+            "it": "Twin-Tube"
+          }
         }
       ]
     },
@@ -1836,15 +4413,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "positiv",
-          "labelDe": "Positivkammer"
+          "labelDe": "Positivkammer",
+          "labels": {
+            "de": "Positivkammer",
+            "en": "Positivkammer",
+            "es": "Positivkammer",
+            "fr": "Positivkammer",
+            "it": "Positivkammer"
+          }
         },
         {
           "key": "negativ",
-          "labelDe": "Negativkammer"
+          "labelDe": "Negativkammer",
+          "labels": {
+            "de": "Negativkammer",
+            "en": "Negativkammer",
+            "es": "Negativkammer",
+            "fr": "Negativkammer",
+            "it": "Negativkammer"
+          }
         },
         {
           "key": "ramp_chamber",
-          "labelDe": "Ramp-Kammer"
+          "labelDe": "Ramp-Kammer",
+          "labels": {
+            "de": "Ramp-Kammer",
+            "en": "Ramp-Kammer",
+            "es": "Ramp-Kammer",
+            "fr": "Ramp-Kammer",
+            "it": "Ramp-Kammer"
+          }
         }
       ]
     },
@@ -1853,19 +4451,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "linear",
-          "labelDe": "Linear"
+          "labelDe": "Linear",
+          "labels": {
+            "de": "Linear",
+            "en": "Linear",
+            "es": "lineal",
+            "fr": "Linéaire",
+            "it": "Lineare"
+          }
         },
         {
           "key": "progressiv",
-          "labelDe": "Progressiv"
+          "labelDe": "Progressiv",
+          "labels": {
+            "de": "Progressiv",
+            "en": "Progressive",
+            "es": "Progresivo",
+            "fr": "Progressif",
+            "it": "Progressivo"
+          }
         },
         {
           "key": "regressiv",
-          "labelDe": "Regressiv"
+          "labelDe": "Regressiv",
+          "labels": {
+            "de": "Regressiv",
+            "en": "Regressive",
+            "es": "regresivo",
+            "fr": "Régressif",
+            "it": "Regressivo"
+          }
         },
         {
           "key": "einstellbar",
-          "labelDe": "Einstellbar"
+          "labelDe": "Einstellbar",
+          "labels": {
+            "de": "Einstellbar",
+            "en": "Adjustable",
+            "es": "Ajustable",
+            "fr": "Réglable",
+            "it": "Regolabile"
+          }
         }
       ]
     },
@@ -1874,11 +4500,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "stahl",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titan",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         }
       ]
     },
@@ -1887,19 +4527,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "shim_stack",
-          "labelDe": "Shim-Stack"
+          "labelDe": "Shim-Stack",
+          "labels": {
+            "de": "Shim-Stack",
+            "en": "Shim-Stack",
+            "es": "Shim-Stack",
+            "fr": "Shim-Stack",
+            "it": "Shim-Stack"
+          }
         },
         {
           "key": "needle_valve",
-          "labelDe": "Nadelventil"
+          "labelDe": "Nadelventil",
+          "labels": {
+            "de": "Nadelventil",
+            "en": "Needle valve",
+            "es": "Válvula de aguja",
+            "fr": "Pointeau",
+            "it": "Valvola a spillo"
+          }
         },
         {
           "key": "hydraulisch_offen",
-          "labelDe": "Hydraulisch offen"
+          "labelDe": "Hydraulisch offen",
+          "labels": {
+            "de": "Hydraulisch offen",
+            "en": "Open hydraulic",
+            "es": "Hidráulico abierto",
+            "fr": "Hydraulique ouvert",
+            "it": "Idraulico aperto"
+          }
         },
         {
           "key": "hydraulisch_geschlossen",
-          "labelDe": "Hydraulisch geschlossen"
+          "labelDe": "Hydraulisch geschlossen",
+          "labels": {
+            "de": "Hydraulisch geschlossen",
+            "en": "Closed hydraulic",
+            "es": "Hidráulico cerrado",
+            "fr": "Hydraulique fermé",
+            "it": "Idraulico chiuso"
+          }
         }
       ]
     },
@@ -1908,15 +4576,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "luftdaempfer",
-          "labelDe": "Luftfederdämpfer"
+          "labelDe": "Luftfederdämpfer",
+          "labels": {
+            "de": "Luftfederdämpfer",
+            "en": "Air shock",
+            "es": "Amortiguador de aire",
+            "fr": "Amortisseur à air",
+            "it": "Ammortizzatore ad aria"
+          }
         },
         {
           "key": "stahlfederdaempfer",
-          "labelDe": "Stahlfederdämpfer"
+          "labelDe": "Stahlfederdämpfer",
+          "labels": {
+            "de": "Stahlfederdämpfer",
+            "en": "Coil shock",
+            "es": "Amortiguador de muelle",
+            "fr": "Amortisseur à ressort hélicoïdal",
+            "it": "Ammortizzatore a molla"
+          }
         },
         {
           "key": "elastomerdaempfer",
-          "labelDe": "Elastomerdämpfer"
+          "labelDe": "Elastomerdämpfer",
+          "labels": {
+            "de": "Elastomerdämpfer",
+            "en": "Elastomer shock",
+            "es": "Amortiguador de elastómero",
+            "fr": "Amortisseur à élastomère",
+            "it": "Ammortizzatore a elastomero"
+          }
         }
       ]
     },
@@ -1925,11 +4614,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "metric",
-          "labelDe": "Metrisch"
+          "labelDe": "Metrisch",
+          "labels": {
+            "de": "Metrisch",
+            "en": "Metric",
+            "es": "Métrico",
+            "fr": "Métrique",
+            "it": "Metrico"
+          }
         },
         {
           "key": "imperial",
-          "labelDe": "Imperial"
+          "labelDe": "Imperial",
+          "labels": {
+            "de": "Imperial",
+            "en": "Imperial",
+            "es": "Imperial",
+            "fr": "Impérial",
+            "it": "Imperiale"
+          }
         }
       ]
     },
@@ -1938,11 +4641,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "luft",
-          "labelDe": "Luft"
+          "labelDe": "Luft",
+          "labels": {
+            "de": "Luft",
+            "en": "Air",
+            "es": "Aire",
+            "fr": "Air",
+            "it": "Aria"
+          }
         },
         {
           "key": "stahlfeder",
-          "labelDe": "Stahlfeder"
+          "labelDe": "Stahlfeder",
+          "labels": {
+            "de": "Stahlfeder",
+            "en": "Coil spring",
+            "es": "Muelle helicoidal",
+            "fr": "Ressort hélicoïdal",
+            "it": "Molla elicoidale"
+          }
         }
       ]
     },
@@ -1951,11 +4668,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "stahl",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titan",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         }
       ]
     },
@@ -1964,23 +4695,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "off",
-          "labelDe": "Aus"
+          "labelDe": "Aus",
+          "labels": {
+            "de": "Aus",
+            "en": "Off",
+            "es": "Desactivado",
+            "fr": "Désactivé",
+            "it": "Disattivato"
+          }
         },
         {
           "key": "low",
-          "labelDe": "Niedrig"
+          "labelDe": "Niedrig",
+          "labels": {
+            "de": "Niedrig",
+            "en": "Low",
+            "es": "Bajo",
+            "fr": "Bas",
+            "it": "Basso"
+          }
         },
         {
           "key": "medium",
-          "labelDe": "Mittel"
+          "labelDe": "Mittel",
+          "labels": {
+            "de": "Mittel",
+            "en": "Medium",
+            "es": "Medio",
+            "fr": "Moyen",
+            "it": "Medio"
+          }
         },
         {
           "key": "high",
-          "labelDe": "Hoch"
+          "labelDe": "Hoch",
+          "labels": {
+            "de": "Hoch",
+            "en": "High",
+            "es": "Alto",
+            "fr": "Élevé",
+            "it": "Alto"
+          }
         },
         {
           "key": "locked",
-          "labelDe": "Gesperrt"
+          "labelDe": "Gesperrt",
+          "labels": {
+            "de": "Gesperrt",
+            "en": "Locked",
+            "es": "Bloqueado",
+            "fr": "Verrouillé",
+            "it": "Bloccato"
+          }
         }
       ]
     },
@@ -1989,43 +4755,113 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "700c",
-          "labelDe": "700c"
+          "labelDe": "700c",
+          "labels": {
+            "de": "700c",
+            "en": "700c",
+            "es": "700c",
+            "fr": "700c",
+            "it": "700c"
+          }
         },
         {
           "key": "650b",
-          "labelDe": "650B"
+          "labelDe": "650B",
+          "labels": {
+            "de": "650B",
+            "en": "650B",
+            "es": "650B",
+            "fr": "650B",
+            "it": "650B"
+          }
         },
         {
           "key": "650c",
-          "labelDe": "650C"
+          "labelDe": "650C",
+          "labels": {
+            "de": "650C",
+            "en": "650C",
+            "es": "650C",
+            "fr": "650C",
+            "it": "650C"
+          }
         },
         {
           "key": "26_inch",
-          "labelDe": "26 Zoll"
+          "labelDe": "26 Zoll",
+          "labels": {
+            "de": "26 Zoll",
+            "en": "26 inch",
+            "es": "26 pulgadas",
+            "fr": "26 pouces",
+            "it": "26 pollici"
+          }
         },
         {
           "key": "24_inch",
-          "labelDe": "24 Zoll"
+          "labelDe": "24 Zoll",
+          "labels": {
+            "de": "24 Zoll",
+            "en": "24 inch",
+            "es": "24 pulgadas",
+            "fr": "24 pouces",
+            "it": "24 pollici"
+          }
         },
         {
           "key": "20_inch",
-          "labelDe": "20 Zoll"
+          "labelDe": "20 Zoll",
+          "labels": {
+            "de": "20 Zoll",
+            "en": "20 inch",
+            "es": "20 pulgadas",
+            "fr": "20 pouces",
+            "it": "20 pollici"
+          }
         },
         {
           "key": "16_inch",
-          "labelDe": "16 Zoll"
+          "labelDe": "16 Zoll",
+          "labels": {
+            "de": "16 Zoll",
+            "en": "16 inch",
+            "es": "16 pulgadas",
+            "fr": "16 pouces",
+            "it": "16 pollici"
+          }
         },
         {
           "key": "12_inch",
-          "labelDe": "12 Zoll"
+          "labelDe": "12 Zoll",
+          "labels": {
+            "de": "12 Zoll",
+            "en": "12 inch",
+            "es": "12 pulgadas",
+            "fr": "12 pouces",
+            "it": "12 pollici"
+          }
         },
         {
           "key": "36_inch",
-          "labelDe": "36 Zoll"
+          "labelDe": "36 Zoll",
+          "labels": {
+            "de": "36 Zoll",
+            "en": "36 inch",
+            "es": "36 pulgadas",
+            "fr": "36 pouces",
+            "it": "36 pollici"
+          }
         },
         {
           "key": "32_inch",
-          "labelDe": "32 Zoll"
+          "labelDe": "32 Zoll",
+          "labels": {
+            "de": "32 Zoll",
+            "en": "32 inch",
+            "es": "32 pulgadas",
+            "fr": "32 pouces",
+            "it": "32 pollici"
+          }
         }
       ]
     },
@@ -2034,55 +4870,146 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "203",
-          "labelDe": "203 mm (ETRTO)"
+          "labelDe": "203 mm (ETRTO)",
+          "labels": {
+            "de": "203 mm (ETRTO)",
+            "en": "203 mm (ETRTO)",
+            "es": "203 mm (ETRTO)",
+            "fr": "203 mm (ETRTO)",
+            "it": "203 mm (ETRTO)"
+          }
         },
         {
           "key": "254",
-          "labelDe": "254 mm (ETRTO)"
+          "labelDe": "254 mm (ETRTO)",
+          "labels": {
+            "de": "254 mm (ETRTO)",
+            "en": "254 mm (ETRTO)",
+            "es": "254 mm (ETRTO)",
+            "fr": "254 mm (ETRTO)",
+            "it": "254 mm (ETRTO)"
+          }
         },
         {
           "key": "305",
-          "labelDe": "305 mm (ETRTO)"
+          "labelDe": "305 mm (ETRTO)",
+          "labels": {
+            "de": "305 mm (ETRTO)",
+            "en": "305 mm (ETRTO)",
+            "es": "305 mm (ETRTO)",
+            "fr": "305 mm (ETRTO)",
+            "it": "305 mm (ETRTO)"
+          }
         },
         {
           "key": "349",
-          "labelDe": "349 mm (ETRTO)"
+          "labelDe": "349 mm (ETRTO)",
+          "labels": {
+            "de": "349 mm (ETRTO)",
+            "en": "349 mm (ETRTO)",
+            "es": "349 mm (ETRTO)",
+            "fr": "349 mm (ETRTO)",
+            "it": "349 mm (ETRTO)"
+          }
         },
         {
           "key": "355",
-          "labelDe": "355 mm (ETRTO)"
+          "labelDe": "355 mm (ETRTO)",
+          "labels": {
+            "de": "355 mm (ETRTO)",
+            "en": "355 mm (ETRTO)",
+            "es": "355 mm (ETRTO)",
+            "fr": "355 mm (ETRTO)",
+            "it": "355 mm (ETRTO)"
+          }
         },
         {
           "key": "406",
-          "labelDe": "406 mm (ETRTO)"
+          "labelDe": "406 mm (ETRTO)",
+          "labels": {
+            "de": "406 mm (ETRTO)",
+            "en": "406 mm (ETRTO)",
+            "es": "406 mm (ETRTO)",
+            "fr": "406 mm (ETRTO)",
+            "it": "406 mm (ETRTO)"
+          }
         },
         {
           "key": "451",
-          "labelDe": "451 mm (ETRTO)"
+          "labelDe": "451 mm (ETRTO)",
+          "labels": {
+            "de": "451 mm (ETRTO)",
+            "en": "451 mm (ETRTO)",
+            "es": "451 mm (ETRTO)",
+            "fr": "451 mm (ETRTO)",
+            "it": "451 mm (ETRTO)"
+          }
         },
         {
           "key": "507",
-          "labelDe": "507 mm (ETRTO)"
+          "labelDe": "507 mm (ETRTO)",
+          "labels": {
+            "de": "507 mm (ETRTO)",
+            "en": "507 mm (ETRTO)",
+            "es": "507 mm (ETRTO)",
+            "fr": "507 mm (ETRTO)",
+            "it": "507 mm (ETRTO)"
+          }
         },
         {
           "key": "559",
-          "labelDe": "559 mm (ETRTO)"
+          "labelDe": "559 mm (ETRTO)",
+          "labels": {
+            "de": "559 mm (ETRTO)",
+            "en": "559 mm (ETRTO)",
+            "es": "559 mm (ETRTO)",
+            "fr": "559 mm (ETRTO)",
+            "it": "559 mm (ETRTO)"
+          }
         },
         {
           "key": "584",
-          "labelDe": "584 mm (ETRTO)"
+          "labelDe": "584 mm (ETRTO)",
+          "labels": {
+            "de": "584 mm (ETRTO)",
+            "en": "584 mm (ETRTO)",
+            "es": "584 mm (ETRTO)",
+            "fr": "584 mm (ETRTO)",
+            "it": "584 mm (ETRTO)"
+          }
         },
         {
           "key": "622",
-          "labelDe": "622 mm (ETRTO)"
+          "labelDe": "622 mm (ETRTO)",
+          "labels": {
+            "de": "622 mm (ETRTO)",
+            "en": "622 mm (ETRTO)",
+            "es": "622 mm (ETRTO)",
+            "fr": "622 mm (ETRTO)",
+            "it": "622 mm (ETRTO)"
+          }
         },
         {
           "key": "635",
-          "labelDe": "635 mm (ETRTO)"
+          "labelDe": "635 mm (ETRTO)",
+          "labels": {
+            "de": "635 mm (ETRTO)",
+            "en": "635 mm (ETRTO)",
+            "es": "635 mm (ETRTO)",
+            "fr": "635 mm (ETRTO)",
+            "it": "635 mm (ETRTO)"
+          }
         },
         {
           "key": "787",
-          "labelDe": "787 mm (ETRTO)"
+          "labelDe": "787 mm (ETRTO)",
+          "labels": {
+            "de": "787 mm (ETRTO)",
+            "en": "787 mm (ETRTO)",
+            "es": "787 mm (ETRTO)",
+            "fr": "787 mm (ETRTO)",
+            "it": "787 mm (ETRTO)"
+          }
         }
       ]
     },
@@ -2091,35 +5018,91 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "steel",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titanium",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "wood",
-          "labelDe": "Holz"
+          "labelDe": "Holz",
+          "labels": {
+            "de": "Holz",
+            "en": "Wood",
+            "es": "Madera",
+            "fr": "Bois",
+            "it": "Legno"
+          }
         },
         {
           "key": "bamboo",
-          "labelDe": "Bambus"
+          "labelDe": "Bambus",
+          "labels": {
+            "de": "Bambus",
+            "en": "Bamboo",
+            "es": "Bambú",
+            "fr": "Bambou",
+            "it": "Bambù"
+          }
         },
         {
           "key": "composite",
-          "labelDe": "Verbundwerkstoff"
+          "labelDe": "Verbundwerkstoff",
+          "labels": {
+            "de": "Verbundwerkstoff",
+            "en": "Composite",
+            "es": "Compuesto",
+            "fr": "Composite",
+            "it": "Composito"
+          }
         }
       ]
     },
@@ -2128,23 +5111,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "steel",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "titanium",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         }
       ]
     },
@@ -2153,39 +5171,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "carbon",
-          "labelDe": "Carbon"
+          "labelDe": "Carbon",
+          "labels": {
+            "de": "Carbon",
+            "en": "Carbon",
+            "es": "Carbono",
+            "fr": "Carbone",
+            "it": "Carbonio"
+          }
         },
         {
           "key": "steel",
-          "labelDe": "Stahl"
+          "labelDe": "Stahl",
+          "labels": {
+            "de": "Stahl",
+            "en": "Steel",
+            "es": "Acero",
+            "fr": "Acier",
+            "it": "Acciaio"
+          }
         },
         {
           "key": "titanium",
-          "labelDe": "Titan"
+          "labelDe": "Titan",
+          "labels": {
+            "de": "Titan",
+            "en": "Titanium",
+            "es": "Titanio",
+            "fr": "Titane",
+            "it": "Titanio"
+          }
         },
         {
           "key": "magnesium",
-          "labelDe": "Magnesium"
+          "labelDe": "Magnesium",
+          "labels": {
+            "de": "Magnesium",
+            "en": "Magnesium",
+            "es": "Magnesio",
+            "fr": "Magnésium",
+            "it": "Magnesio"
+          }
         },
         {
           "key": "plastic",
-          "labelDe": "Kunststoff"
+          "labelDe": "Kunststoff",
+          "labels": {
+            "de": "Kunststoff",
+            "en": "Plastic",
+            "es": "Plástico",
+            "fr": "Plastique",
+            "it": "Plastica"
+          }
         },
         {
           "key": "rubber",
-          "labelDe": "Gummi"
+          "labelDe": "Gummi",
+          "labels": {
+            "de": "Gummi",
+            "en": "Rubber",
+            "es": "Goma",
+            "fr": "Caoutchouc",
+            "it": "Gomma"
+          }
         },
         {
           "key": "leather",
-          "labelDe": "Leder"
+          "labelDe": "Leder",
+          "labels": {
+            "de": "Leder",
+            "en": "Leather",
+            "es": "Cuero",
+            "fr": "Cuir",
+            "it": "Pelle"
+          }
         },
         {
           "key": "stainless_steel",
-          "labelDe": "Edelstahl"
+          "labelDe": "Edelstahl",
+          "labels": {
+            "de": "Edelstahl",
+            "en": "Stainless steel",
+            "es": "Acero inoxidable",
+            "fr": "Acier inoxydable",
+            "it": "Acciaio inox"
+          }
         }
       ]
     },
@@ -2194,47 +5275,124 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "5x100_qr",
-          "labelDe": "5×100 QR"
+          "labelDe": "5×100 QR",
+          "labels": {
+            "de": "5×100 QR",
+            "en": "5×100 QR",
+            "es": "5×100 QR",
+            "fr": "5×100 QR",
+            "it": "5×100 QR"
+          }
         },
         {
           "key": "9x100_qr",
-          "labelDe": "9×100 QR"
+          "labelDe": "9×100 QR",
+          "labels": {
+            "de": "9×100 QR",
+            "en": "9×100 QR",
+            "es": "9×100 QR",
+            "fr": "9×100 QR",
+            "it": "9×100 QR"
+          }
         },
         {
           "key": "12x100_ta",
-          "labelDe": "12×100 TA"
+          "labelDe": "12×100 TA",
+          "labels": {
+            "de": "12×100 TA",
+            "en": "12×100 TA",
+            "es": "12×100 TA",
+            "fr": "12×100 TA",
+            "it": "12×100 TA"
+          }
         },
         {
           "key": "15x100_ta",
-          "labelDe": "15×100 TA"
+          "labelDe": "15×100 TA",
+          "labels": {
+            "de": "15×100 TA",
+            "en": "15×100 TA",
+            "es": "15×100 TA",
+            "fr": "15×100 TA",
+            "it": "15×100 TA"
+          }
         },
         {
           "key": "15x110_boost",
-          "labelDe": "15×110 Boost"
+          "labelDe": "15×110 Boost",
+          "labels": {
+            "de": "15×110 Boost",
+            "en": "15×110 Boost",
+            "es": "15×110 Boost",
+            "fr": "15×110 Boost",
+            "it": "15×110 Boost"
+          }
         },
         {
           "key": "20x110_boost",
-          "labelDe": "20×110 Boost"
+          "labelDe": "20×110 Boost",
+          "labels": {
+            "de": "20×110 Boost",
+            "en": "20×110 Boost",
+            "es": "20×110 Boost",
+            "fr": "20×110 Boost",
+            "it": "20×110 Boost"
+          }
         },
         {
           "key": "20x110_dh",
-          "labelDe": "20×110 DH"
+          "labelDe": "20×110 DH",
+          "labels": {
+            "de": "20×110 DH",
+            "en": "20×110 DH",
+            "es": "20×110 DH",
+            "fr": "20×110 DH",
+            "it": "20×110 DH"
+          }
         },
         {
           "key": "10x100_bolt_on",
-          "labelDe": "10×100 Bolt-On"
+          "labelDe": "10×100 Bolt-On",
+          "labels": {
+            "de": "10×100 Bolt-On",
+            "en": "10×100 Bolt-On",
+            "es": "10×100 Bolt-On",
+            "fr": "10×100 Bolt-On",
+            "it": "10×100 Bolt-On"
+          }
         },
         {
           "key": "three_eighth_inch_bmx",
-          "labelDe": "3/8\" BMX"
+          "labelDe": "3/8\" BMX",
+          "labels": {
+            "de": "3/8\" BMX",
+            "en": "3/8\" BMX",
+            "es": "3/8\" BMX",
+            "fr": "3/8\" BMX",
+            "it": "3/8\" BMX"
+          }
         },
         {
           "key": "m10",
-          "labelDe": "M10"
+          "labelDe": "M10",
+          "labels": {
+            "de": "M10",
+            "en": "M10",
+            "es": "M10",
+            "fr": "M10",
+            "it": "M10"
+          }
         },
         {
           "key": "lefty",
-          "labelDe": "Lefty"
+          "labelDe": "Lefty",
+          "labels": {
+            "de": "Lefty",
+            "en": "Lefty",
+            "es": "Lefty",
+            "fr": "Lefty",
+            "it": "Lefty"
+          }
         }
       ]
     },
@@ -2243,55 +5401,146 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "120mm_track",
-          "labelDe": "120 mm (Bahn)"
+          "labelDe": "120 mm (Bahn)",
+          "labels": {
+            "de": "120 mm (Bahn)",
+            "en": "120 mm (Bahn)",
+            "es": "120 mm (Bahn)",
+            "fr": "120 mm (Bahn)",
+            "it": "120 mm (Bahn)"
+          }
         },
         {
           "key": "5x130_qr",
-          "labelDe": "5×130 QR"
+          "labelDe": "5×130 QR",
+          "labels": {
+            "de": "5×130 QR",
+            "en": "5×130 QR",
+            "es": "5×130 QR",
+            "fr": "5×130 QR",
+            "it": "5×130 QR"
+          }
         },
         {
           "key": "5x135_qr",
-          "labelDe": "5×135 QR"
+          "labelDe": "5×135 QR",
+          "labels": {
+            "de": "5×135 QR",
+            "en": "5×135 QR",
+            "es": "5×135 QR",
+            "fr": "5×135 QR",
+            "it": "5×135 QR"
+          }
         },
         {
           "key": "10x135_bolt_on",
-          "labelDe": "10×135 Bolt-On"
+          "labelDe": "10×135 Bolt-On",
+          "labels": {
+            "de": "10×135 Bolt-On",
+            "en": "10×135 Bolt-On",
+            "es": "10×135 Bolt-On",
+            "fr": "10×135 Bolt-On",
+            "it": "10×135 Bolt-On"
+          }
         },
         {
           "key": "12x142_ta",
-          "labelDe": "12×142 TA"
+          "labelDe": "12×142 TA",
+          "labels": {
+            "de": "12×142 TA",
+            "en": "12×142 TA",
+            "es": "12×142 TA",
+            "fr": "12×142 TA",
+            "it": "12×142 TA"
+          }
         },
         {
           "key": "12x148_boost",
-          "labelDe": "12×148 Boost"
+          "labelDe": "12×148 Boost",
+          "labels": {
+            "de": "12×148 Boost",
+            "en": "12×148 Boost",
+            "es": "12×148 Boost",
+            "fr": "12×148 Boost",
+            "it": "12×148 Boost"
+          }
         },
         {
           "key": "12x157_superboost",
-          "labelDe": "12×157 SuperBoost"
+          "labelDe": "12×157 SuperBoost",
+          "labels": {
+            "de": "12×157 SuperBoost",
+            "en": "12×157 SuperBoost",
+            "es": "12×157 SuperBoost",
+            "fr": "12×157 SuperBoost",
+            "it": "12×157 SuperBoost"
+          }
         },
         {
           "key": "12x177_fat",
-          "labelDe": "12×177 Fat"
+          "labelDe": "12×177 Fat",
+          "labels": {
+            "de": "12×177 Fat",
+            "en": "12×177 Fat",
+            "es": "12×177 Fat",
+            "fr": "12×177 Fat",
+            "it": "12×177 Fat"
+          }
         },
         {
           "key": "12x197_fat",
-          "labelDe": "12×197 Fat"
+          "labelDe": "12×197 Fat",
+          "labels": {
+            "de": "12×197 Fat",
+            "en": "12×197 Fat",
+            "es": "12×197 Fat",
+            "fr": "12×197 Fat",
+            "it": "12×197 Fat"
+          }
         },
         {
           "key": "14mm_bmx",
-          "labelDe": "14 mm BMX"
+          "labelDe": "14 mm BMX",
+          "labels": {
+            "de": "14 mm BMX",
+            "en": "14 mm BMX",
+            "es": "14 mm BMX",
+            "fr": "14 mm BMX",
+            "it": "14 mm BMX"
+          }
         },
         {
           "key": "three_eighth_inch_bmx",
-          "labelDe": "3/8\" BMX"
+          "labelDe": "3/8\" BMX",
+          "labels": {
+            "de": "3/8\" BMX",
+            "en": "3/8\" BMX",
+            "es": "3/8\" BMX",
+            "fr": "3/8\" BMX",
+            "it": "3/8\" BMX"
+          }
         },
         {
           "key": "m10",
-          "labelDe": "M10"
+          "labelDe": "M10",
+          "labels": {
+            "de": "M10",
+            "en": "M10",
+            "es": "M10",
+            "fr": "M10",
+            "it": "M10"
+          }
         },
         {
           "key": "135mm_rohloff_igh",
-          "labelDe": "135 mm Rohloff (IGH)"
+          "labelDe": "135 mm Rohloff (IGH)",
+          "labels": {
+            "de": "135 mm Rohloff (IGH)",
+            "en": "135 mm Rohloff (IGH)",
+            "es": "135 mm Rohloff (IGH)",
+            "fr": "135 mm Rohloff (IGH)",
+            "it": "135 mm Rohloff (IGH)"
+          }
         }
       ]
     },
@@ -2300,11 +5549,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "rigid",
-          "labelDe": "Starrgabel"
+          "labelDe": "Starrgabel",
+          "labels": {
+            "de": "Starrgabel",
+            "en": "Rigid fork",
+            "es": "Horquilla rígida",
+            "fr": "Fourche rigide",
+            "it": "Forcella rigida"
+          }
         },
         {
           "key": "suspension",
-          "labelDe": "Federgabel"
+          "labelDe": "Federgabel",
+          "labels": {
+            "de": "Federgabel",
+            "en": "Suspension fork",
+            "es": "Horquilla de suspensión",
+            "fr": "Fourche suspendue",
+            "it": "Forcella ammortizzata"
+          }
         }
       ]
     },
@@ -2313,79 +5576,212 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "20",
-          "labelDe": "20 mm"
+          "labelDe": "20 mm",
+          "labels": {
+            "de": "20 mm",
+            "en": "20 mm",
+            "es": "20 mm",
+            "fr": "20 mm",
+            "it": "20 mm"
+          }
         },
         {
           "key": "30",
-          "labelDe": "30 mm"
+          "labelDe": "30 mm",
+          "labels": {
+            "de": "30 mm",
+            "en": "30 mm",
+            "es": "30 mm",
+            "fr": "30 mm",
+            "it": "30 mm"
+          }
         },
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         },
         {
           "key": "50",
-          "labelDe": "50 mm"
+          "labelDe": "50 mm",
+          "labels": {
+            "de": "50 mm",
+            "en": "50 mm",
+            "es": "50 mm",
+            "fr": "50 mm",
+            "it": "50 mm"
+          }
         },
         {
           "key": "60",
-          "labelDe": "60 mm"
+          "labelDe": "60 mm",
+          "labels": {
+            "de": "60 mm",
+            "en": "60 mm",
+            "es": "60 mm",
+            "fr": "60 mm",
+            "it": "60 mm"
+          }
         },
         {
           "key": "80",
-          "labelDe": "80 mm"
+          "labelDe": "80 mm",
+          "labels": {
+            "de": "80 mm",
+            "en": "80 mm",
+            "es": "80 mm",
+            "fr": "80 mm",
+            "it": "80 mm"
+          }
         },
         {
           "key": "100",
-          "labelDe": "100 mm"
+          "labelDe": "100 mm",
+          "labels": {
+            "de": "100 mm",
+            "en": "100 mm",
+            "es": "100 mm",
+            "fr": "100 mm",
+            "it": "100 mm"
+          }
         },
         {
           "key": "110",
-          "labelDe": "110 mm"
+          "labelDe": "110 mm",
+          "labels": {
+            "de": "110 mm",
+            "en": "110 mm",
+            "es": "110 mm",
+            "fr": "110 mm",
+            "it": "110 mm"
+          }
         },
         {
           "key": "120",
-          "labelDe": "120 mm"
+          "labelDe": "120 mm",
+          "labels": {
+            "de": "120 mm",
+            "en": "120 mm",
+            "es": "120 mm",
+            "fr": "120 mm",
+            "it": "120 mm"
+          }
         },
         {
           "key": "130",
-          "labelDe": "130 mm"
+          "labelDe": "130 mm",
+          "labels": {
+            "de": "130 mm",
+            "en": "130 mm",
+            "es": "130 mm",
+            "fr": "130 mm",
+            "it": "130 mm"
+          }
         },
         {
           "key": "140",
-          "labelDe": "140 mm"
+          "labelDe": "140 mm",
+          "labels": {
+            "de": "140 mm",
+            "en": "140 mm",
+            "es": "140 mm",
+            "fr": "140 mm",
+            "it": "140 mm"
+          }
         },
         {
           "key": "150",
-          "labelDe": "150 mm"
+          "labelDe": "150 mm",
+          "labels": {
+            "de": "150 mm",
+            "en": "150 mm",
+            "es": "150 mm",
+            "fr": "150 mm",
+            "it": "150 mm"
+          }
         },
         {
           "key": "160",
-          "labelDe": "160 mm"
+          "labelDe": "160 mm",
+          "labels": {
+            "de": "160 mm",
+            "en": "160 mm",
+            "es": "160 mm",
+            "fr": "160 mm",
+            "it": "160 mm"
+          }
         },
         {
           "key": "170",
-          "labelDe": "170 mm"
+          "labelDe": "170 mm",
+          "labels": {
+            "de": "170 mm",
+            "en": "170 mm",
+            "es": "170 mm",
+            "fr": "170 mm",
+            "it": "170 mm"
+          }
         },
         {
           "key": "180",
-          "labelDe": "180 mm"
+          "labelDe": "180 mm",
+          "labels": {
+            "de": "180 mm",
+            "en": "180 mm",
+            "es": "180 mm",
+            "fr": "180 mm",
+            "it": "180 mm"
+          }
         },
         {
           "key": "190",
-          "labelDe": "190 mm"
+          "labelDe": "190 mm",
+          "labels": {
+            "de": "190 mm",
+            "en": "190 mm",
+            "es": "190 mm",
+            "fr": "190 mm",
+            "it": "190 mm"
+          }
         },
         {
           "key": "200",
-          "labelDe": "200 mm"
+          "labelDe": "200 mm",
+          "labels": {
+            "de": "200 mm",
+            "en": "200 mm",
+            "es": "200 mm",
+            "fr": "200 mm",
+            "it": "200 mm"
+          }
         },
         {
           "key": "203",
-          "labelDe": "203 mm"
+          "labelDe": "203 mm",
+          "labels": {
+            "de": "203 mm",
+            "en": "203 mm",
+            "es": "203 mm",
+            "fr": "203 mm",
+            "it": "203 mm"
+          }
         },
         {
           "key": "220",
-          "labelDe": "220 mm"
+          "labelDe": "220 mm",
+          "labels": {
+            "de": "220 mm",
+            "en": "220 mm",
+            "es": "220 mm",
+            "fr": "220 mm",
+            "it": "220 mm"
+          }
         }
       ]
     },
@@ -2394,19 +5790,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "single_crown",
-          "labelDe": "Single Crown"
+          "labelDe": "Single Crown",
+          "labels": {
+            "de": "Single Crown",
+            "en": "Single Crown",
+            "es": "Single Crown",
+            "fr": "Single Crown",
+            "it": "Single Crown"
+          }
         },
         {
           "key": "dual_crown",
-          "labelDe": "Dual Crown"
+          "labelDe": "Dual Crown",
+          "labels": {
+            "de": "Dual Crown",
+            "en": "Dual Crown",
+            "es": "Dual Crown",
+            "fr": "Dual Crown",
+            "it": "Dual Crown"
+          }
         },
         {
           "key": "lefty",
-          "labelDe": "Lefty"
+          "labelDe": "Lefty",
+          "labels": {
+            "de": "Lefty",
+            "en": "Lefty",
+            "es": "Lefty",
+            "fr": "Lefty",
+            "it": "Lefty"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -2415,23 +5839,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "straight_1_1_8",
-          "labelDe": "1 1/8\" Gerade"
+          "labelDe": "1 1/8\" Gerade",
+          "labels": {
+            "de": "1 1/8\" Gerade",
+            "en": "1 1/8\" Gerade",
+            "es": "1 1/8\" Gerade",
+            "fr": "1 1/8\" Gerade",
+            "it": "1 1/8\" Gerade"
+          }
         },
         {
           "key": "tapered_1_5",
-          "labelDe": "Tapered 1.5\""
+          "labelDe": "Tapered 1.5\"",
+          "labels": {
+            "de": "Tapered 1.5\"",
+            "en": "Tapered 1.5\"",
+            "es": "Tapered 1.5\"",
+            "fr": "Tapered 1.5\"",
+            "it": "Tapered 1.5\""
+          }
         },
         {
           "key": "tapered_1_8_overdrive",
-          "labelDe": "Tapered 1.8\" Overdrive"
+          "labelDe": "Tapered 1.8\" Overdrive",
+          "labels": {
+            "de": "Tapered 1.8\" Overdrive",
+            "en": "Tapered 1.8\" Overdrive",
+            "es": "Tapered 1.8\" Overdrive",
+            "fr": "Tapered 1.8\" Overdrive",
+            "it": "Tapered 1.8\" Overdrive"
+          }
         },
         {
           "key": "straight_1_5",
-          "labelDe": "1.5\" Gerade"
+          "labelDe": "1.5\" Gerade",
+          "labels": {
+            "de": "1.5\" Gerade",
+            "en": "1.5\" Gerade",
+            "es": "1.5\" Gerade",
+            "fr": "1.5\" Gerade",
+            "it": "1.5\" Gerade"
+          }
         },
         {
           "key": "threaded_1_inch",
-          "labelDe": "1\" Gewinde"
+          "labelDe": "1\" Gewinde",
+          "labels": {
+            "de": "1\" Gewinde",
+            "en": "1\" Gewinde",
+            "es": "1\" Gewinde",
+            "fr": "1\" Gewinde",
+            "it": "1\" Gewinde"
+          }
         }
       ]
     },
@@ -2440,39 +5899,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "37",
-          "labelDe": "37 mm"
+          "labelDe": "37 mm",
+          "labels": {
+            "de": "37 mm",
+            "en": "37 mm",
+            "es": "37 mm",
+            "fr": "37 mm",
+            "it": "37 mm"
+          }
         },
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         },
         {
           "key": "42",
-          "labelDe": "42 mm"
+          "labelDe": "42 mm",
+          "labels": {
+            "de": "42 mm",
+            "en": "42 mm",
+            "es": "42 mm",
+            "fr": "42 mm",
+            "it": "42 mm"
+          }
         },
         {
           "key": "44",
-          "labelDe": "44 mm"
+          "labelDe": "44 mm",
+          "labels": {
+            "de": "44 mm",
+            "en": "44 mm",
+            "es": "44 mm",
+            "fr": "44 mm",
+            "it": "44 mm"
+          }
         },
         {
           "key": "46",
-          "labelDe": "46 mm"
+          "labelDe": "46 mm",
+          "labels": {
+            "de": "46 mm",
+            "en": "46 mm",
+            "es": "46 mm",
+            "fr": "46 mm",
+            "it": "46 mm"
+          }
         },
         {
           "key": "47",
-          "labelDe": "47 mm"
+          "labelDe": "47 mm",
+          "labels": {
+            "de": "47 mm",
+            "en": "47 mm",
+            "es": "47 mm",
+            "fr": "47 mm",
+            "it": "47 mm"
+          }
         },
         {
           "key": "50",
-          "labelDe": "50 mm"
+          "labelDe": "50 mm",
+          "labels": {
+            "de": "50 mm",
+            "en": "50 mm",
+            "es": "50 mm",
+            "fr": "50 mm",
+            "it": "50 mm"
+          }
         },
         {
           "key": "51",
-          "labelDe": "51 mm"
+          "labelDe": "51 mm",
+          "labels": {
+            "de": "51 mm",
+            "en": "51 mm",
+            "es": "51 mm",
+            "fr": "51 mm",
+            "it": "51 mm"
+          }
         },
         {
           "key": "55",
-          "labelDe": "55 mm"
+          "labelDe": "55 mm",
+          "labels": {
+            "de": "55 mm",
+            "en": "55 mm",
+            "es": "55 mm",
+            "fr": "55 mm",
+            "it": "55 mm"
+          }
         }
       ]
     },
@@ -2481,31 +6003,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "30",
-          "labelDe": "30 mm"
+          "labelDe": "30 mm",
+          "labels": {
+            "de": "30 mm",
+            "en": "30 mm",
+            "es": "30 mm",
+            "fr": "30 mm",
+            "it": "30 mm"
+          }
         },
         {
           "key": "32",
-          "labelDe": "32 mm"
+          "labelDe": "32 mm",
+          "labels": {
+            "de": "32 mm",
+            "en": "32 mm",
+            "es": "32 mm",
+            "fr": "32 mm",
+            "it": "32 mm"
+          }
         },
         {
           "key": "34",
-          "labelDe": "34 mm"
+          "labelDe": "34 mm",
+          "labels": {
+            "de": "34 mm",
+            "en": "34 mm",
+            "es": "34 mm",
+            "fr": "34 mm",
+            "it": "34 mm"
+          }
         },
         {
           "key": "35",
-          "labelDe": "35 mm"
+          "labelDe": "35 mm",
+          "labels": {
+            "de": "35 mm",
+            "en": "35 mm",
+            "es": "35 mm",
+            "fr": "35 mm",
+            "it": "35 mm"
+          }
         },
         {
           "key": "36",
-          "labelDe": "36 mm"
+          "labelDe": "36 mm",
+          "labels": {
+            "de": "36 mm",
+            "en": "36 mm",
+            "es": "36 mm",
+            "fr": "36 mm",
+            "it": "36 mm"
+          }
         },
         {
           "key": "38",
-          "labelDe": "38 mm"
+          "labelDe": "38 mm",
+          "labels": {
+            "de": "38 mm",
+            "en": "38 mm",
+            "es": "38 mm",
+            "fr": "38 mm",
+            "it": "38 mm"
+          }
         },
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         }
       ]
     },
@@ -2514,63 +6085,168 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "40",
-          "labelDe": "40 mm"
+          "labelDe": "40 mm",
+          "labels": {
+            "de": "40 mm",
+            "en": "40 mm",
+            "es": "40 mm",
+            "fr": "40 mm",
+            "it": "40 mm"
+          }
         },
         {
           "key": "50",
-          "labelDe": "50 mm"
+          "labelDe": "50 mm",
+          "labels": {
+            "de": "50 mm",
+            "en": "50 mm",
+            "es": "50 mm",
+            "fr": "50 mm",
+            "it": "50 mm"
+          }
         },
         {
           "key": "60",
-          "labelDe": "60 mm"
+          "labelDe": "60 mm",
+          "labels": {
+            "de": "60 mm",
+            "en": "60 mm",
+            "es": "60 mm",
+            "fr": "60 mm",
+            "it": "60 mm"
+          }
         },
         {
           "key": "80",
-          "labelDe": "80 mm"
+          "labelDe": "80 mm",
+          "labels": {
+            "de": "80 mm",
+            "en": "80 mm",
+            "es": "80 mm",
+            "fr": "80 mm",
+            "it": "80 mm"
+          }
         },
         {
           "key": "100",
-          "labelDe": "100 mm"
+          "labelDe": "100 mm",
+          "labels": {
+            "de": "100 mm",
+            "en": "100 mm",
+            "es": "100 mm",
+            "fr": "100 mm",
+            "it": "100 mm"
+          }
         },
         {
           "key": "120",
-          "labelDe": "120 mm"
+          "labelDe": "120 mm",
+          "labels": {
+            "de": "120 mm",
+            "en": "120 mm",
+            "es": "120 mm",
+            "fr": "120 mm",
+            "it": "120 mm"
+          }
         },
         {
           "key": "130",
-          "labelDe": "130 mm"
+          "labelDe": "130 mm",
+          "labels": {
+            "de": "130 mm",
+            "en": "130 mm",
+            "es": "130 mm",
+            "fr": "130 mm",
+            "it": "130 mm"
+          }
         },
         {
           "key": "140",
-          "labelDe": "140 mm"
+          "labelDe": "140 mm",
+          "labels": {
+            "de": "140 mm",
+            "en": "140 mm",
+            "es": "140 mm",
+            "fr": "140 mm",
+            "it": "140 mm"
+          }
         },
         {
           "key": "150",
-          "labelDe": "150 mm"
+          "labelDe": "150 mm",
+          "labels": {
+            "de": "150 mm",
+            "en": "150 mm",
+            "es": "150 mm",
+            "fr": "150 mm",
+            "it": "150 mm"
+          }
         },
         {
           "key": "160",
-          "labelDe": "160 mm"
+          "labelDe": "160 mm",
+          "labels": {
+            "de": "160 mm",
+            "en": "160 mm",
+            "es": "160 mm",
+            "fr": "160 mm",
+            "it": "160 mm"
+          }
         },
         {
           "key": "170",
-          "labelDe": "170 mm"
+          "labelDe": "170 mm",
+          "labels": {
+            "de": "170 mm",
+            "en": "170 mm",
+            "es": "170 mm",
+            "fr": "170 mm",
+            "it": "170 mm"
+          }
         },
         {
           "key": "180",
-          "labelDe": "180 mm"
+          "labelDe": "180 mm",
+          "labels": {
+            "de": "180 mm",
+            "en": "180 mm",
+            "es": "180 mm",
+            "fr": "180 mm",
+            "it": "180 mm"
+          }
         },
         {
           "key": "190",
-          "labelDe": "190 mm"
+          "labelDe": "190 mm",
+          "labels": {
+            "de": "190 mm",
+            "en": "190 mm",
+            "es": "190 mm",
+            "fr": "190 mm",
+            "it": "190 mm"
+          }
         },
         {
           "key": "200",
-          "labelDe": "200 mm"
+          "labelDe": "200 mm",
+          "labels": {
+            "de": "200 mm",
+            "en": "200 mm",
+            "es": "200 mm",
+            "fr": "200 mm",
+            "it": "200 mm"
+          }
         },
         {
           "key": "220",
-          "labelDe": "220 mm"
+          "labelDe": "220 mm",
+          "labels": {
+            "de": "220 mm",
+            "en": "220 mm",
+            "es": "220 mm",
+            "fr": "220 mm",
+            "it": "220 mm"
+          }
         }
       ]
     },
@@ -2579,31 +6255,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "120",
-          "labelDe": "120 mm"
+          "labelDe": "120 mm",
+          "labels": {
+            "de": "120 mm",
+            "en": "120 mm",
+            "es": "120 mm",
+            "fr": "120 mm",
+            "it": "120 mm"
+          }
         },
         {
           "key": "140",
-          "labelDe": "140 mm"
+          "labelDe": "140 mm",
+          "labels": {
+            "de": "140 mm",
+            "en": "140 mm",
+            "es": "140 mm",
+            "fr": "140 mm",
+            "it": "140 mm"
+          }
         },
         {
           "key": "160",
-          "labelDe": "160 mm"
+          "labelDe": "160 mm",
+          "labels": {
+            "de": "160 mm",
+            "en": "160 mm",
+            "es": "160 mm",
+            "fr": "160 mm",
+            "it": "160 mm"
+          }
         },
         {
           "key": "180",
-          "labelDe": "180 mm"
+          "labelDe": "180 mm",
+          "labels": {
+            "de": "180 mm",
+            "en": "180 mm",
+            "es": "180 mm",
+            "fr": "180 mm",
+            "it": "180 mm"
+          }
         },
         {
           "key": "200",
-          "labelDe": "200 mm"
+          "labelDe": "200 mm",
+          "labels": {
+            "de": "200 mm",
+            "en": "200 mm",
+            "es": "200 mm",
+            "fr": "200 mm",
+            "it": "200 mm"
+          }
         },
         {
           "key": "203",
-          "labelDe": "203 mm"
+          "labelDe": "203 mm",
+          "labels": {
+            "de": "203 mm",
+            "en": "203 mm",
+            "es": "203 mm",
+            "fr": "203 mm",
+            "it": "203 mm"
+          }
         },
         {
           "key": "220",
-          "labelDe": "220 mm"
+          "labelDe": "220 mm",
+          "labels": {
+            "de": "220 mm",
+            "en": "220 mm",
+            "es": "220 mm",
+            "fr": "220 mm",
+            "it": "220 mm"
+          }
         }
       ]
     },
@@ -2612,35 +6337,91 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "chain_derailleur",
-          "labelDe": "Kettenschaltung"
+          "labelDe": "Kettenschaltung",
+          "labels": {
+            "de": "Kettenschaltung",
+            "en": "Derailleur drivetrain",
+            "es": "Transmisión con desviador",
+            "fr": "Transmission à dérailleur",
+            "it": "Trasmissione a deragliatore"
+          }
         },
         {
           "key": "hub_gear",
-          "labelDe": "Nabenschaltung"
+          "labelDe": "Nabenschaltung",
+          "labels": {
+            "de": "Nabenschaltung",
+            "en": "Hub gear",
+            "es": "Cambio de buje",
+            "fr": "Moyeu à vitesses",
+            "it": "Cambio al mozzo"
+          }
         },
         {
           "key": "gearbox_hub",
-          "labelDe": "Getriebe-Nabe"
+          "labelDe": "Getriebe-Nabe",
+          "labels": {
+            "de": "Getriebe-Nabe",
+            "en": "Gearbox hub",
+            "es": "Buje con caja de cambios",
+            "fr": "Moyeu à boîte de vitesses",
+            "it": "Mozzo con cambio integrato"
+          }
         },
         {
           "key": "singlespeed",
-          "labelDe": "Singlespeed"
+          "labelDe": "Singlespeed",
+          "labels": {
+            "de": "Singlespeed",
+            "en": "Single speed",
+            "es": "Velocidad única",
+            "fr": "Vitesse unique",
+            "it": "Singola velocità"
+          }
         },
         {
           "key": "fixed_gear",
-          "labelDe": "Fixed Gear"
+          "labelDe": "Fixed Gear",
+          "labels": {
+            "de": "Fixed Gear",
+            "en": "Fixed gear",
+            "es": "Piñón fijo",
+            "fr": "Engin fixe",
+            "it": "Scatto fisso"
+          }
         },
         {
           "key": "belt_drive",
-          "labelDe": "Riemenantrieb"
+          "labelDe": "Riemenantrieb",
+          "labels": {
+            "de": "Riemenantrieb",
+            "en": "Belt drive",
+            "es": "Transmisión por correa",
+            "fr": "Transmission par courroie",
+            "it": "Trasmissione a cinghia"
+          }
         },
         {
           "key": "direct_drive",
-          "labelDe": "Direktantrieb"
+          "labelDe": "Direktantrieb",
+          "labels": {
+            "de": "Direktantrieb",
+            "en": "Direct drive",
+            "es": "Transmisión directa",
+            "fr": "Entraînement direct",
+            "it": "Trasmissione diretta"
+          }
         },
         {
           "key": "no_drive",
-          "labelDe": "Kein Antrieb"
+          "labelDe": "Kein Antrieb",
+          "labels": {
+            "de": "Kein Antrieb",
+            "en": "No drive",
+            "es": "Sin transmisión",
+            "fr": "Sans entraînement",
+            "it": "Senza trasmissione"
+          }
         }
       ]
     },
@@ -2649,23 +6430,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "mechanical",
-          "labelDe": "Mechanisch"
+          "labelDe": "Mechanisch",
+          "labels": {
+            "de": "Mechanisch",
+            "en": "Mechanical",
+            "es": "Mecánico",
+            "fr": "Mécanique",
+            "it": "Meccanico"
+          }
         },
         {
           "key": "electronic_wired",
-          "labelDe": "Elektronisch (kabelgebunden)"
+          "labelDe": "Elektronisch (kabelgebunden)",
+          "labels": {
+            "de": "Elektronisch (kabelgebunden)",
+            "en": "Electronic (wired)",
+            "es": "Electrónico (con cable)",
+            "fr": "Électronique (filaire)",
+            "it": "Elettronico (cablato)"
+          }
         },
         {
           "key": "electronic_wireless",
-          "labelDe": "Elektronisch (kabellos)"
+          "labelDe": "Elektronisch (kabellos)",
+          "labels": {
+            "de": "Elektronisch (kabellos)",
+            "en": "Electronic (wireless)",
+            "es": "Electrónico (inalámbrico)",
+            "fr": "Électronique (sans fil)",
+            "it": "Elettronico (wireless)"
+          }
         },
         {
           "key": "hydraulic",
-          "labelDe": "Hydraulisch"
+          "labelDe": "Hydraulisch",
+          "labels": {
+            "de": "Hydraulisch",
+            "en": "Hydraulic",
+            "es": "Hidráulico",
+            "fr": "Hydraulique",
+            "it": "Idraulico"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Keine"
+          "labelDe": "Keine",
+          "labels": {
+            "de": "Keine",
+            "en": "None",
+            "es": "Ninguno",
+            "fr": "Aucun",
+            "it": "Nessuno"
+          }
         }
       ]
     },
@@ -2674,39 +6490,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "hg_freehub",
-          "labelDe": "HG-Freilauf"
+          "labelDe": "HG-Freilauf",
+          "labels": {
+            "de": "HG-Freilauf",
+            "en": "HG-Freilauf",
+            "es": "HG-Freilauf",
+            "fr": "HG-Freilauf",
+            "it": "HG-Freilauf"
+          }
         },
         {
           "key": "micro_spline",
-          "labelDe": "Micro Spline"
+          "labelDe": "Micro Spline",
+          "labels": {
+            "de": "Micro Spline",
+            "en": "Micro Spline",
+            "es": "Micro Spline",
+            "fr": "Micro Spline",
+            "it": "Micro Spline"
+          }
         },
         {
           "key": "xd_driver",
-          "labelDe": "XD Driver"
+          "labelDe": "XD Driver",
+          "labels": {
+            "de": "XD Driver",
+            "en": "XD Driver",
+            "es": "XD Driver",
+            "fr": "XD Driver",
+            "it": "XD Driver"
+          }
         },
         {
           "key": "xdr_driver",
-          "labelDe": "XDR Driver"
+          "labelDe": "XDR Driver",
+          "labels": {
+            "de": "XDR Driver",
+            "en": "XDR Driver",
+            "es": "XDR Driver",
+            "fr": "XDR Driver",
+            "it": "XDR Driver"
+          }
         },
         {
           "key": "n3w",
-          "labelDe": "N3W"
+          "labelDe": "N3W",
+          "labels": {
+            "de": "N3W",
+            "en": "N3W",
+            "es": "N3W",
+            "fr": "N3W",
+            "it": "N3W"
+          }
         },
         {
           "key": "classic_freehub",
-          "labelDe": "Klassischer Freilauf"
+          "labelDe": "Klassischer Freilauf",
+          "labels": {
+            "de": "Klassischer Freilauf",
+            "en": "Classic freehub",
+            "es": "Núcleo clásico",
+            "fr": "Corps de roue libre classique",
+            "it": "Corpetto ruota libera classico"
+          }
         },
         {
           "key": "singlespeed",
-          "labelDe": "Singlespeed"
+          "labelDe": "Singlespeed",
+          "labels": {
+            "de": "Singlespeed",
+            "en": "Single speed",
+            "es": "Velocidad única",
+            "fr": "Vitesse unique",
+            "it": "Singola velocità"
+          }
         },
         {
           "key": "fixed_gear_threaded",
-          "labelDe": "Fixed Gear (Gewinde)"
+          "labelDe": "Fixed Gear (Gewinde)",
+          "labels": {
+            "de": "Fixed Gear (Gewinde)",
+            "en": "Fixed gear (thread)",
+            "es": "Piñón fijo (rosca)",
+            "fr": "Engrenage fixe (filetage)",
+            "it": "Scatto fisso (filo)"
+          }
         },
         {
           "key": "screw_on",
-          "labelDe": "Schraubkranz"
+          "labelDe": "Schraubkranz",
+          "labels": {
+            "de": "Schraubkranz",
+            "en": "Screw-on freewheel",
+            "es": "Rueda libre roscada",
+            "fr": "Roue libre à visser",
+            "it": "Ruota libera a filetto"
+          }
         }
       ]
     },
@@ -2715,27 +6594,69 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "clincher_tube",
-          "labelDe": "Draht-/Faltmantel mit Schlauch"
+          "labelDe": "Draht-/Faltmantel mit Schlauch",
+          "labels": {
+            "de": "Draht-/Faltmantel mit Schlauch",
+            "en": "Clincher/folding tire with tube",
+            "es": "Cubierta rígida/plegable con cámara",
+            "fr": "Pneu à tringle/souple avec chambre",
+            "it": "Copertoncino/pieghevole con camera"
+          }
         },
         {
           "key": "tubeless",
-          "labelDe": "Tubeless"
+          "labelDe": "Tubeless",
+          "labels": {
+            "de": "Tubeless",
+            "en": "Tubeless",
+            "es": "Tubeless",
+            "fr": "Tubeless",
+            "it": "Tubeless"
+          }
         },
         {
           "key": "tubeless_ready",
-          "labelDe": "Tubeless Ready"
+          "labelDe": "Tubeless Ready",
+          "labels": {
+            "de": "Tubeless Ready",
+            "en": "Tubeless Ready",
+            "es": "Tubeless Ready",
+            "fr": "Tubeless Ready",
+            "it": "Tubeless Ready"
+          }
         },
         {
           "key": "tubular",
-          "labelDe": "Schlauchreifen"
+          "labelDe": "Schlauchreifen",
+          "labels": {
+            "de": "Schlauchreifen",
+            "en": "Tubular tire",
+            "es": "Tubular",
+            "fr": "Boyau",
+            "it": "Tubolare"
+          }
         },
         {
           "key": "solid",
-          "labelDe": "Vollgummi"
+          "labelDe": "Vollgummi",
+          "labels": {
+            "de": "Vollgummi",
+            "en": "Solid tire",
+            "es": "Neumático macizo",
+            "fr": "Pneu plein",
+            "it": "Pneumatico pieno"
+          }
         },
         {
           "key": "insert",
-          "labelDe": "Einlagen (Insert)"
+          "labelDe": "Einlagen (Insert)",
+          "labels": {
+            "de": "Einlagen (Insert)",
+            "en": "Inserts",
+            "es": "Insertos",
+            "fr": "Inserts",
+            "it": "Inserti"
+          }
         }
       ]
     },
@@ -2744,39 +6665,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "clincher",
-          "labelDe": "Drahtreifen-Felge"
+          "labelDe": "Drahtreifen-Felge",
+          "labels": {
+            "de": "Drahtreifen-Felge",
+            "en": "Clincher rim",
+            "es": "Llanta para cubierta",
+            "fr": "Jante pour pneu à tringle",
+            "it": "Cerchio per copertoncino"
+          }
         },
         {
           "key": "tubeless_ready",
-          "labelDe": "Tubeless Ready"
+          "labelDe": "Tubeless Ready",
+          "labels": {
+            "de": "Tubeless Ready",
+            "en": "Tubeless Ready",
+            "es": "Tubeless Ready",
+            "fr": "Tubeless Ready",
+            "it": "Tubeless Ready"
+          }
         },
         {
           "key": "hookless",
-          "labelDe": "Hookless"
+          "labelDe": "Hookless",
+          "labels": {
+            "de": "Hookless",
+            "en": "Hookless",
+            "es": "Sin gancho",
+            "fr": "Sans crochet",
+            "it": "Senza gancio"
+          }
         },
         {
           "key": "tubular",
-          "labelDe": "Schlauchreifen-Felge"
+          "labelDe": "Schlauchreifen-Felge",
+          "labels": {
+            "de": "Schlauchreifen-Felge",
+            "en": "Tubular rim",
+            "es": "Llanta tubular",
+            "fr": "Jante pour boyau",
+            "it": "Cerchio per tubolare"
+          }
         },
         {
           "key": "deep_section",
-          "labelDe": "Hochprofil"
+          "labelDe": "Hochprofil",
+          "labels": {
+            "de": "Hochprofil",
+            "en": "Deep section",
+            "es": "Perfil alto",
+            "fr": "Profil haut",
+            "it": "Alto profilo"
+          }
         },
         {
           "key": "carbon_spoke_wheel",
-          "labelDe": "Carbonspeichenrad"
+          "labelDe": "Carbonspeichenrad",
+          "labels": {
+            "de": "Carbonspeichenrad",
+            "en": "Carbon-spoke wheel",
+            "es": "Rueda con radios de carbono",
+            "fr": "Roue à rayons carbone",
+            "it": "Ruota a raggi in carbonio"
+          }
         },
         {
           "key": "disc_wheel",
-          "labelDe": "Scheibenrad"
+          "labelDe": "Scheibenrad",
+          "labels": {
+            "de": "Scheibenrad",
+            "en": "Disc wheel",
+            "es": "Rueda lenticular",
+            "fr": "Roue lenticulaire",
+            "it": "Ruota lenticolare"
+          }
         },
         {
           "key": "tri_spoke",
-          "labelDe": "Dreiloch-Rad"
+          "labelDe": "Dreiloch-Rad",
+          "labels": {
+            "de": "Dreiloch-Rad",
+            "en": "Tri-spoke wheel",
+            "es": "Rueda de tres radios",
+            "fr": "Roue à trois bâtons",
+            "it": "Ruota a tre razze"
+          }
         },
         {
           "key": "fat_bike",
-          "labelDe": "Fat Bike"
+          "labelDe": "Fat Bike",
+          "labels": {
+            "de": "Fat Bike",
+            "en": "Fat Bike",
+            "es": "Fat Bike",
+            "fr": "Fat Bike",
+            "it": "Fat Bike"
+          }
         }
       ]
     },
@@ -2785,39 +6769,102 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "front",
-          "labelDe": "Vorderradnabe"
+          "labelDe": "Vorderradnabe",
+          "labels": {
+            "de": "Vorderradnabe",
+            "en": "Front hub",
+            "es": "Buje delantero",
+            "fr": "Moyeu avant",
+            "it": "Mozzo anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinterradnabe"
+          "labelDe": "Hinterradnabe",
+          "labels": {
+            "de": "Hinterradnabe",
+            "en": "Rear hub",
+            "es": "Buje trasero",
+            "fr": "Moyeu arrière",
+            "it": "Mozzo posteriore"
+          }
         },
         {
           "key": "hub_dynamo",
-          "labelDe": "Nabendynamo"
+          "labelDe": "Nabendynamo",
+          "labels": {
+            "de": "Nabendynamo",
+            "en": "Hub dynamo",
+            "es": "Dínamo de buje",
+            "fr": "Dynamo de moyeu",
+            "it": "Dinamo al mozzo"
+          }
         },
         {
           "key": "gearbox_hub",
-          "labelDe": "Getriebe-Nabe"
+          "labelDe": "Getriebe-Nabe",
+          "labels": {
+            "de": "Getriebe-Nabe",
+            "en": "Gearbox hub",
+            "es": "Buje con caja de cambios",
+            "fr": "Moyeu à boîte de vitesses",
+            "it": "Mozzo con cambio integrato"
+          }
         },
         {
           "key": "coaster_hub",
-          "labelDe": "Rücktritt-Nabe"
+          "labelDe": "Rücktritt-Nabe",
+          "labels": {
+            "de": "Rücktritt-Nabe",
+            "en": "Coaster hub",
+            "es": "Buje contrapedal",
+            "fr": "Moyeu à rétropédalage",
+            "it": "Mozzo a contropedale"
+          }
         },
         {
           "key": "flip_flop",
-          "labelDe": "Flip-Flop"
+          "labelDe": "Flip-Flop",
+          "labels": {
+            "de": "Flip-Flop",
+            "en": "Flip-flop hub",
+            "es": "Buje flip-flop",
+            "fr": "Moyeu flip-flop",
+            "it": "Mozzo flip-flop"
+          }
         },
         {
           "key": "fixed_gear_hub",
-          "labelDe": "Fixed-Gear-Nabe"
+          "labelDe": "Fixed-Gear-Nabe",
+          "labels": {
+            "de": "Fixed-Gear-Nabe",
+            "en": "Fixed gear hub",
+            "es": "Buje de piñón fijo",
+            "fr": "Moyeu à pignon fixe",
+            "it": "Mozzo a cambio fisso"
+          }
         },
         {
           "key": "bmx_cassette_hub",
-          "labelDe": "BMX-Kassetten-Nabe"
+          "labelDe": "BMX-Kassetten-Nabe",
+          "labels": {
+            "de": "BMX-Kassetten-Nabe",
+            "en": "BMX-Kassetten-Nabe",
+            "es": "BMX-Kassetten-Nabe",
+            "fr": "BMX-Kassetten-Nabe",
+            "it": "BMX-Kassetten-Nabe"
+          }
         },
         {
           "key": "unicycle_hub",
-          "labelDe": "Einrad-Nabe"
+          "labelDe": "Einrad-Nabe",
+          "labels": {
+            "de": "Einrad-Nabe",
+            "en": "Unicycle hub",
+            "es": "Centro de monociclo",
+            "fr": "Moyeu de monocycle",
+            "it": "Mozzo del monociclo"
+          }
         }
       ]
     },
@@ -2826,15 +6873,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "standard_eyelet",
-          "labelDe": "Standardauge"
+          "labelDe": "Standardauge",
+          "labels": {
+            "de": "Standardauge",
+            "en": "Standard eyelet",
+            "es": "Ojal estándar",
+            "fr": "Oeillet standard",
+            "it": "Occhiello standard"
+          }
         },
         {
           "key": "trunnion",
-          "labelDe": "Trunnion"
+          "labelDe": "Trunnion",
+          "labels": {
+            "de": "Trunnion",
+            "en": "Trunnion",
+            "es": "muñón",
+            "fr": "Tourillon",
+            "it": "Perno"
+          }
         },
         {
           "key": "proprietary",
-          "labelDe": "Herstellerspezifisch"
+          "labelDe": "Herstellerspezifisch",
+          "labels": {
+            "de": "Herstellerspezifisch",
+            "en": "Manufacturer-specific",
+            "es": "Específico del fabricante",
+            "fr": "Spécifique au fabricant",
+            "it": "Specifico del produttore"
+          }
         }
       ]
     },
@@ -2843,15 +6911,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "centered",
-          "labelDe": "Zentriert"
+          "labelDe": "Zentriert",
+          "labels": {
+            "de": "Zentriert",
+            "en": "Centered",
+            "es": "Centrado",
+            "fr": "Centré",
+            "it": "Centrato"
+          }
         },
         {
           "key": "asymmetric",
-          "labelDe": "Asymmetrisch"
+          "labelDe": "Asymmetrisch",
+          "labels": {
+            "de": "Asymmetrisch",
+            "en": "Asymmetrisch",
+            "es": "Asymmetrisch",
+            "fr": "Asymmetrisch",
+            "it": "Asymmetrisch"
+          }
         },
         {
           "key": "vendor_specific",
-          "labelDe": "Herstellerspezifisch"
+          "labelDe": "Herstellerspezifisch",
+          "labels": {
+            "de": "Herstellerspezifisch",
+            "en": "Manufacturer-specific",
+            "es": "Específico del fabricante",
+            "fr": "Spécifique au fabricant",
+            "it": "Specifico del produttore"
+          }
         }
       ]
     },
@@ -2860,15 +6949,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "udh",
-          "labelDe": "UDH"
+          "labelDe": "UDH",
+          "labels": {
+            "de": "UDH",
+            "en": "UDH",
+            "es": "UDH",
+            "fr": "UDH",
+            "it": "UDH"
+          }
         },
         {
           "key": "direct_mount",
-          "labelDe": "Direct Mount"
+          "labelDe": "Direct Mount",
+          "labels": {
+            "de": "Direct Mount",
+            "en": "Direct Mount",
+            "es": "Direct Mount",
+            "fr": "Direct Mount",
+            "it": "Direct Mount"
+          }
         },
         {
           "key": "brand_specific",
-          "labelDe": "Herstellerspezifisch"
+          "labelDe": "Herstellerspezifisch",
+          "labels": {
+            "de": "Herstellerspezifisch",
+            "en": "Manufacturer-specific",
+            "es": "Específico del fabricante",
+            "fr": "Spécifique au fabricant",
+            "it": "Specifico del produttore"
+          }
         }
       ]
     },
@@ -2877,31 +6987,80 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "drive",
-          "labelDe": "Antrieb"
+          "labelDe": "Antrieb",
+          "labels": {
+            "de": "Antrieb",
+            "en": "Drivetrain",
+            "es": "Transmisión",
+            "fr": "Transmission",
+            "it": "Trasmissione"
+          }
         },
         {
           "key": "shifting",
-          "labelDe": "Schaltung"
+          "labelDe": "Schaltung",
+          "labels": {
+            "de": "Schaltung",
+            "en": "Shifting",
+            "es": "Cambio",
+            "fr": "Transmission",
+            "it": "Cambio"
+          }
         },
         {
           "key": "dropper",
-          "labelDe": "Dropperpost"
+          "labelDe": "Dropperpost",
+          "labels": {
+            "de": "Dropperpost",
+            "en": "Dropperpost",
+            "es": "Dropperpost",
+            "fr": "Dropperpost",
+            "it": "Dropperpost"
+          }
         },
         {
           "key": "lighting",
-          "labelDe": "Beleuchtung"
+          "labelDe": "Beleuchtung",
+          "labels": {
+            "de": "Beleuchtung",
+            "en": "Lighting",
+            "es": "Iluminación",
+            "fr": "Éclairage",
+            "it": "Illuminazione"
+          }
         },
         {
           "key": "display",
-          "labelDe": "Display"
+          "labelDe": "Display",
+          "labels": {
+            "de": "Display",
+            "en": "Display",
+            "es": "Display",
+            "fr": "Display",
+            "it": "Display"
+          }
         },
         {
           "key": "sensor",
-          "labelDe": "Sensor"
+          "labelDe": "Sensor",
+          "labels": {
+            "de": "Sensor",
+            "en": "Sensor",
+            "es": "Sensor",
+            "fr": "Capteur",
+            "it": "Sensore"
+          }
         },
         {
           "key": "indoor_console",
-          "labelDe": "Indoor-Konsole"
+          "labelDe": "Indoor-Konsole",
+          "labels": {
+            "de": "Indoor-Konsole",
+            "en": "Indoor console",
+            "es": "Consola indoor",
+            "fr": "Console indoor",
+            "it": "Console indoor"
+          }
         }
       ]
     },
@@ -2910,23 +7069,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "mid_drive",
-          "labelDe": "Mittelmotor"
+          "labelDe": "Mittelmotor",
+          "labels": {
+            "de": "Mittelmotor",
+            "en": "Mid-drive motor",
+            "es": "Motor central",
+            "fr": "Moteur central",
+            "it": "Motore centrale"
+          }
         },
         {
           "key": "rear_hub",
-          "labelDe": "Hinterradnabenmotor"
+          "labelDe": "Hinterradnabenmotor",
+          "labels": {
+            "de": "Hinterradnabenmotor",
+            "en": "Rear hub motor",
+            "es": "Motor de buje trasero",
+            "fr": "Moteur moyeu arrière",
+            "it": "Motore nel mozzo posteriore"
+          }
         },
         {
           "key": "front_hub",
-          "labelDe": "Vorderradnabenmotor"
+          "labelDe": "Vorderradnabenmotor",
+          "labels": {
+            "de": "Vorderradnabenmotor",
+            "en": "Front hub motor",
+            "es": "Motor de buje delantero",
+            "fr": "Moteur moyeu avant",
+            "it": "Motore nel mozzo anteriore"
+          }
         },
         {
           "key": "bb_motor",
-          "labelDe": "Tretlager-Motor"
+          "labelDe": "Tretlager-Motor",
+          "labels": {
+            "de": "Tretlager-Motor",
+            "en": "Bottom bracket motor",
+            "es": "Motor de pedalier",
+            "fr": "Moteur de boîtier de pédalier",
+            "it": "Motore movimento centrale"
+          }
         },
         {
           "key": "direct_drive_indoor",
-          "labelDe": "Direktantrieb (Indoor)"
+          "labelDe": "Direktantrieb (Indoor)",
+          "labels": {
+            "de": "Direktantrieb (Indoor)",
+            "en": "Direct drive (indoor)",
+            "es": "Transmisión directa (interior)",
+            "fr": "Entraînement direct (intérieur)",
+            "it": "Azionamento diretto (interno)"
+          }
         }
       ]
     },
@@ -2935,19 +7129,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "ec_external_cup",
-          "labelDe": "EC (External Cup)"
+          "labelDe": "EC (External Cup)",
+          "labels": {
+            "de": "EC (External Cup)",
+            "en": "EC (External Cup)",
+            "es": "EC (External Cup)",
+            "fr": "EC (External Cup)",
+            "it": "EC (External Cup)"
+          }
         },
         {
           "key": "zs_zero_stack",
-          "labelDe": "ZS (Zero Stack)"
+          "labelDe": "ZS (Zero Stack)",
+          "labels": {
+            "de": "ZS (Zero Stack)",
+            "en": "ZS (Zero Stack)",
+            "es": "ZS (Zero Stack)",
+            "fr": "ZS (Zero Stack)",
+            "it": "ZS (Zero Stack)"
+          }
         },
         {
           "key": "is_integrated",
-          "labelDe": "IS (Integriert)"
+          "labelDe": "IS (Integriert)",
+          "labels": {
+            "de": "IS (Integriert)",
+            "en": "IS (Integriert)",
+            "es": "IS (Integriert)",
+            "fr": "IS (Integriert)",
+            "it": "IS (Integriert)"
+          }
         },
         {
           "key": "threaded",
-          "labelDe": "Gewinde"
+          "labelDe": "Gewinde",
+          "labels": {
+            "de": "Gewinde",
+            "en": "Threaded",
+            "es": "Roscado",
+            "fr": "Fileté",
+            "it": "Filettato"
+          }
         }
       ]
     },
@@ -2956,15 +7178,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "1",
-          "labelDe": "1\""
+          "labelDe": "1\"",
+          "labels": {
+            "de": "1\"",
+            "en": "1\"",
+            "es": "1\"",
+            "fr": "1\"",
+            "it": "1\""
+          }
         },
         {
           "key": "1_1_8",
-          "labelDe": "1 1/8\""
+          "labelDe": "1 1/8\"",
+          "labels": {
+            "de": "1 1/8\"",
+            "en": "1 1/8\"",
+            "es": "1 1/8\"",
+            "fr": "1 1/8\"",
+            "it": "1 1/8\""
+          }
         },
         {
           "key": "1_5",
-          "labelDe": "1.5\""
+          "labelDe": "1.5\"",
+          "labels": {
+            "de": "1.5\"",
+            "en": "1.5\"",
+            "es": "1.5\"",
+            "fr": "1.5\"",
+            "it": "1.5\""
+          }
         }
       ]
     },
@@ -2973,23 +7216,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "iscg_05",
-          "labelDe": "ISCG 05"
+          "labelDe": "ISCG 05",
+          "labels": {
+            "de": "ISCG 05",
+            "en": "ISCG 05",
+            "es": "ISCG 05",
+            "fr": "ISCG 05",
+            "it": "ISCG 05"
+          }
         },
         {
           "key": "iscg_old",
-          "labelDe": "ISCG (alt)"
+          "labelDe": "ISCG (alt)",
+          "labels": {
+            "de": "ISCG (alt)",
+            "en": "ISCG (alt)",
+            "es": "ISCG (alt)",
+            "fr": "ISCG (alt)",
+            "it": "ISCG (alt)"
+          }
         },
         {
           "key": "bb_mount",
-          "labelDe": "Tretlager-Aufnahme"
+          "labelDe": "Tretlager-Aufnahme",
+          "labels": {
+            "de": "Tretlager-Aufnahme",
+            "en": "Bottom bracket mount",
+            "es": "Soporte de pedalier",
+            "fr": "Fixation de boîtier de pédalier",
+            "it": "Attacco movimento centrale"
+          }
         },
         {
           "key": "direct_mount",
-          "labelDe": "Direct Mount"
+          "labelDe": "Direct Mount",
+          "labels": {
+            "de": "Direct Mount",
+            "en": "Direct Mount",
+            "es": "Direct Mount",
+            "fr": "Direct Mount",
+            "it": "Direct Mount"
+          }
         },
         {
           "key": "seat_tube",
-          "labelDe": "Sitzrohr"
+          "labelDe": "Sitzrohr",
+          "labels": {
+            "de": "Sitzrohr",
+            "en": "Seat tube",
+            "es": "Tubo de sillín",
+            "fr": "Tube de selle",
+            "it": "Tubo piantone"
+          }
         }
       ]
     },
@@ -2998,15 +7276,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "iscg_05",
-          "labelDe": "ISCG 05"
+          "labelDe": "ISCG 05",
+          "labels": {
+            "de": "ISCG 05",
+            "en": "ISCG 05",
+            "es": "ISCG 05",
+            "fr": "ISCG 05",
+            "it": "ISCG 05"
+          }
         },
         {
           "key": "chainring",
-          "labelDe": "Kettenblatt"
+          "labelDe": "Kettenblatt",
+          "labels": {
+            "de": "Kettenblatt",
+            "en": "Chainring",
+            "es": "Plato",
+            "fr": "Plateau",
+            "it": "Corona"
+          }
         },
         {
           "key": "crank",
-          "labelDe": "Kurbel"
+          "labelDe": "Kurbel",
+          "labels": {
+            "de": "Kurbel",
+            "en": "Crank",
+            "es": "Biela",
+            "fr": "Manivelle",
+            "it": "Pedivella"
+          }
         }
       ]
     },
@@ -3015,19 +7314,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "shift",
-          "labelDe": "Schaltung"
+          "labelDe": "Schaltung",
+          "labels": {
+            "de": "Schaltung",
+            "en": "Shifting",
+            "es": "Cambio",
+            "fr": "Transmission",
+            "it": "Cambio"
+          }
         },
         {
           "key": "brake",
-          "labelDe": "Bremse"
+          "labelDe": "Bremse",
+          "labels": {
+            "de": "Bremse",
+            "en": "Brake",
+            "es": "Freno",
+            "fr": "Frein",
+            "it": "Freno"
+          }
         },
         {
           "key": "dropper",
-          "labelDe": "Dropperpost"
+          "labelDe": "Dropperpost",
+          "labels": {
+            "de": "Dropperpost",
+            "en": "Dropperpost",
+            "es": "Dropperpost",
+            "fr": "Dropperpost",
+            "it": "Dropperpost"
+          }
         },
         {
           "key": "lockout",
-          "labelDe": "Lockout"
+          "labelDe": "Lockout",
+          "labels": {
+            "de": "Lockout",
+            "en": "Lockout",
+            "es": "Lockout",
+            "fr": "Lockout",
+            "it": "Lockout"
+          }
         }
       ]
     },
@@ -3036,15 +7363,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "4",
-          "labelDe": "4 mm"
+          "labelDe": "4 mm",
+          "labels": {
+            "de": "4 mm",
+            "en": "4 mm",
+            "es": "4 mm",
+            "fr": "4 mm",
+            "it": "4 mm"
+          }
         },
         {
           "key": "5",
-          "labelDe": "5 mm"
+          "labelDe": "5 mm",
+          "labels": {
+            "de": "5 mm",
+            "en": "5 mm",
+            "es": "5 mm",
+            "fr": "5 mm",
+            "it": "5 mm"
+          }
         },
         {
           "key": "5_5",
-          "labelDe": "5.5 mm"
+          "labelDe": "5.5 mm",
+          "labels": {
+            "de": "5.5 mm",
+            "en": "5.5 mm",
+            "es": "5.5 mm",
+            "fr": "5.5 mm",
+            "it": "5.5 mm"
+          }
         }
       ]
     },
@@ -3053,15 +7401,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "hydraulic",
-          "labelDe": "Hydraulisch"
+          "labelDe": "Hydraulisch",
+          "labels": {
+            "de": "Hydraulisch",
+            "en": "Hydraulic",
+            "es": "Hidráulico",
+            "fr": "Hydraulique",
+            "it": "Idraulico"
+          }
         },
         {
           "key": "mechanical_outer",
-          "labelDe": "Mechanisch (Außenhülle)"
+          "labelDe": "Mechanisch (Außenhülle)",
+          "labels": {
+            "de": "Mechanisch (Außenhülle)",
+            "en": "Mechanical (housing)",
+            "es": "Mecánico (funda)",
+            "fr": "Mécanique (gaine)",
+            "it": "Meccanico (guaina)"
+          }
         },
         {
           "key": "mechanical_inner",
-          "labelDe": "Mechanisch (Innenzug)"
+          "labelDe": "Mechanisch (Innenzug)",
+          "labels": {
+            "de": "Mechanisch (Innenzug)",
+            "en": "Mechanical (inner cable)",
+            "es": "Mecánico (cable interior)",
+            "fr": "Mécanique (câble intérieur)",
+            "it": "Meccanico (cavo interno)"
+          }
         }
       ]
     },
@@ -3070,23 +7439,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "cork",
-          "labelDe": "Kork"
+          "labelDe": "Kork",
+          "labels": {
+            "de": "Kork",
+            "en": "Cork",
+            "es": "Corcho",
+            "fr": "Liège",
+            "it": "Sughero"
+          }
         },
         {
           "key": "pu",
-          "labelDe": "PU"
+          "labelDe": "PU",
+          "labels": {
+            "de": "PU",
+            "en": "PU",
+            "es": "PU",
+            "fr": "PU",
+            "it": "PU"
+          }
         },
         {
           "key": "leather",
-          "labelDe": "Leder"
+          "labelDe": "Leder",
+          "labels": {
+            "de": "Leder",
+            "en": "Leather",
+            "es": "Cuero",
+            "fr": "Cuir",
+            "it": "Pelle"
+          }
         },
         {
           "key": "eva",
-          "labelDe": "EVA"
+          "labelDe": "EVA",
+          "labels": {
+            "de": "EVA",
+            "en": "EVA",
+            "es": "EVA",
+            "fr": "EVA",
+            "it": "EVA"
+          }
         },
         {
           "key": "silicone",
-          "labelDe": "Silikon"
+          "labelDe": "Silikon",
+          "labels": {
+            "de": "Silikon",
+            "en": "Silicone",
+            "es": "Silicona",
+            "fr": "Silicone",
+            "it": "Silicone"
+          }
         }
       ]
     },
@@ -3095,23 +7499,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "lock_on",
-          "labelDe": "Lock-On"
+          "labelDe": "Lock-On",
+          "labels": {
+            "de": "Lock-On",
+            "en": "Lock-On",
+            "es": "Lock-On",
+            "fr": "Lock-On",
+            "it": "Lock-On"
+          }
         },
         {
           "key": "slip_on",
-          "labelDe": "Slip-On"
+          "labelDe": "Slip-On",
+          "labels": {
+            "de": "Slip-On",
+            "en": "Slip-On",
+            "es": "Slip-On",
+            "fr": "Slip-On",
+            "it": "Slip-On"
+          }
         },
         {
           "key": "ergonomic",
-          "labelDe": "Ergonomisch"
+          "labelDe": "Ergonomisch",
+          "labels": {
+            "de": "Ergonomisch",
+            "en": "Ergonomic",
+            "es": "Ergonómico",
+            "fr": "Ergonomique",
+            "it": "Ergonomico"
+          }
         },
         {
           "key": "bmx",
-          "labelDe": "BMX"
+          "labelDe": "BMX",
+          "labels": {
+            "de": "BMX",
+            "en": "BMX",
+            "es": "BMX",
+            "fr": "BMX",
+            "it": "BMX"
+          }
         },
         {
           "key": "unicycle",
-          "labelDe": "Einrad"
+          "labelDe": "Einrad",
+          "labels": {
+            "de": "Einrad",
+            "en": "Unicycle",
+            "es": "Monociclo",
+            "fr": "Monocycle",
+            "it": "Monociclo"
+          }
         }
       ]
     },
@@ -3120,19 +7559,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "mechanical_internal",
-          "labelDe": "Mechanisch (intern)"
+          "labelDe": "Mechanisch (intern)",
+          "labels": {
+            "de": "Mechanisch (intern)",
+            "en": "Mechanical (internal)",
+            "es": "Mecánico (interno)",
+            "fr": "Mécanique (interne)",
+            "it": "Meccanico (interno)"
+          }
         },
         {
           "key": "mechanical_external",
-          "labelDe": "Mechanisch (extern)"
+          "labelDe": "Mechanisch (extern)",
+          "labels": {
+            "de": "Mechanisch (extern)",
+            "en": "Mechanical (external)",
+            "es": "Mecánico (externo)",
+            "fr": "Mécanique (externe)",
+            "it": "Meccanico (esterno)"
+          }
         },
         {
           "key": "hydraulic",
-          "labelDe": "Hydraulisch"
+          "labelDe": "Hydraulisch",
+          "labels": {
+            "de": "Hydraulisch",
+            "en": "Hydraulic",
+            "es": "Hidráulico",
+            "fr": "Hydraulique",
+            "it": "Idraulico"
+          }
         },
         {
           "key": "electronic_wireless",
-          "labelDe": "Elektronisch (kabellos)"
+          "labelDe": "Elektronisch (kabellos)",
+          "labels": {
+            "de": "Elektronisch (kabellos)",
+            "en": "Electronic (wireless)",
+            "es": "Electrónico (inalámbrico)",
+            "fr": "Électronique (sans fil)",
+            "it": "Elettronico (wireless)"
+          }
         }
       ]
     },
@@ -3141,15 +7608,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "screw_clamp",
-          "labelDe": "Schraubklemme"
+          "labelDe": "Schraubklemme",
+          "labels": {
+            "de": "Schraubklemme",
+            "en": "Schraubklemme",
+            "es": "Schraubklemme",
+            "fr": "Schraubklemme",
+            "it": "Schraubklemme"
+          }
         },
         {
           "key": "quick_release",
-          "labelDe": "Schnellspanner"
+          "labelDe": "Schnellspanner",
+          "labels": {
+            "de": "Schnellspanner",
+            "en": "Quick release",
+            "es": "Cierre rápido",
+            "fr": "Blocage rapide",
+            "it": "Sgancio rapido"
+          }
         },
         {
           "key": "aero_integrated",
-          "labelDe": "Aero-Integriert"
+          "labelDe": "Aero-Integriert",
+          "labels": {
+            "de": "Aero-Integriert",
+            "en": "Aero Integrated",
+            "es": "Aero integrado",
+            "fr": "Aéro intégré",
+            "it": "Aerointegrato"
+          }
         }
       ]
     },
@@ -3158,23 +7646,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "round",
-          "labelDe": "Rund"
+          "labelDe": "Rund",
+          "labels": {
+            "de": "Rund",
+            "en": "Round",
+            "es": "Redondo",
+            "fr": "Rond",
+            "it": "Tondo"
+          }
         },
         {
           "key": "aero",
-          "labelDe": "Aero"
+          "labelDe": "Aero",
+          "labels": {
+            "de": "Aero",
+            "en": "Aero",
+            "es": "Aero",
+            "fr": "Aéro",
+            "it": "Aero"
+          }
         },
         {
           "key": "straight_pull",
-          "labelDe": "Straightpull"
+          "labelDe": "Straightpull",
+          "labels": {
+            "de": "Straightpull",
+            "en": "Straight pull",
+            "es": "Tiro recto",
+            "fr": "Tirage droit",
+            "it": "Tirare dritto"
+          }
         },
         {
           "key": "j_bend",
-          "labelDe": "J-Bend"
+          "labelDe": "J-Bend",
+          "labels": {
+            "de": "J-Bend",
+            "en": "J-Bend",
+            "es": "Curva en J",
+            "fr": "Courbure en J",
+            "it": "J-Bend"
+          }
         },
         {
           "key": "double_butted",
-          "labelDe": "Double Butted"
+          "labelDe": "Double Butted",
+          "labels": {
+            "de": "Double Butted",
+            "en": "Double butted",
+            "es": "Doble conificado",
+            "fr": "Double bout",
+            "it": "Doppio spessore"
+          }
         }
       ]
     },
@@ -3183,15 +7706,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "brass",
-          "labelDe": "Messing"
+          "labelDe": "Messing",
+          "labels": {
+            "de": "Messing",
+            "en": "Brass",
+            "es": "Latón",
+            "fr": "Laiton",
+            "it": "Ottone"
+          }
         },
         {
           "key": "aluminum",
-          "labelDe": "Aluminium"
+          "labelDe": "Aluminium",
+          "labels": {
+            "de": "Aluminium",
+            "en": "Aluminum",
+            "es": "Aluminio",
+            "fr": "Aluminium",
+            "it": "Alluminio"
+          }
         },
         {
           "key": "stainless_steel",
-          "labelDe": "Edelstahl"
+          "labelDe": "Edelstahl",
+          "labels": {
+            "de": "Edelstahl",
+            "en": "Stainless steel",
+            "es": "Acero inoxidable",
+            "fr": "Acier inoxydable",
+            "it": "Acciaio inox"
+          }
         }
       ]
     },
@@ -3200,19 +7744,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "tubeless_tape",
-          "labelDe": "Tubeless-Tape"
+          "labelDe": "Tubeless-Tape",
+          "labels": {
+            "de": "Tubeless-Tape",
+            "en": "Tubeless-Tape",
+            "es": "Tubeless-Tape",
+            "fr": "Tubeless-Tape",
+            "it": "Tubeless-Tape"
+          }
         },
         {
           "key": "textile",
-          "labelDe": "Textil"
+          "labelDe": "Textil",
+          "labels": {
+            "de": "Textil",
+            "en": "Textile",
+            "es": "Textil",
+            "fr": "Textile",
+            "it": "Tessuto"
+          }
         },
         {
           "key": "rubber",
-          "labelDe": "Gummi"
+          "labelDe": "Gummi",
+          "labels": {
+            "de": "Gummi",
+            "en": "Rubber",
+            "es": "Goma",
+            "fr": "Caoutchouc",
+            "it": "Gomma"
+          }
         },
         {
           "key": "plastic",
-          "labelDe": "Kunststoff"
+          "labelDe": "Kunststoff",
+          "labels": {
+            "de": "Kunststoff",
+            "en": "Plastic",
+            "es": "Plástico",
+            "fr": "Plastique",
+            "it": "Plastica"
+          }
         }
       ]
     },
@@ -3221,15 +7793,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "plain",
-          "labelDe": "Gleitlager"
+          "labelDe": "Gleitlager",
+          "labels": {
+            "de": "Gleitlager",
+            "en": "Plain bearing",
+            "es": "Cojinete liso",
+            "fr": "Palier lisse",
+            "it": "Boccola"
+          }
         },
         {
           "key": "ball",
-          "labelDe": "Kugellager"
+          "labelDe": "Kugellager",
+          "labels": {
+            "de": "Kugellager",
+            "en": "Ball bearing",
+            "es": "Rodamiento de bolas",
+            "fr": "Roulement à billes",
+            "it": "Cuscinetto a sfere"
+          }
         },
         {
           "key": "ceramic",
-          "labelDe": "Keramiklager"
+          "labelDe": "Keramiklager",
+          "labels": {
+            "de": "Keramiklager",
+            "en": "Ceramic bearing",
+            "es": "Rodamiento cerámico",
+            "fr": "Roulement céramique",
+            "it": "Cuscinetto ceramico"
+          }
         }
       ]
     },
@@ -3238,23 +7831,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "parallelogram",
-          "labelDe": "Parallelogramm"
+          "labelDe": "Parallelogramm",
+          "labels": {
+            "de": "Parallelogramm",
+            "en": "Parallelogramm",
+            "es": "Parallelogramm",
+            "fr": "Parallelogramm",
+            "it": "Parallelogramm"
+          }
         },
         {
           "key": "telescopic",
-          "labelDe": "Teleskopisch"
+          "labelDe": "Teleskopisch",
+          "labels": {
+            "de": "Teleskopisch",
+            "en": "Telescopic",
+            "es": "Telescópico",
+            "fr": "Télescopique",
+            "it": "Telescopico"
+          }
         },
         {
           "key": "elastomer",
-          "labelDe": "Elastomer"
+          "labelDe": "Elastomer",
+          "labels": {
+            "de": "Elastomer",
+            "en": "Elastomer",
+            "es": "Elastómero",
+            "fr": "Élastomère",
+            "it": "Elastomero"
+          }
         },
         {
           "key": "coil_spring",
-          "labelDe": "Stahlfeder"
+          "labelDe": "Stahlfeder",
+          "labels": {
+            "de": "Stahlfeder",
+            "en": "Coil spring",
+            "es": "Muelle helicoidal",
+            "fr": "Ressort hélicoïdal",
+            "it": "Molla elicoidale"
+          }
         },
         {
           "key": "air_spring",
-          "labelDe": "Luftfeder"
+          "labelDe": "Luftfeder",
+          "labels": {
+            "de": "Luftfeder",
+            "en": "Air spring",
+            "es": "Muelle de aire",
+            "fr": "Ressort pneumatique",
+            "it": "Molla ad aria"
+          }
         }
       ]
     },
@@ -3263,19 +7891,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "handlebar",
-          "labelDe": "Lenker"
+          "labelDe": "Lenker",
+          "labels": {
+            "de": "Lenker",
+            "en": "Handlebar",
+            "es": "Manillar",
+            "fr": "Cintre",
+            "it": "Manubrio"
+          }
         },
         {
           "key": "top_tube",
-          "labelDe": "Oberrohr"
+          "labelDe": "Oberrohr",
+          "labels": {
+            "de": "Oberrohr",
+            "en": "Top tube",
+            "es": "Tubo superior",
+            "fr": "Tube supérieur",
+            "it": "Tubo orizzontale"
+          }
         },
         {
           "key": "integrated",
-          "labelDe": "Integriert"
+          "labelDe": "Integriert",
+          "labels": {
+            "de": "Integriert",
+            "en": "Integrated",
+            "es": "Integrado",
+            "fr": "Intégré",
+            "it": "Integrato"
+          }
         },
         {
           "key": "none",
-          "labelDe": "Kein Display"
+          "labelDe": "Kein Display",
+          "labels": {
+            "de": "Kein Display",
+            "en": "No display",
+            "es": "Sin pantalla",
+            "fr": "Aucun écran",
+            "it": "Nessun display"
+          }
         }
       ]
     },
@@ -3284,19 +7940,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "wired",
-          "labelDe": "Kabelgebunden"
+          "labelDe": "Kabelgebunden",
+          "labels": {
+            "de": "Kabelgebunden",
+            "en": "Wired",
+            "es": "Con cable",
+            "fr": "Filaire",
+            "it": "Cablato"
+          }
         },
         {
           "key": "bluetooth",
-          "labelDe": "Bluetooth"
+          "labelDe": "Bluetooth",
+          "labels": {
+            "de": "Bluetooth",
+            "en": "Bluetooth",
+            "es": "bluetooth",
+            "fr": "Bluetooth",
+            "it": "Bluetooth"
+          }
         },
         {
           "key": "ant_plus",
-          "labelDe": "ANT+"
+          "labelDe": "ANT+",
+          "labels": {
+            "de": "ANT+",
+            "en": "ANT+",
+            "es": "ANT+",
+            "fr": "ANT+",
+            "it": "ANT+"
+          }
         },
         {
           "key": "proprietary",
-          "labelDe": "Herstellerspezifisch"
+          "labelDe": "Herstellerspezifisch",
+          "labels": {
+            "de": "Herstellerspezifisch",
+            "en": "Manufacturer-specific",
+            "es": "Específico del fabricante",
+            "fr": "Spécifique au fabricant",
+            "it": "Specifico del produttore"
+          }
         }
       ]
     },
@@ -3305,19 +7989,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "left",
-          "labelDe": "Links"
+          "labelDe": "Links",
+          "labels": {
+            "de": "Links",
+            "en": "Left",
+            "es": "Izquierda",
+            "fr": "Gauche",
+            "it": "Sinistra"
+          }
         },
         {
           "key": "right",
-          "labelDe": "Rechts"
+          "labelDe": "Rechts",
+          "labels": {
+            "de": "Rechts",
+            "en": "Right",
+            "es": "Derecha",
+            "fr": "Droite",
+            "it": "Destra"
+          }
         },
         {
           "key": "top_tube",
-          "labelDe": "Oberrohr"
+          "labelDe": "Oberrohr",
+          "labels": {
+            "de": "Oberrohr",
+            "en": "Top tube",
+            "es": "Tubo superior",
+            "fr": "Tube supérieur",
+            "it": "Tubo orizzontale"
+          }
         },
         {
           "key": "wireless",
-          "labelDe": "Kabellos"
+          "labelDe": "Kabellos",
+          "labels": {
+            "de": "Kabellos",
+            "en": "Wireless",
+            "es": "Inalámbrico",
+            "fr": "Sans fil",
+            "it": "Wireless"
+          }
         }
       ]
     },
@@ -3326,19 +8038,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "chainstay",
-          "labelDe": "Kettenstrebe"
+          "labelDe": "Kettenstrebe",
+          "labels": {
+            "de": "Kettenstrebe",
+            "en": "Chainstay",
+            "es": "Vaina",
+            "fr": "Base",
+            "it": "Fodero basso"
+          }
         },
         {
           "key": "dropout",
-          "labelDe": "Ausfallende"
+          "labelDe": "Ausfallende",
+          "labels": {
+            "de": "Ausfallende",
+            "en": "Dropout",
+            "es": "Puntera",
+            "fr": "Patte de cadre",
+            "it": "Forcellino"
+          }
         },
         {
           "key": "hub",
-          "labelDe": "Nabe"
+          "labelDe": "Nabe",
+          "labels": {
+            "de": "Nabe",
+            "en": "Hub",
+            "es": "Buje",
+            "fr": "Moyeu",
+            "it": "Mozzo"
+          }
         },
         {
           "key": "motor_internal",
-          "labelDe": "Motor-Intern"
+          "labelDe": "Motor-Intern",
+          "labels": {
+            "de": "Motor-Intern",
+            "en": "Motor-internal",
+            "es": "Interno del motor",
+            "fr": "Interne au moteur",
+            "it": "Interno al motore"
+          }
         }
       ]
     },
@@ -3347,15 +8087,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "spoke",
-          "labelDe": "Speiche"
+          "labelDe": "Speiche",
+          "labels": {
+            "de": "Speiche",
+            "en": "Spoke",
+            "es": "Radio",
+            "fr": "Rayon",
+            "it": "Raggio"
+          }
         },
         {
           "key": "disc",
-          "labelDe": "Scheibe"
+          "labelDe": "Scheibe",
+          "labels": {
+            "de": "Scheibe",
+            "en": "Disc",
+            "es": "Disco",
+            "fr": "Disque",
+            "it": "Disco"
+          }
         },
         {
           "key": "rim",
-          "labelDe": "Felge"
+          "labelDe": "Felge",
+          "labels": {
+            "de": "Felge",
+            "en": "Rim",
+            "es": "Llanta",
+            "fr": "Jante",
+            "it": "Cerchio"
+          }
         }
       ]
     },
@@ -3364,15 +8125,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "in_light",
-          "labelDe": "Im Scheinwerfer"
+          "labelDe": "Im Scheinwerfer",
+          "labels": {
+            "de": "Im Scheinwerfer",
+            "en": "In headlight",
+            "es": "En el faro",
+            "fr": "Dans le phare",
+            "it": "Nel faro"
+          }
         },
         {
           "key": "frame",
-          "labelDe": "Rahmen"
+          "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          }
         },
         {
           "key": "rack",
-          "labelDe": "Gepäckträger"
+          "labelDe": "Gepäckträger",
+          "labels": {
+            "de": "Gepäckträger",
+            "en": "Rack",
+            "es": "Portaequipajes",
+            "fr": "Porte-bagages",
+            "it": "Portapacchi"
+          }
         }
       ]
     },
@@ -3381,19 +8163,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         },
         {
           "key": "lowrider",
-          "labelDe": "Lowrider"
+          "labelDe": "Lowrider",
+          "labels": {
+            "de": "Lowrider",
+            "en": "Lowrider",
+            "es": "Lowrider",
+            "fr": "Lowrider",
+            "it": "Lowrider"
+          }
         },
         {
           "key": "frame_bag_system",
-          "labelDe": "Rahmentaschen-System"
+          "labelDe": "Rahmentaschen-System",
+          "labels": {
+            "de": "Rahmentaschen-System",
+            "en": "Frame bag system",
+            "es": "Sistema de bolsa de cuadro",
+            "fr": "Système de sacoche de cadre",
+            "it": "Sistema borse telaio"
+          }
         }
       ]
     },
@@ -3402,23 +8212,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "eyelets",
-          "labelDe": "Ösen"
+          "labelDe": "Ösen",
+          "labels": {
+            "de": "Ösen",
+            "en": "Eyelets",
+            "es": "Ojales",
+            "fr": "Oeillets",
+            "it": "Occhielli"
+          }
         },
         {
           "key": "axle_mount",
-          "labelDe": "Achsaufnahme"
+          "labelDe": "Achsaufnahme",
+          "labels": {
+            "de": "Achsaufnahme",
+            "en": "Axle mount",
+            "es": "Soporte de eje",
+            "fr": "Fixation d’axe",
+            "it": "Attacco asse"
+          }
         },
         {
           "key": "seatpost_clamp",
-          "labelDe": "Sattelstützenklemmung"
+          "labelDe": "Sattelstützenklemmung",
+          "labels": {
+            "de": "Sattelstützenklemmung",
+            "en": "Seatpost clamp",
+            "es": "Abrazadera de tija de sillín",
+            "fr": "Collier de tige de selle",
+            "it": "Collarino reggisella"
+          }
         },
         {
           "key": "clamp",
-          "labelDe": "Klemme"
+          "labelDe": "Klemme",
+          "labels": {
+            "de": "Klemme",
+            "en": "Klemme",
+            "es": "Klemme",
+            "fr": "Klemme",
+            "it": "Klemme"
+          }
         },
         {
           "key": "integrated",
-          "labelDe": "Integriert"
+          "labelDe": "Integriert",
+          "labels": {
+            "de": "Integriert",
+            "en": "Integrated",
+            "es": "Integrado",
+            "fr": "Intégré",
+            "it": "Integrato"
+          }
         }
       ]
     },
@@ -3427,15 +8272,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "front",
-          "labelDe": "Vorne"
+          "labelDe": "Vorne",
+          "labels": {
+            "de": "Vorne",
+            "en": "Front",
+            "es": "Delantero",
+            "fr": "Avant",
+            "it": "Anteriore"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinten"
+          "labelDe": "Hinten",
+          "labels": {
+            "de": "Hinten",
+            "en": "Rear",
+            "es": "Trasero",
+            "fr": "Arrière",
+            "it": "Posteriore"
+          }
         },
         {
           "key": "set",
-          "labelDe": "Set (vorne + hinten)"
+          "labelDe": "Set (vorne + hinten)",
+          "labels": {
+            "de": "Set (vorne + hinten)",
+            "en": "Set (front + rear)",
+            "es": "Juego (delantero + trasero)",
+            "fr": "Jeu (avant + arrière)",
+            "it": "Set (anteriore + posteriore)"
+          }
         }
       ]
     },
@@ -3444,19 +8310,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "screwed",
-          "labelDe": "Geschraubt"
+          "labelDe": "Geschraubt",
+          "labels": {
+            "de": "Geschraubt",
+            "en": "Bolted",
+            "es": "Atornillado",
+            "fr": "Vissé",
+            "it": "Avvitato"
+          }
         },
         {
           "key": "plug_in",
-          "labelDe": "Steckbar"
+          "labelDe": "Steckbar",
+          "labels": {
+            "de": "Steckbar",
+            "en": "Plug-in",
+            "es": "Insertable",
+            "fr": "Enfichable",
+            "it": "A innesto"
+          }
         },
         {
           "key": "clip_on",
-          "labelDe": "Clip-On"
+          "labelDe": "Clip-On",
+          "labels": {
+            "de": "Clip-On",
+            "en": "Clip on",
+            "es": "Clip en",
+            "fr": "A clipser",
+            "it": "Agganciare"
+          }
         },
         {
           "key": "integrated",
-          "labelDe": "Integriert"
+          "labelDe": "Integriert",
+          "labels": {
+            "de": "Integriert",
+            "en": "Integrated",
+            "es": "Integrado",
+            "fr": "Intégré",
+            "it": "Integrato"
+          }
         }
       ]
     },
@@ -3465,19 +8359,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "side",
-          "labelDe": "Seitenständer"
+          "labelDe": "Seitenständer",
+          "labels": {
+            "de": "Seitenständer",
+            "en": "Side stand",
+            "es": "Pata lateral",
+            "fr": "Béquille latérale",
+            "it": "Cavalletto laterale"
+          }
         },
         {
           "key": "rear",
-          "labelDe": "Hinterradständer"
+          "labelDe": "Hinterradständer",
+          "labels": {
+            "de": "Hinterradständer",
+            "en": "Rear stand",
+            "es": "Pata trasera",
+            "fr": "Béquille arrière",
+            "it": "Cavalletto posteriore"
+          }
         },
         {
           "key": "mid_mount",
-          "labelDe": "Mittelaufnahme"
+          "labelDe": "Mittelaufnahme",
+          "labels": {
+            "de": "Mittelaufnahme",
+            "en": "Center mount",
+            "es": "Montaje central",
+            "fr": "Fixation centrale",
+            "it": "Attacco centrale"
+          }
         },
         {
           "key": "two_leg",
-          "labelDe": "Zweibeinständer"
+          "labelDe": "Zweibeinständer",
+          "labels": {
+            "de": "Zweibeinständer",
+            "en": "Double-leg stand",
+            "es": "Pata de cabra doble",
+            "fr": "Béquille double",
+            "it": "Cavalletto doppio"
+          }
         }
       ]
     },
@@ -3486,19 +8408,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "dynamo",
-          "labelDe": "Dynamo"
+          "labelDe": "Dynamo",
+          "labels": {
+            "de": "Dynamo",
+            "en": "Dynamo",
+            "es": "Dynamo",
+            "fr": "Dynamo",
+            "it": "Dynamo"
+          }
         },
         {
           "key": "battery",
-          "labelDe": "Akku/Batterie"
+          "labelDe": "Akku/Batterie",
+          "labels": {
+            "de": "Akku/Batterie",
+            "en": "Rechargeable/disposable battery",
+            "es": "Batería/pila",
+            "fr": "Batterie rechargeable/pile",
+            "it": "Batteria/accumulatore"
+          }
         },
         {
           "key": "ebike_battery",
-          "labelDe": "E-Bike-Akku"
+          "labelDe": "E-Bike-Akku",
+          "labels": {
+            "de": "E-Bike-Akku",
+            "en": "E-Bike-Akku",
+            "es": "E-Bike-Akku",
+            "fr": "E-Bike-Akku",
+            "it": "E-Bike-Akku"
+          }
         },
         {
           "key": "single_use",
-          "labelDe": "Einwegbatterie"
+          "labelDe": "Einwegbatterie",
+          "labels": {
+            "de": "Einwegbatterie",
+            "en": "Disposable battery",
+            "es": "Pila desechable",
+            "fr": "Pile jetable",
+            "it": "Batteria usa e getta"
+          }
         }
       ]
     },
@@ -3507,15 +8457,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "hub",
-          "labelDe": "Nabendynamo"
+          "labelDe": "Nabendynamo",
+          "labels": {
+            "de": "Nabendynamo",
+            "en": "Hub dynamo",
+            "es": "Dínamo de buje",
+            "fr": "Dynamo de moyeu",
+            "it": "Dinamo al mozzo"
+          }
         },
         {
           "key": "sidewall",
-          "labelDe": "Seitenläufer"
+          "labelDe": "Seitenläufer",
+          "labels": {
+            "de": "Seitenläufer",
+            "en": "Sidewall dynamo",
+            "es": "Dínamo lateral",
+            "fr": "Dynamo latérale",
+            "it": "Dinamo laterale"
+          }
         },
         {
           "key": "rim",
-          "labelDe": "Felgenläufer"
+          "labelDe": "Felgenläufer",
+          "labels": {
+            "de": "Felgenläufer",
+            "en": "Rim dynamo",
+            "es": "Dínamo de llanta",
+            "fr": "Dynamo sur jante",
+            "it": "Dinamo su cerchio"
+          }
         }
       ]
     },
@@ -3524,15 +8495,36 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "handlebar",
-          "labelDe": "Lenker"
+          "labelDe": "Lenker",
+          "labels": {
+            "de": "Lenker",
+            "en": "Handlebar",
+            "es": "Manillar",
+            "fr": "Cintre",
+            "it": "Manubrio"
+          }
         },
         {
           "key": "integrated",
-          "labelDe": "Integriert"
+          "labelDe": "Integriert",
+          "labels": {
+            "de": "Integriert",
+            "en": "Integrated",
+            "es": "Integrado",
+            "fr": "Intégré",
+            "it": "Integrato"
+          }
         },
         {
           "key": "electronic",
-          "labelDe": "Elektronisch"
+          "labelDe": "Elektronisch",
+          "labels": {
+            "de": "Elektronisch",
+            "en": "Electronic",
+            "es": "Electrónico",
+            "fr": "Électronique",
+            "it": "Elettronico"
+          }
         }
       ]
     },
@@ -3541,19 +8533,47 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "full",
-          "labelDe": "Vollkettenkasten"
+          "labelDe": "Vollkettenkasten",
+          "labels": {
+            "de": "Vollkettenkasten",
+            "en": "Full chain case",
+            "es": "Cubrecadena completo",
+            "fr": "Carter de chaîne intégral",
+            "it": "Carter catena completo"
+          }
         },
         {
           "key": "partial",
-          "labelDe": "Teilkettenkasten"
+          "labelDe": "Teilkettenkasten",
+          "labels": {
+            "de": "Teilkettenkasten",
+            "en": "Partial chain case",
+            "es": "Cubrecadena parcial",
+            "fr": "Carter de chaîne partiel",
+            "it": "Carter catena parziale"
+          }
         },
         {
           "key": "chainglider",
-          "labelDe": "Chainglider"
+          "labelDe": "Chainglider",
+          "labels": {
+            "de": "Chainglider",
+            "en": "Chainglider",
+            "es": "Chainglider",
+            "fr": "Chainglider",
+            "it": "Chainglider"
+          }
         },
         {
           "key": "bashguard_combined",
-          "labelDe": "Mit Bashguard kombiniert"
+          "labelDe": "Mit Bashguard kombiniert",
+          "labels": {
+            "de": "Mit Bashguard kombiniert",
+            "en": "Mit Bashguard kombiniert",
+            "es": "Mit Bashguard kombiniert",
+            "fr": "Mit Bashguard kombiniert",
+            "it": "Mit Bashguard kombiniert"
+          }
         }
       ]
     },
@@ -3562,23 +8582,58 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "12",
-          "labelDe": "12 Zoll"
+          "labelDe": "12 Zoll",
+          "labels": {
+            "de": "12 Zoll",
+            "en": "12 inch",
+            "es": "12 pulgadas",
+            "fr": "12 pouces",
+            "it": "12 pollici"
+          }
         },
         {
           "key": "14",
-          "labelDe": "14 Zoll"
+          "labelDe": "14 Zoll",
+          "labels": {
+            "de": "14 Zoll",
+            "en": "14 inch",
+            "es": "14 pulgadas",
+            "fr": "14 pouces",
+            "it": "14 pollici"
+          }
         },
         {
           "key": "16",
-          "labelDe": "16 Zoll"
+          "labelDe": "16 Zoll",
+          "labels": {
+            "de": "16 Zoll",
+            "en": "16 inch",
+            "es": "16 pulgadas",
+            "fr": "16 pouces",
+            "it": "16 pollici"
+          }
         },
         {
           "key": "18",
-          "labelDe": "18 Zoll"
+          "labelDe": "18 Zoll",
+          "labels": {
+            "de": "18 Zoll",
+            "en": "18 inch",
+            "es": "18 pulgadas",
+            "fr": "18 pouces",
+            "it": "18 pollici"
+          }
         },
         {
           "key": "20",
-          "labelDe": "20 Zoll"
+          "labelDe": "20 Zoll",
+          "labels": {
+            "de": "20 Zoll",
+            "en": "20 inch",
+            "es": "20 pulgadas",
+            "fr": "20 pouces",
+            "it": "20 pollici"
+          }
         }
       ]
     },
@@ -3587,11 +8642,25 @@ export const gearSchema: GearSchema = {
       "options": [
         {
           "key": "axle",
-          "labelDe": "Achse"
+          "labelDe": "Achse",
+          "labels": {
+            "de": "Achse",
+            "en": "Axle",
+            "es": "Eje",
+            "fr": "Axe",
+            "it": "Asse"
+          }
         },
         {
           "key": "frame",
-          "labelDe": "Rahmen"
+          "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          }
         }
       ]
     }
@@ -3600,6 +8669,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "length",
       "labelDe": "Länge",
+      "labels": {
+        "de": "Länge",
+        "en": "Length",
+        "es": "Longitud",
+        "fr": "Longueur",
+        "it": "Lunghezza"
+      },
       "allowedUnits": [
         "mm",
         "in"
@@ -3609,6 +8685,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "length_angle",
       "labelDe": "Länge \u0026 Winkel",
+      "labels": {
+        "de": "Länge \u0026 Winkel",
+        "en": "Length \u0026 angle",
+        "es": "Longitud y ángulo",
+        "fr": "Longueur et angle",
+        "it": "Lunghezza e angolo"
+      },
       "allowedUnits": [
         "mm",
         "deg"
@@ -3617,6 +8700,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "weight",
       "labelDe": "Gewicht",
+      "labels": {
+        "de": "Gewicht",
+        "en": "Weight",
+        "es": "Peso",
+        "fr": "Poids",
+        "it": "Peso"
+      },
       "allowedUnits": [
         "kg"
       ],
@@ -3625,6 +8715,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "volume",
       "labelDe": "Volumen",
+      "labels": {
+        "de": "Volumen",
+        "en": "Volume",
+        "es": "Volumen",
+        "fr": "Volume",
+        "it": "Volume"
+      },
       "allowedUnits": [
         "l",
         "ml"
@@ -3634,6 +8731,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "angle",
       "labelDe": "Winkel",
+      "labels": {
+        "de": "Winkel",
+        "en": "Angle",
+        "es": "Ángulo",
+        "fr": "Angle",
+        "it": "Angolo"
+      },
       "allowedUnits": [
         "deg"
       ],
@@ -3642,6 +8746,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "pressure",
       "labelDe": "Druck",
+      "labels": {
+        "de": "Druck",
+        "en": "Pressure",
+        "es": "Presión",
+        "fr": "Pression",
+        "it": "Pressione"
+      },
       "allowedUnits": [
         "bar",
         "psi"
@@ -3651,6 +8762,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "spring_rate",
       "labelDe": "Federrate",
+      "labels": {
+        "de": "Federrate",
+        "en": "Spring rate",
+        "es": "Constante del muelle",
+        "fr": "Raideur du ressort",
+        "it": "Rigidità della molla"
+      },
       "allowedUnits": [
         "n_per_mm",
         "lb_per_in"
@@ -3660,6 +8778,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "voltage",
       "labelDe": "Spannung",
+      "labels": {
+        "de": "Spannung",
+        "en": "Voltage",
+        "es": "Tensión",
+        "fr": "Tension",
+        "it": "Tensione"
+      },
       "allowedUnits": [
         "V"
       ],
@@ -3668,6 +8793,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "energy",
       "labelDe": "Energie",
+      "labels": {
+        "de": "Energie",
+        "en": "Energy",
+        "es": "Energía",
+        "fr": "Énergie",
+        "it": "Energia"
+      },
       "allowedUnits": [
         "Wh"
       ],
@@ -3676,6 +8808,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "count",
       "labelDe": "Anzahl",
+      "labels": {
+        "de": "Anzahl",
+        "en": "Count",
+        "es": "Cantidad",
+        "fr": "Nombre",
+        "it": "Quantità"
+      },
       "allowedUnits": [
         "clicks",
         "turns",
@@ -3688,24 +8827,52 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.frame_material",
       "labelDe": "Rahmenmaterial",
+      "labels": {
+        "de": "Rahmenmaterial",
+        "en": "Frame material",
+        "es": "Material del cuadro",
+        "fr": "Matériau du cadre",
+        "it": "Materiale del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_material"
     },
     {
       "key": "bike.frame_type",
       "labelDe": "Rahmentyp",
+      "labels": {
+        "de": "Rahmentyp",
+        "en": "Frame type",
+        "es": "Tipo de cuadro",
+        "fr": "Type de cadre",
+        "it": "Tipo di telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_type"
     },
     {
       "key": "bike.frame_design",
       "labelDe": "Bauart",
+      "labels": {
+        "de": "Bauart",
+        "en": "Frame design",
+        "es": "Diseño del cuadro",
+        "fr": "Conception du cadre",
+        "it": "Configurazione del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_design"
     },
     {
       "key": "bike.geometry",
       "labelDe": "Geometrie",
+      "labels": {
+        "de": "Geometrie",
+        "en": "Geometry",
+        "es": "Geometría",
+        "fr": "Géométrie",
+        "it": "Geometria"
+      },
       "valueType": "geometry",
       "unitGroup": "length_angle",
       "allowedUnits": [
@@ -3716,60 +8883,130 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.wheel_size",
       "labelDe": "Laufradgröße",
+      "labels": {
+        "de": "Laufradgröße",
+        "en": "Wheel size",
+        "es": "Tamaño de rueda",
+        "fr": "Taille de roue",
+        "it": "Misura ruota"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.wheel_size"
     },
     {
       "key": "bike.wheel_size_front",
       "labelDe": "Laufradgröße vorne",
+      "labels": {
+        "de": "Laufradgröße vorne",
+        "en": "Front wheel size",
+        "es": "Tamaño de rueda delantera",
+        "fr": "Taille de roue avant",
+        "it": "Misura ruota anteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.wheel_size"
     },
     {
       "key": "bike.wheel_size_rear",
       "labelDe": "Laufradgröße hinten",
+      "labels": {
+        "de": "Laufradgröße hinten",
+        "en": "Rear wheel size",
+        "es": "Tamaño de rueda trasera",
+        "fr": "Taille de roue arrière",
+        "it": "Misura ruota posteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.wheel_size"
     },
     {
       "key": "bike.frame_size_alpha",
       "labelDe": "Rahmengröße",
+      "labels": {
+        "de": "Rahmengröße",
+        "en": "Frame size",
+        "es": "Talla del cuadro",
+        "fr": "Taille du cadre",
+        "it": "Taglia del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_size_alpha"
     },
     {
       "key": "bike.frame_size_cm",
-      "labelDe": "Rahmengröße cm",
+      "labelDe": "Rahmengröße (cm)",
+      "labels": {
+        "de": "Rahmengröße (cm)",
+        "en": "Frame size (cm)",
+        "es": "Talla del cuadro (cm)",
+        "fr": "Taille du cadre (cm)",
+        "it": "Taglia telaio (cm)"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_size_cm"
     },
     {
       "key": "bike.cable_routing",
       "labelDe": "Kabelführung",
+      "labels": {
+        "de": "Kabelführung",
+        "en": "Cable routing",
+        "es": "Guiado de cables",
+        "fr": "Passage des câbles",
+        "it": "Passaggio cavi"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.cable_routing"
     },
     {
       "key": "bike.bottle_cage_count",
       "labelDe": "Flaschenhalter",
+      "labels": {
+        "de": "Flaschenhalter",
+        "en": "Bottle cages",
+        "es": "Portabidones",
+        "fr": "Porte-bidons",
+        "it": "Portaborracce"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bottle_cage_count"
     },
     {
       "key": "bike.fender_presence",
       "labelDe": "Schutzblech",
+      "labels": {
+        "de": "Schutzblech",
+        "en": "Fender",
+        "es": "Guardabarros",
+        "fr": "Garde-boue",
+        "it": "Parafango"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fender_presence"
     },
     {
       "key": "bike.kickstand_presence",
       "labelDe": "Ständer",
+      "labels": {
+        "de": "Ständer",
+        "en": "Kickstand",
+        "es": "Pata de cabra",
+        "fr": "Béquille",
+        "it": "Cavalletto"
+      },
       "valueType": "search_enum",
       "optionSetKey": "yes_no"
     },
     {
       "key": "bike.max_system_weight_kg",
       "labelDe": "Max. Systemgewicht",
+      "labels": {
+        "de": "Max. Systemgewicht",
+        "en": "Max. system weight",
+        "es": "Peso máximo del sistema",
+        "fr": "Poids total maximal",
+        "it": "Peso massimo di sistema"
+      },
       "valueType": "unit_number",
       "unitGroup": "weight",
       "allowedUnits": [
@@ -3779,54 +9016,117 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.modifier",
       "labelDe": "Fahrrad-Modifier",
+      "labels": {
+        "de": "Fahrrad-Modifier",
+        "en": "Bike modifier",
+        "es": "Modificador de bicicleta",
+        "fr": "Modificateur vélo",
+        "it": "Modificatore bici"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.modifier"
     },
     {
       "key": "shoes.crampon_compatibility",
       "labelDe": "Steigeisen-Kompatibilität",
+      "labels": {
+        "de": "Steigeisen-Kompatibilität",
+        "en": "Crampon compatibility",
+        "es": "Compatibilidad con crampones",
+        "fr": "Compatibilité crampons",
+        "it": "Compatibilità ramponi"
+      },
       "valueType": "search_enum",
       "optionSetKey": "shoes.crampon_compatibility"
     },
     {
       "key": "shoes.outdoor_category",
       "labelDe": "Outdoorschuh-Kategorie",
+      "labels": {
+        "de": "Outdoorschuh-Kategorie",
+        "en": "Outdoor shoe category",
+        "es": "Categoría de calzado outdoor",
+        "fr": "Catégorie de chaussure outdoor",
+        "it": "Categoria scarpa outdoor"
+      },
       "valueType": "search_enum",
       "optionSetKey": "shoes.outdoor_category"
     },
     {
       "key": "bike.rear_axle_standard",
       "labelDe": "Hinterbau-Achsstandard",
+      "labels": {
+        "de": "Hinterbau-Achsstandard",
+        "en": "Rear axle standard",
+        "es": "Estándar de eje trasero",
+        "fr": "Standard d'axe arrière",
+        "it": "Standard asse posteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.axle_standard"
     },
     {
       "key": "bike.brake_mount",
       "labelDe": "Bremsaufnahme",
+      "labels": {
+        "de": "Bremsaufnahme",
+        "en": "Brake mount",
+        "es": "Anclaje de freno",
+        "fr": "Fixation de frein",
+        "it": "Attacco freno"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_mount"
     },
     {
       "key": "bike.bottom_bracket_standard",
       "labelDe": "Tretlager-Standard",
+      "labels": {
+        "de": "Tretlager-Standard",
+        "en": "Bottom bracket standard",
+        "es": "Estándar de pedalier",
+        "fr": "Standard de boîtier de pédalier",
+        "it": "Standard movimento centrale"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bottom_bracket"
     },
     {
       "key": "bike.headtube_type",
       "labelDe": "Steuerrohr-Typ",
+      "labels": {
+        "de": "Steuerrohr-Typ",
+        "en": "Head tube type",
+        "es": "Tipo de tubo de dirección",
+        "fr": "Type de tube de direction",
+        "it": "Tipo tubo sterzo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.headtube_type"
     },
     {
       "key": "bike.seatpost_diameter_mm",
       "labelDe": "Sattelstütz-Durchmesser",
+      "labels": {
+        "de": "Sattelstütz-Durchmesser",
+        "en": "Seatpost diameter",
+        "es": "Diámetro de tija",
+        "fr": "Diamètre de tige de selle",
+        "it": "Diametro reggisella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.seatpost_diameter_mm"
     },
     {
       "key": "bike.max_tire_width_mm",
       "labelDe": "Maximale Reifenbreite",
+      "labels": {
+        "de": "Maximale Reifenbreite",
+        "en": "Maximum tire width",
+        "es": "Anchura máxima de neumático",
+        "fr": "Largeur maximale du pneu",
+        "it": "Larghezza massima pneumatico"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -3836,29 +9136,64 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.seat_clamp_diameter_mm",
       "labelDe": "Sattelklemmendurchmesser",
+      "labels": {
+        "de": "Sattelklemmendurchmesser",
+        "en": "Sattelklemmendurchmesser",
+        "es": "Sattelklemmendurchmesser",
+        "fr": "Sattelklemmendurchmesser",
+        "it": "Sattelklemmendurchmesser"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.seat_clamp_diameter_mm"
     },
     {
       "key": "bike.front_derailleur_mount",
       "labelDe": "Umwerferaufnahme",
+      "labels": {
+        "de": "Umwerferaufnahme",
+        "en": "Front derailleur mount",
+        "es": "Montaje de desviador delantero",
+        "fr": "Fixation du dérailleur avant",
+        "it": "Attacco deragliatore anteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.front_derailleur_mount"
     },
     {
       "key": "bike.max_chainring_teeth",
       "labelDe": "Maximale Kettenblattgröße",
+      "labels": {
+        "de": "Maximale Kettenblattgröße",
+        "en": "Maximum chainring size",
+        "es": "Tamaño máximo del plato",
+        "fr": "Taille maximale du plateau",
+        "it": "Dimensione massima corona"
+      },
       "valueType": "number"
     },
     {
       "key": "bike.bottom_bracket",
       "labelDe": "Tretlager",
+      "labels": {
+        "de": "Tretlager",
+        "en": "Bottom bracket",
+        "es": "Pedalier",
+        "fr": "Boîtier de pédalier",
+        "it": "Movimento centrale"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bottom_bracket"
     },
     {
       "key": "bike.shock_eye_to_eye_mm",
       "labelDe": "Dämpfer-Einbaulänge",
+      "labels": {
+        "de": "Dämpfer-Einbaulänge",
+        "en": "Shock eye-to-eye length",
+        "es": "Longitud entre ojos del amortiguador",
+        "fr": "Entraxe d'amortisseur",
+        "it": "Interasse ammortizzatore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shock_eye_to_eye_mm",
       "appliesToGearWhen": [
@@ -3873,6 +9208,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock_stroke_mm",
       "labelDe": "Dämpfer-Hub",
+      "labels": {
+        "de": "Dämpfer-Hub",
+        "en": "Shock stroke",
+        "es": "Recorrido del amortiguador",
+        "fr": "Course d'amortisseur",
+        "it": "Corsa ammortizzatore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shock_stroke_mm",
       "visibleWhen": [
@@ -3886,80 +9228,178 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock_hardware",
       "labelDe": "Dämpfer-Hardware",
+      "labels": {
+        "de": "Dämpfer-Hardware",
+        "en": "Shock hardware",
+        "es": "Herrajes de amortiguador",
+        "fr": "Quincaillerie d’amortisseur",
+        "it": "Hardware ammortizzatore"
+      },
       "valueType": "string"
     },
     {
       "key": "bike.kickstand_mount",
       "labelDe": "Ständeraufnahme",
+      "labels": {
+        "de": "Ständeraufnahme",
+        "en": "Kickstand mount",
+        "es": "Soporte de pata",
+        "fr": "Fixation de béquille",
+        "it": "Attacco cavalletto"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.kickstand_mount"
     },
     {
       "key": "bike.rack_mount",
       "labelDe": "Gepäckträgeraufnahme",
+      "labels": {
+        "de": "Gepäckträgeraufnahme",
+        "en": "Rack mount",
+        "es": "Soporte de portaequipajes",
+        "fr": "Fixation de porte-bagages",
+        "it": "Attacco portapacchi"
+      },
       "valueType": "string"
     },
     {
       "key": "bike.fender_mount",
       "labelDe": "Schutzblechaufnahme",
+      "labels": {
+        "de": "Schutzblechaufnahme",
+        "en": "Fender mount",
+        "es": "Soporte de guardabarros",
+        "fr": "Fixation de garde-boue",
+        "it": "Attacco parafango"
+      },
       "valueType": "string"
     },
     {
       "key": "bike.frame_bearing.position",
       "labelDe": "Lagerposition",
+      "labels": {
+        "de": "Lagerposition",
+        "en": "Bearing position",
+        "es": "Posición del rodamiento",
+        "fr": "Position du roulement",
+        "it": "Posizione cuscinetto"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.frame_bearing.position"
     },
     {
       "key": "serial_number",
       "labelDe": "Seriennummer",
+      "labels": {
+        "de": "Seriennummer",
+        "en": "Seriennummer",
+        "es": "Seriennummer",
+        "fr": "Seriennummer",
+        "it": "Seriennummer"
+      },
       "valueType": "string"
     },
     {
       "key": "material",
       "labelDe": "Material",
+      "labels": {
+        "de": "Material",
+        "en": "Material",
+        "es": "Material",
+        "fr": "Matériau",
+        "it": "Materiale"
+      },
       "valueType": "search_enum",
       "optionSetKey": "material.common"
     },
     {
       "key": "axle_standard",
       "labelDe": "Achsstandard",
+      "labels": {
+        "de": "Achsstandard",
+        "en": "Axle standard",
+        "es": "Estándar de eje",
+        "fr": "Standard d'axe",
+        "it": "Standard asse"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.axle_standard"
     },
     {
       "key": "position",
       "labelDe": "Position",
+      "labels": {
+        "de": "Position",
+        "en": "Position",
+        "es": "Posición",
+        "fr": "Position",
+        "it": "Posizione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "position.common"
     },
     {
       "key": "position.front_rear",
       "labelDe": "Position",
+      "labels": {
+        "de": "Position",
+        "en": "Position",
+        "es": "Posición",
+        "fr": "Position",
+        "it": "Posizione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "position.front_rear"
     },
     {
       "key": "position.left_right",
       "labelDe": "Position",
+      "labels": {
+        "de": "Position",
+        "en": "Position",
+        "es": "Posición",
+        "fr": "Position",
+        "it": "Posizione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "position.left_right"
     },
     {
       "key": "fork_construction",
       "labelDe": "Bauart",
+      "labels": {
+        "de": "Bauart",
+        "en": "Frame design",
+        "es": "Diseño del cuadro",
+        "fr": "Conception du cadre",
+        "it": "Configurazione del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_construction"
     },
     {
       "key": "shock_construction",
       "labelDe": "Bauart",
+      "labels": {
+        "de": "Bauart",
+        "en": "Frame design",
+        "es": "Diseño del cuadro",
+        "fr": "Conception du cadre",
+        "it": "Configurazione del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shock_construction"
     },
     {
       "key": "suspension_travel",
       "labelDe": "Federweg",
+      "labels": {
+        "de": "Federweg",
+        "en": "Travel",
+        "es": "Recorrido",
+        "fr": "Débattement",
+        "it": "Escursione"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -3969,6 +9409,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "spring_rate",
       "labelDe": "Federhärte",
+      "labels": {
+        "de": "Federhärte",
+        "en": "Spring rate",
+        "es": "Dureza del muelle",
+        "fr": "Raideur du ressort",
+        "it": "Durezza molla"
+      },
       "valueType": "unit_number",
       "unitGroup": "spring_rate",
       "allowedUnits": [
@@ -3979,6 +9426,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shock_eye_to_eye",
       "labelDe": "Einbaumaß",
+      "labels": {
+        "de": "Einbaumaß",
+        "en": "Eye-to-eye length",
+        "es": "Distancia entre ojos",
+        "fr": "Entraxe",
+        "it": "Interasse"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -3989,6 +9443,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shock_stroke",
       "labelDe": "Hub",
+      "labels": {
+        "de": "Hub",
+        "en": "Stroke",
+        "es": "Carrera",
+        "fr": "Course",
+        "it": "Corsa"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -3999,22 +9460,50 @@ export const gearSchema: GearSchema = {
     {
       "key": "shock_mount",
       "labelDe": "Mount",
+      "labels": {
+        "de": "Mount",
+        "en": "Mount",
+        "es": "Montaje",
+        "fr": "Fixation",
+        "it": "Attacco"
+      },
       "valueType": "search_enum",
       "optionSetKey": "shock_mount"
     },
     {
       "key": "dimensions",
       "labelDe": "Maße",
+      "labels": {
+        "de": "Maße",
+        "en": "Dimensions",
+        "es": "Dimensiones",
+        "fr": "Dimensions",
+        "it": "Dimensioni"
+      },
       "valueType": "string"
     },
     {
       "key": "quantity",
       "labelDe": "Anzahl",
+      "labels": {
+        "de": "Anzahl",
+        "en": "Quantity",
+        "es": "Cantidad",
+        "fr": "Quantité",
+        "it": "Quantità"
+      },
       "valueType": "number"
     },
     {
       "key": "volume",
       "labelDe": "Volumen",
+      "labels": {
+        "de": "Volumen",
+        "en": "Volume",
+        "es": "Volumen",
+        "fr": "Volume",
+        "it": "Volume"
+      },
       "valueType": "unit_number",
       "unitGroup": "volume",
       "allowedUnits": [
@@ -4025,47 +9514,103 @@ export const gearSchema: GearSchema = {
     {
       "key": "teeth_count",
       "labelDe": "Zähne",
+      "labels": {
+        "de": "Zähne",
+        "en": "Teeth",
+        "es": "Dientes",
+        "fr": "Dents",
+        "it": "Denti"
+      },
       "valueType": "number"
     },
     {
       "key": "valve_type",
       "labelDe": "Ventilart",
+      "labels": {
+        "de": "Ventilart",
+        "en": "Valve type",
+        "es": "Tipo de válvula",
+        "fr": "Type de valve",
+        "it": "Tipo valvola"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.valve_type"
     },
     {
       "key": "brake_type",
       "labelDe": "Bremstyp",
+      "labels": {
+        "de": "Bremstyp",
+        "en": "Brake type",
+        "es": "Tipo de freno",
+        "fr": "Type de frein",
+        "it": "Tipo freno"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_type"
     },
     {
       "key": "brake_actuation",
       "labelDe": "Bauart",
+      "labels": {
+        "de": "Bauart",
+        "en": "Frame design",
+        "es": "Diseño del cuadro",
+        "fr": "Conception du cadre",
+        "it": "Configurazione del telaio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_actuation"
     },
     {
       "key": "brake_pad_type",
       "labelDe": "Art",
+      "labels": {
+        "de": "Art",
+        "en": "Type",
+        "es": "Tipo",
+        "fr": "Type",
+        "it": "Tipo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_pad_type"
     },
     {
       "key": "brake_pad_material",
       "labelDe": "Material",
+      "labels": {
+        "de": "Material",
+        "en": "Material",
+        "es": "Material",
+        "fr": "Matériau",
+        "it": "Materiale"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_pad_material"
     },
     {
       "key": "handlebar_type",
       "labelDe": "Lenkertyp",
+      "labels": {
+        "de": "Lenkertyp",
+        "en": "Handlebar type",
+        "es": "Tipo de manillar",
+        "fr": "Type de cintre",
+        "it": "Tipo manubrio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.handlebar_type"
     },
     {
       "key": "handlebar_width_mm",
       "labelDe": "Breite",
+      "labels": {
+        "de": "Breite",
+        "en": "Width",
+        "es": "Anchura",
+        "fr": "Largeur",
+        "it": "Larghezza"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4075,6 +9620,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "handlebar_rise_mm",
       "labelDe": "Rise",
+      "labels": {
+        "de": "Rise",
+        "en": "Rise",
+        "es": "subir",
+        "fr": "Monter",
+        "it": "Alzati"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4084,6 +9636,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "handlebar_backsweep_deg",
       "labelDe": "Backsweep",
+      "labels": {
+        "de": "Backsweep",
+        "en": "Backsweep",
+        "es": "barrido hacia atrás",
+        "fr": "Balayage arrière",
+        "it": "Backsweep"
+      },
       "valueType": "unit_number",
       "unitGroup": "angle",
       "allowedUnits": [
@@ -4093,12 +9652,26 @@ export const gearSchema: GearSchema = {
     {
       "key": "battery_type",
       "labelDe": "Akkutyp",
+      "labels": {
+        "de": "Akkutyp",
+        "en": "Battery type",
+        "es": "Tipo de batería",
+        "fr": "Type de batterie",
+        "it": "Tipo batteria"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.battery_type"
     },
     {
       "key": "voltage_v",
       "labelDe": "Spannung",
+      "labels": {
+        "de": "Spannung",
+        "en": "Voltage",
+        "es": "Tensión",
+        "fr": "Tension",
+        "it": "Tensione"
+      },
       "valueType": "unit_number",
       "unitGroup": "voltage",
       "allowedUnits": [
@@ -4108,6 +9681,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "energy_wh",
       "labelDe": "Energiegehalt",
+      "labels": {
+        "de": "Energiegehalt",
+        "en": "Energy capacity",
+        "es": "Capacidad energética",
+        "fr": "Capacité énergétique",
+        "it": "Capacità energetica"
+      },
       "valueType": "unit_number",
       "unitGroup": "energy",
       "allowedUnits": [
@@ -4117,12 +9697,26 @@ export const gearSchema: GearSchema = {
     {
       "key": "dive.gas",
       "labelDe": "Gas",
+      "labels": {
+        "de": "Gas",
+        "en": "Gas",
+        "es": "Gas",
+        "fr": "Gaz",
+        "it": "Gas"
+      },
       "valueType": "search_enum",
       "optionSetKey": "dive.gas"
     },
     {
       "key": "dive.working_pressure_bar",
       "labelDe": "Betriebsdruck",
+      "labels": {
+        "de": "Betriebsdruck",
+        "en": "Working pressure",
+        "es": "Presión de trabajo",
+        "fr": "Pression de service",
+        "it": "Pressione di esercizio"
+      },
       "valueType": "unit_number",
       "unitGroup": "pressure",
       "allowedUnits": [
@@ -4132,88 +9726,193 @@ export const gearSchema: GearSchema = {
     {
       "key": "helmet.subcategory",
       "labelDe": "Helmkategorie",
+      "labels": {
+        "de": "Helmkategorie",
+        "en": "Helmet category",
+        "es": "Categoría de casco",
+        "fr": "Catégorie de casque",
+        "it": "Categoria casco"
+      },
       "valueType": "search_enum",
       "optionSetKey": "helmet.subcategory"
     },
     {
       "key": "helmet.safety_standard",
       "labelDe": "Sicherheitsnorm",
+      "labels": {
+        "de": "Sicherheitsnorm",
+        "en": "Safety standard",
+        "es": "Norma de seguridad",
+        "fr": "Norme de sécurité",
+        "it": "Norma di sicurezza"
+      },
       "valueType": "enum_with_freetext",
       "optionSetKey": "helmet.safety_standard"
     },
     {
       "key": "goggles.subcategory",
       "labelDe": "Brillenkategorie",
+      "labels": {
+        "de": "Brillenkategorie",
+        "en": "Goggle category",
+        "es": "Categoría de gafas/máscara",
+        "fr": "Catégorie de masque/lunettes",
+        "it": "Categoria occhiali/maschera"
+      },
       "valueType": "search_enum",
       "optionSetKey": "goggles.subcategory"
     },
     {
       "key": "climb.harness_size",
-      "labelDe": "Gurtzgröße",
+      "labelDe": "Gurtgröße",
+      "labels": {
+        "de": "Gurtgröße",
+        "en": "Harness size",
+        "es": "Talla del arnés",
+        "fr": "Taille du harnais",
+        "it": "Taglia imbrago"
+      },
       "valueType": "string"
     },
     {
       "key": "climb.rope_length_m",
       "labelDe": "Seillänge (m)",
+      "labels": {
+        "de": "Seillänge (m)",
+        "en": "Rope length (m)",
+        "es": "Longitud de cuerda (m)",
+        "fr": "Longueur de corde (m)",
+        "it": "Lunghezza corda (m)"
+      },
       "valueType": "number"
     },
     {
       "key": "apparel.subcategory",
       "labelDe": "Bekleidungskategorie",
+      "labels": {
+        "de": "Bekleidungskategorie",
+        "en": "Apparel category",
+        "es": "Categoría de ropa",
+        "fr": "Catégorie de vêtement",
+        "it": "Categoria abbigliamento"
+      },
       "valueType": "search_enum",
       "optionSetKey": "apparel.subcategory"
     },
     {
       "key": "bike.wheel_size_system",
       "labelDe": "Laufrad-System",
+      "labels": {
+        "de": "Laufrad-System",
+        "en": "Wheel system",
+        "es": "Sistema de rueda",
+        "fr": "Système de roue",
+        "it": "Sistema ruota"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.wheel_size_system"
     },
     {
       "key": "bike.etrto_bsd_mm",
       "labelDe": "ETRTO/BSD",
+      "labels": {
+        "de": "ETRTO/BSD",
+        "en": "ETRTO/BSD",
+        "es": "ETRTO/BSD",
+        "fr": "ETRTO/BSD",
+        "it": "ETRTO/BSD"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.etrto_bsd_mm"
     },
     {
       "key": "bike.fork_category",
       "labelDe": "Gabelkategorie",
+      "labels": {
+        "de": "Gabelkategorie",
+        "en": "Fork category",
+        "es": "Categoría de horquilla",
+        "fr": "Catégorie de fourche",
+        "it": "Categoria forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_category"
     },
     {
       "key": "bike.fork_travel_mm",
       "labelDe": "Gabel-Federweg",
+      "labels": {
+        "de": "Gabel-Federweg",
+        "en": "Fork travel",
+        "es": "Recorrido de horquilla",
+        "fr": "Débattement de fourche",
+        "it": "Escursione forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_travel_mm"
     },
     {
       "key": "bike.fork_bridge",
       "labelDe": "Gabelbrücke",
+      "labels": {
+        "de": "Gabelbrücke",
+        "en": "Fork crown",
+        "es": "Corona de horquilla",
+        "fr": "Té de fourche",
+        "it": "Archetto/corona forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_bridge"
     },
     {
       "key": "bike.fork_steerer",
       "labelDe": "Gabelschaft-Standard",
+      "labels": {
+        "de": "Gabelschaft-Standard",
+        "en": "Steerer standard",
+        "es": "Estándar de tubo de dirección",
+        "fr": "Standard du pivot",
+        "it": "Standard cannotto forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_steerer"
     },
     {
       "key": "bike.fork_offset_mm",
       "labelDe": "Gabel-Offset",
+      "labels": {
+        "de": "Gabel-Offset",
+        "en": "Fork offset",
+        "es": "Offset de horquilla",
+        "fr": "Déport de fourche",
+        "it": "Offset forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_offset_mm"
     },
     {
       "key": "bike.fork_stanchion_mm",
       "labelDe": "Standrohrdurchmesser",
+      "labels": {
+        "de": "Standrohrdurchmesser",
+        "en": "Stanchion diameter",
+        "es": "Diámetro de barras",
+        "fr": "Diamètre des plongeurs",
+        "it": "Diametro steli"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork_stanchion_mm"
     },
     {
       "key": "bike.rear_travel_mm",
       "labelDe": "Hinterbau-Federweg",
+      "labels": {
+        "de": "Hinterbau-Federweg",
+        "en": "Rear travel",
+        "es": "Recorrido trasero",
+        "fr": "Débattement arrière",
+        "it": "Escursione posteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.rear_travel_mm",
       "appliesToGearWhen": [
@@ -4227,138 +9926,299 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.axle_standard_front",
       "labelDe": "Achsstandard vorne",
+      "labels": {
+        "de": "Achsstandard vorne",
+        "en": "Front axle standard",
+        "es": "Estándar de eje delantero",
+        "fr": "Standard d’axe avant",
+        "it": "Standard asse anteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.axle_standard_front"
     },
     {
       "key": "bike.axle_standard_rear",
       "labelDe": "Achsstandard hinten",
+      "labels": {
+        "de": "Achsstandard hinten",
+        "en": "Rear axle standard",
+        "es": "Estándar de eje trasero",
+        "fr": "Standard d’axe arrière",
+        "it": "Standard asse posteriore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.axle_standard_rear"
     },
     {
       "key": "bike.drivetrain_type",
       "labelDe": "Antriebsart",
+      "labels": {
+        "de": "Antriebsart",
+        "en": "Drivetrain type",
+        "es": "Tipo de transmisión",
+        "fr": "Type de transmission",
+        "it": "Tipo trasmissione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.drivetrain_type"
     },
     {
       "key": "bike.shifting_type",
       "labelDe": "Schaltungsart",
+      "labels": {
+        "de": "Schaltungsart",
+        "en": "Shifting type",
+        "es": "Tipo de cambio",
+        "fr": "Type de changement de vitesse",
+        "it": "Tipo cambio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shifting_type"
     },
     {
       "key": "bike.cassette_freehub",
       "labelDe": "Freilaufkörper-Standard",
+      "labels": {
+        "de": "Freilaufkörper-Standard",
+        "en": "Freehub body standard",
+        "es": "Estándar de núcleo",
+        "fr": "Standard du corps de roue libre",
+        "it": "Standard corpetto ruota libera"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.cassette_freehub"
     },
     {
       "key": "bike.tire_setup",
       "labelDe": "Reifenaufbau",
+      "labels": {
+        "de": "Reifenaufbau",
+        "en": "Tire setup",
+        "es": "Configuración de neumático",
+        "fr": "Montage du pneu",
+        "it": "Configurazione pneumatico"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.tire_setup"
     },
     {
       "key": "bike.rim_type",
       "labelDe": "Felgentyp",
+      "labels": {
+        "de": "Felgentyp",
+        "en": "Rim type",
+        "es": "Tipo de llanta",
+        "fr": "Type de jante",
+        "it": "Tipo cerchio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.rim_type"
     },
     {
       "key": "bike.hub_type",
       "labelDe": "Nabentyp",
+      "labels": {
+        "de": "Nabentyp",
+        "en": "Hub type",
+        "es": "Tipo de buje",
+        "fr": "Type de moyeu",
+        "it": "Tipo mozzo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.hub_type"
     },
     {
       "key": "bike.shock_mount_type",
       "labelDe": "Dämpfer-Aufnahme",
+      "labels": {
+        "de": "Dämpfer-Aufnahme",
+        "en": "Shock mount",
+        "es": "Montaje de amortiguador",
+        "fr": "Fixation d’amortisseur",
+        "it": "Attacco ammortizzatore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shock_mount_type"
     },
     {
       "key": "bike.brake_disc_diameter_mm",
       "labelDe": "Bremsscheiben-Durchmesser",
+      "labels": {
+        "de": "Bremsscheiben-Durchmesser",
+        "en": "Brake rotor diameter",
+        "es": "Diámetro del disco de freno",
+        "fr": "Diamètre du disque de frein",
+        "it": "Diametro disco freno"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_disc_diameter_mm"
     },
     {
       "key": "bike.belt_profile",
       "labelDe": "Riemenprofil",
+      "labels": {
+        "de": "Riemenprofil",
+        "en": "Belt profile",
+        "es": "Perfil de correa",
+        "fr": "Profil de courroie",
+        "it": "Profilo cinghia"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.belt_profile"
     },
     {
       "key": "bike.hanger_standard",
       "labelDe": "Schaltauge-Standard",
+      "labels": {
+        "de": "Schaltauge-Standard",
+        "en": "Derailleur hanger standard",
+        "es": "Estándar de patilla de cambio",
+        "fr": "Standard de patte de dérailleur",
+        "it": "Standard forcellino cambio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.hanger_standard"
     },
     {
       "key": "ebike.battery_role",
       "labelDe": "Akku-Verwendung",
+      "labels": {
+        "de": "Akku-Verwendung",
+        "en": "Battery role",
+        "es": "Uso de batería",
+        "fr": "Rôle de la batterie",
+        "it": "Uso batteria"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.battery_role"
     },
     {
       "key": "ebike.motor_position",
       "labelDe": "Motor-Position",
+      "labels": {
+        "de": "Motor-Position",
+        "en": "Motor position",
+        "es": "Posición del motor",
+        "fr": "Position du moteur",
+        "it": "Posizione motore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.motor_position"
     },
     {
       "key": "bike.headset_type",
       "labelDe": "Steuersatz-Typ",
+      "labels": {
+        "de": "Steuersatz-Typ",
+        "en": "Headset type",
+        "es": "Tipo de dirección",
+        "fr": "Type de jeu de direction",
+        "it": "Tipo serie sterzo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.headset_type"
     },
     {
       "key": "bike.spacer_diameter",
       "labelDe": "Spacer-Durchmesser",
+      "labels": {
+        "de": "Spacer-Durchmesser",
+        "en": "Spacer-Durchmesser",
+        "es": "Spacer-Durchmesser",
+        "fr": "Spacer-Durchmesser",
+        "it": "Spacer-Durchmesser"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.spacer_diameter"
     },
     {
       "key": "bike.chain_guide_mount",
       "labelDe": "Kettenführungs-Aufnahme",
+      "labels": {
+        "de": "Kettenführungs-Aufnahme",
+        "en": "Chain guide mount",
+        "es": "Soporte de guía de cadena",
+        "fr": "Fixation de guide-chaîne",
+        "it": "Attacco guidacatena"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.chain_guide_mount"
     },
     {
       "key": "bike.bashguard_mount",
       "labelDe": "Bashguard-Aufnahme",
+      "labels": {
+        "de": "Bashguard-Aufnahme",
+        "en": "Bashguard-Aufnahme",
+        "es": "Bashguard-Aufnahme",
+        "fr": "Bashguard-Aufnahme",
+        "it": "Bashguard-Aufnahme"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bashguard_mount"
     },
     {
       "key": "bike.cable_function",
       "labelDe": "Zug-Funktion",
+      "labels": {
+        "de": "Zug-Funktion",
+        "en": "Cable function",
+        "es": "Función del cable",
+        "fr": "Fonction du câble",
+        "it": "Funzione cavo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.cable_function"
     },
     {
       "key": "bike.cable_housing_diameter_mm",
       "labelDe": "Hüllendurchmesser",
+      "labels": {
+        "de": "Hüllendurchmesser",
+        "en": "Housing diameter",
+        "es": "Diámetro de funda",
+        "fr": "Diamètre de gaine",
+        "it": "Diametro guaina"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.cable_housing_diameter_mm"
     },
     {
       "key": "bike.brake_line_type",
       "labelDe": "Bremsleitung-Typ",
+      "labels": {
+        "de": "Bremsleitung-Typ",
+        "en": "Brake line type",
+        "es": "Tipo de latiguillo de freno",
+        "fr": "Type de durite de frein",
+        "it": "Tipo tubo freno"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.brake_line_type"
     },
     {
       "key": "bike.bar_tape_material",
       "labelDe": "Lenkerband-Material",
+      "labels": {
+        "de": "Lenkerband-Material",
+        "en": "Bar tape material",
+        "es": "Material de cinta de manillar",
+        "fr": "Matériau de ruban de cintre",
+        "it": "Materiale nastro manubrio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bar_tape_material"
     },
     {
       "key": "bike.bar_tape_thickness_mm",
       "labelDe": "Lenkerband-Stärke",
+      "labels": {
+        "de": "Lenkerband-Stärke",
+        "en": "Bar tape thickness",
+        "es": "Grosor de cinta de manillar",
+        "fr": "Épaisseur du ruban de cintre",
+        "it": "Spessore nastro manubrio"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4368,12 +10228,26 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.grips_type",
       "labelDe": "Griff-Typ",
+      "labels": {
+        "de": "Griff-Typ",
+        "en": "Grip type",
+        "es": "Tipo de puño",
+        "fr": "Type de poignée",
+        "it": "Tipo manopola"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.grips_type"
     },
     {
       "key": "bike.grips_length_mm",
       "labelDe": "Grifflänge",
+      "labels": {
+        "de": "Grifflänge",
+        "en": "Grip length",
+        "es": "Longitud de puño",
+        "fr": "Longueur de poignée",
+        "it": "Lunghezza manopola"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4383,12 +10257,26 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.dropper_actuation",
       "labelDe": "Dropper-Betätigung",
+      "labels": {
+        "de": "Dropper-Betätigung",
+        "en": "Dropper actuation",
+        "es": "Accionamiento de tija telescópica",
+        "fr": "Commande de tige télescopique",
+        "it": "Comando reggisella telescopico"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.dropper_actuation"
     },
     {
       "key": "bike.dropper_air_pressure_psi",
       "labelDe": "Dropper-Luftdruck",
+      "labels": {
+        "de": "Dropper-Luftdruck",
+        "en": "Dropper-Luftdruck",
+        "es": "Dropper-Luftdruck",
+        "fr": "Dropper-Luftdruck",
+        "it": "Dropper-Luftdruck"
+      },
       "valueType": "unit_number",
       "unitGroup": "pressure",
       "allowedUnits": [
@@ -4398,6 +10286,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.dropper_travel_mm",
       "labelDe": "Dropper-Hub",
+      "labels": {
+        "de": "Dropper-Hub",
+        "en": "Dropper-Hub",
+        "es": "Dropper-Hub",
+        "fr": "Dropper-Hub",
+        "it": "Dropper-Hub"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4407,18 +10302,39 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.seat_clamp_type",
       "labelDe": "Sattelklemmen-Typ",
+      "labels": {
+        "de": "Sattelklemmen-Typ",
+        "en": "Sattelklemmen-Typ",
+        "es": "Sattelklemmen-Typ",
+        "fr": "Sattelklemmen-Typ",
+        "it": "Sattelklemmen-Typ"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.seat_clamp_type"
     },
     {
       "key": "bike.spoke_type",
       "labelDe": "Speichen-Typ",
+      "labels": {
+        "de": "Speichen-Typ",
+        "en": "Spoke type",
+        "es": "Tipo de radio",
+        "fr": "Type de rayon",
+        "it": "Tipo raggio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.spoke_type"
     },
     {
       "key": "bike.spoke_length_mm",
       "labelDe": "Speichenlänge",
+      "labels": {
+        "de": "Speichenlänge",
+        "en": "Spoke length",
+        "es": "Longitud de radio",
+        "fr": "Longueur de rayon",
+        "it": "Lunghezza raggio"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4428,18 +10344,39 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.nipple_material",
       "labelDe": "Nippel-Material",
+      "labels": {
+        "de": "Nippel-Material",
+        "en": "Nipple material",
+        "es": "Material de cabecilla",
+        "fr": "Matériau de l’écrou de rayon",
+        "it": "Materiale nipplo"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.nipple_material"
     },
     {
       "key": "bike.rim_tape_type",
       "labelDe": "Felgenband-Typ",
+      "labels": {
+        "de": "Felgenband-Typ",
+        "en": "Rim tape type",
+        "es": "Tipo de fondo de llanta",
+        "fr": "Type de fond de jante",
+        "it": "Tipo nastro cerchio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.rim_tape_type"
     },
     {
       "key": "bike.rim_tape_width_mm",
       "labelDe": "Felgenband-Breite",
+      "labels": {
+        "de": "Felgenband-Breite",
+        "en": "Rim tape width",
+        "es": "Ancho de fondo de llanta",
+        "fr": "Largeur du fond de jante",
+        "it": "Larghezza nastro cerchio"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4449,28 +10386,63 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.derailleur_pulley_bearing",
       "labelDe": "Röllchen-Lagerung",
+      "labels": {
+        "de": "Röllchen-Lagerung",
+        "en": "Pulley bearing",
+        "es": "Rodamiento de roldana",
+        "fr": "Roulement de galet",
+        "it": "Cuscinetto puleggia"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.derailleur_pulley_bearing"
     },
     {
       "key": "bike.freehub_engagement_teeth",
       "labelDe": "Freilauf-Verzahnung",
+      "labels": {
+        "de": "Freilauf-Verzahnung",
+        "en": "Freehub engagement teeth",
+        "es": "Dientes de enganche del núcleo",
+        "fr": "Denture d’engagement de roue libre",
+        "it": "Denti innesto ruota libera"
+      },
       "valueType": "number"
     },
     {
       "key": "bike.freehub_ratchet_description",
       "labelDe": "Freilauf-System",
+      "labels": {
+        "de": "Freilauf-System",
+        "en": "Freehub system",
+        "es": "Sistema de núcleo",
+        "fr": "Système de roue libre",
+        "it": "Sistema ruota libera"
+      },
       "valueType": "string"
     },
     {
       "key": "bike.suspension_seatpost_mechanism",
       "labelDe": "Federungs-Mechanismus",
+      "labels": {
+        "de": "Federungs-Mechanismus",
+        "en": "Suspension mechanism",
+        "es": "Mecanismo de suspensión",
+        "fr": "Mécanisme de suspension",
+        "it": "Meccanismo sospensione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.suspension_seatpost_mechanism"
     },
     {
       "key": "bike.install_width_mm",
       "labelDe": "Einbaubreite",
+      "labels": {
+        "de": "Einbaubreite",
+        "en": "Installation width",
+        "es": "Anchura de montaje",
+        "fr": "Largeur de montage",
+        "it": "Larghezza di montaggio"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4480,6 +10452,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.thread_pitch_mm",
       "labelDe": "Gewindesteigung",
+      "labels": {
+        "de": "Gewindesteigung",
+        "en": "Thread pitch",
+        "es": "Paso de rosca",
+        "fr": "Pas de filetage",
+        "it": "Passo filettatura"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4489,6 +10468,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.axle_length_mm",
       "labelDe": "Achslänge",
+      "labels": {
+        "de": "Achslänge",
+        "en": "Axle length",
+        "es": "Longitud de eje",
+        "fr": "Longueur d’axe",
+        "it": "Lunghezza asse"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4498,54 +10484,117 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.display_mount",
       "labelDe": "Display-Halterung",
+      "labels": {
+        "de": "Display-Halterung",
+        "en": "Display mount",
+        "es": "Soporte de pantalla",
+        "fr": "Support d’écran",
+        "it": "Supporto display"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.display_mount"
     },
     {
       "key": "ebike.display_connection",
       "labelDe": "Display-Verbindung",
+      "labels": {
+        "de": "Display-Verbindung",
+        "en": "Display connection",
+        "es": "Conexión de pantalla",
+        "fr": "Connexion de l’écran",
+        "it": "Connessione display"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.display_connection"
     },
     {
       "key": "ebike.remote_position",
       "labelDe": "Remote-Position",
+      "labels": {
+        "de": "Remote-Position",
+        "en": "Remote position",
+        "es": "Posición del mando remoto",
+        "fr": "Position de la commande",
+        "it": "Posizione remote"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.remote_position"
     },
     {
       "key": "ebike.sensor_position",
       "labelDe": "Sensorposition",
+      "labels": {
+        "de": "Sensorposition",
+        "en": "Sensor position",
+        "es": "Posición del sensor",
+        "fr": "Position du capteur",
+        "it": "Posizione sensore"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.sensor_position"
     },
     {
       "key": "ebike.spoke_magnet_position",
       "labelDe": "Speichenmagnet-Position",
+      "labels": {
+        "de": "Speichenmagnet-Position",
+        "en": "Spoke magnet position",
+        "es": "Posición del imán de radio",
+        "fr": "Position de l’aimant de rayon",
+        "it": "Posizione magnete raggio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.spoke_magnet_position"
     },
     {
       "key": "ebike.shifting_battery_mount",
       "labelDe": "Schaltungsakku-Halterung",
+      "labels": {
+        "de": "Schaltungsakku-Halterung",
+        "en": "Shifting battery mount",
+        "es": "Soporte de batería de cambio",
+        "fr": "Support de batterie de transmission",
+        "it": "Supporto batteria cambio"
+      },
       "valueType": "search_enum",
       "optionSetKey": "ebike.shifting_battery_mount"
     },
     {
       "key": "bike.rack_position",
       "labelDe": "Gepäckträger-Position",
+      "labels": {
+        "de": "Gepäckträger-Position",
+        "en": "Rack position",
+        "es": "Posición del portaequipajes",
+        "fr": "Position du porte-bagages",
+        "it": "Posizione portapacchi"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.rack_position"
     },
     {
       "key": "bike.rack_attachment",
       "labelDe": "Gepäckträger-Befestigung",
+      "labels": {
+        "de": "Gepäckträger-Befestigung",
+        "en": "Rack attachment",
+        "es": "Fijación del portaequipajes",
+        "fr": "Fixation du porte-bagages",
+        "it": "Fissaggio portapacchi"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.rack_attachment"
     },
     {
       "key": "bike.max_load_kg",
       "labelDe": "Maximale Zuladung",
+      "labels": {
+        "de": "Maximale Zuladung",
+        "en": "Maximum load",
+        "es": "Carga máxima",
+        "fr": "Charge maximale",
+        "it": "Carico massimo"
+      },
       "valueType": "unit_number",
       "unitGroup": "weight",
       "allowedUnits": [
@@ -4555,18 +10604,39 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fender_position",
       "labelDe": "Schutzblech-Position",
+      "labels": {
+        "de": "Schutzblech-Position",
+        "en": "Fender position",
+        "es": "Posición del guardabarros",
+        "fr": "Position du garde-boue",
+        "it": "Posizione parafango"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fender_position"
     },
     {
       "key": "bike.fender_mounting",
       "labelDe": "Schutzblech-Befestigung",
+      "labels": {
+        "de": "Schutzblech-Befestigung",
+        "en": "Fender attachment",
+        "es": "Fijación del guardabarros",
+        "fr": "Fixation du garde-boue",
+        "it": "Fissaggio parafango"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fender_mounting"
     },
     {
       "key": "bike.fender_width_mm",
       "labelDe": "Schutzblech-Breite",
+      "labels": {
+        "de": "Schutzblech-Breite",
+        "en": "Fender width",
+        "es": "Anchura del guardabarros",
+        "fr": "Largeur du garde-boue",
+        "it": "Larghezza parafango"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4576,99 +10646,218 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.kickstand_type",
       "labelDe": "Ständer-Typ",
+      "labels": {
+        "de": "Ständer-Typ",
+        "en": "Kickstand type",
+        "es": "Tipo de pata",
+        "fr": "Type de béquille",
+        "it": "Tipo cavalletto"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.kickstand_type"
     },
     {
       "key": "bike.light_power_source",
       "labelDe": "Lichtquelle",
+      "labels": {
+        "de": "Lichtquelle",
+        "en": "Power source",
+        "es": "Fuente de alimentación",
+        "fr": "Source d’alimentation",
+        "it": "Fonte di alimentazione"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.light_power_source"
     },
     {
       "key": "brightness_lumens",
       "labelDe": "Helligkeit (Lumen)",
+      "labels": {
+        "de": "Helligkeit (Lumen)",
+        "en": "Brightness (lumens)",
+        "es": "Brillo (lúmenes)",
+        "fr": "Luminosité (lumens)",
+        "it": "Luminosità (lumen)"
+      },
       "valueType": "number"
     },
     {
       "key": "road_legal",
       "labelDe": "Straßenzulassung",
+      "labels": {
+        "de": "Straßenzulassung",
+        "en": "Road approval",
+        "es": "Homologación vial",
+        "fr": "Homologation route",
+        "it": "Omologazione stradale"
+      },
       "valueType": "boolean"
     },
     {
       "key": "bike.dynamo_type",
       "labelDe": "Dynamo-Typ",
+      "labels": {
+        "de": "Dynamo-Typ",
+        "en": "Dynamo-Typ",
+        "es": "Dynamo-Typ",
+        "fr": "Dynamo-Typ",
+        "it": "Dynamo-Typ"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.dynamo_type"
     },
     {
       "key": "power_w",
       "labelDe": "Leistung (W)",
+      "labels": {
+        "de": "Leistung (W)",
+        "en": "Power (W)",
+        "es": "Potencia (W)",
+        "fr": "Puissance (W)",
+        "it": "Potenza (W)"
+      },
       "valueType": "number"
     },
     {
       "key": "bike.bell_mount",
       "labelDe": "Klingel-Befestigung",
+      "labels": {
+        "de": "Klingel-Befestigung",
+        "en": "Bell mount",
+        "es": "Soporte de timbre",
+        "fr": "Fixation de sonnette",
+        "it": "Attacco campanello"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.bell_mount"
     },
     {
       "key": "bike.chain_guard_type",
       "labelDe": "Kettenschutz-Typ",
+      "labels": {
+        "de": "Kettenschutz-Typ",
+        "en": "Chain guard type",
+        "es": "Tipo de cubrecadena",
+        "fr": "Type de carter de chaîne",
+        "it": "Tipo paracatena"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.chain_guard_type"
     },
     {
       "key": "bike.training_wheel_size_inch",
       "labelDe": "Stützrad-Größe",
+      "labels": {
+        "de": "Stützrad-Größe",
+        "en": "Training wheel size",
+        "es": "Tamaño de ruedas auxiliares",
+        "fr": "Taille des roulettes",
+        "it": "Dimensione rotelle"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.training_wheel_size_inch"
     },
     {
       "key": "bike.training_wheel_attachment",
       "labelDe": "Stützrad-Befestigung",
+      "labels": {
+        "de": "Stützrad-Befestigung",
+        "en": "Training wheel attachment",
+        "es": "Fijación de ruedas auxiliares",
+        "fr": "Fixation des roulettes",
+        "it": "Fissaggio rotelle"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.training_wheel_attachment"
     },
     {
       "key": "bike.fork.kategorie",
       "labelDe": "Kategorie",
+      "labels": {
+        "de": "Kategorie",
+        "en": "Category",
+        "es": "Categoría",
+        "fr": "Catégorie",
+        "it": "Categoria"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.kategorie"
     },
     {
       "key": "bike.fork.material",
       "labelDe": "Material",
+      "labels": {
+        "de": "Material",
+        "en": "Material",
+        "es": "Material",
+        "fr": "Matériau",
+        "it": "Materiale"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.material"
     },
     {
       "key": "bike.fork.laufradgroesse",
       "labelDe": "Laufradgröße",
+      "labels": {
+        "de": "Laufradgröße",
+        "en": "Wheel size",
+        "es": "Tamaño de rueda",
+        "fr": "Taille de roue",
+        "it": "Misura ruota"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.laufradgroesse"
     },
     {
       "key": "bike.fork.gabelschaft",
       "labelDe": "Gabelschaft",
+      "labels": {
+        "de": "Gabelschaft",
+        "en": "Steerer tube",
+        "es": "Tubo de dirección",
+        "fr": "Pivot de fourche",
+        "it": "Cannotto forcella"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.gabelschaft"
     },
     {
       "key": "bike.fork.achssystem",
       "labelDe": "Achssystem",
+      "labels": {
+        "de": "Achssystem",
+        "en": "Axle system",
+        "es": "Sistema de eje",
+        "fr": "Système d’axe",
+        "it": "Sistema asse"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.achssystem"
     },
     {
       "key": "bike.fork.bremsaufnahme",
       "labelDe": "Bremsaufnahme",
+      "labels": {
+        "de": "Bremsaufnahme",
+        "en": "Brake mount",
+        "es": "Anclaje de freno",
+        "fr": "Fixation de frein",
+        "it": "Attacco freno"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.bremsaufnahme"
     },
     {
       "key": "bike.fork.offset_vorlauf",
       "labelDe": "Versatz/Vorlauf",
+      "labels": {
+        "de": "Versatz/Vorlauf",
+        "en": "Offset/rake",
+        "es": "Offset/avance",
+        "fr": "Déport/chasse",
+        "it": "Offset/avancorsa"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4678,6 +10867,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork.einbauhoehe",
       "labelDe": "Einbauhöhe",
+      "labels": {
+        "de": "Einbauhöhe",
+        "en": "Axle-to-crown length",
+        "es": "Altura eje-corona",
+        "fr": "Hauteur axe-couronne",
+        "it": "Altezza asse-corona"
+      },
       "valueType": "unit_number",
       "unitGroup": "length",
       "allowedUnits": [
@@ -4687,41 +10883,90 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork.standrohrdurchmesser",
       "labelDe": "Standrohrdurchmesser",
+      "labels": {
+        "de": "Standrohrdurchmesser",
+        "en": "Stanchion diameter",
+        "es": "Diámetro de barras",
+        "fr": "Diamètre des plongeurs",
+        "it": "Diametro steli"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.standrohrdurchmesser"
     },
     {
       "key": "bike.fork.features",
       "labelDe": "Ausstattung",
+      "labels": {
+        "de": "Ausstattung",
+        "en": "Features",
+        "es": "Equipamiento",
+        "fr": "Équipement",
+        "it": "Dotazione"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "vibrationsdaempfung",
           "labelDe": "Vibrationsdämpfung",
+          "labels": {
+            "de": "Vibrationsdämpfung",
+            "en": "Vibration damping",
+            "es": "Amortiguación de vibraciones",
+            "fr": "Amortissement des vibrations",
+            "it": "Smorzamento vibrazioni"
+          },
           "valueType": "enum",
           "optionSetKey": "yes_no"
         },
         {
           "key": "entlueftung",
           "labelDe": "Entlüftungsventil",
+          "labels": {
+            "de": "Entlüftungsventil",
+            "en": "Bleed valve",
+            "es": "Válvula de purga",
+            "fr": "Valve de purge",
+            "it": "Valvola di sfiato"
+          },
           "valueType": "enum",
           "optionSetKey": "yes_no"
         },
         {
           "key": "schutzblechaufnahme",
           "labelDe": "Schutzblechaufnahme",
+          "labels": {
+            "de": "Schutzblechaufnahme",
+            "en": "Fender mount",
+            "es": "Soporte de guardabarros",
+            "fr": "Fixation de garde-boue",
+            "it": "Attacco parafango"
+          },
           "valueType": "enum",
           "optionSetKey": "yes_no"
         },
         {
           "key": "sensorik",
           "labelDe": "Sensorik",
+          "labels": {
+            "de": "Sensorik",
+            "en": "Sensors",
+            "es": "Sensores",
+            "fr": "Capteurs",
+            "it": "Sensoristica"
+          },
           "valueType": "enum",
           "optionSetKey": "yes_no"
         },
         {
           "key": "climb_switch",
           "labelDe": "Climb-Switch",
+          "labels": {
+            "de": "Climb-Switch",
+            "en": "Climb-Switch",
+            "es": "Climb-Switch",
+            "fr": "Climb-Switch",
+            "it": "Climb-Switch"
+          },
           "valueType": "boolean"
         }
       ]
@@ -4729,35 +10974,77 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork.federung_typ",
       "labelDe": "Federungstyp",
+      "labels": {
+        "de": "Federungstyp",
+        "en": "Suspension type",
+        "es": "Tipo de suspensión",
+        "fr": "Type de suspension",
+        "it": "Tipo sospensione"
+      },
       "valueType": "enum",
       "optionSetKey": "bike.fork.federung_typ"
     },
     {
       "key": "bike.fork.federung.luftfeder",
       "labelDe": "Luftfeder",
+      "labels": {
+        "de": "Luftfeder",
+        "en": "Air spring",
+        "es": "Muelle de aire",
+        "fr": "Ressort pneumatique",
+        "it": "Molla ad aria"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "system",
           "labelDe": "System",
+          "labels": {
+            "de": "System",
+            "en": "System",
+            "es": "Sistema",
+            "fr": "Système",
+            "it": "Sistema"
+          },
           "valueType": "search_enum",
           "optionSetKey": "bike.fork.luftfeder_system"
         },
         {
           "key": "kammern",
           "labelDe": "Kammern",
+          "labels": {
+            "de": "Kammern",
+            "en": "Kammern",
+            "es": "Kammern",
+            "fr": "Kammern",
+            "it": "Kammern"
+          },
           "valueType": "multi_enum",
           "optionSetKey": "bike.fork.luftfeder_kammern"
         },
         {
           "key": "progression",
           "labelDe": "Progression",
+          "labels": {
+            "de": "Progression",
+            "en": "Progression",
+            "es": "Progresión",
+            "fr": "Progression",
+            "it": "Progressione"
+          },
           "valueType": "multi_enum",
           "optionSetKey": "bike.fork.luftfeder_progression"
         },
         {
           "key": "luftdruck",
           "labelDe": "Luftdruck",
+          "labels": {
+            "de": "Luftdruck",
+            "en": "Air pressure",
+            "es": "Presión de aire",
+            "fr": "Pression d’air",
+            "it": "Pressione aria"
+          },
           "valueType": "unit_number",
           "unitGroup": "pressure",
           "allowedUnits": [
@@ -4767,6 +11054,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "luftdruck_max",
           "labelDe": "Luftdruck max.",
+          "labels": {
+            "de": "Luftdruck max.",
+            "en": "Max. air pressure",
+            "es": "Presión de aire máx.",
+            "fr": "Pression d’air max.",
+            "it": "Pressione aria max."
+          },
           "valueType": "unit_number",
           "unitGroup": "pressure",
           "allowedUnits": [
@@ -4782,11 +11076,25 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork.federung.stahlfeder",
       "labelDe": "Stahlfeder",
+      "labels": {
+        "de": "Stahlfeder",
+        "en": "Coil spring",
+        "es": "Muelle helicoidal",
+        "fr": "Ressort hélicoïdal",
+        "it": "Molla elicoidale"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "federhaerte",
           "labelDe": "Federhärte",
+          "labels": {
+            "de": "Federhärte",
+            "en": "Spring rate",
+            "es": "Dureza del muelle",
+            "fr": "Raideur du ressort",
+            "it": "Durezza molla"
+          },
           "valueType": "unit_number",
           "unitGroup": "spring_rate",
           "allowedUnits": [
@@ -4796,12 +11104,26 @@ export const gearSchema: GearSchema = {
         {
           "key": "material",
           "labelDe": "Material",
+          "labels": {
+            "de": "Material",
+            "en": "Material",
+            "es": "Material",
+            "fr": "Matériau",
+            "it": "Materiale"
+          },
           "valueType": "search_enum",
           "optionSetKey": "bike.fork.stahlfeder_material"
         },
         {
           "key": "vorspannung",
           "labelDe": "Vorspannung",
+          "labels": {
+            "de": "Vorspannung",
+            "en": "Preload",
+            "es": "Precarga",
+            "fr": "Précharge",
+            "it": "Precarico"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4817,22 +11139,50 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork.daempfung.kartusche",
       "labelDe": "Kartusche",
+      "labels": {
+        "de": "Kartusche",
+        "en": "Cartridge",
+        "es": "Cartucho",
+        "fr": "Cartouche",
+        "it": "Cartuccia"
+      },
       "valueType": "string"
     },
     {
       "key": "bike.fork.daempfung.ventil_system",
       "labelDe": "Ventilsystem",
+      "labels": {
+        "de": "Ventilsystem",
+        "en": "Valve system",
+        "es": "Sistema de válvula",
+        "fr": "Système de valve",
+        "it": "Sistema valvola"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.fork.daempfung_ventil"
     },
     {
       "key": "bike.fork.daempfung.einstellungen",
       "labelDe": "Dämpfer-Einstellungen",
+      "labels": {
+        "de": "Dämpfer-Einstellungen",
+        "en": "Damping settings",
+        "es": "Ajustes de amortiguación",
+        "fr": "Réglages d’amortissement",
+        "it": "Regolazioni idrauliche"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "lsc",
           "labelDe": "LSC (Low-Speed Compression)",
+          "labels": {
+            "de": "LSC (Low-Speed Compression)",
+            "en": "LSC (Low-Speed Compression)",
+            "es": "LSC (Low-Speed Compression)",
+            "fr": "LSC (Low-Speed Compression)",
+            "it": "LSC (Low-Speed Compression)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4842,6 +11192,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "hsc",
           "labelDe": "HSC (High-Speed Compression)",
+          "labels": {
+            "de": "HSC (High-Speed Compression)",
+            "en": "HSC (High-Speed Compression)",
+            "es": "HSC (High-Speed Compression)",
+            "fr": "HSC (High-Speed Compression)",
+            "it": "HSC (High-Speed Compression)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4851,6 +11208,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "lsr",
           "labelDe": "LSR (Low-Speed Rebound)",
+          "labels": {
+            "de": "LSR (Low-Speed Rebound)",
+            "en": "LSR (Low-Speed Rebound)",
+            "es": "LSR (Low-Speed Rebound)",
+            "fr": "LSR (Low-Speed Rebound)",
+            "it": "LSR (Low-Speed Rebound)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4860,6 +11224,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "hsr",
           "labelDe": "HSR (High-Speed Rebound)",
+          "labels": {
+            "de": "HSR (High-Speed Rebound)",
+            "en": "HSR (High-Speed Rebound)",
+            "es": "HSR (High-Speed Rebound)",
+            "fr": "HSR (High-Speed Rebound)",
+            "it": "HSR (High-Speed Rebound)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4869,6 +11240,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "lockout",
           "labelDe": "Lockout",
+          "labels": {
+            "de": "Lockout",
+            "en": "Lockout",
+            "es": "Lockout",
+            "fr": "Lockout",
+            "it": "Lockout"
+          },
           "valueType": "boolean"
         }
       ]
@@ -4876,29 +11254,64 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock.kategorie",
       "labelDe": "Kategorie",
+      "labels": {
+        "de": "Kategorie",
+        "en": "Category",
+        "es": "Categoría",
+        "fr": "Catégorie",
+        "it": "Categoria"
+      },
       "valueType": "search_enum",
       "optionSetKey": "bike.shock.kategorie"
     },
     {
       "key": "bike.shock.metric_imperial",
       "labelDe": "Maßsystem",
+      "labels": {
+        "de": "Maßsystem",
+        "en": "Measurement system",
+        "es": "Sistema de medida",
+        "fr": "Système de mesure",
+        "it": "Sistema di misura"
+      },
       "valueType": "enum",
       "optionSetKey": "bike.shock.metric_imperial"
     },
     {
       "key": "bike.shock.federung_typ",
       "labelDe": "Federungstyp",
+      "labels": {
+        "de": "Federungstyp",
+        "en": "Suspension type",
+        "es": "Tipo de suspensión",
+        "fr": "Type de suspension",
+        "it": "Tipo sospensione"
+      },
       "valueType": "enum",
       "optionSetKey": "bike.shock.federung_typ"
     },
     {
       "key": "bike.shock.federung.luftkammer",
       "labelDe": "Luftkammer",
+      "labels": {
+        "de": "Luftkammer",
+        "en": "Luftkammer",
+        "es": "Luftkammer",
+        "fr": "Luftkammer",
+        "it": "Luftkammer"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "druck",
           "labelDe": "Luftdruck",
+          "labels": {
+            "de": "Luftdruck",
+            "en": "Air pressure",
+            "es": "Presión de aire",
+            "fr": "Pression d’air",
+            "it": "Pressione aria"
+          },
           "valueType": "unit_number",
           "unitGroup": "pressure",
           "allowedUnits": [
@@ -4908,6 +11321,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "volume_spacers",
           "labelDe": "Volume Spacer",
+          "labels": {
+            "de": "Volume Spacer",
+            "en": "Volume Spacer",
+            "es": "Volume Spacer",
+            "fr": "Volume Spacer",
+            "it": "Volume Spacer"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4917,6 +11337,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "bottomout_resistance",
           "labelDe": "Bottomout-Schutz",
+          "labels": {
+            "de": "Bottomout-Schutz",
+            "en": "Bottom-out protection",
+            "es": "Protección contra topes",
+            "fr": "Protection contre le talonnage",
+            "it": "Protezione bottom-out"
+          },
           "valueType": "boolean"
         }
       ],
@@ -4928,11 +11355,25 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock.federung.stahlfeder",
       "labelDe": "Stahlfeder",
+      "labels": {
+        "de": "Stahlfeder",
+        "en": "Coil spring",
+        "es": "Muelle helicoidal",
+        "fr": "Ressort hélicoïdal",
+        "it": "Molla elicoidale"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "federhaerte",
           "labelDe": "Federhärte",
+          "labels": {
+            "de": "Federhärte",
+            "en": "Spring rate",
+            "es": "Dureza del muelle",
+            "fr": "Raideur du ressort",
+            "it": "Durezza molla"
+          },
           "valueType": "unit_number",
           "unitGroup": "spring_rate",
           "allowedUnits": [
@@ -4942,6 +11383,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "vorspannung",
           "labelDe": "Vorspannung",
+          "labels": {
+            "de": "Vorspannung",
+            "en": "Preload",
+            "es": "Precarga",
+            "fr": "Précharge",
+            "it": "Precarico"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4951,6 +11399,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "material",
           "labelDe": "Material",
+          "labels": {
+            "de": "Material",
+            "en": "Material",
+            "es": "Material",
+            "fr": "Matériau",
+            "it": "Materiale"
+          },
           "valueType": "search_enum",
           "optionSetKey": "bike.shock.stahlfeder_material"
         }
@@ -4963,11 +11418,25 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock.daempfung.einstellungen",
       "labelDe": "Dämpfer-Einstellungen",
+      "labels": {
+        "de": "Dämpfer-Einstellungen",
+        "en": "Damping settings",
+        "es": "Ajustes de amortiguación",
+        "fr": "Réglages d’amortissement",
+        "it": "Regolazioni idrauliche"
+      },
       "valueType": "object",
       "subfields": [
         {
           "key": "lsc",
           "labelDe": "LSC (Low-Speed Compression)",
+          "labels": {
+            "de": "LSC (Low-Speed Compression)",
+            "en": "LSC (Low-Speed Compression)",
+            "es": "LSC (Low-Speed Compression)",
+            "fr": "LSC (Low-Speed Compression)",
+            "it": "LSC (Low-Speed Compression)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4977,6 +11446,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "hsc",
           "labelDe": "HSC (High-Speed Compression)",
+          "labels": {
+            "de": "HSC (High-Speed Compression)",
+            "en": "HSC (High-Speed Compression)",
+            "es": "HSC (High-Speed Compression)",
+            "fr": "HSC (High-Speed Compression)",
+            "it": "HSC (High-Speed Compression)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4986,6 +11462,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "lsr",
           "labelDe": "LSR (Low-Speed Rebound)",
+          "labels": {
+            "de": "LSR (Low-Speed Rebound)",
+            "en": "LSR (Low-Speed Rebound)",
+            "es": "LSR (Low-Speed Rebound)",
+            "fr": "LSR (Low-Speed Rebound)",
+            "it": "LSR (Low-Speed Rebound)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -4995,6 +11478,13 @@ export const gearSchema: GearSchema = {
         {
           "key": "hsr",
           "labelDe": "HSR (High-Speed Rebound)",
+          "labels": {
+            "de": "HSR (High-Speed Rebound)",
+            "en": "HSR (High-Speed Rebound)",
+            "es": "HSR (High-Speed Rebound)",
+            "fr": "HSR (High-Speed Rebound)",
+            "it": "HSR (High-Speed Rebound)"
+          },
           "valueType": "unit_number",
           "unitGroup": "count",
           "allowedUnits": [
@@ -5004,11 +11494,25 @@ export const gearSchema: GearSchema = {
         {
           "key": "lockout",
           "labelDe": "Lockout",
+          "labels": {
+            "de": "Lockout",
+            "en": "Lockout",
+            "es": "Lockout",
+            "fr": "Lockout",
+            "it": "Lockout"
+          },
           "valueType": "boolean"
         },
         {
           "key": "plattform_daempfung",
           "labelDe": "Plattform-Dämpfung",
+          "labels": {
+            "de": "Plattform-Dämpfung",
+            "en": "Platform damping",
+            "es": "Plataforma de amortiguación",
+            "fr": "Plateforme d’amortissement",
+            "it": "Piattaforma di compressione"
+          },
           "valueType": "enum",
           "optionSetKey": "bike.shock.plattform_daempfung"
         }
@@ -5017,6 +11521,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock.daempfung.piggyback",
       "labelDe": "Piggyback-Reservoir",
+      "labels": {
+        "de": "Piggyback-Reservoir",
+        "en": "Piggyback-Reservoir",
+        "es": "Piggyback-Reservoir",
+        "fr": "Piggyback-Reservoir",
+        "it": "Piggyback-Reservoir"
+      },
       "valueType": "boolean"
     }
   ],
@@ -5024,6 +11535,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike",
       "labelDe": "Fahrrad",
+      "labels": {
+        "de": "Fahrrad",
+        "en": "Bike",
+        "es": "Bicicleta",
+        "fr": "Vélo",
+        "it": "Bici"
+      },
       "scope": "bike",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [
@@ -5053,6 +11571,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.road",
       "labelDe": "Rennrad",
+      "labels": {
+        "de": "Rennrad",
+        "en": "Road bike",
+        "es": "Bicicleta de carretera",
+        "fr": "Vélo de route",
+        "it": "Bici da strada"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -5062,56 +11587,133 @@ export const gearSchema: GearSchema = {
         {
           "key": "frame",
           "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          },
           "componentType": "bike.frame"
         },
         {
           "key": "fork",
           "labelDe": "Gabel",
+          "labels": {
+            "de": "Gabel",
+            "en": "Fork",
+            "es": "Horquilla",
+            "fr": "Fourche",
+            "it": "Forcella"
+          },
           "componentType": "bike.fork"
         },
         {
           "key": "brake_front",
           "labelDe": "Bremse vorne",
+          "labels": {
+            "de": "Bremse vorne",
+            "en": "Front brake",
+            "es": "Freno delantero",
+            "fr": "Frein avant",
+            "it": "Freno anteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "brake_rear",
           "labelDe": "Bremse hinten",
+          "labels": {
+            "de": "Bremse hinten",
+            "en": "Rear brake",
+            "es": "Freno trasero",
+            "fr": "Frein arrière",
+            "it": "Freno posteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "wheel_front",
           "labelDe": "Laufrad vorne",
+          "labels": {
+            "de": "Laufrad vorne",
+            "en": "Front wheel",
+            "es": "Rueda delantera",
+            "fr": "Roue avant",
+            "it": "Ruota anteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "wheel_rear",
           "labelDe": "Laufrad hinten",
+          "labels": {
+            "de": "Laufrad hinten",
+            "en": "Rear wheel",
+            "es": "Rueda trasera",
+            "fr": "Roue arrière",
+            "it": "Ruota posteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "tire_front",
           "labelDe": "Reifen vorne",
+          "labels": {
+            "de": "Reifen vorne",
+            "en": "Front tire",
+            "es": "Neumático delantero",
+            "fr": "Pneu avant",
+            "it": "Pneumatico anteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "tire_rear",
           "labelDe": "Reifen hinten",
+          "labels": {
+            "de": "Reifen hinten",
+            "en": "Rear tire",
+            "es": "Neumático trasero",
+            "fr": "Pneu arrière",
+            "it": "Pneumatico posteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "drivetrain",
           "labelDe": "Antrieb",
+          "labels": {
+            "de": "Antrieb",
+            "en": "Drivetrain",
+            "es": "Transmisión",
+            "fr": "Transmission",
+            "it": "Trasmissione"
+          },
           "componentType": "bike.cassette"
         },
         {
           "key": "handlebar",
           "labelDe": "Lenker",
+          "labels": {
+            "de": "Lenker",
+            "en": "Handlebar",
+            "es": "Manillar",
+            "fr": "Cintre",
+            "it": "Manubrio"
+          },
           "componentType": "bike.handlebar"
         },
         {
           "key": "saddle",
           "labelDe": "Sattel",
+          "labels": {
+            "de": "Sattel",
+            "en": "Saddle",
+            "es": "Sillín",
+            "fr": "Selle",
+            "it": "Sella"
+          },
           "componentType": "bike.saddle"
         }
       ]
@@ -5119,6 +11721,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.road.endurance",
       "labelDe": "Endurance",
+      "labels": {
+        "de": "Endurance",
+        "en": "Endurance",
+        "es": "Endurance",
+        "fr": "Endurance",
+        "it": "Endurance"
+      },
       "scope": "bike",
       "parentKey": "bike.road",
       "defaultAssignmentRoleKey": "primary",
@@ -5150,6 +11759,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.road.aero",
       "labelDe": "Aero",
+      "labels": {
+        "de": "Aero",
+        "en": "Aero",
+        "es": "Aero",
+        "fr": "Aéro",
+        "it": "Aero"
+      },
       "scope": "bike",
       "parentKey": "bike.road",
       "defaultAssignmentRoleKey": "primary",
@@ -5189,6 +11805,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.road.time_trial",
       "labelDe": "Zeitfahrrad",
+      "labels": {
+        "de": "Zeitfahrrad",
+        "en": "Time trial bike",
+        "es": "Bicicleta de contrarreloj",
+        "fr": "Vélo de contre-la-montre",
+        "it": "Bici da cronometro"
+      },
       "scope": "bike",
       "parentKey": "bike.road",
       "defaultAssignmentRoleKey": "primary",
@@ -5221,6 +11844,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.road.track",
       "labelDe": "Bahnrad",
+      "labels": {
+        "de": "Bahnrad",
+        "en": "Track bike",
+        "es": "Bicicleta de pista",
+        "fr": "Vélo de piste",
+        "it": "Bici da pista"
+      },
       "scope": "bike",
       "parentKey": "bike.road",
       "defaultAssignmentRoleKey": "primary",
@@ -5259,6 +11889,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb",
       "labelDe": "Mountainbike",
+      "labels": {
+        "de": "Mountainbike",
+        "en": "Mountainbike",
+        "es": "Mountainbike",
+        "fr": "Mountainbike",
+        "it": "Mountainbike"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -5268,68 +11905,159 @@ export const gearSchema: GearSchema = {
         {
           "key": "frame",
           "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          },
           "componentType": "bike.frame"
         },
         {
           "key": "fork",
           "labelDe": "Gabel",
+          "labels": {
+            "de": "Gabel",
+            "en": "Fork",
+            "es": "Horquilla",
+            "fr": "Fourche",
+            "it": "Forcella"
+          },
           "componentType": "bike.fork"
         },
         {
           "key": "shock",
           "labelDe": "Dämpfer",
+          "labels": {
+            "de": "Dämpfer",
+            "en": "Shock",
+            "es": "Amortiguador",
+            "fr": "Amortisseur",
+            "it": "Ammortizzatore"
+          },
           "componentType": "bike.shock",
           "optional": true
         },
         {
           "key": "brake_front",
           "labelDe": "Bremse vorne",
+          "labels": {
+            "de": "Bremse vorne",
+            "en": "Front brake",
+            "es": "Freno delantero",
+            "fr": "Frein avant",
+            "it": "Freno anteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "brake_rear",
           "labelDe": "Bremse hinten",
+          "labels": {
+            "de": "Bremse hinten",
+            "en": "Rear brake",
+            "es": "Freno trasero",
+            "fr": "Frein arrière",
+            "it": "Freno posteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "wheel_front",
           "labelDe": "Laufrad vorne",
+          "labels": {
+            "de": "Laufrad vorne",
+            "en": "Front wheel",
+            "es": "Rueda delantera",
+            "fr": "Roue avant",
+            "it": "Ruota anteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "wheel_rear",
           "labelDe": "Laufrad hinten",
+          "labels": {
+            "de": "Laufrad hinten",
+            "en": "Rear wheel",
+            "es": "Rueda trasera",
+            "fr": "Roue arrière",
+            "it": "Ruota posteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "tire_front",
           "labelDe": "Reifen vorne",
+          "labels": {
+            "de": "Reifen vorne",
+            "en": "Front tire",
+            "es": "Neumático delantero",
+            "fr": "Pneu avant",
+            "it": "Pneumatico anteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "tire_rear",
           "labelDe": "Reifen hinten",
+          "labels": {
+            "de": "Reifen hinten",
+            "en": "Rear tire",
+            "es": "Neumático trasero",
+            "fr": "Pneu arrière",
+            "it": "Pneumatico posteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "drivetrain",
           "labelDe": "Antrieb",
+          "labels": {
+            "de": "Antrieb",
+            "en": "Drivetrain",
+            "es": "Transmisión",
+            "fr": "Transmission",
+            "it": "Trasmissione"
+          },
           "componentType": "bike.cassette"
         },
         {
           "key": "cockpit",
           "labelDe": "Cockpit",
+          "labels": {
+            "de": "Cockpit",
+            "en": "Cockpit",
+            "es": "Cockpit",
+            "fr": "Cockpit",
+            "it": "Cockpit"
+          },
           "componentType": "bike.handlebar",
           "optional": true
         },
         {
           "key": "saddle",
           "labelDe": "Sattel",
+          "labels": {
+            "de": "Sattel",
+            "en": "Saddle",
+            "es": "Sillín",
+            "fr": "Selle",
+            "it": "Sella"
+          },
           "componentType": "bike.saddle"
         },
         {
           "key": "pedals",
           "labelDe": "Pedale",
+          "labels": {
+            "de": "Pedale",
+            "en": "Pedals",
+            "es": "Pedales",
+            "fr": "Pédales",
+            "it": "Pedali"
+          },
           "componentType": "bike.pedals",
           "optional": true
         }
@@ -5338,6 +12066,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.xc",
       "labelDe": "XC",
+      "labels": {
+        "de": "XC",
+        "en": "XC",
+        "es": "XC",
+        "fr": "XC",
+        "it": "XC"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5383,6 +12118,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.all_mountain_trail",
       "labelDe": "AM/Trail",
+      "labels": {
+        "de": "AM/Trail",
+        "en": "AM/Trail",
+        "es": "AM/Trail",
+        "fr": "AM/Trail",
+        "it": "AM/Trail"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5428,6 +12170,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.enduro",
       "labelDe": "Enduro",
+      "labels": {
+        "de": "Enduro",
+        "en": "Enduro",
+        "es": "Enduro",
+        "fr": "Enduro",
+        "it": "Enduro"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5472,6 +12221,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.downhill",
       "labelDe": "Downhill",
+      "labels": {
+        "de": "Downhill",
+        "en": "Downhill",
+        "es": "Downhill",
+        "fr": "Downhill",
+        "it": "Downhill"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5524,6 +12280,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.dirt",
       "labelDe": "Dirtbike",
+      "labels": {
+        "de": "Dirtbike",
+        "en": "Dirt bike",
+        "es": "Dirt bike",
+        "fr": "Dirt bike",
+        "it": "Dirt bike"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5559,6 +12322,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.fat",
       "labelDe": "Fatbike",
+      "labels": {
+        "de": "Fatbike",
+        "en": "Fatbike",
+        "es": "Fatbike",
+        "fr": "Fatbike",
+        "it": "Fatbike"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5595,6 +12365,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.mtb.trial",
       "labelDe": "Trial",
+      "labels": {
+        "de": "Trial",
+        "en": "Trial",
+        "es": "Trial",
+        "fr": "Trial",
+        "it": "Trial"
+      },
       "scope": "bike",
       "parentKey": "bike.mtb",
       "defaultAssignmentRoleKey": "primary",
@@ -5622,6 +12399,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bmx",
       "labelDe": "BMX",
+      "labels": {
+        "de": "BMX",
+        "en": "BMX",
+        "es": "BMX",
+        "fr": "BMX",
+        "it": "BMX"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -5631,46 +12415,109 @@ export const gearSchema: GearSchema = {
         {
           "key": "frame",
           "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          },
           "componentType": "bike.frame"
         },
         {
           "key": "fork",
           "labelDe": "Gabel",
+          "labels": {
+            "de": "Gabel",
+            "en": "Fork",
+            "es": "Horquilla",
+            "fr": "Fourche",
+            "it": "Forcella"
+          },
           "componentType": "bike.fork"
         },
         {
           "key": "wheel_front",
           "labelDe": "Laufrad vorne",
+          "labels": {
+            "de": "Laufrad vorne",
+            "en": "Front wheel",
+            "es": "Rueda delantera",
+            "fr": "Roue avant",
+            "it": "Ruota anteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "wheel_rear",
           "labelDe": "Laufrad hinten",
+          "labels": {
+            "de": "Laufrad hinten",
+            "en": "Rear wheel",
+            "es": "Rueda trasera",
+            "fr": "Roue arrière",
+            "it": "Ruota posteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "tire_front",
           "labelDe": "Reifen vorne",
+          "labels": {
+            "de": "Reifen vorne",
+            "en": "Front tire",
+            "es": "Neumático delantero",
+            "fr": "Pneu avant",
+            "it": "Pneumatico anteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "tire_rear",
           "labelDe": "Reifen hinten",
+          "labels": {
+            "de": "Reifen hinten",
+            "en": "Rear tire",
+            "es": "Neumático trasero",
+            "fr": "Pneu arrière",
+            "it": "Pneumatico posteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "handlebar",
           "labelDe": "Lenker",
+          "labels": {
+            "de": "Lenker",
+            "en": "Handlebar",
+            "es": "Manillar",
+            "fr": "Cintre",
+            "it": "Manubrio"
+          },
           "componentType": "bike.handlebar"
         },
         {
           "key": "saddle",
           "labelDe": "Sattel",
+          "labels": {
+            "de": "Sattel",
+            "en": "Saddle",
+            "es": "Sillín",
+            "fr": "Selle",
+            "it": "Sella"
+          },
           "componentType": "bike.saddle"
         },
         {
           "key": "pedals",
           "labelDe": "Pedale",
+          "labels": {
+            "de": "Pedale",
+            "en": "Pedals",
+            "es": "Pedales",
+            "fr": "Pédales",
+            "it": "Pedali"
+          },
           "componentType": "bike.pedals",
           "optional": true
         }
@@ -5679,6 +12526,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bmx.race",
       "labelDe": "BMX Race",
+      "labels": {
+        "de": "BMX Race",
+        "en": "BMX Race",
+        "es": "BMX Race",
+        "fr": "BMX Race",
+        "it": "BMX Race"
+      },
       "scope": "bike",
       "parentKey": "bike.bmx",
       "defaultAssignmentRoleKey": "primary",
@@ -5705,6 +12559,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bmx.freestyle",
       "labelDe": "BMX Freestyle",
+      "labels": {
+        "de": "BMX Freestyle",
+        "en": "BMX Freestyle",
+        "es": "BMX Freestyle",
+        "fr": "BMX Freestyle",
+        "it": "BMX Freestyle"
+      },
       "scope": "bike",
       "parentKey": "bike.bmx",
       "defaultAssignmentRoleKey": "primary",
@@ -5730,6 +12591,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bmx.dirt",
       "labelDe": "BMX Dirt",
+      "labels": {
+        "de": "BMX Dirt",
+        "en": "BMX Dirt",
+        "es": "BMX Dirt",
+        "fr": "BMX Dirt",
+        "it": "BMX Dirt"
+      },
       "scope": "bike",
       "parentKey": "bike.bmx",
       "defaultAssignmentRoleKey": "primary",
@@ -5758,6 +12626,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bmx.flatland",
       "labelDe": "BMX Flatland",
+      "labels": {
+        "de": "BMX Flatland",
+        "en": "BMX Flatland",
+        "es": "BMX Flatland",
+        "fr": "BMX Flatland",
+        "it": "BMX Flatland"
+      },
       "scope": "bike",
       "parentKey": "bike.bmx",
       "defaultAssignmentRoleKey": "primary",
@@ -5783,6 +12658,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.gravel",
       "labelDe": "Gravelbike",
+      "labels": {
+        "de": "Gravelbike",
+        "en": "Gravel bike",
+        "es": "Bicicleta gravel",
+        "fr": "Vélo gravel",
+        "it": "Bici gravel"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -5792,56 +12674,133 @@ export const gearSchema: GearSchema = {
         {
           "key": "frame",
           "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          },
           "componentType": "bike.frame"
         },
         {
           "key": "fork",
           "labelDe": "Gabel",
+          "labels": {
+            "de": "Gabel",
+            "en": "Fork",
+            "es": "Horquilla",
+            "fr": "Fourche",
+            "it": "Forcella"
+          },
           "componentType": "bike.fork"
         },
         {
           "key": "brake_front",
           "labelDe": "Bremse vorne",
+          "labels": {
+            "de": "Bremse vorne",
+            "en": "Front brake",
+            "es": "Freno delantero",
+            "fr": "Frein avant",
+            "it": "Freno anteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "brake_rear",
           "labelDe": "Bremse hinten",
+          "labels": {
+            "de": "Bremse hinten",
+            "en": "Rear brake",
+            "es": "Freno trasero",
+            "fr": "Frein arrière",
+            "it": "Freno posteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "wheel_front",
           "labelDe": "Laufrad vorne",
+          "labels": {
+            "de": "Laufrad vorne",
+            "en": "Front wheel",
+            "es": "Rueda delantera",
+            "fr": "Roue avant",
+            "it": "Ruota anteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "wheel_rear",
           "labelDe": "Laufrad hinten",
+          "labels": {
+            "de": "Laufrad hinten",
+            "en": "Rear wheel",
+            "es": "Rueda trasera",
+            "fr": "Roue arrière",
+            "it": "Ruota posteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "tire_front",
           "labelDe": "Reifen vorne",
+          "labels": {
+            "de": "Reifen vorne",
+            "en": "Front tire",
+            "es": "Neumático delantero",
+            "fr": "Pneu avant",
+            "it": "Pneumatico anteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "tire_rear",
           "labelDe": "Reifen hinten",
+          "labels": {
+            "de": "Reifen hinten",
+            "en": "Rear tire",
+            "es": "Neumático trasero",
+            "fr": "Pneu arrière",
+            "it": "Pneumatico posteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "drivetrain",
           "labelDe": "Antrieb",
+          "labels": {
+            "de": "Antrieb",
+            "en": "Drivetrain",
+            "es": "Transmisión",
+            "fr": "Transmission",
+            "it": "Trasmissione"
+          },
           "componentType": "bike.cassette"
         },
         {
           "key": "handlebar",
           "labelDe": "Lenker",
+          "labels": {
+            "de": "Lenker",
+            "en": "Handlebar",
+            "es": "Manillar",
+            "fr": "Cintre",
+            "it": "Manubrio"
+          },
           "componentType": "bike.handlebar"
         },
         {
           "key": "saddle",
           "labelDe": "Sattel",
+          "labels": {
+            "de": "Sattel",
+            "en": "Saddle",
+            "es": "Sillín",
+            "fr": "Selle",
+            "it": "Sella"
+          },
           "componentType": "bike.saddle"
         }
       ]
@@ -5849,6 +12808,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.gravel.gravelbike",
       "labelDe": "Gravelbike",
+      "labels": {
+        "de": "Gravelbike",
+        "en": "Gravel bike",
+        "es": "Bicicleta gravel",
+        "fr": "Vélo gravel",
+        "it": "Bici gravel"
+      },
       "scope": "bike",
       "parentKey": "bike.gravel",
       "defaultAssignmentRoleKey": "primary",
@@ -5892,6 +12858,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.gravel.cyclocross",
       "labelDe": "Cyclocross",
+      "labels": {
+        "de": "Cyclocross",
+        "en": "Cyclocross",
+        "es": "Cyclocross",
+        "fr": "Cyclocross",
+        "it": "Cyclocross"
+      },
       "scope": "bike",
       "parentKey": "bike.gravel",
       "defaultAssignmentRoleKey": "primary",
@@ -5930,6 +12903,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city",
       "labelDe": "Stadtrad",
+      "labels": {
+        "de": "Stadtrad",
+        "en": "City bike",
+        "es": "Bicicleta urbana",
+        "fr": "Vélo de ville",
+        "it": "Bici da città"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -5939,63 +12919,147 @@ export const gearSchema: GearSchema = {
         {
           "key": "frame",
           "labelDe": "Rahmen",
+          "labels": {
+            "de": "Rahmen",
+            "en": "Frame",
+            "es": "Cuadro",
+            "fr": "Cadre",
+            "it": "Telaio"
+          },
           "componentType": "bike.frame"
         },
         {
           "key": "fork",
           "labelDe": "Gabel",
+          "labels": {
+            "de": "Gabel",
+            "en": "Fork",
+            "es": "Horquilla",
+            "fr": "Fourche",
+            "it": "Forcella"
+          },
           "componentType": "bike.fork"
         },
         {
           "key": "brake_front",
           "labelDe": "Bremse vorne",
+          "labels": {
+            "de": "Bremse vorne",
+            "en": "Front brake",
+            "es": "Freno delantero",
+            "fr": "Frein avant",
+            "it": "Freno anteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "brake_rear",
           "labelDe": "Bremse hinten",
+          "labels": {
+            "de": "Bremse hinten",
+            "en": "Rear brake",
+            "es": "Freno trasero",
+            "fr": "Frein arrière",
+            "it": "Freno posteriore"
+          },
           "componentType": "bike.brake"
         },
         {
           "key": "wheel_front",
           "labelDe": "Laufrad vorne",
+          "labels": {
+            "de": "Laufrad vorne",
+            "en": "Front wheel",
+            "es": "Rueda delantera",
+            "fr": "Roue avant",
+            "it": "Ruota anteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "wheel_rear",
           "labelDe": "Laufrad hinten",
+          "labels": {
+            "de": "Laufrad hinten",
+            "en": "Rear wheel",
+            "es": "Rueda trasera",
+            "fr": "Roue arrière",
+            "it": "Ruota posteriore"
+          },
           "componentType": "bike.wheel"
         },
         {
           "key": "tire_front",
           "labelDe": "Reifen vorne",
+          "labels": {
+            "de": "Reifen vorne",
+            "en": "Front tire",
+            "es": "Neumático delantero",
+            "fr": "Pneu avant",
+            "it": "Pneumatico anteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "tire_rear",
           "labelDe": "Reifen hinten",
+          "labels": {
+            "de": "Reifen hinten",
+            "en": "Rear tire",
+            "es": "Neumático trasero",
+            "fr": "Pneu arrière",
+            "it": "Pneumatico posteriore"
+          },
           "componentType": "bike.tire"
         },
         {
           "key": "saddle",
           "labelDe": "Sattel",
+          "labels": {
+            "de": "Sattel",
+            "en": "Saddle",
+            "es": "Sillín",
+            "fr": "Selle",
+            "it": "Sella"
+          },
           "componentType": "bike.saddle"
         },
         {
           "key": "rack",
           "labelDe": "Gepäckträger",
+          "labels": {
+            "de": "Gepäckträger",
+            "en": "Rack",
+            "es": "Portaequipajes",
+            "fr": "Porte-bagages",
+            "it": "Portapacchi"
+          },
           "componentType": "bike.rack",
           "optional": true
         },
         {
           "key": "fenders",
           "labelDe": "Schutzbleche",
+          "labels": {
+            "de": "Schutzbleche",
+            "en": "Fenders",
+            "es": "Guardabarros",
+            "fr": "Garde-boue",
+            "it": "Parafanghi"
+          },
           "componentType": "bike.fenders",
           "optional": true
         },
         {
           "key": "kickstand",
           "labelDe": "Ständer",
+          "labels": {
+            "de": "Ständer",
+            "en": "Kickstand",
+            "es": "Pata de cabra",
+            "fr": "Béquille",
+            "it": "Cavalletto"
+          },
           "componentType": "bike.kickstand",
           "optional": true
         }
@@ -6004,6 +13068,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.citybike",
       "labelDe": "Citybike",
+      "labels": {
+        "de": "Citybike",
+        "en": "City bike",
+        "es": "Bicicleta urbana",
+        "fr": "Vélo de ville",
+        "it": "Bici da città"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6039,6 +13110,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.dutch",
       "labelDe": "Hollandrad",
+      "labels": {
+        "de": "Hollandrad",
+        "en": "Dutch bike",
+        "es": "Bicicleta holandesa",
+        "fr": "Vélo hollandais",
+        "it": "Bici olandese"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6080,6 +13158,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.urban",
       "labelDe": "Urban Bike",
+      "labels": {
+        "de": "Urban Bike",
+        "en": "Urban bike",
+        "es": "Bicicleta urbana",
+        "fr": "Vélo urbain",
+        "it": "Bici urbana"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6115,6 +13200,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.fitness",
       "labelDe": "Fitnessbike",
+      "labels": {
+        "de": "Fitnessbike",
+        "en": "Fitness bike",
+        "es": "Bicicleta fitness",
+        "fr": "Vélo fitness",
+        "it": "Bici fitness"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6148,6 +13240,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.folding",
       "labelDe": "Klapprad",
+      "labels": {
+        "de": "Klapprad",
+        "en": "Folding bike",
+        "es": "Bicicleta plegable",
+        "fr": "Vélo pliant",
+        "it": "Bici pieghevole"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6184,6 +13283,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.city.cruiser",
       "labelDe": "Cruiser",
+      "labels": {
+        "de": "Cruiser",
+        "en": "Cruiser",
+        "es": "Cruiser",
+        "fr": "Cruiser",
+        "it": "Cruiser"
+      },
       "scope": "bike",
       "parentKey": "bike.city",
       "defaultAssignmentRoleKey": "primary",
@@ -6218,6 +13324,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.trekking",
       "labelDe": "Trekkingbike",
+      "labels": {
+        "de": "Trekkingbike",
+        "en": "Trekkingbike",
+        "es": "Trekkingbike",
+        "fr": "Trekkingbike",
+        "it": "Trekkingbike"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6227,6 +13340,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.trekking.trekking",
       "labelDe": "Trekking",
+      "labels": {
+        "de": "Trekking",
+        "en": "Trekking",
+        "es": "Trekking",
+        "fr": "Trekking",
+        "it": "Trekking"
+      },
       "scope": "bike",
       "parentKey": "bike.trekking",
       "defaultAssignmentRoleKey": "primary",
@@ -6272,6 +13392,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.trekking.expedition",
       "labelDe": "Reiserad (Expedition)",
+      "labels": {
+        "de": "Reiserad (Expedition)",
+        "en": "Touring bike (expedition)",
+        "es": "Bicicleta de viaje (expedición)",
+        "fr": "Vélo de voyage (expédition)",
+        "it": "Bici da viaggio (spedizione)"
+      },
       "scope": "bike",
       "parentKey": "bike.trekking",
       "defaultAssignmentRoleKey": "primary",
@@ -6318,6 +13445,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cargo",
       "labelDe": "Lastenrad",
+      "labels": {
+        "de": "Lastenrad",
+        "en": "Cargo bike",
+        "es": "Bicicleta de carga",
+        "fr": "Vélo cargo",
+        "it": "Cargo bike"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6327,6 +13461,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cargo.long_john",
       "labelDe": "Long John",
+      "labels": {
+        "de": "Long John",
+        "en": "Long John",
+        "es": "Long John",
+        "fr": "Long John",
+        "it": "Long John"
+      },
       "scope": "bike",
       "parentKey": "bike.cargo",
       "defaultAssignmentRoleKey": "primary",
@@ -6358,6 +13499,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cargo.longtail",
       "labelDe": "Longtail",
+      "labels": {
+        "de": "Longtail",
+        "en": "Longtail",
+        "es": "Longtail",
+        "fr": "Longtail",
+        "it": "Longtail"
+      },
       "scope": "bike",
       "parentKey": "bike.cargo",
       "defaultAssignmentRoleKey": "primary",
@@ -6388,6 +13536,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cargo.backpacker",
       "labelDe": "Backpacker",
+      "labels": {
+        "de": "Backpacker",
+        "en": "Backpacker",
+        "es": "Backpacker",
+        "fr": "Backpacker",
+        "it": "Backpacker"
+      },
       "scope": "bike",
       "parentKey": "bike.cargo",
       "defaultAssignmentRoleKey": "primary",
@@ -6417,6 +13572,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.tandem",
       "labelDe": "Tandem",
+      "labels": {
+        "de": "Tandem",
+        "en": "Tandem",
+        "es": "Tándem",
+        "fr": "Tandem",
+        "it": "Tandem"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6426,6 +13588,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.recumbent",
       "labelDe": "Liegerad",
+      "labels": {
+        "de": "Liegerad",
+        "en": "Recumbent bike",
+        "es": "Bicicleta reclinada",
+        "fr": "Vélo couché",
+        "it": "Bici reclinata"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6435,6 +13604,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.unicycle",
       "labelDe": "Einrad",
+      "labels": {
+        "de": "Einrad",
+        "en": "Unicycle",
+        "es": "Monociclo",
+        "fr": "Monocycle",
+        "it": "Monociclo"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6444,6 +13620,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.tricycle",
       "labelDe": "Dreirad",
+      "labels": {
+        "de": "Dreirad",
+        "en": "Tricycle",
+        "es": "Triciclo",
+        "fr": "Tricycle",
+        "it": "Triciclo"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6453,6 +13636,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.kids",
       "labelDe": "Kinder-/Jugendrad",
+      "labels": {
+        "de": "Kinder-/Jugendrad",
+        "en": "Kids/youth bike",
+        "es": "Bicicleta infantil/juvenil",
+        "fr": "Vélo enfant/jeune",
+        "it": "Bici bambino/ragazzo"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6462,6 +13652,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.balance",
       "labelDe": "Laufrad",
+      "labels": {
+        "de": "Laufrad",
+        "en": "Balance bike",
+        "es": "Bicicleta sin pedales",
+        "fr": "Draisienne",
+        "it": "Bici senza pedali"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6471,6 +13668,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.indoor",
       "labelDe": "Indoor-Bike",
+      "labels": {
+        "de": "Indoor-Bike",
+        "en": "Indoor bike",
+        "es": "Bicicleta indoor",
+        "fr": "Vélo indoor",
+        "it": "Bici indoor"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6480,6 +13684,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.indoor.home_trainer",
       "labelDe": "Heimtrainer",
+      "labels": {
+        "de": "Heimtrainer",
+        "en": "Home trainer",
+        "es": "Rodillo de entrenamiento",
+        "fr": "Home trainer",
+        "it": "Home trainer"
+      },
       "scope": "bike",
       "parentKey": "bike.indoor",
       "defaultAssignmentRoleKey": "primary",
@@ -6489,6 +13700,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.indoor.spinning",
       "labelDe": "Spinning",
+      "labels": {
+        "de": "Spinning",
+        "en": "Spinning",
+        "es": "Spinning",
+        "fr": "Spinning",
+        "it": "Spinning"
+      },
       "scope": "bike",
       "parentKey": "bike.indoor",
       "defaultAssignmentRoleKey": "primary",
@@ -6498,6 +13716,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.indoor.ergometer",
       "labelDe": "Ergometer",
+      "labels": {
+        "de": "Ergometer",
+        "en": "Ergometer",
+        "es": "Ergómetro",
+        "fr": "Ergomètre",
+        "it": "Ergometro"
+      },
       "scope": "bike",
       "parentKey": "bike.indoor",
       "defaultAssignmentRoleKey": "primary",
@@ -6507,6 +13732,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.handcycle",
       "labelDe": "Handbike",
+      "labels": {
+        "de": "Handbike",
+        "en": "Handcycle",
+        "es": "Handbike",
+        "fr": "Handbike",
+        "it": "Handbike"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "primary",
@@ -6516,6 +13748,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "helmet",
       "labelDe": "Helm",
+      "labels": {
+        "de": "Helm",
+        "en": "Helmet",
+        "es": "Casco",
+        "fr": "Casque",
+        "it": "Casco"
+      },
       "scope": "other",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -6527,6 +13766,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "goggles",
       "labelDe": "Brille/Goggle",
+      "labels": {
+        "de": "Brille/Goggle",
+        "en": "Goggles",
+        "es": "Gafas/máscara",
+        "fr": "Lunettes/masque",
+        "it": "Occhiali/maschera"
+      },
       "scope": "other",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -6537,6 +13783,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes",
       "labelDe": "Schuhe",
+      "labels": {
+        "de": "Schuhe",
+        "en": "Shoes",
+        "es": "Zapatillas",
+        "fr": "Chaussures",
+        "it": "Scarpe"
+      },
       "scope": "shoes",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -6545,6 +13798,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.cycling",
       "labelDe": "Radschuhe",
+      "labels": {
+        "de": "Radschuhe",
+        "en": "Cycling shoes",
+        "es": "Zapatillas de ciclismo",
+        "fr": "Chaussures de vélo",
+        "it": "Scarpe da bici"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6554,6 +13814,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.cycling.road",
       "labelDe": "Rennradschuhe",
+      "labels": {
+        "de": "Rennradschuhe",
+        "en": "Road cycling shoes",
+        "es": "Zapatillas de ciclismo de carretera",
+        "fr": "Chaussures de vélo de route",
+        "it": "Scarpe da bici da corsa"
+      },
       "scope": "shoes",
       "parentKey": "shoes.cycling",
       "defaultAssignmentRoleKey": "worn",
@@ -6563,6 +13830,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.cycling.mtb",
       "labelDe": "MTB-Schuhe",
+      "labels": {
+        "de": "MTB-Schuhe",
+        "en": "MTB shoes",
+        "es": "Zapatillas MTB",
+        "fr": "Chaussures MTB",
+        "it": "Scarpe MTB"
+      },
       "scope": "shoes",
       "parentKey": "shoes.cycling",
       "defaultAssignmentRoleKey": "worn",
@@ -6572,6 +13846,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.cycling.gravel",
       "labelDe": "Gravel-Schuhe",
+      "labels": {
+        "de": "Gravel-Schuhe",
+        "en": "Gravel shoes",
+        "es": "Zapatillas gravel",
+        "fr": "Chaussures gravel",
+        "it": "Scarpe gravel"
+      },
       "scope": "shoes",
       "parentKey": "shoes.cycling",
       "defaultAssignmentRoleKey": "worn",
@@ -6581,6 +13862,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.cycling.indoor",
       "labelDe": "Indoor-Radschuhe",
+      "labels": {
+        "de": "Indoor-Radschuhe",
+        "en": "Indoor cycling shoes",
+        "es": "Zapatillas de ciclismo indoor",
+        "fr": "Chaussures de vélo indoor",
+        "it": "Scarpe da ciclismo indoor"
+      },
       "scope": "shoes",
       "parentKey": "shoes.cycling",
       "defaultAssignmentRoleKey": "worn",
@@ -6590,6 +13878,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.running",
       "labelDe": "Laufschuhe",
+      "labels": {
+        "de": "Laufschuhe",
+        "en": "Running shoes",
+        "es": "Zapatillas de running",
+        "fr": "Chaussures de running",
+        "it": "Scarpe da running"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6599,6 +13894,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.running.road",
       "labelDe": "Straßenlaufschuhe",
+      "labels": {
+        "de": "Straßenlaufschuhe",
+        "en": "Road running shoes",
+        "es": "Zapatillas de running de asfalto",
+        "fr": "Chaussures de running route",
+        "it": "Scarpe da running su strada"
+      },
       "scope": "shoes",
       "parentKey": "shoes.running",
       "defaultAssignmentRoleKey": "worn",
@@ -6608,6 +13910,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.running.trail",
       "labelDe": "Trailrunning-Schuhe",
+      "labels": {
+        "de": "Trailrunning-Schuhe",
+        "en": "Trail running shoes",
+        "es": "Zapatillas de trail running",
+        "fr": "Chaussures de trail",
+        "it": "Scarpe trail running"
+      },
       "scope": "shoes",
       "parentKey": "shoes.running",
       "defaultAssignmentRoleKey": "worn",
@@ -6617,6 +13926,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.hiking",
       "labelDe": "Wanderschuhe",
+      "labels": {
+        "de": "Wanderschuhe",
+        "en": "Hiking shoes",
+        "es": "Zapatillas de senderismo",
+        "fr": "Chaussures de randonnée",
+        "it": "Scarpe da trekking"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6628,6 +13944,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.hiking.low",
       "labelDe": "Wanderschuhe",
+      "labels": {
+        "de": "Wanderschuhe",
+        "en": "Hiking shoes",
+        "es": "Zapatillas de senderismo",
+        "fr": "Chaussures de randonnée",
+        "it": "Scarpe da trekking"
+      },
       "scope": "shoes",
       "parentKey": "shoes.hiking",
       "defaultAssignmentRoleKey": "worn",
@@ -6647,6 +13970,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.hiking.speed",
       "labelDe": "Speed-Hiking-Schuhe",
+      "labels": {
+        "de": "Speed-Hiking-Schuhe",
+        "en": "Speed hiking shoes",
+        "es": "Zapatillas de speed hiking",
+        "fr": "Chaussures de speed hiking",
+        "it": "Scarpe speed hiking"
+      },
       "scope": "shoes",
       "parentKey": "shoes.hiking",
       "defaultAssignmentRoleKey": "worn",
@@ -6666,6 +13996,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.hiking.approach",
       "labelDe": "Zustiegsschuhe",
+      "labels": {
+        "de": "Zustiegsschuhe",
+        "en": "Approach shoes",
+        "es": "Zapatillas de aproximación",
+        "fr": "Chaussures d’approche",
+        "it": "Scarpe da avvicinamento"
+      },
       "scope": "shoes",
       "parentKey": "shoes.hiking",
       "defaultAssignmentRoleKey": "worn",
@@ -6685,6 +14022,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.hiking.boot",
       "labelDe": "Wanderstiefel",
+      "labels": {
+        "de": "Wanderstiefel",
+        "en": "Hiking boots",
+        "es": "Botas de senderismo",
+        "fr": "Chaussures de randonnée montantes",
+        "it": "Scarponi da trekking"
+      },
       "scope": "shoes",
       "parentKey": "shoes.hiking",
       "defaultAssignmentRoleKey": "worn",
@@ -6704,6 +14048,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.trekking",
       "labelDe": "Trekkingstiefel",
+      "labels": {
+        "de": "Trekkingstiefel",
+        "en": "Trekking boots",
+        "es": "Botas de trekking",
+        "fr": "Chaussures de trekking",
+        "it": "Scarponi da trekking"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6716,6 +14067,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.trekking.light",
       "labelDe": "Trekkingstiefel",
+      "labels": {
+        "de": "Trekkingstiefel",
+        "en": "Light trekking boots",
+        "es": "Botas de trekking ligeras",
+        "fr": "Chaussures de trekking légères",
+        "it": "Scarponi da trekking leggeri"
+      },
       "scope": "shoes",
       "parentKey": "shoes.trekking",
       "defaultAssignmentRoleKey": "worn",
@@ -6735,6 +14093,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.trekking.heavy",
       "labelDe": "Schwere Trekkingstiefel",
+      "labels": {
+        "de": "Schwere Trekkingstiefel",
+        "en": "Heavy trekking boots",
+        "es": "Botas de trekking rígidas",
+        "fr": "Chaussures de trekking rigides",
+        "it": "Scarponi da trekking pesanti"
+      },
       "scope": "shoes",
       "parentKey": "shoes.trekking",
       "defaultAssignmentRoleKey": "worn",
@@ -6760,6 +14125,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.mountaineering",
       "labelDe": "Bergschuhe",
+      "labels": {
+        "de": "Bergschuhe",
+        "en": "Mountaineering boots",
+        "es": "Botas de alpinismo",
+        "fr": "Chaussures d’alpinisme",
+        "it": "Scarponi da alpinismo"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6772,6 +14144,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.mountaineering.light",
       "labelDe": "Leichtbergstiefel",
+      "labels": {
+        "de": "Leichtbergstiefel",
+        "en": "Light mountaineering boots",
+        "es": "Botas de alpinismo ligeras",
+        "fr": "Chaussures d’alpinisme légères",
+        "it": "Scarponi da alpinismo leggeri"
+      },
       "scope": "shoes",
       "parentKey": "shoes.mountaineering",
       "defaultAssignmentRoleKey": "worn",
@@ -6791,6 +14170,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.mountaineering.alpine",
       "labelDe": "Bergstiefel",
+      "labels": {
+        "de": "Bergstiefel",
+        "en": "Mountain boots",
+        "es": "Botas de montaña",
+        "fr": "Chaussures de montagne",
+        "it": "Scarponi da montagna"
+      },
       "scope": "shoes",
       "parentKey": "shoes.mountaineering",
       "defaultAssignmentRoleKey": "worn",
@@ -6816,6 +14202,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.mountaineering.expedition",
       "labelDe": "Expeditionsstiefel",
+      "labels": {
+        "de": "Expeditionsstiefel",
+        "en": "Expedition boots",
+        "es": "Botas de expedición",
+        "fr": "Chaussures d’expédition",
+        "it": "Scarponi da spedizione"
+      },
       "scope": "shoes",
       "parentKey": "shoes.mountaineering",
       "defaultAssignmentRoleKey": "worn",
@@ -6841,6 +14234,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.training",
       "labelDe": "Trainingsschuhe",
+      "labels": {
+        "de": "Trainingsschuhe",
+        "en": "Training shoes",
+        "es": "Zapatillas de entrenamiento",
+        "fr": "Chaussures d’entraînement",
+        "it": "Scarpe da allenamento"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6850,6 +14250,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.casual",
       "labelDe": "Sneaker",
+      "labels": {
+        "de": "Sneaker",
+        "en": "Sneakers",
+        "es": "Zapatillas",
+        "fr": "Baskets",
+        "it": "Scarpe da ginnastica"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6859,6 +14266,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.soccer",
       "labelDe": "Fußballschuhe",
+      "labels": {
+        "de": "Fußballschuhe",
+        "en": "Soccer cleats",
+        "es": "Botas de fútbol",
+        "fr": "Chaussures de football",
+        "it": "Scarpe da calcio"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6868,6 +14282,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.climbing",
       "labelDe": "Kletterschuhe",
+      "labels": {
+        "de": "Kletterschuhe",
+        "en": "Climbing shoes",
+        "es": "Pies de gato",
+        "fr": "Chaussons d’escalade",
+        "it": "Scarpette da arrampicata"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6877,6 +14298,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "shoes.ski",
       "labelDe": "Skischuhe",
+      "labels": {
+        "de": "Skischuhe",
+        "en": "Ski boots",
+        "es": "Botas de esquí",
+        "fr": "Chaussures de ski",
+        "it": "Scarponi da sci"
+      },
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
@@ -6886,6 +14314,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.consumable.chain_lube",
       "labelDe": "Kettenschmiermittel",
+      "labels": {
+        "de": "Kettenschmiermittel",
+        "en": "Chain lubricant",
+        "es": "Lubricante de cadena",
+        "fr": "Lubrifiant de chaîne",
+        "it": "Lubrificante catena"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "consumable",
@@ -6895,6 +14330,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.consumable.brake_pads",
       "labelDe": "Bremsbeläge",
+      "labels": {
+        "de": "Bremsbeläge",
+        "en": "Brake pads",
+        "es": "Pastillas de freno",
+        "fr": "Plaquettes de frein",
+        "it": "Pastiglie freno"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "consumable",
@@ -6904,6 +14346,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.consumable.tire_sealant",
       "labelDe": "Reifendichtmilch",
+      "labels": {
+        "de": "Reifendichtmilch",
+        "en": "Tire sealant",
+        "es": "Sellante de neumáticos",
+        "fr": "Préventif pneu",
+        "it": "Sigillante pneumatici"
+      },
       "scope": "bike",
       "parentKey": "bike",
       "defaultAssignmentRoleKey": "consumable",
@@ -6913,6 +14362,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ski",
       "labelDe": "Ski",
+      "labels": {
+        "de": "Ski",
+        "en": "Skis",
+        "es": "Esquís",
+        "fr": "Skis",
+        "it": "Sci"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6921,6 +14377,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ski_poles",
       "labelDe": "Skistöcke",
+      "labels": {
+        "de": "Skistöcke",
+        "en": "Ski poles",
+        "es": "Bastones de esquí",
+        "fr": "Bâtons de ski",
+        "it": "Bastoncini da sci"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "carried",
       "attributeKeys": [],
@@ -6929,6 +14392,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ski_boots",
       "labelDe": "Skischuhe",
+      "labels": {
+        "de": "Skischuhe",
+        "en": "Ski boots",
+        "es": "Botas de esquí",
+        "fr": "Chaussures de ski",
+        "it": "Scarponi da sci"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -6937,6 +14407,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "snowboard",
       "labelDe": "Snowboard",
+      "labels": {
+        "de": "Snowboard",
+        "en": "Snowboard",
+        "es": "Snowboard",
+        "fr": "Snowboard",
+        "it": "Snowboard"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6945,6 +14422,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "snowboard_boots",
       "labelDe": "Snowboard-Boots",
+      "labels": {
+        "de": "Snowboard-Boots",
+        "en": "Snowboard boots",
+        "es": "Botas de snowboard",
+        "fr": "Boots de snowboard",
+        "it": "Scarponi da snowboard"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -6953,6 +14437,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "snowshoes",
       "labelDe": "Schneeschuhe",
+      "labels": {
+        "de": "Schneeschuhe",
+        "en": "Snowshoes",
+        "es": "Raquetas de nieve",
+        "fr": "Raquettes à neige",
+        "it": "Ciaspole"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6961,6 +14452,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ice_skates",
       "labelDe": "Schlittschuhe",
+      "labels": {
+        "de": "Schlittschuhe",
+        "en": "Ice skates",
+        "es": "Patines de hielo",
+        "fr": "Patins à glace",
+        "it": "Pattini da ghiaccio"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6969,6 +14467,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "sled",
       "labelDe": "Schlitten",
+      "labels": {
+        "de": "Schlitten",
+        "en": "Sled",
+        "es": "Trineo",
+        "fr": "Luge",
+        "it": "Slitta"
+      },
       "scope": "winter",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6977,6 +14482,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "paddle",
       "labelDe": "Paddel",
+      "labels": {
+        "de": "Paddel",
+        "en": "Paddle",
+        "es": "Pala",
+        "fr": "Pagaie",
+        "it": "Pagaia"
+      },
       "scope": "water",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6985,6 +14497,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft",
       "labelDe": "Wassersportgerät",
+      "labels": {
+        "de": "Wassersportgerät",
+        "en": "Watercraft",
+        "es": "Embarcación",
+        "fr": "Embarcation",
+        "it": "Imbarcazione"
+      },
       "scope": "water",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -6993,6 +14512,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.sup_board",
       "labelDe": "SUP-Board",
+      "labels": {
+        "de": "SUP-Board",
+        "en": "SUP-Board",
+        "es": "SUP-Board",
+        "fr": "SUP-Board",
+        "it": "SUP-Board"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7002,6 +14528,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.surfboard",
       "labelDe": "Surfboard",
+      "labels": {
+        "de": "Surfboard",
+        "en": "Surfboard",
+        "es": "Surfboard",
+        "fr": "Surfboard",
+        "it": "Surfboard"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7011,6 +14544,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.wakeboard",
       "labelDe": "Wakeboard",
+      "labels": {
+        "de": "Wakeboard",
+        "en": "Wakeboard",
+        "es": "Wakeboard",
+        "fr": "Wakeboard",
+        "it": "Wakeboard"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7020,6 +14560,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.kiteboard",
       "labelDe": "Kiteboard",
+      "labels": {
+        "de": "Kiteboard",
+        "en": "Kiteboard",
+        "es": "Kiteboard",
+        "fr": "Kiteboard",
+        "it": "Kiteboard"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7029,6 +14576,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.windsurf_board",
       "labelDe": "Windsurf-Board",
+      "labels": {
+        "de": "Windsurf-Board",
+        "en": "Windsurf board",
+        "es": "tabla de windsurf",
+        "fr": "Planche à voile",
+        "it": "Tavola da windsurf"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7038,6 +14592,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.kayak",
       "labelDe": "Kajak",
+      "labels": {
+        "de": "Kajak",
+        "en": "Kayak",
+        "es": "Kayak",
+        "fr": "Kayak",
+        "it": "Kayak"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7047,6 +14608,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.canoe",
       "labelDe": "Kanu",
+      "labels": {
+        "de": "Kanu",
+        "en": "Canoe",
+        "es": "Canoa",
+        "fr": "Canoë",
+        "it": "Canoa"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7056,6 +14624,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.rowing_boat",
       "labelDe": "Ruderboot",
+      "labels": {
+        "de": "Ruderboot",
+        "en": "Rowing boat",
+        "es": "Bote de remo",
+        "fr": "Bateau d’aviron",
+        "it": "Barca a remi"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7065,6 +14640,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.raft",
       "labelDe": "Raft",
+      "labels": {
+        "de": "Raft",
+        "en": "Raft",
+        "es": "Raft",
+        "fr": "Raft",
+        "it": "Raft"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7074,6 +14656,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.sailboat",
       "labelDe": "Segelboot",
+      "labels": {
+        "de": "Segelboot",
+        "en": "Sailboat",
+        "es": "Velero",
+        "fr": "Voilier",
+        "it": "Barca a vela"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7083,6 +14672,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "watercraft.boat",
       "labelDe": "Boot",
+      "labels": {
+        "de": "Boot",
+        "en": "Boat",
+        "es": "Barco",
+        "fr": "Bateau",
+        "it": "Barca"
+      },
       "scope": "water",
       "parentKey": "watercraft",
       "defaultAssignmentRoleKey": "primary",
@@ -7092,6 +14688,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "water_ski",
       "labelDe": "Wasserski",
+      "labels": {
+        "de": "Wasserski",
+        "en": "Water skis",
+        "es": "Esquís acuáticos",
+        "fr": "Skis nautiques",
+        "it": "Sci nautici"
+      },
       "scope": "water",
       "defaultAssignmentRoleKey": "primary",
       "attributeKeys": [],
@@ -7100,6 +14703,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "fishing_gear",
       "labelDe": "Angelausrüstung",
+      "labels": {
+        "de": "Angelausrüstung",
+        "en": "Fishing gear",
+        "es": "Equipo de pesca",
+        "fr": "Matériel de pêche",
+        "it": "Attrezzatura da pesca"
+      },
       "scope": "water",
       "defaultAssignmentRoleKey": "carried",
       "attributeKeys": [],
@@ -7108,6 +14718,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "dive_computer",
       "labelDe": "Tauchcomputer",
+      "labels": {
+        "de": "Tauchcomputer",
+        "en": "Dive computer",
+        "es": "Ordenador de buceo",
+        "fr": "Ordinateur de plongée",
+        "it": "Computer subacqueo"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7116,6 +14733,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "dive_tank",
       "labelDe": "Druckluftflasche",
+      "labels": {
+        "de": "Druckluftflasche",
+        "en": "Dive tank",
+        "es": "Botella de buceo",
+        "fr": "Bouteille de plongée",
+        "it": "Bombola subacquea"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [
@@ -7130,6 +14754,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "regulator",
       "labelDe": "Atemregler",
+      "labels": {
+        "de": "Atemregler",
+        "en": "Regulator",
+        "es": "Regulador",
+        "fr": "Détendeur",
+        "it": "Erogatore"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7138,6 +14769,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "dive_mask",
       "labelDe": "Tauchmaske",
+      "labels": {
+        "de": "Tauchmaske",
+        "en": "Dive mask",
+        "es": "Máscara de buceo",
+        "fr": "Masque de plongée",
+        "it": "Maschera subacquea"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7146,6 +14784,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "snorkel",
       "labelDe": "Schnorchel",
+      "labels": {
+        "de": "Schnorchel",
+        "en": "Snorkel",
+        "es": "Tubo de snorkel",
+        "fr": "Tuba",
+        "it": "Boccaglio"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7154,6 +14799,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "buoyancy_compensator",
       "labelDe": "Tarierweste",
+      "labels": {
+        "de": "Tarierweste",
+        "en": "Buoyancy compensator",
+        "es": "Chaleco compensador",
+        "fr": "Gilet stabilisateur",
+        "it": "GAV"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7162,6 +14814,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "wetsuit",
       "labelDe": "Neoprenanzug",
+      "labels": {
+        "de": "Neoprenanzug",
+        "en": "Wetsuit",
+        "es": "Traje de neopreno",
+        "fr": "Combinaison néoprène",
+        "it": "Muta in neoprene"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7170,6 +14829,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "drysuit",
       "labelDe": "Trockentauchanzug",
+      "labels": {
+        "de": "Trockentauchanzug",
+        "en": "Drysuit",
+        "es": "Traje seco",
+        "fr": "Combinaison étanche",
+        "it": "Muta stagna"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7178,6 +14844,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "dive_weights",
       "labelDe": "Blei",
+      "labels": {
+        "de": "Blei",
+        "en": "Weights",
+        "es": "Lastre",
+        "fr": "Lest",
+        "it": "Pesi"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "carried",
       "attributeKeys": [],
@@ -7186,6 +14859,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "fins",
       "labelDe": "Flossen",
+      "labels": {
+        "de": "Flossen",
+        "en": "Fins",
+        "es": "Aletas",
+        "fr": "Palmes",
+        "it": "Pinne"
+      },
       "scope": "diving",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7194,6 +14874,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.harness",
       "labelDe": "Klettergurt",
+      "labels": {
+        "de": "Klettergurt",
+        "en": "Climbing harness",
+        "es": "Arnés de escalada",
+        "fr": "Baudrier",
+        "it": "Imbrago da arrampicata"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7206,6 +14893,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.rope",
       "labelDe": "Kletterseil",
+      "labels": {
+        "de": "Kletterseil",
+        "en": "Climbing rope",
+        "es": "Cuerda de escalada",
+        "fr": "Corde d’escalade",
+        "it": "Corda da arrampicata"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [
@@ -7218,6 +14912,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.crampons",
       "labelDe": "Steigeisen",
+      "labels": {
+        "de": "Steigeisen",
+        "en": "Crampons",
+        "es": "Crampones",
+        "fr": "Crampons",
+        "it": "Ramponi"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7226,6 +14927,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.ice_axe",
       "labelDe": "Eispickel",
+      "labels": {
+        "de": "Eispickel",
+        "en": "Ice axe",
+        "es": "Piolet",
+        "fr": "Piolet",
+        "it": "Piccozza"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "carried",
       "attributeKeys": [],
@@ -7234,6 +14942,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.belay_device",
       "labelDe": "Sicherungsgerät",
+      "labels": {
+        "de": "Sicherungsgerät",
+        "en": "Belay device",
+        "es": "Dispositivo de aseguramiento",
+        "fr": "Assureur",
+        "it": "Assicuratore"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7244,6 +14959,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.quickdraw",
       "labelDe": "Expressschlinge",
+      "labels": {
+        "de": "Expressschlinge",
+        "en": "Quickdraw",
+        "es": "Cinta exprés",
+        "fr": "Dégaine",
+        "it": "Rinvio"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7254,6 +14976,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.chalkbag",
       "labelDe": "Chalkbag",
+      "labels": {
+        "de": "Chalkbag",
+        "en": "Chalkbag",
+        "es": "Chalkbag",
+        "fr": "Chalkbag",
+        "it": "Chalkbag"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7264,6 +14993,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "climb.crashpad",
       "labelDe": "Crashpad",
+      "labels": {
+        "de": "Crashpad",
+        "en": "Crashpad",
+        "es": "Crashpad",
+        "fr": "Crashpad",
+        "it": "Crashpad"
+      },
       "scope": "climb",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7272,6 +15008,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel",
       "labelDe": "Bekleidung",
+      "labels": {
+        "de": "Bekleidung",
+        "en": "Apparel",
+        "es": "Ropa",
+        "fr": "Vêtements",
+        "it": "Abbigliamento"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [],
@@ -7280,6 +15023,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.pants",
       "labelDe": "Hose",
+      "labels": {
+        "de": "Hose",
+        "en": "Pants",
+        "es": "Pantalón",
+        "fr": "Pantalon",
+        "it": "Pantaloni"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7290,6 +15040,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.jersey",
       "labelDe": "Trikot/Shirt",
+      "labels": {
+        "de": "Trikot/Shirt",
+        "en": "Jersey/shirt",
+        "es": "Maillot/camiseta",
+        "fr": "Maillot/shirt",
+        "it": "Maglia/shirt"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7300,6 +15057,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.gloves",
       "labelDe": "Handschuhe",
+      "labels": {
+        "de": "Handschuhe",
+        "en": "Gloves",
+        "es": "Guantes",
+        "fr": "Gants",
+        "it": "Guanti"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7310,6 +15074,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.socks",
       "labelDe": "Socken",
+      "labels": {
+        "de": "Socken",
+        "en": "Socks",
+        "es": "Calcetines",
+        "fr": "Chaussettes",
+        "it": "Calze"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7320,6 +15091,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.jacket",
       "labelDe": "Jacke",
+      "labels": {
+        "de": "Jacke",
+        "en": "Jacket",
+        "es": "Chaqueta",
+        "fr": "Veste",
+        "it": "Giacca"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7330,6 +15108,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "apparel.shorts",
       "labelDe": "Shorts",
+      "labels": {
+        "de": "Shorts",
+        "en": "Shorts",
+        "es": "Pantalones cortos",
+        "fr": "Short",
+        "it": "Pantaloncini"
+      },
       "scope": "apparel",
       "defaultAssignmentRoleKey": "worn",
       "attributeKeys": [
@@ -7340,6 +15125,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "other",
       "labelDe": "Sonstiges",
+      "labels": {
+        "de": "Sonstiges",
+        "en": "Other",
+        "es": "Otros",
+        "fr": "Autre",
+        "it": "Altro"
+      },
       "scope": "other",
       "defaultAssignmentRoleKey": "additional",
       "attributeKeys": [],
@@ -7350,6 +15142,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.frame",
       "labelDe": "Rahmen",
+      "labels": {
+        "de": "Rahmen",
+        "en": "Frame",
+        "es": "Cuadro",
+        "fr": "Cadre",
+        "it": "Telaio"
+      },
       "attributeKeys": [
         "bike.frame_type",
         "bike.frame_design",
@@ -7383,6 +15182,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fork",
       "labelDe": "Gabel",
+      "labels": {
+        "de": "Gabel",
+        "en": "Fork",
+        "es": "Horquilla",
+        "fr": "Fourche",
+        "it": "Forcella"
+      },
       "attributeKeys": [
         "fork_construction",
         "suspension_travel",
@@ -7408,6 +15214,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock",
       "labelDe": "Dämpfer",
+      "labels": {
+        "de": "Dämpfer",
+        "en": "Shock",
+        "es": "Amortiguador",
+        "fr": "Amortisseur",
+        "it": "Ammortizzatore"
+      },
       "attributeKeys": [
         "shock_construction",
         "shock_mount",
@@ -7427,6 +15240,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.coil_shock",
       "labelDe": "Stahlfederdämpfer",
+      "labels": {
+        "de": "Stahlfederdämpfer",
+        "en": "Coil shock",
+        "es": "Amortiguador de muelle",
+        "fr": "Amortisseur à ressort hélicoïdal",
+        "it": "Ammortizzatore a molla"
+      },
       "parentKey": "bike.shock",
       "attributeKeys": [
         "bike.shock_eye_to_eye_mm",
@@ -7438,6 +15258,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.air_shock",
       "labelDe": "Luftdämpfer",
+      "labels": {
+        "de": "Luftdämpfer",
+        "en": "Air shock",
+        "es": "Amortiguador de aire",
+        "fr": "Amortisseur à air",
+        "it": "Ammortizzatore ad aria"
+      },
       "parentKey": "bike.shock",
       "attributeKeys": [
         "bike.shock_eye_to_eye_mm",
@@ -7448,6 +15275,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shock_spring",
       "labelDe": "Dämpferfeder",
+      "labels": {
+        "de": "Dämpferfeder",
+        "en": "Shock spring",
+        "es": "Muelle de amortiguador",
+        "fr": "Ressort d’amortisseur",
+        "it": "Molla ammortizzatore"
+      },
       "attributeKeys": [
         "spring_rate"
       ]
@@ -7455,6 +15289,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.derailleur_hanger",
       "labelDe": "Schaltauge",
+      "labels": {
+        "de": "Schaltauge",
+        "en": "Derailleur hanger",
+        "es": "Patilla de cambio",
+        "fr": "Patte de dérailleur",
+        "it": "Forcellino cambio"
+      },
       "attributeKeys": [
         "bike.hanger_standard"
       ]
@@ -7462,6 +15303,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.frame_bearing",
       "labelDe": "Rahmenlager",
+      "labels": {
+        "de": "Rahmenlager",
+        "en": "Frame bearing",
+        "es": "Rodamiento de cuadro",
+        "fr": "Roulement de cadre",
+        "it": "Cuscinetto telaio"
+      },
       "attributeKeys": [
         "position",
         "bike.frame_bearing.position",
@@ -7472,6 +15320,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.headset",
       "labelDe": "Steuersatz",
+      "labels": {
+        "de": "Steuersatz",
+        "en": "Headset",
+        "es": "Dirección",
+        "fr": "Jeu de direction",
+        "it": "Serie sterzo"
+      },
       "attributeKeys": [
         "bike.headset_type",
         "bike.headtube_type",
@@ -7481,6 +15336,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.spacer",
       "labelDe": "Spacer",
+      "labels": {
+        "de": "Spacer",
+        "en": "Spacer",
+        "es": "Spacer",
+        "fr": "Spacer",
+        "it": "Spacer"
+      },
       "attributeKeys": [
         "bike.spacer_diameter",
         "dimensions",
@@ -7490,6 +15352,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.thru_axle",
       "labelDe": "Steckachse",
+      "labels": {
+        "de": "Steckachse",
+        "en": "Thru axle",
+        "es": "Eje pasante",
+        "fr": "Axe traversant",
+        "it": "Perno passante"
+      },
       "attributeKeys": [
         "position.front_rear",
         "axle_standard",
@@ -7501,6 +15370,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.quick_release",
       "labelDe": "Schnellspanner",
+      "labels": {
+        "de": "Schnellspanner",
+        "en": "Quick release",
+        "es": "Cierre rápido",
+        "fr": "Blocage rapide",
+        "it": "Sgancio rapido"
+      },
       "attributeKeys": [
         "position.front_rear",
         "axle_standard",
@@ -7510,6 +15386,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.crank_arms",
       "labelDe": "Kurbelarme",
+      "labels": {
+        "de": "Kurbelarme",
+        "en": "Crank arms",
+        "es": "Bielas",
+        "fr": "Manivelles",
+        "it": "Pedivelle"
+      },
       "attributeKeys": [
         "material",
         "dimensions"
@@ -7518,6 +15401,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.chainring",
       "labelDe": "Kettenblatt",
+      "labels": {
+        "de": "Kettenblatt",
+        "en": "Chainring",
+        "es": "Plato",
+        "fr": "Plateau",
+        "it": "Corona"
+      },
       "attributeKeys": [
         "teeth_count"
       ]
@@ -7525,6 +15415,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bottom_bracket",
       "labelDe": "Tretlager",
+      "labels": {
+        "de": "Tretlager",
+        "en": "Bottom bracket",
+        "es": "Pedalier",
+        "fr": "Boîtier de pédalier",
+        "it": "Movimento centrale"
+      },
       "attributeKeys": [
         "bike.bottom_bracket_standard",
         "bike.bottom_bracket",
@@ -7534,6 +15431,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cassette",
       "labelDe": "Kassette",
+      "labels": {
+        "de": "Kassette",
+        "en": "Cassette",
+        "es": "Casete",
+        "fr": "Cassette",
+        "it": "Cassetta"
+      },
       "attributeKeys": [
         "teeth_count"
       ]
@@ -7541,6 +15445,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.chain",
       "labelDe": "Kette",
+      "labels": {
+        "de": "Kette",
+        "en": "Chain",
+        "es": "Cadena",
+        "fr": "Chaîne",
+        "it": "Catena"
+      },
       "attributeKeys": [
         "dimensions"
       ]
@@ -7548,6 +15459,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.belt",
       "labelDe": "Riemen",
+      "labels": {
+        "de": "Riemen",
+        "en": "Belt",
+        "es": "Correa",
+        "fr": "Courroie",
+        "it": "Cinghia"
+      },
       "attributeKeys": [
         "bike.belt_profile",
         "teeth_count",
@@ -7556,15 +15474,36 @@ export const gearSchema: GearSchema = {
     },
     {
       "key": "bike.pedals",
-      "labelDe": "Pedale"
+      "labelDe": "Pedale",
+      "labels": {
+        "de": "Pedale",
+        "en": "Pedals",
+        "es": "Pedales",
+        "fr": "Pédales",
+        "it": "Pedali"
+      }
     },
     {
       "key": "bike.rear_derailleur",
-      "labelDe": "Schaltwerk"
+      "labelDe": "Schaltwerk",
+      "labels": {
+        "de": "Schaltwerk",
+        "en": "Rear derailleur",
+        "es": "Cambio trasero",
+        "fr": "Dérailleur arrière",
+        "it": "Cambio posteriore"
+      }
     },
     {
       "key": "bike.front_derailleur",
       "labelDe": "Umwerfer",
+      "labels": {
+        "de": "Umwerfer",
+        "en": "Front derailleur",
+        "es": "Desviador delantero",
+        "fr": "Dérailleur avant",
+        "it": "Deragliatore anteriore"
+      },
       "attributeKeys": [
         "bike.front_derailleur_mount"
       ]
@@ -7572,6 +15511,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shift_lever",
       "labelDe": "Schalthebel",
+      "labels": {
+        "de": "Schalthebel",
+        "en": "Shift lever",
+        "es": "Palanca de cambio",
+        "fr": "Levier de vitesses",
+        "it": "Leva cambio"
+      },
       "attributeKeys": [
         "position.left_right",
         "bike.shifting_type",
@@ -7581,6 +15527,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.trigger",
       "labelDe": "Trigger",
+      "labels": {
+        "de": "Trigger",
+        "en": "Trigger",
+        "es": "Trigger",
+        "fr": "Trigger",
+        "it": "Trigger"
+      },
       "attributeKeys": [
         "position.left_right",
         "bike.shifting_type"
@@ -7589,6 +15542,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.jockey_wheels",
       "labelDe": "Schaltröllchen",
+      "labels": {
+        "de": "Schaltröllchen",
+        "en": "Jockey wheels",
+        "es": "Roldanas de cambio",
+        "fr": "Galets de dérailleur",
+        "it": "Rotelline cambio"
+      },
       "attributeKeys": [
         "teeth_count",
         "bike.derailleur_pulley_bearing",
@@ -7598,6 +15558,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.chain_guide",
       "labelDe": "Kettenführung",
+      "labels": {
+        "de": "Kettenführung",
+        "en": "Chain guide",
+        "es": "Guía de cadena",
+        "fr": "Guide-chaîne",
+        "it": "Guidacatena"
+      },
       "attributeKeys": [
         "bike.chain_guide_mount"
       ]
@@ -7605,6 +15572,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bashguard",
       "labelDe": "Bashguard",
+      "labels": {
+        "de": "Bashguard",
+        "en": "Bashguard",
+        "es": "Bashguard",
+        "fr": "Bashguard",
+        "it": "Bashguard"
+      },
       "attributeKeys": [
         "bike.bashguard_mount"
       ]
@@ -7612,6 +15586,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bowden_cable",
       "labelDe": "Bowdenzug",
+      "labels": {
+        "de": "Bowdenzug",
+        "en": "Bowden cable",
+        "es": "Cable Bowden",
+        "fr": "Câble Bowden",
+        "it": "Cavo Bowden"
+      },
       "attributeKeys": [
         "bike.cable_function",
         "bike.axle_length_mm",
@@ -7621,6 +15602,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.cable_housing",
       "labelDe": "Zughülle",
+      "labels": {
+        "de": "Zughülle",
+        "en": "Cable housing",
+        "es": "Funda de cable",
+        "fr": "Gaine de câble",
+        "it": "Guaina cavo"
+      },
       "attributeKeys": [
         "bike.cable_function",
         "bike.cable_housing_diameter_mm",
@@ -7631,6 +15619,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.rim",
       "labelDe": "Felge",
+      "labels": {
+        "de": "Felge",
+        "en": "Rim",
+        "es": "Llanta",
+        "fr": "Jante",
+        "it": "Cerchio"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.wheel_size",
@@ -7641,6 +15636,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.wheel",
       "labelDe": "Laufrad",
+      "labels": {
+        "de": "Laufrad",
+        "en": "Wheel",
+        "es": "Rueda",
+        "fr": "Roue",
+        "it": "Ruota"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.wheel_size"
@@ -7649,6 +15651,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.hub",
       "labelDe": "Nabe",
+      "labels": {
+        "de": "Nabe",
+        "en": "Hub",
+        "es": "Buje",
+        "fr": "Moyeu",
+        "it": "Mozzo"
+      },
       "attributeKeys": [
         "position.front_rear",
         "axle_standard"
@@ -7657,6 +15666,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.freehub_body",
       "labelDe": "Freilaufkörper",
+      "labels": {
+        "de": "Freilaufkörper",
+        "en": "Freehub body",
+        "es": "Núcleo",
+        "fr": "Corps de roue libre",
+        "it": "Corpetto ruota libera"
+      },
       "attributeKeys": [
         "bike.cassette_freehub",
         "bike.freehub_ratchet_description",
@@ -7666,6 +15682,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.spoke",
       "labelDe": "Speichen",
+      "labels": {
+        "de": "Speichen",
+        "en": "Spokes",
+        "es": "Radios",
+        "fr": "Rayons",
+        "it": "Raggi"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.spoke_type",
@@ -7676,6 +15699,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.spoke_nipple",
       "labelDe": "Speichennippel",
+      "labels": {
+        "de": "Speichennippel",
+        "en": "Spoke nipple",
+        "es": "Cabecilla de radio",
+        "fr": "Écrou de rayon",
+        "it": "Nipplo raggio"
+      },
       "attributeKeys": [
         "bike.nipple_material",
         "dimensions",
@@ -7685,6 +15715,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.rim_tape",
       "labelDe": "Felgenband",
+      "labels": {
+        "de": "Felgenband",
+        "en": "Rim tape",
+        "es": "Fondo de llanta",
+        "fr": "Fond de jante",
+        "it": "Nastro cerchio"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.rim_tape_type",
@@ -7695,6 +15732,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.front_tire",
       "labelDe": "Vorderreifen",
+      "labels": {
+        "de": "Vorderreifen",
+        "en": "Front tire",
+        "es": "Neumático delantero",
+        "fr": "Pneu avant",
+        "it": "Pneumatico anteriore"
+      },
       "parentKey": "bike.tire",
       "attributeKeys": [
         "position",
@@ -7704,6 +15748,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.rear_tire",
       "labelDe": "Hinterreifen",
+      "labels": {
+        "de": "Hinterreifen",
+        "en": "Rear tire",
+        "es": "Neumático trasero",
+        "fr": "Pneu arrière",
+        "it": "Pneumatico posteriore"
+      },
       "parentKey": "bike.tire",
       "attributeKeys": [
         "position",
@@ -7713,6 +15764,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.tire",
       "labelDe": "Reifen",
+      "labels": {
+        "de": "Reifen",
+        "en": "Tire",
+        "es": "Neumático",
+        "fr": "Pneu",
+        "it": "Pneumatico"
+      },
       "subtypeKeys": [
         "bike.front_tire",
         "bike.rear_tire"
@@ -7725,6 +15783,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.tube",
       "labelDe": "Schlauch",
+      "labels": {
+        "de": "Schlauch",
+        "en": "Tube",
+        "es": "Cámara",
+        "fr": "Chambre à air",
+        "it": "Camera d'aria"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.wheel_size"
@@ -7733,6 +15798,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.valve",
       "labelDe": "Ventil",
+      "labels": {
+        "de": "Ventil",
+        "en": "Valve",
+        "es": "Válvula",
+        "fr": "Valve",
+        "it": "Valvola"
+      },
       "attributeKeys": [
         "position.front_rear",
         "valve_type",
@@ -7742,6 +15814,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.brake_lever",
       "labelDe": "Bremshebel",
+      "labels": {
+        "de": "Bremshebel",
+        "en": "Brake lever",
+        "es": "Maneta de freno",
+        "fr": "Levier de frein",
+        "it": "Leva freno"
+      },
       "attributeKeys": [
         "position.left_right",
         "brake_actuation"
@@ -7750,6 +15829,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.shift_brake_lever",
       "labelDe": "Schalt-Bremshebel",
+      "labels": {
+        "de": "Schalt-Bremshebel",
+        "en": "Shift/brake lever",
+        "es": "Maneta cambio/freno",
+        "fr": "Levier frein/vitesse",
+        "it": "Leva cambio/freno"
+      },
       "attributeKeys": [
         "position.left_right",
         "brake_actuation",
@@ -7760,6 +15846,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.brake",
       "labelDe": "Bremse",
+      "labels": {
+        "de": "Bremse",
+        "en": "Brake",
+        "es": "Freno",
+        "fr": "Frein",
+        "it": "Freno"
+      },
       "attributeKeys": [
         "position.front_rear",
         "brake_type",
@@ -7769,6 +15862,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.front_brake_pads",
       "labelDe": "Bremsbeläge vorne",
+      "labels": {
+        "de": "Bremsbeläge vorne",
+        "en": "Front brake pads",
+        "es": "Pastillas de freno delanteras",
+        "fr": "Plaquettes avant",
+        "it": "Pastiglie freno anteriori"
+      },
       "parentKey": "bike.brake_pads",
       "attributeKeys": [
         "position"
@@ -7777,6 +15877,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.rear_brake_pads",
       "labelDe": "Bremsbeläge hinten",
+      "labels": {
+        "de": "Bremsbeläge hinten",
+        "en": "Rear brake pads",
+        "es": "Pastillas de freno traseras",
+        "fr": "Plaquettes arrière",
+        "it": "Pastiglie freno posteriori"
+      },
       "parentKey": "bike.brake_pads",
       "attributeKeys": [
         "position"
@@ -7785,6 +15892,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.brake_pads",
       "labelDe": "Bremsbeläge",
+      "labels": {
+        "de": "Bremsbeläge",
+        "en": "Brake pads",
+        "es": "Pastillas de freno",
+        "fr": "Plaquettes de frein",
+        "it": "Pastiglie freno"
+      },
       "subtypeKeys": [
         "bike.front_brake_pads",
         "bike.rear_brake_pads"
@@ -7798,6 +15912,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.brake_rotor",
       "labelDe": "Bremsscheibe",
+      "labels": {
+        "de": "Bremsscheibe",
+        "en": "Brake rotor",
+        "es": "Disco de freno",
+        "fr": "Disque de frein",
+        "it": "Disco freno"
+      },
       "attributeKeys": [
         "position.front_rear",
         "dimensions"
@@ -7806,6 +15927,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.brake_hose",
       "labelDe": "Bremsleitung",
+      "labels": {
+        "de": "Bremsleitung",
+        "en": "Brake hose",
+        "es": "Latiguillo de freno",
+        "fr": "Durite de frein",
+        "it": "Tubo freno"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.brake_line_type",
@@ -7816,6 +15944,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.handlebar",
       "labelDe": "Lenker",
+      "labels": {
+        "de": "Lenker",
+        "en": "Handlebar",
+        "es": "Manillar",
+        "fr": "Cintre",
+        "it": "Manubrio"
+      },
       "attributeKeys": [
         "handlebar_type",
         "material",
@@ -7827,6 +15962,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.stem",
       "labelDe": "Vorbau",
+      "labels": {
+        "de": "Vorbau",
+        "en": "Stem",
+        "es": "Potencia",
+        "fr": "Potence",
+        "it": "Attacco manubrio"
+      },
       "attributeKeys": [
         "dimensions",
         "material"
@@ -7835,6 +15977,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.grips",
       "labelDe": "Griffe",
+      "labels": {
+        "de": "Griffe",
+        "en": "Grips",
+        "es": "Puños",
+        "fr": "Poignées",
+        "it": "Manopole"
+      },
       "attributeKeys": [
         "bike.grips_type",
         "bike.grips_length_mm"
@@ -7843,6 +15992,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.handlebar_tape",
       "labelDe": "Lenkerband",
+      "labels": {
+        "de": "Lenkerband",
+        "en": "Bar tape",
+        "es": "Cinta de manillar",
+        "fr": "Ruban de cintre",
+        "it": "Nastro manubrio"
+      },
       "attributeKeys": [
         "bike.bar_tape_material",
         "bike.bar_tape_thickness_mm"
@@ -7850,15 +16006,36 @@ export const gearSchema: GearSchema = {
     },
     {
       "key": "bike.bar_ends",
-      "labelDe": "Lenkerhörnchen"
+      "labelDe": "Lenkerhörnchen",
+      "labels": {
+        "de": "Lenkerhörnchen",
+        "en": "Bar ends",
+        "es": "Acoples de manillar",
+        "fr": "Embouts de cintre",
+        "it": "Appendici manubrio"
+      }
     },
     {
       "key": "bike.saddle",
-      "labelDe": "Sattel"
+      "labelDe": "Sattel",
+      "labels": {
+        "de": "Sattel",
+        "en": "Saddle",
+        "es": "Sillín",
+        "fr": "Selle",
+        "it": "Sella"
+      }
     },
     {
       "key": "bike.seatpost",
       "labelDe": "Sattelstütze",
+      "labels": {
+        "de": "Sattelstütze",
+        "en": "Seatpost",
+        "es": "Tija",
+        "fr": "Tige de selle",
+        "it": "Reggisella"
+      },
       "attributeKeys": [
         "bike.seatpost_diameter_mm",
         "dimensions",
@@ -7868,6 +16045,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.suspension_seatpost",
       "labelDe": "Gefederte Sattelstütze",
+      "labels": {
+        "de": "Gefederte Sattelstütze",
+        "en": "Suspension seatpost",
+        "es": "Tija con suspensión",
+        "fr": "Tige de selle suspendue",
+        "it": "Reggisella ammortizzato"
+      },
       "attributeKeys": [
         "bike.seatpost_diameter_mm",
         "suspension_travel",
@@ -7879,6 +16063,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.dropper_post",
       "labelDe": "Dropperpost",
+      "labels": {
+        "de": "Dropperpost",
+        "en": "Dropperpost",
+        "es": "Dropperpost",
+        "fr": "Dropperpost",
+        "it": "Dropperpost"
+      },
       "attributeKeys": [
         "bike.seatpost_diameter_mm",
         "bike.dropper_travel_mm",
@@ -7890,6 +16081,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.seat_clamp",
       "labelDe": "Sattelklemme",
+      "labels": {
+        "de": "Sattelklemme",
+        "en": "Sattelklemme",
+        "es": "Sattelklemme",
+        "fr": "Sattelklemme",
+        "it": "Sattelklemme"
+      },
       "attributeKeys": [
         "bike.seat_clamp_diameter_mm",
         "bike.seat_clamp_type"
@@ -7898,6 +16096,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.motor",
       "labelDe": "Motor",
+      "labels": {
+        "de": "Motor",
+        "en": "engine",
+        "es": "motor",
+        "fr": "moteur",
+        "it": "motore"
+      },
       "attributeKeys": [
         "ebike.motor_position",
         "voltage_v",
@@ -7907,6 +16112,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.battery",
       "labelDe": "Akku",
+      "labels": {
+        "de": "Akku",
+        "en": "Battery",
+        "es": "Batería",
+        "fr": "Batterie",
+        "it": "Batteria"
+      },
       "attributeKeys": [
         "ebike.battery_role",
         "voltage_v",
@@ -7915,31 +16127,80 @@ export const gearSchema: GearSchema = {
     },
     {
       "key": "bike.display",
-      "labelDe": "Display"
+      "labelDe": "Display",
+      "labels": {
+        "de": "Display",
+        "en": "Display",
+        "es": "Display",
+        "fr": "Display",
+        "it": "Display"
+      }
     },
     {
       "key": "bike.remote",
-      "labelDe": "Remote-Einheit"
+      "labelDe": "Remote-Einheit",
+      "labels": {
+        "de": "Remote-Einheit",
+        "en": "Remote unit",
+        "es": "Unidad remota",
+        "fr": "Commande déportée",
+        "it": "Unità remota"
+      }
     },
     {
       "key": "bike.speed_sensor",
-      "labelDe": "Geschwindigkeitssensor"
+      "labelDe": "Geschwindigkeitssensor",
+      "labels": {
+        "de": "Geschwindigkeitssensor",
+        "en": "Speed sensor",
+        "es": "Sensor de velocidad",
+        "fr": "Capteur de vitesse",
+        "it": "Sensore velocità"
+      }
     },
     {
       "key": "bike.spoke_magnet",
-      "labelDe": "Speichenmagnet"
+      "labelDe": "Speichenmagnet",
+      "labels": {
+        "de": "Speichenmagnet",
+        "en": "Spoke magnet",
+        "es": "Imán de radio",
+        "fr": "Aimant de rayon",
+        "it": "Magnete raggio"
+      }
     },
     {
       "key": "bike.charge_port",
-      "labelDe": "Ladebuchse"
+      "labelDe": "Ladebuchse",
+      "labels": {
+        "de": "Ladebuchse",
+        "en": "Charge port",
+        "es": "Puerto de carga",
+        "fr": "Port de charge",
+        "it": "Porta di ricarica"
+      }
     },
     {
       "key": "bike.wiring_harness",
-      "labelDe": "Kabelbaum"
+      "labelDe": "Kabelbaum",
+      "labels": {
+        "de": "Kabelbaum",
+        "en": "Wiring harness",
+        "es": "Cableado",
+        "fr": "Faisceau de câbles",
+        "it": "Cablaggio"
+      }
     },
     {
       "key": "bike.shifting_battery",
       "labelDe": "Schaltungsakku",
+      "labels": {
+        "de": "Schaltungsakku",
+        "en": "Shifting battery",
+        "es": "Batería de cambio",
+        "fr": "Batterie de transmission",
+        "it": "Batteria cambio"
+      },
       "attributeKeys": [
         "voltage_v",
         "energy_wh"
@@ -7948,6 +16209,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.lighting_battery",
       "labelDe": "Beleuchtungsakku",
+      "labels": {
+        "de": "Beleuchtungsakku",
+        "en": "Lighting battery",
+        "es": "Batería de luces",
+        "fr": "Batterie d’éclairage",
+        "it": "Batteria luci"
+      },
       "attributeKeys": [
         "voltage_v",
         "energy_wh"
@@ -7956,6 +16224,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.display",
       "labelDe": "E-Bike Display",
+      "labels": {
+        "de": "E-Bike Display",
+        "en": "E-Bike Display",
+        "es": "E-Bike Display",
+        "fr": "E-Bike Display",
+        "it": "E-Bike Display"
+      },
       "attributeKeys": [
         "ebike.display_mount",
         "ebike.display_connection"
@@ -7964,6 +16239,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.remote",
       "labelDe": "E-Bike Remote",
+      "labels": {
+        "de": "E-Bike Remote",
+        "en": "E-Bike Remote",
+        "es": "E-Bike Remote",
+        "fr": "E-Bike Remote",
+        "it": "E-Bike Remote"
+      },
       "attributeKeys": [
         "ebike.remote_position"
       ]
@@ -7971,6 +16253,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.speed_sensor",
       "labelDe": "Geschwindigkeitssensor (E-Bike)",
+      "labels": {
+        "de": "Geschwindigkeitssensor (E-Bike)",
+        "en": "Geschwindigkeitssensor (E-Bike)",
+        "es": "Geschwindigkeitssensor (E-Bike)",
+        "fr": "Geschwindigkeitssensor (E-Bike)",
+        "it": "Geschwindigkeitssensor (E-Bike)"
+      },
       "attributeKeys": [
         "ebike.sensor_position"
       ]
@@ -7978,6 +16267,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.spoke_magnet",
       "labelDe": "Speichenmagnet (E-Bike)",
+      "labels": {
+        "de": "Speichenmagnet (E-Bike)",
+        "en": "Speichenmagnet (E-Bike)",
+        "es": "Speichenmagnet (E-Bike)",
+        "fr": "Speichenmagnet (E-Bike)",
+        "it": "Speichenmagnet (E-Bike)"
+      },
       "attributeKeys": [
         "ebike.spoke_magnet_position"
       ]
@@ -7985,6 +16281,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.charging_port",
       "labelDe": "Ladebuchse (E-Bike)",
+      "labels": {
+        "de": "Ladebuchse (E-Bike)",
+        "en": "Ladebuchse (E-Bike)",
+        "es": "Ladebuchse (E-Bike)",
+        "fr": "Ladebuchse (E-Bike)",
+        "it": "Ladebuchse (E-Bike)"
+      },
       "attributeKeys": [
         "dimensions"
       ]
@@ -7992,6 +16295,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.cable_harness",
       "labelDe": "Kabelbaum (E-Bike)",
+      "labels": {
+        "de": "Kabelbaum (E-Bike)",
+        "en": "Kabelbaum (E-Bike)",
+        "es": "Kabelbaum (E-Bike)",
+        "fr": "Kabelbaum (E-Bike)",
+        "it": "Kabelbaum (E-Bike)"
+      },
       "attributeKeys": [
         "bike.axle_length_mm",
         "dimensions"
@@ -8000,6 +16310,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.shifting_battery",
       "labelDe": "Schaltungsakku (E-Bike)",
+      "labels": {
+        "de": "Schaltungsakku (E-Bike)",
+        "en": "Schaltungsakku (E-Bike)",
+        "es": "Schaltungsakku (E-Bike)",
+        "fr": "Schaltungsakku (E-Bike)",
+        "it": "Schaltungsakku (E-Bike)"
+      },
       "attributeKeys": [
         "voltage_v",
         "energy_wh"
@@ -8008,6 +16325,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "ebike.lighting_battery",
       "labelDe": "Beleuchtungsakku (E-Bike)",
+      "labels": {
+        "de": "Beleuchtungsakku (E-Bike)",
+        "en": "Beleuchtungsakku (E-Bike)",
+        "es": "Beleuchtungsakku (E-Bike)",
+        "fr": "Beleuchtungsakku (E-Bike)",
+        "it": "Beleuchtungsakku (E-Bike)"
+      },
       "attributeKeys": [
         "voltage_v",
         "energy_wh",
@@ -8017,6 +16341,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.rack",
       "labelDe": "Gepäckträger",
+      "labels": {
+        "de": "Gepäckträger",
+        "en": "Rack",
+        "es": "Portaequipajes",
+        "fr": "Porte-bagages",
+        "it": "Portapacchi"
+      },
       "attributeKeys": [
         "bike.rack_position",
         "bike.max_load_kg",
@@ -8026,6 +16357,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.fenders",
       "labelDe": "Schutzbleche",
+      "labels": {
+        "de": "Schutzbleche",
+        "en": "Fenders",
+        "es": "Guardabarros",
+        "fr": "Garde-boue",
+        "it": "Parafanghi"
+      },
       "attributeKeys": [
         "bike.fender_position",
         "bike.fender_width_mm",
@@ -8035,6 +16373,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.kickstand",
       "labelDe": "Ständer",
+      "labels": {
+        "de": "Ständer",
+        "en": "Kickstand",
+        "es": "Pata de cabra",
+        "fr": "Béquille",
+        "it": "Cavalletto"
+      },
       "attributeKeys": [
         "bike.kickstand_type",
         "bike.kickstand_mount",
@@ -8044,6 +16389,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.light",
       "labelDe": "Licht",
+      "labels": {
+        "de": "Licht",
+        "en": "Light",
+        "es": "Luz",
+        "fr": "Éclairage",
+        "it": "Luce"
+      },
       "attributeKeys": [
         "position.front_rear",
         "bike.light_power_source",
@@ -8054,6 +16406,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.dynamo",
       "labelDe": "Dynamo",
+      "labels": {
+        "de": "Dynamo",
+        "en": "Dynamo",
+        "es": "Dynamo",
+        "fr": "Dynamo",
+        "it": "Dynamo"
+      },
       "attributeKeys": [
         "bike.dynamo_type",
         "voltage_v",
@@ -8063,6 +16422,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.bell",
       "labelDe": "Klingel",
+      "labels": {
+        "de": "Klingel",
+        "en": "Bell",
+        "es": "Timbre",
+        "fr": "Sonnette",
+        "it": "Campanello"
+      },
       "attributeKeys": [
         "bike.bell_mount"
       ]
@@ -8070,6 +16436,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.chain_guard",
       "labelDe": "Kettenschutz",
+      "labels": {
+        "de": "Kettenschutz",
+        "en": "Chain guard",
+        "es": "Cubrecadena",
+        "fr": "Carter de chaîne",
+        "it": "Paracatena"
+      },
       "attributeKeys": [
         "bike.chain_guard_type"
       ]
@@ -8077,6 +16450,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.training_wheels",
       "labelDe": "Stützräder",
+      "labels": {
+        "de": "Stützräder",
+        "en": "Training wheels",
+        "es": "Ruedas auxiliares",
+        "fr": "Roulettes",
+        "it": "Rotelle"
+      },
       "attributeKeys": [
         "bike.training_wheel_size_inch",
         "bike.training_wheel_attachment"
@@ -8085,6 +16465,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "bike.tubeless_sealant",
       "labelDe": "Tubeless Milch",
+      "labels": {
+        "de": "Tubeless Milch",
+        "en": "Tubeless Milch",
+        "es": "Tubeless Milch",
+        "fr": "Tubeless Milch",
+        "it": "Tubeless Milch"
+      },
       "attributeKeys": [
         "quantity",
         "volume"
@@ -8093,6 +16480,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "unicycle.fork_frame",
       "labelDe": "Unicycle-Gabel/Rahmen",
+      "labels": {
+        "de": "Unicycle-Gabel/Rahmen",
+        "en": "Unicycle fork/frame",
+        "es": "Horquilla/cuadro de monociclo",
+        "fr": "Fourche/cadre de monocycle",
+        "it": "Forcella/telaio monociclo"
+      },
       "parentKey": "bike.frame",
       "attributeKeys": [
         "bike.wheel_size",
@@ -8103,6 +16497,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "unicycle.hub",
       "labelDe": "Unicycle-Nabe",
+      "labels": {
+        "de": "Unicycle-Nabe",
+        "en": "Unicycle hub",
+        "es": "Buje de monociclo",
+        "fr": "Moyeu de monocycle",
+        "it": "Mozzo monociclo"
+      },
       "parentKey": "bike.hub",
       "attributeKeys": [
         "axle_standard",
@@ -8112,6 +16513,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "tandem.synchro_drive",
       "labelDe": "Tandem-Synchronantrieb",
+      "labels": {
+        "de": "Tandem-Synchronantrieb",
+        "en": "Tandem timing drive",
+        "es": "Transmisión sincronizada de tándem",
+        "fr": "Transmission de synchronisation tandem",
+        "it": "Trasmissione sincronizzata tandem"
+      },
       "attributeKeys": [
         "dimensions"
       ]
@@ -8119,6 +16527,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "cargo.load_platform",
       "labelDe": "Ladefläche",
+      "labels": {
+        "de": "Ladefläche",
+        "en": "Load platform",
+        "es": "Plataforma de carga",
+        "fr": "Plateforme de chargement",
+        "it": "Piattaforma di carico"
+      },
       "attributeKeys": [
         "dimensions",
         "material"
@@ -8127,6 +16542,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "recumbent.seat",
       "labelDe": "Liegerad-Sitz",
+      "labels": {
+        "de": "Liegerad-Sitz",
+        "en": "Recumbent seat",
+        "es": "Asiento reclinado",
+        "fr": "Siège de vélo couché",
+        "it": "Sedile reclinato"
+      },
       "attributeKeys": [
         "dimensions",
         "material"
@@ -8135,6 +16557,13 @@ export const gearSchema: GearSchema = {
     {
       "key": "trike.axle",
       "labelDe": "Trike-Achse",
+      "labels": {
+        "de": "Trike-Achse",
+        "en": "Trike axle",
+        "es": "Eje de triciclo",
+        "fr": "Axe de trike",
+        "it": "Asse trike"
+      },
       "attributeKeys": [
         "axle_standard",
         "dimensions"

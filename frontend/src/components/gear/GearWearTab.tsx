@@ -1,16 +1,21 @@
 import { Link } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 
 import { listServiceEvents, listServiceIntervals } from '@/api/gear'
 import type { Gear, GearComponent, GearServiceEvent, GearServiceInterval } from '@/api/types'
-import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
 import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import type { UnitFormatOptions } from '@/lib/units'
 
 interface GearWearTabProps {
   item: Gear
 }
 
 export default function GearWearTab({ item }: GearWearTabProps) {
+  const { t, i18n } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const components = item.components ?? []
   const intervalQueries = useQueries({
     queries: components.map(component => ({
@@ -46,29 +51,29 @@ export default function GearWearTab({ item }: GearWearTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Nutzungs-Aggregate — Ski / Downhill-MTB / Tourenski care about
-          descent volume, not ascent, so Tiefenmeter sits next to Höhenmeter. */}
+      {/* Usage aggregates: ski, downhill-MTB, and touring ski gear care about
+          descent volume, so descent sits next to ascent. */}
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-          Nutzung gesamt
+          {t('gearPages.wear.totalUsage')}
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <WearCard label="Distanz" value={formatDistance(item.total_distance_m)} />
+          <WearCard label={t('gearPages.metrics.distance')} value={unitFormatters.formatDistance(item.total_distance_m)} />
           <WearCard
-            label="Höhenmeter"
-            value={formatElevationGain(item.total_elevation_gain_m) ?? '—'}
+            label={t('gearPages.metrics.elevationGain')}
+            value={unitFormatters.formatElevationGain(item.total_elevation_gain_m) ?? '—'}
           />
           <WearCard
-            label="Tiefenmeter"
-            value={formatElevationLoss(item.total_elevation_loss_m) ?? '—'}
+            label={t('gearPages.metrics.elevationLoss')}
+            value={unitFormatters.formatElevationLoss(item.total_elevation_loss_m) ?? '—'}
           />
-          <WearCard label="Zeit" value={formatDuration(item.total_time_s)} />
-          <WearCard label="Aktivitäten" value={String(item.total_activities)} />
+          <WearCard label={t('gearPages.metrics.time')} value={formatDuration(item.total_time_s)} />
+          <WearCard label={t('gearPages.metrics.activities')} value={String(item.total_activities)} />
         </div>
       </section>
 
-      <ServiceIntervalOverview itemId={item.id} rows={intervalRows} isLoading={intervalsLoading} />
-      <RecentServiceEvents itemId={item.id} rows={recentEvents} isLoading={eventsLoading} />
+      <ServiceIntervalOverview itemId={item.id} rows={intervalRows} isLoading={intervalsLoading} unitOptions={unitFormatters.options} />
+      <RecentServiceEvents itemId={item.id} rows={recentEvents} isLoading={eventsLoading} locale={i18n.language} />
     </div>
   )
 }
@@ -77,6 +82,7 @@ function ServiceIntervalOverview({
   itemId,
   rows,
   isLoading,
+  unitOptions,
 }: {
   itemId: string
   rows: Array<{
@@ -86,7 +92,9 @@ function ServiceIntervalOverview({
     ratio: number
   }>
   isLoading: boolean
+  unitOptions: UnitFormatOptions
 }) {
+  const { t } = useTranslation()
   return (
     <section
       data-testid="service-interval-overview"
@@ -94,17 +102,17 @@ function ServiceIntervalOverview({
     >
       <div>
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Aktive Wartungsintervalle
+          {t('gearPages.wear.activeIntervals')}
         </h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Nach Fortschritt sortiert. Bearbeiten und Service eintragen erfolgt an der Komponente.
+          {t('gearPages.wear.intervalDescription')}
         </p>
       </div>
 
-      {isLoading && <p className="text-sm text-neutral-400">Lade Wartungsintervalle...</p>}
+      {isLoading && <p className="text-sm text-neutral-400">{t('gearPages.wear.loadingIntervals')}</p>}
 
       {!isLoading && rows.length === 0 && (
-        <p className="text-sm text-neutral-400">Keine aktiven Wartungsintervalle.</p>
+        <p className="text-sm text-neutral-400">{t('gearPages.wear.noIntervals')}</p>
       )}
 
       {rows.length > 0 && (
@@ -124,7 +132,7 @@ function ServiceIntervalOverview({
                       {row.component.name} - {row.interval.name}
                     </div>
                     <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {formatUsageMetricValue(row.interval.metric_key, row.currentValue)} / {formatUsageMetricValue(row.interval.metric_key, row.interval.interval_value)}
+                      {formatUsageMetricValue(row.interval.metric_key, row.currentValue, unitOptions)} / {formatUsageMetricValue(row.interval.metric_key, row.interval.interval_value, unitOptions)}
                     </div>
                   </div>
                   <span className={`rounded px-2 py-0.5 text-xs font-medium ${row.ratio >= 1 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'}`}>
@@ -150,24 +158,27 @@ function RecentServiceEvents({
   itemId,
   rows,
   isLoading,
+  locale,
 }: {
   itemId: string
   rows: Array<{ component: GearComponent; event: GearServiceEvent }>
   isLoading: boolean
+  locale: string
 }) {
+  const { t } = useTranslation()
   return (
     <section
       data-testid="service-events-overview"
       className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 space-y-3"
     >
       <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-        Letzte Serviceeinträge
+        {t('gearPages.wear.recentServiceEvents')}
       </h3>
 
-      {isLoading && <p className="text-sm text-neutral-400">Lade Serviceeinträge...</p>}
+      {isLoading && <p className="text-sm text-neutral-400">{t('gearPages.wear.loadingServiceEvents')}</p>}
 
       {!isLoading && rows.length === 0 && (
-        <p className="text-sm text-neutral-400">Keine Serviceeinträge.</p>
+        <p className="text-sm text-neutral-400">{t('gearPages.wear.noServiceEvents')}</p>
       )}
 
       {rows.length > 0 && (
@@ -183,12 +194,12 @@ function RecentServiceEvents({
                   {component.name}
                 </div>
                 <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {event.description || 'Service eingetragen'}
+                  {event.description || t('gearPages.wear.serviceRecorded')}
                   {event.cost != null && ` - ${event.cost.toFixed(2)} EUR`}
                 </div>
               </div>
               <span className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
-                {formatDateShort(event.performed_at)}
+                {formatDateShort(event.performed_at, locale)}
               </span>
             </Link>
           ))}
@@ -228,10 +239,10 @@ function elapsedDaysSince(value?: string | null): number {
   return Math.max(0, (Date.now() - timestamp) / 86_400_000)
 }
 
-function formatDateShort(dateStr: string): string {
+function formatDateShort(dateStr: string, locale: string): string {
   const date = new Date(dateStr)
   if (Number.isNaN(date.getTime())) return dateStr
-  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return date.toLocaleDateString(locale || undefined, { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 function WearCard({ label, value }: { label: string; value: string }) {

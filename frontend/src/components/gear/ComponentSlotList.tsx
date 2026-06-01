@@ -2,14 +2,9 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import type { GearSchema, GearType, GearTypeSlot } from '@/lib/generatedGearSchema'
 import type { GearComponent } from '@/api/types'
 import ComponentDetailModal from '@/components/gear/ComponentDetailModal'
-
-// i18n-strings — centralized for future extraction
-const STRINGS = {
-  addComponent: '+ Komponente hinzufügen',
-  optional: '(optional)',
-  noComponent: '—',
-  componentArrow: '▸',
-} as const
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { gearSchemaLabel } from '@/lib/gearSchemaHelpers'
+import { useTranslation } from 'react-i18next'
 
 export interface ComponentSlotListProps {
   gearType: GearType
@@ -27,6 +22,14 @@ export default function ComponentSlotList({
   onComponentSave,
   onFreeComponentReorder,
 }: ComponentSlotListProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const strings = {
+    addComponent: t('gearZones.componentSlotList.addComponent'),
+    optional: t('gearZones.componentSlotList.optional'),
+    noComponent: t('gearZones.componentSlotList.noComponent'),
+    componentArrow: t('gearZones.componentSlotList.componentArrow'),
+  }
   const [openSlot, setOpenSlot] = useState<GearTypeSlot | null>(null)
   const [openFreeComponent, setOpenFreeComponent] = useState(false)
   const [editingComponent, setEditingComponent] = useState<GearComponent | null>(null)
@@ -144,18 +147,18 @@ export default function ComponentSlotList({
           >
             <span className="flex items-center gap-2 min-w-0">
               <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100 truncate">
-                {slot.labelDe}
+                {gearSchemaLabel(slot, language)}
               </span>
               {slot.optional && (
                 <span className="text-xs text-neutral-400 dark:text-neutral-500 shrink-0">
-                  {STRINGS.optional}
+                  {strings.optional}
                 </span>
               )}
             </span>
             <span className="flex items-center gap-1 shrink-0 text-sm text-neutral-500 dark:text-neutral-400">
-              {existing ? componentSummary(existing) : STRINGS.noComponent}
+              {existing ? componentSummary(existing) : strings.noComponent}
               <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">
-                {STRINGS.componentArrow}
+                {strings.componentArrow}
               </span>
             </span>
           </button>
@@ -183,7 +186,7 @@ export default function ComponentSlotList({
             {comp.name}
           </span>
           <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">
-            {STRINGS.componentArrow}
+            {strings.componentArrow}
           </span>
         </button>
       ))}
@@ -195,7 +198,7 @@ export default function ComponentSlotList({
         onClick={handleAddFree}
         className="w-full px-3 py-2 text-sm font-medium text-accent-600 dark:text-orange-400 hover:underline text-left cursor-pointer"
       >
-        {STRINGS.addComponent}
+        {strings.addComponent}
       </button>
 
       {/* Slot modal */}

@@ -1,34 +1,34 @@
 domains:
   - key: real_world_gps
-    labels: {de: GPS draußen}
+    labels: {de: GPS draußen, en: Outdoor GPS, es: GPS al aire libre, fr: GPS en extérieur, it: GPS all'aperto}
     status: active
   - key: virtual_route
-    labels: {de: Virtuelle Strecke}
+    labels: {de: Virtuelle Strecke, en: Virtual route, es: Ruta virtual, fr: Parcours virtuel, it: Percorso virtuale}
     status: reserved
 
 segment_types:
   - key: standard
-    labels: {de: Standard}
+    labels: {de: Standard, en: Standard, es: Estándar, fr: Standard, it: Standard}
     active_domains: [real_world_gps]
     compatibility_role: legacy_segment_type
   - key: trail
-    labels: {de: Trail}
+    labels: {de: Trail, en: Trail, es: Trail, fr: Trail, it: Trail}
     active_domains: [real_world_gps]
     compatibility_role: legacy_segment_type
   - key: lap
-    labels: {de: Runde}
+    labels: {de: Runde, en: Lap, es: Vuelta, fr: Tour, it: Giro}
     active_domains: [real_world_gps]
     compatibility_role: legacy_segment_type
   - key: wintersport
-    labels: {de: Winter}
+    labels: {de: Winter, en: Winter, es: Invierno, fr: Hiver, it: Inverno}
     active_domains: [real_world_gps]
     compatibility_role: legacy_segment_type
   - key: wassersport
-    labels: {de: Wassersport}
+    labels: {de: Wassersport, en: Water sports, es: Deportes acuáticos, fr: Sports nautiques, it: Sport acquatici}
     active_domains: [real_world_gps]
     compatibility_role: legacy_segment_type
   - key: lift
-    labels: {de: Lift}
+    labels: {de: Lift, en: Lift, es: Remonte, fr: Remontée, it: Impianto di risalita}
     active_domains: []
     compatibility_role: legacy_lift
 

@@ -30,8 +30,8 @@ type ApplicableSportPredicateEntry struct {
 // honour json tags; the outer type GearDefaultProjectionConfig stores the
 // already-converted sport.Predicate values.
 type gearDefaultProjectionConfigYAML struct {
-	ProjectionSources          []string                          `yaml:"projection_sources"`
-	ApplicableSportPredicates  []gearDefaultsPredicateEntryYAML `yaml:"applicable_sport_predicates"`
+	ProjectionSources         []string                         `yaml:"projection_sources"`
+	ApplicableSportPredicates []gearDefaultsPredicateEntryYAML `yaml:"applicable_sport_predicates"`
 }
 
 type GearDefaultProjectionConfig struct {
@@ -48,6 +48,7 @@ type GearDefaultProjection struct {
 type GearDefaultSportOption struct {
 	SportType string
 	LabelDE   string
+	Labels    LocaleMap
 }
 
 type GearDefaultSourceProjection struct {
@@ -127,6 +128,7 @@ func BuildGearDefaultProjection(taxonomy Taxonomy, sources []SourceAliases, conf
 		option := GearDefaultSportOption{
 			SportType: sport.SportType,
 			LabelDE:   sportLabelDE(sport),
+			Labels:    cloneLocaleMap(sport.Labels),
 		}
 		storageOptions = append(storageOptions, option)
 		if sport.Selectable != nil && *sport.Selectable {

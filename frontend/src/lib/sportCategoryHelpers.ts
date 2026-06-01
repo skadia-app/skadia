@@ -2,10 +2,13 @@ import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { type SegType } from '@/components/segment-editor/constants'
 import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
 import { GENERATED_ACTIVITY_FILTER_PRESETS } from '@/lib/generatedSportFilterProjections'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 export interface UISportCategory {
   key: string
   label: string
+  labels?: LocalizedString
   taxonomyKeys: string[]
   selectionKeys?: string[]
 }
@@ -18,6 +21,7 @@ const GENERATED_WATER_UI_CATEGORIES: UISportCategory[] =
     .map(group => ({
       key: group.key,
       label: group.label,
+      labels: group.labels,
       taxonomyKeys: ['water'],
       selectionKeys: Array.from(new Set(group.leaves.map(leaf => {
         const subType = 'subType' in leaf ? leaf.subType : undefined
@@ -26,17 +30,23 @@ const GENERATED_WATER_UI_CATEGORIES: UISportCategory[] =
     })) ?? []
 
 export const UI_SPORT_CATEGORIES: UISportCategory[] = [
-  { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
-  { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
-  { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },
+  { key: 'run',          label: 'Laufen & Wandern', labels: { de: 'Laufen & Wandern', en: 'Running & hiking', fr: 'Course et randonnée', it: 'Corsa e trekking', es: 'Carrera y senderismo' }, taxonomyKeys: ['run'] },
+  { key: 'bike',         label: 'Rad',              labels: { de: 'Rad', en: 'Bike', fr: 'Vélo', it: 'Bici', es: 'Bici' }, taxonomyKeys: ['bike'] },
+  { key: 'winter',       label: 'Wintersport',      labels: { de: 'Wintersport', en: 'Winter sports', fr: 'Sports d’hiver', it: 'Sport invernali', es: 'Deportes de invierno' }, taxonomyKeys: ['winter'] },
   ...GENERATED_WATER_UI_CATEGORIES,
-  { key: 'sonstige',     label: 'Sonstige',         taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
+  { key: 'sonstige',     label: 'Sonstige',         labels: { de: 'Sonstige', en: 'Other', fr: 'Autre', it: 'Altro', es: 'Otros' }, taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
 ]
 
-export function getVisibleCategories(segType: SegType) {
-  if (segType === 'wintersport') return UI_SPORT_CATEGORIES.filter(c => c.key === 'winter')
-  if (segType === 'wassersport') return UI_SPORT_CATEGORIES.filter(c => c.key.startsWith('water_'))
-  return UI_SPORT_CATEGORIES.filter(c => !c.key.startsWith('water_') && c.key !== 'winter')
+export function getVisibleCategories(segType: SegType, language?: SupportedLanguage) {
+  const categories = segType === 'wintersport'
+    ? UI_SPORT_CATEGORIES.filter(c => c.key === 'winter')
+    : segType === 'wassersport'
+      ? UI_SPORT_CATEGORIES.filter(c => c.key.startsWith('water_'))
+      : UI_SPORT_CATEGORIES.filter(c => !c.key.startsWith('water_') && c.key !== 'winter')
+  return categories.map(category => ({
+    ...category,
+    label: localizeString(category.labels, language) || category.label,
+  }))
 }
 
 export function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly string[]): string[] {

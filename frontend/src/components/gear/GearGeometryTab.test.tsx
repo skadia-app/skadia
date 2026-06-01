@@ -1,10 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import GearGeometryTab from './GearGeometryTab'
 import type { GearSchema } from '@/lib/generatedGearSchema'
 import type { Gear } from '@/api/types'
+import { i18n } from '@/i18n/i18n'
 
 const schemaWithGeometry: GearSchema = {
   assignmentRoles: [],
@@ -53,6 +54,10 @@ function makeGear(overrides: Partial<Gear> = {}): Gear {
 }
 
 describe('GearGeometryTab', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
   it('TestRendersGeometrySubfieldsWhenAttributePresent', () => {
     const gear = makeGear({ attributes: { geometry: { reach_mm: 420, stack_mm: 610 } } })
     render(<GearGeometryTab item={gear} schema={schemaWithGeometry} onChange={vi.fn()} />)
@@ -69,6 +74,31 @@ describe('GearGeometryTab', () => {
 
     expect(screen.getByLabelText('Reach (mm)')).toBeInTheDocument()
     expect(screen.getByLabelText('Stack (mm)')).toBeInTheDocument()
+  })
+
+  it('uses localized schema labels when available', async () => {
+    await i18n.changeLanguage('en')
+    const gear = makeGear({ attributes: {} })
+    const schema: GearSchema = {
+      ...schemaWithGeometry,
+      attributes: [
+        {
+          key: 'bike.geometry',
+          labelDe: 'Geometrie',
+          labels: { de: 'Geometrie', en: 'Geometry' },
+          valueType: 'geometry',
+          subfields: [
+            { key: 'reach_mm', labelDe: 'Reach (mm)', labels: { de: 'Reach (mm)', en: 'Reach' }, valueType: 'number' },
+          ],
+        },
+      ],
+    }
+
+    render(<GearGeometryTab item={gear} schema={schema} onChange={vi.fn()} />)
+
+    expect(screen.getByText('Geometry')).toBeInTheDocument()
+    expect(screen.getByLabelText('Reach')).toBeInTheDocument()
+    expect(screen.queryByText('Geometrie')).not.toBeInTheDocument()
   })
 
   it('renders nothing when gear type has no geometry attribute', () => {

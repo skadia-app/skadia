@@ -1,83 +1,83 @@
 tuple_selectors:
   - key: condition_sport_tuple
-    labels: {de: Sportauswahl}
+    labels: {de: Sportauswahl, en: Sport selection, es: Selección de deporte, fr: Sélection du sport, it: Selezione sport}
     field: sport_tuple
     operators: [in]
     source: selectable_sport_tuples
   - key: action_set_sport_type
-    labels: {de: Sportart setzen}
+    labels: {de: Sportart setzen, en: Set sport type, es: Definir tipo de deporte, fr: Définir le type de sport, it: Imposta tipo di sport}
     action: set_sport_type
     source: selectable_sport_tuples
 
 trait_conditions:
   - key: sport_environment
-    labels: {de: Umgebung}
+    labels: {de: Umgebung, en: Environment, es: Entorno, fr: Environnement, it: Ambiente}
     field: sport_environment
     operators: [in]
     source: traits.environments
     option_labels:
-      air: {de: Luft}
-      generic: {de: Allgemein}
-      ice: {de: Eis}
-      indoor: {de: Indoor}
-      land: {de: Land}
-      snow: {de: Schnee}
-      water: {de: Wasser}
+      air: {de: Luft, en: Air, es: Aire, fr: Air, it: Aria}
+      generic: {de: Allgemein, en: General, es: General, fr: Général, it: Generale}
+      ice: {de: Eis, en: Ice, es: Hielo, fr: Glace, it: Ghiaccio}
+      indoor: {de: Indoor, en: Indoor, es: Indoor, fr: Indoor, it: Indoor}
+      land: {de: Land, en: Land, es: Tierra, fr: Terre, it: Terra}
+      snow: {de: Schnee, en: Snow, es: Nieve, fr: Neige, it: Neve}
+      water: {de: Wasser, en: Water, es: Agua, fr: Eau, it: Acqua}
   - key: sport_equipment_family
-    labels: {de: Ausrüstungsart}
+    labels: {de: Ausrüstungsart, en: Equipment type, es: Tipo de equipamiento, fr: Type d'équipement, it: Tipo di attrezzatura}
     field: sport_equipment_family
     operators: [in]
     source: traits.equipment_families
     option_labels:
-      aircraft: {de: Fluggerät}
-      animal: {de: Tier}
-      ball: {de: Ball}
-      bike: {de: Rad}
-      board: {de: Board}
-      boat: {de: Boot}
-      breathing_gear: {de: Atemausrüstung}
-      climbing_gear: {de: Kletterausrüstung}
-      disc: {de: Scheibe}
-      fishing_gear: {de: Angelausrüstung}
-      generic: {de: Allgemein}
-      machine: {de: Gerät}
-      paddle: {de: Paddel}
-      racket: {de: Schläger}
-      rope: {de: Seil}
-      sail: {de: Segel}
-      skate: {de: Skates}
-      ski: {de: Ski}
-      sled: {de: Schlitten}
-      snowboard: {de: Snowboard}
-      stick: {de: Stock}
-      vehicle: {de: Fahrzeug}
-      weapon: {de: Waffe}
-      weights: {de: Gewichte}
-      wheelchair: {de: Rollstuhl}
+      aircraft: {de: Fluggerät, en: Aircraft, es: Aeronave, fr: Aéronef, it: Aeromobile}
+      animal: {de: Tier, en: Animal, es: Animal, fr: Animal, it: Animale}
+      ball: {de: Ball, en: Ball, es: Balón, fr: Ballon, it: Palla}
+      bike: {de: Rad, en: Bike, es: Bicicleta, fr: Vélo, it: Bici}
+      board: {de: Board, en: Board, es: Tabla, fr: Planche, it: Tavola}
+      boat: {de: Boot, en: Boat, es: Barco, fr: Bateau, it: Barca}
+      breathing_gear: {de: Atemausrüstung, en: Breathing gear, es: Equipo de respiración, fr: Équipement respiratoire, it: Attrezzatura respiratoria}
+      climbing_gear: {de: Kletterausrüstung, en: Climbing gear, es: Equipo de escalada, fr: Équipement d'escalade, it: Attrezzatura da arrampicata}
+      disc: {de: Scheibe, en: Disc, es: Disco, fr: Disque, it: Disco}
+      fishing_gear: {de: Angelausrüstung, en: Fishing gear, es: Equipo de pesca, fr: Matériel de pêche, it: Attrezzatura da pesca}
+      generic: {de: Allgemein, en: General, es: General, fr: Général, it: Generale}
+      machine: {de: Gerät, en: Machine, es: Máquina, fr: Machine, it: Macchina}
+      paddle: {de: Paddel, en: Paddle, es: Pala, fr: Pagaie, it: Pagaia}
+      racket: {de: Schläger, en: Racket, es: Raqueta, fr: Raquette, it: Racchetta}
+      rope: {de: Seil, en: Rope, es: Cuerda, fr: Corde, it: Corda}
+      sail: {de: Segel, en: Sail, es: Vela, fr: Voile, it: Vela}
+      skate: {de: Skates, en: Skates, es: Patines, fr: Patins, it: Pattini}
+      ski: {de: Ski, en: Ski, es: Esquí, fr: Ski, it: Sci}
+      sled: {de: Schlitten, en: Sled, es: Trineo, fr: Luge, it: Slitta}
+      snowboard: {de: Snowboard, en: Snowboard, es: Snowboard, fr: Snowboard, it: Snowboard}
+      stick: {de: Stock, en: Stick, es: Bastón, fr: Bâton, it: Bastone}
+      vehicle: {de: Fahrzeug, en: Vehicle, es: Vehículo, fr: Véhicule, it: Veicolo}
+      weapon: {de: Waffe, en: Weapon, es: Arma, fr: Arme, it: Arma}
+      weights: {de: Gewichte, en: Weights, es: Pesas, fr: Poids, it: Pesi}
+      wheelchair: {de: Rollstuhl, en: Wheelchair, es: Silla de ruedas, fr: Fauteuil roulant, it: Sedia a rotelle}
   - key: sport_movement_family
-    labels: {de: Bewegungsart}
+    labels: {de: Bewegungsart, en: Movement type, es: Tipo de movimiento, fr: Type de mouvement, it: Tipo di movimento}
     field: sport_movement_family
     operators: [in]
     source: traits.movement_families
     option_labels:
-      climb: {de: Klettern}
-      combat: {de: Kampfsport}
-      dance: {de: Tanzen}
-      drive: {de: Fahren}
-      fish: {de: Angeln}
-      fly: {de: Fliegen}
-      generic: {de: Allgemein}
-      glide: {de: Gleiten}
-      lift: {de: Lift}
-      mind_body: {de: Mind-Body}
-      multi: {de: Multisport}
-      paddle: {de: Paddeln}
-      pedal: {de: Pedalieren}
-      ride: {de: Reiten}
-      roll: {de: Rollen}
-      row: {de: Rudern}
-      run: {de: Laufen}
-      strike: {de: Schlagen}
-      swim: {de: Schwimmen}
-      throw: {de: Werfen}
-      walk: {de: Gehen}
+      climb: {de: Klettern, en: Climbing, es: Escalada, fr: Escalade, it: Arrampicata}
+      combat: {de: Kampfsport, en: Combat sport, es: Deporte de combate, fr: Sport de combat, it: Sport da combattimento}
+      dance: {de: Tanzen, en: Dancing, es: Baile, fr: Danse, it: Danza}
+      drive: {de: Fahren, en: Driving, es: Conducción, fr: Conduite, it: Guida}
+      fish: {de: Angeln, en: Fishing, es: Pesca, fr: Pêche, it: Pesca}
+      fly: {de: Fliegen, en: Flying, es: Vuelo, fr: Vol, it: Volo}
+      generic: {de: Allgemein, en: General, es: General, fr: Général, it: Generale}
+      glide: {de: Gleiten, en: Gliding, es: Deslizamiento, fr: Glisse, it: Scivolamento}
+      lift: {de: Lift, en: Lift, es: Remonte, fr: Remontée, it: Impianto di risalita}
+      mind_body: {de: Mind-Body, en: Mind-body, es: Mente-cuerpo, fr: Corps-esprit, it: Mente-corpo}
+      multi: {de: Multisport, en: Multisport, es: Multideporte, fr: Multisport, it: Multisport}
+      paddle: {de: Paddeln, en: Paddling, es: Remo con pala, fr: Pagaie, it: Pagaiata}
+      pedal: {de: Pedalieren, en: Pedaling, es: Pedaleo, fr: Pédalage, it: Pedalata}
+      ride: {de: Reiten, en: Riding, es: Equitación, fr: Équitation, it: Equitazione}
+      roll: {de: Rollen, en: Rolling, es: Rodar, fr: Roulement, it: Rotolamento}
+      row: {de: Rudern, en: Rowing, es: Remo, fr: Aviron, it: Canottaggio}
+      run: {de: Laufen, en: Running, es: Carrera, fr: Course à pied, it: Corsa}
+      strike: {de: Schlagen, en: Striking, es: Golpeo, fr: Frappe, it: Colpo}
+      swim: {de: Schwimmen, en: Swimming, es: Natación, fr: Natation, it: Nuoto}
+      throw: {de: Werfen, en: Throwing, es: Lanzamiento, fr: Lancer, it: Lancio}
+      walk: {de: Gehen, en: Walking, es: Caminata, fr: Marche, it: Camminata}

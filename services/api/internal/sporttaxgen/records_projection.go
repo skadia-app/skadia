@@ -64,13 +64,17 @@ type RecordMainCategory struct {
 }
 
 type RecordSubFilter struct {
-	Label        string   `yaml:"label"`
-	RecordGroups []string `yaml:"record_groups"`
+	Label        string    `yaml:"label"`
+	Key          string    `yaml:"key"`
+	Labels       LocaleMap `yaml:"labels"`
+	RecordGroups []string  `yaml:"record_groups"`
 }
 
 type RecordPowerCurve struct {
-	Label        string   `yaml:"label"`
-	RecordGroups []string `yaml:"record_groups"`
+	Label        string    `yaml:"label"`
+	Key          string    `yaml:"key"`
+	Labels       LocaleMap `yaml:"labels"`
+	RecordGroups []string  `yaml:"record_groups"`
 }
 
 type ExpandedRecordsProjection struct {
@@ -396,8 +400,11 @@ func validateRecordMainCategories(categories []RecordMainCategory, groups map[st
 			}
 		}
 		for j, filter := range category.SubFilters {
-			if filter.Label == "" {
-				return fmt.Errorf("main_category %q sub_filters[%d]: missing label", category.Key, j)
+			if filter.Key == "" {
+				return fmt.Errorf("main_category %q sub_filters[%d]: missing key", category.Key, j)
+			}
+			if filter.Label == "" && filter.Labels["de"] == "" {
+				return fmt.Errorf("main_category %q sub_filters[%d]: missing labels.de", category.Key, j)
 			}
 			if len(filter.RecordGroups) == 0 {
 				return fmt.Errorf("main_category %q sub_filters[%d]: missing record_groups", category.Key, j)
@@ -409,8 +416,11 @@ func validateRecordMainCategories(categories []RecordMainCategory, groups map[st
 			}
 		}
 		if category.PowerCurve != nil {
-			if category.PowerCurve.Label == "" {
-				return fmt.Errorf("main_category %q power_curve: missing label", category.Key)
+			if category.PowerCurve.Key == "" {
+				return fmt.Errorf("main_category %q power_curve: missing key", category.Key)
+			}
+			if category.PowerCurve.Label == "" && category.PowerCurve.Labels["de"] == "" {
+				return fmt.Errorf("main_category %q power_curve: missing labels.de", category.Key)
 			}
 			if len(category.PowerCurve.RecordGroups) == 0 {
 				return fmt.Errorf("main_category %q power_curve: missing record_groups", category.Key)
@@ -486,8 +496,14 @@ func cloneBoolPtr(value *bool) *bool {
 func cloneRecordSubFilters(filters []RecordSubFilter) []RecordSubFilter {
 	out := make([]RecordSubFilter, 0, len(filters))
 	for _, filter := range filters {
+		labels := cloneLocaleMap(filter.Labels)
+		if labels["de"] == "" {
+			labels["de"] = filter.Label
+		}
 		out = append(out, RecordSubFilter{
+			Key:          filter.Key,
 			Label:        filter.Label,
+			Labels:       labels,
 			RecordGroups: append([]string(nil), filter.RecordGroups...),
 		})
 	}
@@ -498,8 +514,14 @@ func cloneRecordPowerCurve(curve *RecordPowerCurve) *RecordPowerCurve {
 	if curve == nil {
 		return nil
 	}
+	labels := cloneLocaleMap(curve.Labels)
+	if labels["de"] == "" {
+		labels["de"] = curve.Label
+	}
 	return &RecordPowerCurve{
+		Key:          curve.Key,
 		Label:        curve.Label,
+		Labels:       labels,
 		RecordGroups: append([]string(nil), curve.RecordGroups...),
 	}
 }

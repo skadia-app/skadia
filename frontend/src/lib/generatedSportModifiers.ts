@@ -8,6 +8,7 @@ export const GENERATED_SPORT_MODIFIERS = [
   {
     key: 'is_electric',
     label: 'E-Antrieb',
+    labels: { de: 'E-Antrieb', en: 'Electric assist', es: 'Asistencia eléctrica', fr: 'Assistance électrique', it: 'Assistenza elettrica' },
     goField: 'IsElectric',
     tsField: 'isElectric',
     jsonKey: 'is_electric',
@@ -23,6 +24,7 @@ export const GENERATED_SPORT_MODIFIERS = [
   {
     key: 'is_indoor',
     label: 'Indoor',
+    labels: { de: 'Indoor', en: 'Indoor', es: 'Indoor', fr: 'Indoor', it: 'Indoor' },
     goField: 'IsIndoor',
     tsField: 'isIndoor',
     jsonKey: 'is_indoor',
@@ -36,6 +38,7 @@ export const GENERATED_SPORT_MODIFIERS = [
   {
     key: 'is_virtual',
     label: 'Virtuell',
+    labels: { de: 'Virtuell', en: 'Virtual', es: 'Virtual', fr: 'Virtuel', it: 'Virtuale' },
     goField: 'IsVirtual',
     tsField: 'isVirtual',
     jsonKey: 'is_virtual',
@@ -49,6 +52,7 @@ export const GENERATED_SPORT_MODIFIERS = [
   {
     key: 'is_commute',
     label: 'Pendeln',
+    labels: { de: 'Pendeln', en: 'Commute', es: 'Desplazamiento diario', fr: 'Trajet domicile-travail', it: 'Pendolarismo' },
     goField: 'IsCommute',
     tsField: 'isCommute',
     jsonKey: 'is_commute',

@@ -19,15 +19,25 @@ func RenderTS(schema *Schema) (string, error) {
   value: string;
 }
 
+export interface LocalizedString {
+  de: string;
+  en?: string;
+  fr?: string;
+  it?: string;
+  es?: string;
+}
+
 export interface AssignmentRole {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   uniquePerActivity: boolean;
 }
 
 export interface OptionValue {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
 }
 
 export interface OptionSet {
@@ -38,6 +48,7 @@ export interface OptionSet {
 export interface UnitGroup {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   allowedUnits: string[];
   canonicalUnit?: string;
 }
@@ -54,6 +65,7 @@ export interface Condition {
 export interface Attribute {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   valueType: string;
   optionSetKey?: string;
   subfields?: Attribute[];
@@ -69,6 +81,7 @@ export interface Attribute {
 export interface GearTypeSlot {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   componentType: string;
   optional?: boolean;
 }
@@ -85,6 +98,7 @@ export interface RecommendedConstraints {
 export interface GearType {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   scope: string;
   parentKey?: string;
   defaultAssignmentRoleKey: string;
@@ -97,6 +111,7 @@ export interface GearType {
 export interface ComponentType {
   key: string;
   labelDe: string;
+  labels?: LocalizedString;
   parentKey?: string;
   subtypeKeys?: string[];
   attributeKeys?: string[];
@@ -119,18 +134,20 @@ export interface GearSchema {
 		Value string `json:"value"`
 	}
 	type tsOptionValue struct {
-		Key     string `json:"key"`
-		LabelDe string `json:"labelDe"`
+		Key     string    `json:"key"`
+		LabelDe string    `json:"labelDe"`
+		Labels  LocaleMap `json:"labels"`
 	}
 	type tsOptionSet struct {
 		Key     string          `json:"key"`
 		Options []tsOptionValue `json:"options"`
 	}
 	type tsUnitGroup struct {
-		Key           string   `json:"key"`
-		LabelDe       string   `json:"labelDe"`
-		AllowedUnits  []string `json:"allowedUnits"`
-		CanonicalUnit string   `json:"canonicalUnit,omitempty"`
+		Key           string    `json:"key"`
+		LabelDe       string    `json:"labelDe"`
+		Labels        LocaleMap `json:"labels"`
+		AllowedUnits  []string  `json:"allowedUnits"`
+		CanonicalUnit string    `json:"canonicalUnit,omitempty"`
 	}
 	type tsCondition struct {
 		Ref    string `json:"ref"`
@@ -141,6 +158,7 @@ export interface GearSchema {
 	type tsAttribute struct {
 		Key               string          `json:"key"`
 		LabelDe           string          `json:"labelDe"`
+		Labels            LocaleMap       `json:"labels"`
 		ValueType         string          `json:"valueType"`
 		OptionSetKey      string          `json:"optionSetKey,omitempty"`
 		Subfields         []tsAttribute   `json:"subfields,omitempty"`
@@ -153,15 +171,17 @@ export interface GearSchema {
 		KombiGroup        string          `json:"kombiGroup,omitempty"`
 	}
 	type tsAssignmentRole struct {
-		Key               string `json:"key"`
-		LabelDe           string `json:"labelDe"`
-		UniquePerActivity bool   `json:"uniquePerActivity"`
+		Key               string    `json:"key"`
+		LabelDe           string    `json:"labelDe"`
+		Labels            LocaleMap `json:"labels"`
+		UniquePerActivity bool      `json:"uniquePerActivity"`
 	}
 	type tsGearTypeSlot struct {
-		Key           string `json:"key"`
-		LabelDe       string `json:"labelDe"`
-		ComponentType string `json:"componentType"`
-		Optional      bool   `json:"optional,omitempty"`
+		Key           string    `json:"key"`
+		LabelDe       string    `json:"labelDe"`
+		Labels        LocaleMap `json:"labels"`
+		ComponentType string    `json:"componentType"`
+		Optional      bool      `json:"optional,omitempty"`
 	}
 	type tsRecommendedAttribute struct {
 		Key    string `json:"key"`
@@ -173,6 +193,7 @@ export interface GearSchema {
 	type tsGearType struct {
 		Key                      string                    `json:"key"`
 		LabelDe                  string                    `json:"labelDe"`
+		Labels                   LocaleMap                 `json:"labels"`
 		Scope                    string                    `json:"scope"`
 		ParentKey                string                    `json:"parentKey,omitempty"`
 		DefaultAssignmentRoleKey string                    `json:"defaultAssignmentRoleKey"`
@@ -182,11 +203,12 @@ export interface GearSchema {
 		Recommended              *tsRecommendedConstraints `json:"recommended,omitempty"`
 	}
 	type tsComponentType struct {
-		Key           string   `json:"key"`
-		LabelDe       string   `json:"labelDe"`
-		ParentKey     string   `json:"parentKey,omitempty"`
-		SubtypeKeys   []string `json:"subtypeKeys,omitempty"`
-		AttributeKeys []string `json:"attributeKeys,omitempty"`
+		Key           string    `json:"key"`
+		LabelDe       string    `json:"labelDe"`
+		Labels        LocaleMap `json:"labels"`
+		ParentKey     string    `json:"parentKey,omitempty"`
+		SubtypeKeys   []string  `json:"subtypeKeys,omitempty"`
+		AttributeKeys []string  `json:"attributeKeys,omitempty"`
 	}
 	type tsGearSchema struct {
 		AssignmentRoles []tsAssignmentRole `json:"assignmentRoles"`
@@ -213,6 +235,7 @@ export interface GearSchema {
 		out := tsAttribute{
 			Key:               a.Key,
 			LabelDe:           a.LabelDE,
+			Labels:            labelsFor(a.LabelDE, a.Labels),
 			ValueType:         a.ValueType,
 			OptionSetKey:      a.OptionSetKey,
 			UnitGroup:         a.UnitGroup,
@@ -236,13 +259,14 @@ export interface GearSchema {
 		data.AssignmentRoles = append(data.AssignmentRoles, tsAssignmentRole{
 			Key:               r.Key,
 			LabelDe:           r.LabelDE,
+			Labels:            labelsFor(r.LabelDE, r.Labels),
 			UniquePerActivity: r.UniquePerActivity,
 		})
 	}
 	for _, os := range schema.OptionSets {
 		opts := make([]tsOptionValue, len(os.Options))
 		for i, opt := range os.Options {
-			opts[i] = tsOptionValue{Key: opt.Key, LabelDe: opt.LabelDE}
+			opts[i] = tsOptionValue{Key: opt.Key, LabelDe: opt.LabelDE, Labels: labelsFor(opt.LabelDE, opt.Labels)}
 		}
 		data.OptionSets = append(data.OptionSets, tsOptionSet{Key: os.Key, Options: opts})
 	}
@@ -250,6 +274,7 @@ export interface GearSchema {
 		data.UnitGroups = append(data.UnitGroups, tsUnitGroup{
 			Key:           ug.Key,
 			LabelDe:       ug.LabelDE,
+			Labels:        labelsFor(ug.LabelDE, ug.Labels),
 			AllowedUnits:  ug.AllowedUnits,
 			CanonicalUnit: ug.CanonicalUnit,
 		})
@@ -269,6 +294,7 @@ export interface GearSchema {
 		tsGT := tsGearType{
 			Key:                      gt.Key,
 			LabelDe:                  gt.LabelDE,
+			Labels:                   labelsFor(gt.LabelDE, gt.Labels),
 			Scope:                    gt.Scope,
 			ParentKey:                gt.ParentKey,
 			DefaultAssignmentRoleKey: gt.DefaultAssignmentRoleKey,
@@ -279,6 +305,7 @@ export interface GearSchema {
 			tsGT.Slots = append(tsGT.Slots, tsGearTypeSlot{
 				Key:           s.Key,
 				LabelDe:       s.LabelDE,
+				Labels:        labelsFor(s.LabelDE, s.Labels),
 				ComponentType: s.ComponentType,
 				Optional:      s.Optional,
 			})
@@ -299,6 +326,7 @@ export interface GearSchema {
 		data.ComponentTypes = append(data.ComponentTypes, tsComponentType{
 			Key:           ct.Key,
 			LabelDe:       ct.LabelDE,
+			Labels:        labelsFor(ct.LabelDE, ct.Labels),
 			ParentKey:     ct.ParentKey,
 			SubtypeKeys:   ct.SubtypeKeys,
 			AttributeKeys: ct.AttributeKeys,
@@ -313,4 +341,17 @@ export interface GearSchema {
 	fmt.Fprintf(&buf, "export const gearSchema: GearSchema = %s;\n", jsonBytes)
 
 	return buf.String(), nil
+}
+
+func labelsFor(labelDE string, labels LocaleMap) LocaleMap {
+	out := make(LocaleMap, len(labels)+1)
+	for key, value := range labels {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if out["de"] == "" {
+		out["de"] = labelDE
+	}
+	return out
 }

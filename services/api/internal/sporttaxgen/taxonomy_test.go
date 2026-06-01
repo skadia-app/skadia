@@ -602,6 +602,44 @@ func TestRepositorySportsYAMLLoads(t *testing.T) {
 	}
 }
 
+func TestRepositorySportsYAMLHasCompleteDisplayLocales(t *testing.T) {
+	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer file.Close()
+
+	taxonomy, err := LoadTaxonomy(file)
+	if err != nil {
+		t.Fatalf("LoadTaxonomy(sports.yaml): %v", err)
+	}
+
+	requiredLocales := []string{"de", "en", "fr", "it", "es"}
+	var missing []string
+	requireLocales := func(path string, values LocaleMap) {
+		for _, locale := range requiredLocales {
+			if strings.TrimSpace(values[locale]) == "" {
+				missing = append(missing, path+"."+locale)
+			}
+		}
+	}
+
+	for _, sport := range taxonomy.Sports {
+		requireLocales("sports."+sport.SportType+".labels", sport.Labels)
+		requireLocales("sports."+sport.SportType+".auto_titles", sport.AutoTitles)
+		for _, subType := range sport.SubTypes {
+			base := "sports." + sport.SportType + ".sub_types." + subType.SubType
+			requireLocales(base+".labels", subType.Labels)
+			requireLocales(base+".details", subType.Details)
+			requireLocales(base+".auto_titles", subType.AutoTitles)
+		}
+	}
+
+	if len(missing) > 0 {
+		t.Fatalf("sports.yaml is missing display locales:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
 func TestTaxonomySchemaMentionsValidatedFields(t *testing.T) {
 	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/taxonomy.schema.json")
 	if err != nil {

@@ -71,5 +71,7 @@ describe('segment projection helpers', () => {
   it('reads segment type labels from generated projection metadata', () => {
     expect(segmentTypeLabel('wintersport')).toBe('Winter')
     expect(segmentTypeLabel('lift')).toBe('Lift')
+    expect(segmentTypeLabel('wassersport', 'en')).toBe('Water sports')
+    expect(segmentTypeLabel('lap', 'es')).toBe('Vuelta')
   })
 })

@@ -25,6 +25,24 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 )
 
+type tagResponse struct {
+	model.Tag
+	DisplayKey     *string `json:"display_key,omitempty"`
+	DescriptionKey *string `json:"description_key,omitempty"`
+}
+
+func tagResponseFromModel(tag model.Tag) tagResponse {
+	return tagResponse{Tag: tag}
+}
+
+func tagResponsesFromModels(tags []model.Tag) []tagResponse {
+	responses := make([]tagResponse, len(tags))
+	for i := range tags {
+		responses[i] = tagResponseFromModel(tags[i])
+	}
+	return responses
+}
+
 // ListTags returns all tags for the authenticated user.
 func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
@@ -39,7 +57,7 @@ func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tagResponsesFromModels(tags))
 }
 
 // CreateTag creates a new tag for the authenticated user.
@@ -87,7 +105,7 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, tag)
+	httputil.WriteJSON(w, http.StatusCreated, tagResponseFromModel(*tag))
 }
 
 // UpdateTag updates an existing tag.
@@ -224,7 +242,7 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tag)
+	httputil.WriteJSON(w, http.StatusOK, tagResponseFromModel(*tag))
 }
 
 // DeleteTag deletes a tag.
@@ -296,7 +314,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update tag", r.URL.Path)
 			return
 		}
-		httputil.WriteJSON(w, http.StatusOK, updated)
+		httputil.WriteJSON(w, http.StatusOK, tagResponseFromModel(*updated))
 		return
 	}
 
@@ -423,7 +441,7 @@ func (h *Handler) UploadTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, tagResponseFromModel(*updated))
 }
 
 // ClearTagCoverImage löscht das Cover-Bild und den Thumbnail eines Tags.
@@ -471,7 +489,7 @@ func (h *Handler) ClearTagCoverImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, tagResponseFromModel(*updated))
 }
 
 // ServeTagCover serves the tag cover image (thumbnail preferred, original fallback).
@@ -963,7 +981,7 @@ func (h *Handler) MergeTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tag)
+	httputil.WriteJSON(w, http.StatusOK, tagResponseFromModel(*tag))
 }
 
 // SyncTagLocation sets location_lat/location_lng on all activities linked to this tag,
@@ -1196,5 +1214,5 @@ func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, tags)
+	httputil.WriteJSON(w, http.StatusOK, tagResponsesFromModels(tags))
 }
