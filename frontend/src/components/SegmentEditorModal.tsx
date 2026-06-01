@@ -1,10 +1,9 @@
 // frontend/src/components/SegmentEditorModal.tsx
-// Task 8.4e: Save-Mutation + Lap-Mode + Enrichment-Wiring (complete)
-// Polish batch: A1-A4 (map/track), B1-B4 (top-bar), D1-D2 (bottom-bar chart)
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import maplibregl, { type RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
@@ -34,7 +33,8 @@ import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
 import { createCheckpointCourse, createSegment, suggestSegmentEnrichment, type CheckpointControl, type CheckpointControlGeometryShape } from '@/api/segments'
 import { useToast } from '@/lib/toast'
-import { SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { SPORT_DEFS, sportLabel } from '@/lib/sportTaxonomy'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { buildNewSegmentSportPatch } from './segment-editor/segmentSave'
 
 export interface SegmentEditorModalProps {
@@ -158,7 +158,10 @@ export function checkpointControlCenter(control: CheckpointControl): [number, nu
   return [lng / coords.length, lat / coords.length]
 }
 
-export function buildCheckpointControlPreviewData(controls: CheckpointControl[]): GeoJSON.FeatureCollection {
+export function buildCheckpointControlPreviewData(
+  controls: CheckpointControl[],
+  labels: { start: string; finish: string } = { start: 'Start', finish: 'Finish' },
+): GeoJSON.FeatureCollection {
   const centers = controls.map(control => checkpointControlCenter(control))
   const connectorCoords = centers.filter((coord): coord is [number, number] => coord !== null)
   const features: GeoJSON.Feature[] = []
@@ -205,7 +208,7 @@ export function buildCheckpointControlPreviewData(controls: CheckpointControl[])
       type: 'Feature',
       properties: {
         kind: 'control',
-        label: idx === 0 ? 'Start' : idx === controls.length - 1 ? 'Ziel' : String(idx + 1),
+        label: idx === 0 ? labels.start : idx === controls.length - 1 ? labels.finish : String(idx + 1),
       },
       geometry: { type: 'Point', coordinates: coord },
     })
@@ -227,12 +230,14 @@ function normalizeCheckpointControlOrder(controls: CheckpointControl[]): Checkpo
 export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const { mode, trackPoints = [], sourceActivityId, onSuccess, onClose } = props
   const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const { addToast } = useToast()
 
   // ── All sport types for the sidebar selector ──────────────────────────────
   const allSportTypes = useMemo(
-    () => SPORT_DEFS.map(s => ({ key: s.sportType, label: s.label, category: s.categoryKey })),
-    [],
+    () => SPORT_DEFS.map(s => ({ key: s.sportType, label: sportLabel(s.sportType, undefined, { language }), category: s.categoryKey })),
+    [language],
   )
 
   // ── Metadata state ────────────────────────────────────────────────────────
@@ -320,7 +325,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   const [editedTrackPoints, setEditedTrackPoints] = useState(trackPoints)
   useEffect(() => { setEditedTrackPoints(trackPoints) }, [trackPoints])
 
-  // ── Hover-index: driven by TrackModeBottomBar chart hover (Task 2) ────────
+  // ── Hover-index: driven by TrackModeBottomBar chart hover ────────────────
   // Null = no hover; a number = index into editedTrackPoints.
   // The MapLibre hover-point layer reads this to place the orange circle marker.
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -334,10 +339,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   // hasUserSelection: false = no orange sub-segment layer rendered (e.g. after Reset).
   // Becomes true on first map click-to-place or drag/brush interaction.
   const [hasUserSelection, setHasUserSelection] = useState(false)
-  // (Vorschau-Phase entfernt — user-feedback: "macht nichts außer zu locken".
-  // Save-Button saved direkt. Kein Intermediate-State mehr.)
+  // Preview phase removed after user feedback; the save button persists directly
+  // without an intermediate preview state.
 
-  // ── Discard-confirmation dialog (replaces native window.confirm — Fix #13) ──
+  // ── Discard-confirmation dialog ──────────────────────────────────────────
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false)
   const discardDialogId = useId()
   const [privacyConfirmOpen, setPrivacyConfirmOpen] = useState(false)
@@ -379,7 +384,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     onSuccess: (resp) => {
       if (resp.reason === 'wintersport' || resp.reason === 'wassersport') return
       if (resp.reason === 'low_coverage') {
-        addToast({ type: 'warning', title: 'Keine OSM-Daten für diesen Abschnitt' })
+        addToast({ type: 'warning', title: t('segmentEditor.toasts.noOsmData') })
         return
       }
       const patch: Partial<SegmentMetadata> = {}
@@ -400,7 +405,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       setEnrichmentSources(src)
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Abrufen der OSM-Daten', message: 'Erneut versuchen' })
+      addToast({ type: 'error', title: t('segmentEditor.toasts.osmFetchFailed'), message: t('common.retry') })
     },
   })
 
@@ -416,34 +421,36 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   }, [mode, editedTrackPoints, range, drawnCoords, meta.segType, enrichmentMutation])
 
   const enrichmentDisabledReason = useMemo(() => {
-    if (segmentEnrichmentSuggestUnavailable) return 'Nicht verfügbar in dieser Installation'
-    if (meta.segType === 'wintersport') return 'Nicht verfügbar — Oberfläche implizit Schnee/Eis'
-    if (mode === 'track' && range[0] === range[1]) return 'Keine Auswahl'
-    if (mode === 'draw' && drawnCoords.length < 2) return 'Weniger als 2 Punkte'
-    if (mode === 'lap') return 'Im Rundkurs-Modus nicht verfügbar'
-    if (mode === 'checkpoint') return 'Im Checkpoint-Modus nicht verfügbar'
+    if (segmentEnrichmentSuggestUnavailable) return t('segmentEditor.enrichment.disabled.installation')
+    if (meta.segType === 'wintersport') return t('segmentEditor.enrichment.disabled.winter')
+    if (mode === 'track' && range[0] === range[1]) return t('segmentEditor.enrichment.disabled.noSelection')
+    if (mode === 'draw' && drawnCoords.length < 2) return t('segmentEditor.enrichment.disabled.tooFewPoints')
+    if (mode === 'lap') return t('segmentEditor.enrichment.disabled.lap')
+    if (mode === 'checkpoint') return t('segmentEditor.enrichment.disabled.checkpoint')
     return undefined
-  }, [segmentEnrichmentSuggestUnavailable, meta.segType, mode, range, drawnCoords.length])
+  }, [segmentEnrichmentSuggestUnavailable, meta.segType, mode, range, drawnCoords.length, t])
 
   // ── Enrichment status text (screen-reader aria-live) ─────────────────────
   // Derived from enrichmentMutation state so SegmentSidebar's sr-only live
   // region announces both loading state AND the result (success / errors).
   const enrichmentStatus = useMemo(() => {
-    if (enrichmentMutation.isPending) return 'Lade OSM-Daten...'
-    if (enrichmentMutation.isError) return 'Fehler beim Abrufen der OSM-Daten'
+    if (enrichmentMutation.isPending) return t('segmentEditor.enrichment.status.loading')
+    if (enrichmentMutation.isError) return t('segmentEditor.enrichment.status.error')
     const data = enrichmentMutation.data
     if (!data) return ''
-    if (data.reason === 'low_coverage') return 'Keine OSM-Daten für diesen Abschnitt'
-    if (data.reason === 'no_graph') return 'OSM-Graph nicht verfügbar'
-    if (data.reason === 'no_data') return 'Keine OSM-Daten gefunden'
+    if (data.reason === 'low_coverage') return t('segmentEditor.enrichment.status.lowCoverage')
+    if (data.reason === 'no_graph') return t('segmentEditor.enrichment.status.noGraph')
+    if (data.reason === 'no_data') return t('segmentEditor.enrichment.status.noData')
     if (data.reason === 'wintersport') return '' // intentional no-op for winter
     const parts: string[] = []
-    if (data.surface?.dominant) parts.push(`Oberfläche ${data.surface.dominant}`)
+    if (data.surface?.dominant) parts.push(t('segmentEditor.enrichment.status.surfacePart', { value: data.surface.dominant }))
     if (data.sac_scale?.dominant) parts.push(`SAC ${data.sac_scale.dominant}`)
     if (data.mtb_scale?.dominant) parts.push(`MTB ${data.mtb_scale.dominant}`)
     const pct = Math.round((data.coverage_pct ?? 0) * 100)
-    return `OSM-Daten geladen: ${parts.join(', ')}${parts.length > 0 ? ', ' : ''}${pct}% Coverage`
-  }, [enrichmentMutation.isPending, enrichmentMutation.isError, enrichmentMutation.data])
+    return parts.length > 0
+      ? t('segmentEditor.enrichment.status.loadedWithDetails', { details: parts.join(', '), pct })
+      : t('segmentEditor.enrichment.status.loaded', { pct })
+  }, [enrichmentMutation.isPending, enrichmentMutation.isError, enrichmentMutation.data, t])
 
   // ── Save mutation ─────────────────────────────────────────────────────────
   const saveMutation = useMutation({
@@ -515,18 +522,18 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     onSuccess: (created) => {
       addToast({
         type: 'success',
-        title: 'Segment gespeichert',
+        title: t('segmentEditor.toasts.saved'),
         message: created.name,
         duration: 8000,
         action: {
-          label: 'Anzeigen',
+          label: t('segmentEditor.toasts.view'),
           onClick: () => navigate(`/segments/${created.id}`),
         },
       })
       onSuccess(created.id)
     },
     onError: (err) => {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: String(err) })
+      addToast({ type: 'error', title: t('segmentEditor.toasts.saveFailed'), message: String(err) })
     },
   })
 
@@ -781,7 +788,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     }
   }, [mode, range, editedTrackPoints, hasUserSelection, styleVersion])
 
-  // ── Track-mode: hover-point marker (Task 2) ──────────────────────────────
+  // ── Track-mode: hover-point marker ───────────────────────────────────────
   // Syncs a MapLibre circle marker with the chart's hover position.
   // Source id: 'hover-point'  Layer id: 'hover-point-marker'
   // Only active when mode === 'track'; hidden when hoverIndex is null.
@@ -978,7 +985,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     const radiusID = 'checkpoint-control-radii'
     const circleID = 'checkpoint-control-circles'
     const labelID = 'checkpoint-control-labels'
-    const data = buildCheckpointControlPreviewData(checkpointControls)
+    const data = buildCheckpointControlPreviewData(checkpointControls, {
+      start: t('segmentDetail.controls.start'),
+      finish: t('segmentDetail.controls.finish'),
+    })
     if (!map.getSource(sourceID)) {
       map.addSource(sourceID, { type: 'geojson', data })
     } else {
@@ -1026,14 +1036,14 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         paint: { 'text-color': '#111827' },
       })
     }
-  }, [mode, checkpointControls, styleVersion])
+  }, [mode, checkpointControls, styleVersion, t])
 
   const handleRangeReset = useCallback(() => {
     setRange(initialRange)
     setHasUserSelection(false)
   }, [initialRange])
 
-  // handleFullReset: resets both geometry selection AND all form fields (Fix #12).
+  // handleFullReset: resets both geometry selection and all form fields.
   // The initial meta shape mirrors the useState initializer at mount.
   const handleFullReset = useCallback(() => {
     setRange(initialRange)
@@ -1153,31 +1163,31 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     setDrawnCoords([])
   }, [])
 
-  // ── Save with frontend validation (Fix #11) ───────────────────────────────
+  // ── Save with frontend validation ────────────────────────────────────────
   // Provides immediate user feedback for missing required fields instead of
   // silently dispatching a request that the backend would reject with 4xx.
   const handleSave = useCallback(() => {
     if (!meta.name.trim()) {
-      addToast({ type: 'warning', title: 'Name erforderlich', message: 'Bitte gib dem Segment einen Namen.' })
+      addToast({ type: 'warning', title: t('segmentEditor.validation.nameRequiredTitle'), message: t('segmentEditor.validation.nameRequiredMessage') })
       return
     }
     if (mode === 'track') {
       const count = range[1] - range[0] + 1
       if (count < 2) {
-        addToast({ type: 'warning', title: 'Zu kurze Auswahl', message: 'Wähle mindestens 2 Trackpunkte aus.' })
+        addToast({ type: 'warning', title: t('segmentEditor.validation.selectionTooShortTitle'), message: t('segmentEditor.validation.selectionTooShortMessage') })
         return
       }
     }
     if (mode === 'draw' && drawnCoords.length < 2) {
-      addToast({ type: 'warning', title: 'Segment zu kurz', message: 'Zeichne mindestens 2 Punkte.' })
+      addToast({ type: 'warning', title: t('segmentEditor.validation.segmentTooShortTitle'), message: t('segmentEditor.validation.segmentTooShortMessage') })
       return
     }
     if (mode === 'checkpoint' && checkpointControls.length < 2) {
-      addToast({ type: 'warning', title: 'Start und Ziel erforderlich', message: 'Setze mindestens zwei Checkpoints.' })
+      addToast({ type: 'warning', title: t('segmentEditor.validation.checkpointsRequiredTitle'), message: t('segmentEditor.validation.checkpointsRequiredMessage') })
       return
     }
     if (meta.visibility === 'shared' && !meta.accessScopeId) {
-      addToast({ type: 'warning', title: 'Freigabe erforderlich', message: 'Wähle eine Freigabe für geteilte Segmente.' })
+      addToast({ type: 'warning', title: t('segmentEditor.validation.scopeRequiredTitle'), message: t('segmentEditor.validation.scopeRequiredMessage') })
       return
     }
     if (sourceActivityId && meta.visibility !== 'private' && !sourceActivityPublishConfirmed) {
@@ -1185,7 +1195,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       return
     }
     saveMutation.mutate()
-  }, [meta.name, meta.visibility, mode, range, drawnCoords.length, checkpointControls.length, sourceActivityId, sourceActivityPublishConfirmed, saveMutation, addToast])
+  }, [meta.name, meta.visibility, meta.accessScopeId, mode, range, drawnCoords.length, checkpointControls.length, sourceActivityId, sourceActivityPublishConfirmed, saveMutation, addToast, t])
 
   // ── Dirty state + close logic ─────────────────────────────────────────────
   // Checks all meta fields (name, sacScale, mtbScale, surface, difficultyColor,
@@ -1206,7 +1216,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   const handleClose = useCallback(() => {
     if (isDirty) {
-      // Show custom discard dialog instead of native window.confirm (Fix #13)
+      // Show the custom discard dialog instead of native window.confirm.
       setDiscardDialogOpen(true)
       return
     }
@@ -1263,7 +1273,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       {/* Top-Bar (B1-B4) */}
       <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-4 py-2.5 text-sm">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
-          {mode === 'track' ? 'Segment aus Track' : mode === 'draw' ? 'Segment zeichnen' : mode === 'checkpoint' ? 'Checkpoints' : 'Rundkurs definieren'}
+          {t(`segmentEditor.titles.${mode}`)}
         </h2>
         <div className="flex-1" />
 
@@ -1299,7 +1309,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800',
             )}
           >
-            Heatmap
+            {t('segmentEditor.map.heatmap')}
           </button>
         </div>
 
@@ -1307,7 +1317,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         <button
           type="button"
           onClick={handleClose}
-          aria-label="Schließen"
+          aria-label={t('common.close')}
           className="ml-2 flex items-center justify-center rounded-md p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white transition-colors"
         >
           <X className="h-4 w-4" aria-hidden="true" />
@@ -1316,7 +1326,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
       {/* Middle — Sidebar (full-height) + right column (Map + BottomBar) */}
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar — always editable (Vorschau-Phase-Lock entfernt). */}
+        {/* Sidebar — always editable after preview locking was removed. */}
         {/* min-h-0 is required so that div participates in flex shrinking and
             allows the child SegmentSidebar's overflow-y-auto to actually scroll. */}
         <div className="flex min-h-0 w-72 shrink-0 flex-col">
@@ -1336,22 +1346,22 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
           {mode === 'checkpoint' && (
             <>
               <div className="border-t border-neutral-200 bg-white p-3 text-xs dark:border-neutral-800 dark:bg-neutral-900">
-                <div className="mb-2 font-semibold uppercase text-neutral-500 dark:text-neutral-400">Neuer Checkpoint</div>
+                <div className="mb-2 font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('segmentEditor.checkpoint.newCheckpoint')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-neutral-600 dark:text-neutral-300">
-                    Form
+                    {t('segmentEditor.checkpoint.shape')}
                     <select
                       value={checkpointInsertShape}
                       onChange={(e) => setCheckpointInsertShape(e.target.value as 'point' | 'circle' | 'polygon')}
                       className="mt-1 w-full rounded border border-neutral-200 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-900"
                     >
-                      <option value="point">Punkt</option>
-                      <option value="circle">Kreis</option>
-                      <option value="polygon">Polygon</option>
+                      <option value="point">{t('segmentEditor.checkpoint.shapes.point')}</option>
+                      <option value="circle">{t('segmentEditor.checkpoint.shapes.circle')}</option>
+                      <option value="polygon">{t('segmentEditor.checkpoint.shapes.polygon')}</option>
                     </select>
                   </label>
                   <label className="text-neutral-600 dark:text-neutral-300">
-                    Radius
+                    {t('segmentEditor.checkpoint.radius')}
                     <input
                       type="number"
                       min={1}
@@ -1391,7 +1401,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 aria-live="polite"
                 className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-black/70 px-4 py-2 text-sm text-neutral-200"
               >
-                Klicke auf den Track um den Start/Ziel-Punkt zu setzen
+                {t('segmentEditor.lap.clickTrackHint')}
               </div>
             )}
           </div>
@@ -1440,7 +1450,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         </div>
       </div>
 
-      {/* Custom discard-confirmation dialog (Fix #13 — replaces window.confirm) */}
+      {/* Custom discard-confirmation dialog */}
       {discardDialogOpen && (
         <div
           className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50"
@@ -1451,10 +1461,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         >
           <div className="mx-4 w-full max-w-sm rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 shadow-2xl">
             <h3 id={discardDialogId} className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              Änderungen verwerfen?
+              {t('segmentEditor.discard.title')}
             </h3>
             <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-              Du hast ungespeicherte Änderungen. Wenn du jetzt schließt, gehen sie verloren.
+              {t('segmentEditor.discard.message')}
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -1462,14 +1472,14 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 onClick={() => setDiscardDialogOpen(false)}
                 className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-300 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={() => { setDiscardDialogOpen(false); onClose() }}
                 className="rounded-md bg-accent-DEFAULT px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1"
               >
-                Änderungen verwerfen
+                {t('segmentEditor.discard.confirm')}
               </button>
             </div>
           </div>
@@ -1485,10 +1495,10 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         >
           <div className="mx-4 w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
             <h3 id={privacyConfirmDialogId} className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              Exakte Geometrie veröffentlichen?
+              {t('segmentEditor.privacy.title')}
             </h3>
             <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-              Dieser Kurs entsteht aus einer Aktivität. Beim Veröffentlichen wird die gewählte Kursgeometrie nicht gekürzt oder verändert.
+              {t('segmentEditor.privacy.message')}
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -1496,7 +1506,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 onClick={() => setPrivacyConfirmOpen(false)}
                 className="rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -1508,7 +1518,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
                 }}
                 className="rounded-md bg-accent-DEFAULT px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-DEFAULT focus-visible:ring-offset-1"
               >
-                Veröffentlichen
+                {t('segmentDetail.actions.publish')}
               </button>
             </div>
           </div>

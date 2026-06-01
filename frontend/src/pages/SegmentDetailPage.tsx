@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Lock, Map, Pencil, RefreshCw, Trash2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { getMe } from '@/api/auth'
 import { fetchSegment, recomputeSegment, publishSegment, deleteSegment, exportSegment } from '@/api/segments'
 import { ApiError } from '@/api/client'
@@ -10,7 +11,7 @@ import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
-import { fmtDist } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { triggerBlobDownload } from '@/lib/utils'
 import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
 import { SegmentActivityList } from '@/components/SegmentDetail/SegmentActivityList'
@@ -22,12 +23,26 @@ import DifficultyBadge from '@/components/DifficultyBadge'
 import DateRangePicker from '@/components/DateRangePicker'
 import { EMPTY_FILTERS, type ActivityFilterState } from '@/components/ActivityFilters'
 
-const SPORT_GROUP_LABELS: Record<string, string> = {
-  bike: 'Radfahren', foot: 'Laufsport', swim: 'Schwimmen',
-  ski: 'Wintersport', paddle: 'Wassersport', generic: 'Sonstiges',
+const SPORT_GROUPS = ['bike', 'foot', 'swim', 'ski', 'paddle', 'generic'] as const
+const SEGMENT_TYPES = ['standard', 'trail', 'lap', 'lift', 'wintersport', 'wassersport'] as const
+const CLIMB_TYPES = ['standard', 'bergauf', 'bergab'] as const
+
+function segmentSportGroupLabelKey(value: string): string {
+  return SPORT_GROUPS.includes(value as (typeof SPORT_GROUPS)[number])
+    ? `segmentDetail.sportGroups.${value}`
+    : 'segmentDetail.sportGroups.unknown'
 }
-const TYPE_LABELS: Record<string, string> = {
-  standard: 'Standard', trail: 'Trail', lift: 'Lift', lap: 'Rundkurs',
+
+function segmentTypeLabelKey(value: string): string {
+  return SEGMENT_TYPES.includes(value as (typeof SEGMENT_TYPES)[number])
+    ? `segmentDetail.types.${value}`
+    : 'segmentDetail.types.unknown'
+}
+
+function climbTypeLabelKey(value: string): string {
+  return CLIMB_TYPES.includes(value as (typeof CLIMB_TYPES)[number])
+    ? `segmentDetail.climbTypes.${value}`
+    : 'segmentDetail.climbTypes.unknown'
 }
 
 function isPublishPrivacyConfirmationError(error: unknown): boolean {
@@ -46,6 +61,8 @@ function isPublishPrivacyConfirmationError(error: unknown): boolean {
 export default function SegmentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { t } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const [showEdit, setShowEdit] = useState(false)
   const [localPending, setLocalPending] = useState(false)
   const [dateFrom, setDateFrom] = useState<string | undefined>(undefined)
@@ -70,19 +87,23 @@ export default function SegmentDetailPage() {
       options ? publishSegment(id!, options) : publishSegment(id!)
     ),
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Segment veröffentlicht', message: 'Recompute gestartet.' })
+      addToast({
+        type: 'success',
+        title: t('segmentDetail.toasts.publishSuccessTitle'),
+        message: t('segmentDetail.toasts.publishSuccessMessage'),
+      })
       queryClient.invalidateQueries({ queryKey: ['segment', id] })
       queryClient.invalidateQueries({ queryKey: ['segments'] })
     },
     onError: (error) => {
       if (isPublishPrivacyConfirmationError(error)) {
         openModal({
-          title: 'Privacy-Zone bestätigen?',
-          message: 'Die Quellaktivität schneidet eine aktive Privacy-Zone. Veröffentliche das Segment nur, wenn die aktuelle Segment- oder Kursgeometrie trotzdem öffentlich sichtbar sein soll.',
+          title: t('segmentDetail.modals.privacyTitle'),
+          message: t('segmentDetail.modals.privacyMessage'),
           buttons: [
-            { label: 'Abbrechen', variant: 'default', onClick: () => {} },
+            { label: t('common.cancel'), variant: 'default', onClick: () => {} },
             {
-              label: 'Trotzdem veröffentlichen',
+              label: t('segmentDetail.modals.publishAnyway'),
               variant: 'destructive',
               onClick: () => publishMut.mutate({ sourceActivityPublishConfirmed: true }),
             },
@@ -90,14 +111,14 @@ export default function SegmentDetailPage() {
         })
         return
       }
-      addToast({ type: 'error', title: 'Veröffentlichung fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('segmentDetail.toasts.publishFailed'), duration: 0 })
     },
   })
 
   const deleteMut = useMutation({
     mutationFn: () => deleteSegment(id!),
     onSuccess: () => navigate('/segments'),
-    onError: () => addToast({ type: 'error', title: 'Löschen fehlgeschlagen', duration: 0 }),
+    onError: () => addToast({ type: 'error', title: t('segmentDetail.toasts.deleteFailed'), duration: 0 }),
   })
 
   const recomputeMut = useMutation({
@@ -126,8 +147,13 @@ export default function SegmentDetailPage() {
       const { blob, filename } = await exportSegment(id!, format)
       triggerBlobDownload(blob, filename ?? `segment${ext}`)
     } catch (err) {
-      console.error('Segment-Export fehlgeschlagen', err)
-      addToast({ type: 'error', title: 'Export fehlgeschlagen', message: 'Der Export konnte nicht erstellt werden.', duration: 0 })
+      console.error('Segment export failed', err)
+      addToast({
+        type: 'error',
+        title: t('segmentDetail.toasts.exportFailedTitle'),
+        message: t('segmentDetail.toasts.exportFailedMessage'),
+        duration: 0,
+      })
     }
   }
 
@@ -138,8 +164,8 @@ export default function SegmentDetailPage() {
     enabled: !!id,
   })
 
-  if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Segment...</div>
-  if (!segment) return <div className="p-6 text-neutral-400">Segment nicht gefunden</div>
+  if (isLoading) return <div className="flex items-center justify-center h-64 text-neutral-400">{t('segmentDetail.loading')}</div>
+  if (!segment) return <div className="p-6 text-neutral-400">{t('segmentDetail.notFound')}</div>
   const segmentPermissions = new Set(segment.effective_permissions ?? [])
   const canManageSegment = me?.user_id === segment.created_by || me?.is_admin
 
@@ -154,7 +180,7 @@ export default function SegmentDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <Link to="/segments" className="flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-          <ArrowLeft size={16} /> Segmente
+          <ArrowLeft size={16} /> {t('navigation.segments')}
         </Link>
         <div className="flex items-center gap-2">
           {/* #2 fix: only DateRangePicker here — ActivityFilters removed */}
@@ -168,7 +194,7 @@ export default function SegmentDetailPage() {
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
-            <Pencil size={14} /> Bearbeiten
+            <Pencil size={14} /> {t('segmentDetail.actions.edit')}
           </button>
           )}
           {segmentRecomputeAvailable && (
@@ -180,28 +206,28 @@ export default function SegmentDetailPage() {
                   ? 'border-accent-DEFAULT text-accent-DEFAULT bg-accent-100 dark:bg-accent-100/20'
                   : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
-              title="Matching neu berechnen"
+              title={t('segmentDetail.actions.recomputeTitle')}
             >
-              <RefreshCw size={14} className={isRecomputing ? 'animate-spin' : ''} /> {isRecomputing ? 'Läuft…' : 'Neu berechnen'}
+              <RefreshCw size={14} className={isRecomputing ? 'animate-spin' : ''} /> {isRecomputing ? t('segmentDetail.actions.recomputing') : t('segmentDetail.actions.recompute')}
             </button>
           )}
           <button
             onClick={() => handleExport('gpx')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
-            GPX exportieren
+            {t('segmentDetail.actions.exportAs', { format: 'GPX' })}
           </button>
           <button
             onClick={() => handleExport('geojson')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
-            GeoJSON exportieren
+            {t('segmentDetail.actions.exportAs', { format: 'GeoJSON' })}
           </button>
           <button
             onClick={() => navigate('/map', { state: { activateSegmentsOverlay: true } })}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
           >
-            <Map size={14} /> Auf Karte
+            <Map size={14} /> {t('segmentDetail.actions.openMap')}
           </button>
           {/* Publish: shown for creator of private segment OR admin */}
           {segmentPublishAvailable && segment.visibility === 'private' && (segment.created_by === me?.user_id || me?.is_admin) && (
@@ -209,20 +235,20 @@ export default function SegmentDetailPage() {
               onClick={() => {
                 const isForeignAdmin = me?.is_admin && segment.created_by !== me?.user_id
                 openModal({
-                  title: 'Segment veröffentlichen?',
+                  title: t('segmentDetail.modals.publishTitle'),
                   message: isForeignAdmin
-                    ? 'Admin-Aktion: Du veröffentlichst ein fremdes Segment. Alle Nutzer können es danach sehen, alle Aktivitäten werden rückwirkend gematcht. Der Ersteller wird nicht benachrichtigt.'
-                    : 'Alle Nutzer können das Segment danach sehen. Ein Recompute-Job wird gestartet.',
+                    ? t('segmentDetail.modals.publishAdminMessage')
+                    : t('segmentDetail.modals.publishMessage'),
                   buttons: [
-                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                    { label: 'Veröffentlichen', variant: 'destructive', onClick: () => publishMut.mutate(undefined) },
+                    { label: t('common.cancel'), variant: 'default', onClick: () => {} },
+                    { label: t('segmentDetail.actions.publish'), variant: 'destructive', onClick: () => publishMut.mutate(undefined) },
                   ],
                 })
               }}
               disabled={publishMut.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-400 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors disabled:opacity-50"
             >
-              Veröffentlichen
+              {t('segmentDetail.actions.publish')}
             </button>
           )}
 
@@ -230,17 +256,17 @@ export default function SegmentDetailPage() {
           {segment.segment_type !== 'lift' && canManageSegment && (
             <button
               onClick={() => openModal({
-                title: 'Segment löschen?',
-                message: 'Löschen ist nicht rückgängig zu machen.',
+                title: t('segmentDetail.modals.deleteTitle'),
+                message: t('segmentDetail.modals.deleteMessage'),
                 buttons: [
-                  { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                  { label: 'Löschen', variant: 'destructive', onClick: () => deleteMut.mutate() },
+                  { label: t('common.cancel'), variant: 'default', onClick: () => {} },
+                  { label: t('segmentDetail.actions.delete'), variant: 'destructive', onClick: () => deleteMut.mutate() },
                 ],
               })}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Löschen
+              {t('segmentDetail.actions.delete')}
             </button>
           )}
           <FavoriteButton segmentId={id!} />
@@ -261,40 +287,40 @@ export default function SegmentDetailPage() {
         </div>
         <div className="flex flex-wrap gap-3 text-sm text-neutral-500 dark:text-neutral-400">
           <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-            {SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group}
+            {t(segmentSportGroupLabelKey(segment.sport_group))}
           </span>
           {segment.course_kind === 'checkpoint_sequence' ? (
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-              Checkpoint-Kurs
+              {t('segmentDetail.metadata.checkpointCourse')}
             </span>
           ) : segment.segment_type !== 'standard' && (
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-              {TYPE_LABELS[segment.segment_type] ?? segment.segment_type}
+              {t(segmentTypeLabelKey(segment.segment_type))}
             </span>
           )}
-          {segment.distance_m != null && <span>{fmtDist(segment.distance_m)}</span>}
+          {segment.distance_m != null && <span>{formatDistance(segment.distance_m)}</span>}
           {segment.elevation_gain_m != null && segment.elevation_gain_m > 0 && (
-            <span>+{Math.round(segment.elevation_gain_m)} m</span>
+            <span>+{formatElevation(segment.elevation_gain_m)}</span>
           )}
           {segment.climb_type && segment.climb_type !== 'standard' && (
-            <span className="capitalize">{segment.climb_type}</span>
+            <span>{t(climbTypeLabelKey(segment.climb_type))}</span>
           )}
         </div>
         {/* Effort count stats */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span>
-            {segment.effort_count} {segment.effort_count === 1 ? 'Effort' : 'Efforts'} gesamt
+            {t('segmentDetail.stats.efforts', { count: segment.effort_count })}
           </span>
           {segment.ridden_count > 0 && (
-            <span>· {segment.ridden_count} {segment.ridden_count === 1 ? 'eigener' : 'eigene'}</span>
+            <span>· {t('segmentDetail.stats.ownEfforts', { count: segment.ridden_count })}</span>
           )}
           {segment.athlete_count > 0 && (
-            <span>· {segment.athlete_count} {segment.athlete_count === 1 ? 'Athlet' : 'Athleten'}</span>
+            <span>· {t('segmentDetail.stats.athletes', { count: segment.athlete_count })}</span>
           )}
           {segment.visibility === 'private' && (
             <span className="flex items-center gap-1 text-neutral-400">
               <Lock className="w-3 h-3" />
-              Privat
+              {t('segmentDetail.metadata.private')}
             </span>
           )}
         </div>
@@ -302,17 +328,17 @@ export default function SegmentDetailPage() {
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             {segment.overlay_summary.public_open_report_count > 0 && (
               <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
-                {segment.overlay_summary.public_open_report_count} offene Meldungen
+                {t('segmentDetail.overlay.openReports', { count: segment.overlay_summary.public_open_report_count })}
               </span>
             )}
             {segment.overlay_summary.current_condition_state && (
               <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
-                Zustand: {segment.overlay_summary.current_condition_state}
+                {t('segmentDetail.overlay.condition', { state: segment.overlay_summary.current_condition_state })}
               </span>
             )}
             {segment.overlay_summary.public_comment_count > 0 && (
               <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
-                {segment.overlay_summary.public_comment_count} Kommentare
+                {t('segmentDetail.overlay.comments', { count: segment.overlay_summary.public_comment_count })}
               </span>
             )}
           </div>
@@ -320,15 +346,15 @@ export default function SegmentDetailPage() {
         {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-              {segment.control_summary.control_count} Checkpoints
+              {t('segmentDetail.controls.checkpoints', { count: segment.control_summary.control_count })}
             </span>
             {segment.controls && segment.controls.length > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
                 {segment.controls.map((control, index) => (
                   control.role === 'start'
-                    ? 'Start'
+                    ? t('segmentDetail.controls.start')
                     : control.role === 'finish'
-                      ? 'Ziel'
+                      ? t('segmentDetail.controls.finish')
                       : String(index + 1)
                 )).join(' -> ')}
               </span>

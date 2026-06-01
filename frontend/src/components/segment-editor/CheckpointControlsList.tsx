@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { CheckpointControl } from '@/api/segments'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
 
@@ -8,11 +9,12 @@ export function CheckpointControlsList(props: {
   onMove: (index: number, direction: -1 | 1) => void
   onUpdate: (index: number, patch: Partial<CheckpointControl>) => void
 }) {
+  const { t } = useTranslation()
   if (props.controls.length === 0) return null
   return (
     <div className="border-t border-neutral-200 bg-white p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-        Checkpoints
+        {t('segmentsList.actions.checkpoints')}
       </div>
       <div className="space-y-1.5">
         {props.controls.map((control, index) => {
@@ -21,11 +23,11 @@ export function CheckpointControlsList(props: {
             <div key={checkpointControlKey(control, index)} className="rounded-md border border-neutral-200 dark:border-neutral-700">
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-orange-100 text-xs font-semibold text-orange-800 dark:bg-orange-950 dark:text-orange-200">
-                  {index === 0 ? 'S' : index === props.controls.length - 1 ? 'Z' : index + 1}
+                  {index === 0 ? t('segmentEditor.checkpoint.startShort') : index === props.controls.length - 1 ? t('segmentEditor.checkpoint.finishShort') : index + 1}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-neutral-800 dark:text-neutral-100">
-                    {index === 0 ? 'Start' : index === props.controls.length - 1 ? 'Ziel' : `Checkpoint ${index + 1}`}
+                    {index === 0 ? t('segmentDetail.controls.start') : index === props.controls.length - 1 ? t('segmentDetail.controls.finish') : t('segmentEditor.checkpoint.numberedCheckpoint', { number: index + 1 })}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                     <select
@@ -63,16 +65,16 @@ export function CheckpointControlsList(props: {
                         }
                       }}
                       className="rounded border border-neutral-200 bg-white px-1 py-0.5 disabled:text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900"
-                      aria-label="Checkpoint-Form"
+                      aria-label={t('segmentEditor.checkpoint.shapeAria')}
                     >
-                      <option value="point">Punkt</option>
-                      <option value="circle">Kreis</option>
-                      <option value="polygon">Polygon</option>
+                      <option value="point">{t('segmentEditor.checkpoint.shapes.point')}</option>
+                      <option value="circle">{t('segmentEditor.checkpoint.shapes.circle')}</option>
+                      <option value="polygon">{t('segmentEditor.checkpoint.shapes.polygon')}</option>
                       <option value="multipolygon">MultiPolygon</option>
                     </select>
                     {control.geometry_shape !== 'polygon' && !isMultipolygon && (
                       <label className="inline-flex items-center gap-1">
-                        Radius
+                        {t('segmentEditor.checkpoint.radius')}
                         <input
                           type="number"
                           min={1}
@@ -86,13 +88,13 @@ export function CheckpointControlsList(props: {
                               : { hit_radius_m: radius })
                           }}
                           className="w-16 rounded border border-neutral-200 bg-white px-1 py-0.5 dark:border-neutral-700 dark:bg-neutral-900"
-                          aria-label="Checkpoint-Radius in Metern"
+                          aria-label={t('segmentEditor.checkpoint.radiusAria')}
                         />
                         m
                       </label>
                     )}
                     {isMultipolygon && (
-                      <span>Mehrfachfläche nur lesbar. Einzelne Flächen können hier nicht bearbeitet werden.</span>
+                      <span>{t('segmentEditor.checkpoint.multipolygonReadonly')}</span>
                     )}
                   </div>
                 </div>
@@ -101,7 +103,7 @@ export function CheckpointControlsList(props: {
                   onClick={() => props.onMove(index, -1)}
                   disabled={index === 0}
                   className="rounded p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"
-                  aria-label="Checkpoint nach oben"
+                  aria-label={t('segmentEditor.checkpoint.moveUp')}
                 >
                   <ArrowUp className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -110,7 +112,7 @@ export function CheckpointControlsList(props: {
                   onClick={() => props.onMove(index, 1)}
                   disabled={index === props.controls.length - 1}
                   className="rounded p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"
-                  aria-label="Checkpoint nach unten"
+                  aria-label={t('segmentEditor.checkpoint.moveDown')}
                 >
                   <ArrowDown className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -118,7 +120,7 @@ export function CheckpointControlsList(props: {
                   type="button"
                   onClick={() => props.onRemove(index)}
                   className="rounded p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"
-                  aria-label="Checkpoint entfernen"
+                  aria-label={t('segmentEditor.checkpoint.remove')}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>

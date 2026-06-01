@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import VisibilityAccessField from './VisibilityAccessField'
+import { placeKindLabel, regionKindLabel } from './targetLabels'
 import type { TargetGeometry, TargetPlaceKind, TargetRegionKind, TargetVisibility } from '@/api/targetObjects'
 
 type EditorMode = 'place' | 'region'
@@ -22,33 +24,15 @@ interface PlaceRegionEditorProps {
   showVisibility?: boolean
 }
 
-const PLACE_KIND_OPTIONS: { value: TargetPlaceKind; label: string }[] = [
-  { value: 'custom', label: 'Eigener Punkt' },
-  { value: 'private_place', label: 'Privater Ort' },
-  { value: 'poi', label: 'POI' },
-  { value: 'entrance', label: 'Einstieg' },
-  { value: 'parking', label: 'Parkplatz' },
-  { value: 'summit', label: 'Gipfel' },
-  { value: 'pass', label: 'Pass' },
-  { value: 'water', label: 'Gewässer' },
-  { value: 'settlement', label: 'Ort' },
-  { value: 'amenity', label: 'Infrastruktur' },
-]
+const PLACE_KIND_OPTIONS: TargetPlaceKind[] = ['custom', 'private_place', 'poi', 'entrance', 'parking', 'summit', 'pass', 'water', 'settlement', 'amenity']
 
-const REGION_KIND_OPTIONS: { value: TargetRegionKind; label: string }[] = [
-  { value: 'custom', label: 'Eigener Bereich' },
-  { value: 'private_area', label: 'Privater Bereich' },
-  { value: 'public_pool', label: 'Öffentlicher Pool' },
-  { value: 'venue_area', label: 'Gelände' },
-  { value: 'privacy_zone_mirror', label: 'Privacy-Zonen-Referenz' },
-  { value: 'admin_area', label: 'Admin-Bereich' },
-  { value: 'protected_area', label: 'Schutzgebiet' },
-]
+const REGION_KIND_OPTIONS: TargetRegionKind[] = ['custom', 'private_area', 'public_pool', 'venue_area', 'privacy_zone_mirror', 'admin_area', 'protected_area']
 
 const DEFAULT_POINT = '{ "type": "Point", "coordinates": [10.0, 47.0] }'
 const DEFAULT_POLYGON = '{ "type": "Polygon", "coordinates": [[[10.0,47.0],[10.01,47.0],[10.01,47.01],[10.0,47.01],[10.0,47.0]]] }'
 
 export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy = false, submitLabel, showVisibility = true }: PlaceRegionEditorProps) {
+  const { t } = useTranslation()
   const [name, setName] = useState(initialValue?.name ?? '')
   const [kind, setKind] = useState<TargetPlaceKind | TargetRegionKind>(initialValue?.kind ?? 'custom')
   const [geometryText, setGeometryText] = useState(() => {
@@ -71,12 +55,12 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
         try {
           geometry = JSON.parse(geometryText) as TargetGeometry
         } catch {
-          setError('Geometrie ist kein gültiges JSON.')
+          setError(t('targetObjects.editor.invalidJson'))
           return
         }
         const normalized = normalizeGeometryForMode(mode, geometry)
         if (typeof normalized === 'string') {
-          setError(normalized)
+          setError(t(normalized))
           return
         }
         onSubmit({ mode, name, kind, geometry: normalized, visibility, access_scope_id: accessScopeId })
@@ -84,7 +68,7 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Name</span>
+          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetObjects.editor.name')}</span>
           <input
             value={name}
             onChange={event => setName(event.target.value)}
@@ -93,13 +77,19 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Typ</span>
+          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetObjects.editor.type')}</span>
           <select
             value={kind}
             onChange={event => setKind(event.target.value as TargetPlaceKind | TargetRegionKind)}
             className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
           >
-            {kindOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {kindOptions.map(option => (
+              <option key={option} value={option}>
+                {mode === 'place'
+                  ? placeKindLabel(option, t)
+                  : regionKindLabel(option, t)}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -116,7 +106,7 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
       )}
 
       <label className="block">
-        <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Geometrie</span>
+        <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetObjects.editor.geometry')}</span>
         <textarea
           value={geometryText}
           onChange={event => setGeometryText(event.target.value)}
@@ -132,7 +122,7 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
         disabled={busy || (showVisibility && visibility === 'shared' && !accessScopeId)}
         className="rounded-md bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? 'Speichert...' : (submitLabel ?? (mode === 'place' ? 'Ort speichern' : 'Bereich speichern'))}
+        {busy ? t('targetObjects.editor.saving') : (submitLabel ?? (mode === 'place' ? t('targetObjects.editor.savePlace') : t('targetObjects.editor.saveRegion')))}
       </button>
     </form>
   )
@@ -140,12 +130,12 @@ export default function PlaceRegionEditor({ mode, onSubmit, initialValue, busy =
 
 function normalizeGeometryForMode(mode: EditorMode, geometry: TargetGeometry): TargetGeometry | string {
   if (mode === 'place') {
-    if (geometry?.type !== 'Point') return 'Orte müssen als GeoJSON Point gespeichert werden.'
+    if (geometry?.type !== 'Point') return 'targetObjects.editor.invalidPoint'
     return geometry
   }
   if (geometry?.type === 'MultiPolygon') return geometry
   if (geometry?.type === 'Polygon') {
     return { type: 'MultiPolygon', coordinates: [geometry.coordinates] }
   }
-  return 'Bereiche müssen als GeoJSON Polygon oder MultiPolygon gespeichert werden.'
+  return 'targetObjects.editor.invalidRegion'
 }

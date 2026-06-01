@@ -44,13 +44,13 @@ interface MapData {
 }
 
 /**
- * Rendert einen GeoJSON-LineString als Track-Overlay auf OSM-Kacheln.
+ * Renders a GeoJSON LineString as a track overlay on OSM tiles.
  *
- * Funktioniert komplett ohne MapLibre – die Kacheln werden als SVG <image>
- * geladen. Die Track-Koordinaten werden in denselben World-Pixel-Raum
- * projiziert, sodass Karte und Track exakt übereinander liegen.
+ * Works without MapLibre: tiles are loaded as SVG <image> nodes. Track
+ * coordinates are projected into the same world-pixel space so the map and
+ * track align exactly.
  *
- * Attribution: © OpenStreetMap contributors (OSM-Nutzungsbedingungen).
+ * Attribution: © OpenStreetMap contributors (OSM usage terms).
  */
 export default function StaticTrackMap({ geojsonStr, color, className }: Props) {
   const data = useMemo<MapData | null>(() => {
@@ -75,11 +75,11 @@ export default function StaticTrackMap({ geojsonStr, color, className }: Props) 
     // ViewBox-Dimensionen (5:3 – passt zum Karten-Vorschau-Seitenverhältnis)
     const VW = 500, VH = 300
 
-    // Besten Zoom suchen: Track soll ~70% der Viewport-Fläche füllen, ohne Scaling
+    // Find the best zoom: the track should fill roughly 70% of the viewport without scaling.
     let zoom = 5
     for (let z = 17; z >= 1; z--) {
       const xSpan = lngToWorldX(maxLng, z) - lngToWorldX(minLng, z)
-      const ySpan = latToWorldY(minLat, z) - latToWorldY(maxLat, z) // minLat = unten = größeres Y
+      const ySpan = latToWorldY(minLat, z) - latToWorldY(maxLat, z) // minLat = bottom = larger Y
       if (xSpan <= VW * 0.72 && ySpan <= VH * 0.72) {
         zoom = z
         break
@@ -148,7 +148,7 @@ export default function StaticTrackMap({ geojsonStr, color, className }: Props) 
           />
         ))}
 
-        {/* Halbtransparente Abdunkelung für besseren Track-Kontrast */}
+        {/* Semi-transparent darkening for better track contrast. */}
         <rect
           x={attrX - VW + 3}
           y={attrY - VH + 4}

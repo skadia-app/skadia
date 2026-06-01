@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   openModal: vi.fn(),
   addToast: vi.fn(),
 }))
+const mockUserPrefs = vi.hoisted((): { locale: string; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 vi.mock('@/api/segments', async () => {
   const actual = await vi.importActual<typeof import('@/api/segments')>('@/api/segments')
@@ -36,6 +40,10 @@ vi.mock('@/lib/modal', () => ({
 
 vi.mock('@/lib/toast', () => ({
   useToast: () => ({ addToast: mocks.addToast }),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
 }))
 
 vi.mock('@/lib/useActiveJobs', () => ({
@@ -119,6 +127,8 @@ describe('SegmentDetailPage publish privacy gate', () => {
     mocks.getMe.mockReset()
     mocks.openModal.mockReset()
     mocks.addToast.mockReset()
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
     mocks.fetchSegment.mockResolvedValue(segmentFixture())
     mocks.getMe.mockResolvedValue({ user_id: 'user-1', is_admin: false })
   })
@@ -168,5 +178,40 @@ describe('SegmentDetailPage publish privacy gate', () => {
     expect(await screen.findByText('Checkpoint-Kurs')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Bearbeiten' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Löschen' })).toBeInTheDocument()
+  })
+
+  it('uses generic labels for unknown segment taxonomy and climb values', async () => {
+    mocks.fetchSegment.mockResolvedValue(segmentFixture({
+      sport_group: 'mystery_group',
+      segment_type: 'mystery_type',
+      climb_type: 'mystery_climb',
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('Testsegment')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannte Sportgruppe')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannter Segmenttyp')).toBeInTheDocument()
+    expect(screen.getByText('Unbekanntes Höhenprofil')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('mystery_group')
+    expect(document.body).not.toHaveTextContent('mystery_type')
+    expect(document.body).not.toHaveTextContent('mystery_climb')
+  })
+
+  it('formats segment distance and elevation with the selected user units', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    mocks.fetchSegment.mockResolvedValue(segmentFixture({
+      distance_m: 1609.344,
+      elevation_gain_m: 100,
+    }))
+
+    renderPage()
+
+    expect(await screen.findByText('Testsegment')).toBeInTheDocument()
+    expect(screen.getByText('1.0 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('1.61 km')
+    expect(document.body).not.toHaveTextContent('+100 m')
   })
 })

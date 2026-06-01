@@ -1,18 +1,20 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchTags } from '@/api/tags'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
 
-export const BROUTER_PROFILES: { value: string; label: string }[] = [
-  { value: 'hiking-mountain', label: 'Wandern' },
-  { value: 'trekking', label: 'Trekking' },
-  { value: 'fastbike', label: 'Rennrad' },
-  { value: 'mtb', label: 'Mountainbike' },
-  { value: 'gravel', label: 'Gravel' },
-  { value: 'shortest', label: 'Kürzeste Route' },
+export const BROUTER_PROFILES: { value: string; labelKey: string }[] = [
+  { value: 'hiking-mountain', labelKey: 'routePlanner.metadata.brouterProfiles.hikingMountain' },
+  { value: 'trekking', labelKey: 'routePlanner.metadata.brouterProfiles.trekking' },
+  { value: 'fastbike', labelKey: 'routePlanner.metadata.brouterProfiles.fastbike' },
+  { value: 'mtb', labelKey: 'routePlanner.metadata.brouterProfiles.mtb' },
+  { value: 'gravel', labelKey: 'routePlanner.metadata.brouterProfiles.gravel' },
+  { value: 'shortest', labelKey: 'routePlanner.metadata.brouterProfiles.shortest' },
 ]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,7 +38,7 @@ interface Props {
   initialValues?: Partial<RouteMetadataValues>
   currentProfile: string
   onChange: (values: RouteMetadataValues) => void
-  /** If true, show a "Als neue Route speichern" hint beneath the name field */
+  /** If true, show a save-as-new hint beneath the name field */
   isNew?: boolean
 }
 
@@ -49,6 +51,7 @@ function TagMultiSelect({
   selected: string[]
   onChange: (ids: string[]) => void
 }) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -78,18 +81,18 @@ function TagMultiSelect({
       {/* Selected chips */}
       {selectedTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {selectedTags.map((t) => (
+          {selectedTags.map((tag) => (
             <span
-              key={t.id}
+              key={tag.id}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-              style={{ backgroundColor: t.color + '22', color: t.color, border: `1px solid ${t.color}55` }}
+              style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}55` }}
             >
-              {t.name}
+              {tag.name}
               <button
                 type="button"
-                onClick={() => toggle(t.id)}
+                onClick={() => toggle(tag.id)}
                 className="ml-0.5 opacity-60 hover:opacity-100 cursor-pointer"
-                aria-label={`${t.name} entfernen`}
+                aria-label={t('routePlanner.metadata.removeTag', { name: tag.name })}
               >
                 &#10005;
               </button>
@@ -107,7 +110,7 @@ function TagMultiSelect({
           onChange={(e) => { setSearch(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Tag suchen und hinzufügen…"
+          placeholder={t('routePlanner.metadata.searchTagPlaceholder')}
           className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent placeholder-neutral-400 dark:placeholder-neutral-500"
         />
         {search && (
@@ -152,7 +155,7 @@ function TagMultiSelect({
 
       {open && search.trim() !== '' && filtered.length === 0 && (
         <div className="mt-1 px-3 py-2 text-sm text-neutral-400 dark:text-neutral-500">
-          Keine Tags gefunden
+          {t('routePlanner.metadata.noTagsFound')}
         </div>
       )}
     </div>
@@ -162,7 +165,9 @@ function TagMultiSelect({
 // ─── RouteMetadataForm ────────────────────────────────────────────────────────
 
 export default function RouteMetadataForm({ initialValues, currentProfile, onChange, isNew }: Props) {
-  const sportOptions = routeSportOptions()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const sportOptions = routeSportOptions(language)
 
   const [name, setName] = useState(initialValues?.name ?? '')
   const [description, setDescription] = useState(initialValues?.description ?? '')
@@ -207,7 +212,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
       {/* Name (required) */}
       <div>
         <label className={labelClass}>
-          Name <span className="text-red-500">*</span>
+          {t('routePlanner.metadata.name')} <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
@@ -215,24 +220,24 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
           onChange={(e) => { setName(e.target.value); notify({ name: e.target.value }) }}
           required
           autoFocus
-          placeholder="z.B. Alpenüberquerung Etappe 1"
+          placeholder={t('routePlanner.metadata.namePlaceholder')}
           className={inputClass}
         />
         {isNew && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
-            Neue Route — wird separat gespeichert
+            {t('routePlanner.metadata.newRouteHint')}
           </p>
         )}
       </div>
 
       {/* Description */}
       <div>
-        <label className={labelClass}>Beschreibung</label>
+        <label className={labelClass}>{t('routePlanner.metadata.description')}</label>
         <textarea
           value={description}
           onChange={(e) => { setDescription(e.target.value); notify({ description: e.target.value }) }}
           rows={3}
-          placeholder="Markdown wird unterstützt…"
+          placeholder={t('routePlanner.metadata.descriptionPlaceholder')}
           className={`${inputClass} resize-none`}
         />
       </div>
@@ -240,7 +245,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
       {/* Sport type + Difficulty side by side */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={labelClass}>Sportart</label>
+          <label className={labelClass}>{t('routePlanner.metadata.sport')}</label>
           <select
             value={`${sportType}:${subType}`}
             onChange={(e) => {
@@ -258,19 +263,19 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
         </div>
 
         <div>
-          <label className={labelClass}>Schwierigkeit</label>
+          <label className={labelClass}>{t('routePlanner.metadata.difficulty')}</label>
           <input
             type="text"
             value={difficulty}
             onChange={(e) => { setDifficulty(e.target.value); notify({ difficulty: e.target.value }) }}
-            placeholder="z.B. T3, schwer"
+            placeholder={t('routePlanner.metadata.difficultyPlaceholder')}
             className={inputClass}
           />
         </div>
       </div>
 
       <label className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2">
-        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Antrieb</span>
+        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('routePlanner.metadata.eDrive')}</span>
         <div className="relative flex-shrink-0">
           <input
             type="checkbox"
@@ -288,7 +293,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
 
       {/* Tags multi-select */}
       <div>
-        <label className={labelClass}>Tags</label>
+        <label className={labelClass}>{t('routePlanner.metadata.tags')}</label>
         <TagMultiSelect
           selected={tagIds}
           onChange={(ids) => { setTagIds(ids); notify({ tag_ids: ids }) }}
@@ -309,29 +314,29 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
         </div>
         <div>
           <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-            Auto-Tag
+            {t('routePlanner.metadata.autoTag')}
           </span>
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Tags automatisch anhand der Route vergeben
+            {t('routePlanner.metadata.autoTagDescription')}
           </p>
         </div>
       </label>
 
       {/* Profile override */}
       <div>
-        <label className={labelClass}>Routing-Profil</label>
+        <label className={labelClass}>{t('routePlanner.metadata.routingProfile')}</label>
         <select
           value={profileOverride}
           onChange={(e) => { setProfileOverride(e.target.value); notify({ profile_override: e.target.value }) }}
           className={inputClass}
         >
-          {BROUTER_PROFILES.map(({ value, label }) => (
-            <option key={value} value={value}>{label}</option>
+          {BROUTER_PROFILES.map(({ value, labelKey }) => (
+            <option key={value} value={value}>{t(labelKey)}</option>
           ))}
         </select>
         {profileOverride !== currentProfile && (
           <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-            Abweichend vom aktuellen Planer-Profil ({currentProfile})
+            {t('routePlanner.metadata.profileOverrideHint', { profile: currentProfile })}
           </p>
         )}
       </div>

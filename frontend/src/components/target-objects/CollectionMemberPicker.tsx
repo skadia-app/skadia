@@ -1,28 +1,22 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchSegments } from '@/api/segments'
 import { listRoutePublications } from '@/api/routes'
 import { listPrivacyZones } from '@/api/privacy'
 import { fetchTags } from '@/api/tags'
 import { listTargetCollections, listTargetPlaces, listTargetRegions, type TargetCollectionMemberKind } from '@/api/targetObjects'
+import { memberKindLabel } from './targetLabels'
 
 interface CollectionMemberPickerProps {
   onAdd: (member: { member_kind: TargetCollectionMemberKind; member_id?: string; member_ref?: string; role: string }) => void
   busy?: boolean
 }
 
-const MEMBER_KIND_OPTIONS: { value: TargetCollectionMemberKind; label: string }[] = [
-  { value: 'course', label: 'Segment/Kurs' },
-  { value: 'route_publication', label: 'Veröffentlichter Kurs' },
-  { value: 'place', label: 'Ort' },
-  { value: 'region', label: 'Bereich' },
-  { value: 'collection', label: 'Sammlung' },
-  { value: 'privacy_zone', label: 'Privacy-Zone' },
-  { value: 'tag_zone', label: 'Tag-Zone' },
-  { value: 'external_ref', label: 'Externe Referenz' },
-]
+const MEMBER_KIND_OPTIONS: TargetCollectionMemberKind[] = ['course', 'route_publication', 'place', 'region', 'collection', 'privacy_zone', 'tag_zone', 'external_ref']
 
 export default function CollectionMemberPicker({ onAdd, busy = false }: CollectionMemberPickerProps) {
+  const { t } = useTranslation()
   const [memberKind, setMemberKind] = useState<TargetCollectionMemberKind>('place')
   const [memberID, setMemberID] = useState('')
   const [memberRef, setMemberRef] = useState('')
@@ -84,13 +78,13 @@ export default function CollectionMemberPicker({ onAdd, busy = false }: Collecti
         }}
         className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
       >
-        {MEMBER_KIND_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {MEMBER_KIND_OPTIONS.map(option => <option key={option} value={option}>{memberKindLabel(option, t)}</option>)}
       </select>
       {isExternal ? (
         <input
           value={memberRef}
           onChange={event => setMemberRef(event.target.value)}
-          placeholder="Referenz"
+          placeholder={t('targetCollectionDetail.memberRefPlaceholder')}
           className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         />
       ) : (
@@ -99,7 +93,7 @@ export default function CollectionMemberPicker({ onAdd, busy = false }: Collecti
           onChange={event => setMemberID(event.target.value)}
           className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         >
-          <option value="">Auswählen</option>
+          <option value="">{t('targetCollectionDetail.chooseMember')}</option>
           {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
       )}
@@ -113,7 +107,7 @@ export default function CollectionMemberPicker({ onAdd, busy = false }: Collecti
         disabled={busy || !canSubmit}
         className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
       >
-        Hinzufügen
+        {t('targetCollectionDetail.add')}
       </button>
     </form>
   )

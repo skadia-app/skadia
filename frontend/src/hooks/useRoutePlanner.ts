@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type {
   RouteWaypoint,
   RouteSegment,
@@ -86,20 +87,20 @@ interface RoutePlannerState {
   editingRouteVersion: number | null
   routingEngine: RoutingEngine
   brouterProfile: string
-  // V6-Retrofit: aggregierter Stats-Shape über alle Segmente. null = keine Stats
-  // verfügbar (BRouter-Engine, oder Segmente leer).
+  // V6 retrofit: aggregated stats shape across all segments. null means no stats
+  // are available (BRouter engine, or no segments).
   routeStats: RouteStats | null
-  // _statsCache: per-Segment-Cache mit key = `${from_waypoint}:${to_waypoint}`.
-  // NICHT im Return-Object — rein intern. Muss im selben State-Objekt wie
-  // segments[] leben, damit setState atomisch bleibt.
+  // _statsCache: per-segment cache keyed by `${from_waypoint}:${to_waypoint}`.
+  // Not returned by the hook; internal only. It lives in the same state object
+  // as segments[] so setState remains atomic.
   _statsCache: Record<string, RouteStats>
-  // Spec Rev 2.3 / §6.2: Zentraler Profil-State, gespeist aus 4 Quellen
-  // (Segment-Profile, BRouter-Fallback, Lazy-Fill, geladene Route).
+  // Spec Rev 2.3 / §6.2: central profile state fed by four sources
+  // (segment profiles, BRouter fallback, lazy fill, loaded route).
   effectiveProfile: RouteElevationPoint[] | null
   routeSchemaVersion: number | null
-  // Lazy-Fill (Phase 5) — bereits hier vorbereitet (Spec §R7).
+  // Lazy fill (Phase 5) is prepared here already (Spec §R7).
   lazyFillInProgress: boolean
-  // Monoton steigender Counter für Stale-Check parallel laufender loadRoute-Calls.
+  // Monotonically increasing counter for stale checks across concurrent loadRoute calls.
   lazyFillToken: number
   lazyFillPendingSave: boolean
   // Per-segment fill tokens for offroad DEM fetches (Phase D.2).
@@ -286,14 +287,14 @@ function rebuildOffroadGeometry(seg: RouteSegment): RouteSegment {
 
 // ─── RouteStats types + helpers ───────────────────────────────────────────────
 
-// Zentraler Stats-Shape — wird aus /routing/route-internal (Quelle 1),
-// loadSuggestion (Quelle 2) und recalculateAll (Quelle 3) befüllt, auf null
-// gesetzt bei Segment-Reset (Quelle 4 — recalculateAll, clear, setRoutingEngine,
-// loadWaypoints). Keys 1:1 identisch zu RouteSuggestion-Enrichment (Spec §4.2.4 E).
+// Central stats shape. It is filled from /routing/route-internal (source 1),
+// loadSuggestion (source 2), and recalculateAll (source 3), then set to null on
+// segment reset (source 4: recalculateAll, clear, setRoutingEngine, loadWaypoints).
+// Keys match RouteSuggestion enrichment exactly (Spec §4.2.4 E).
 //
-// CoordRange-Shape: {from: number, to: number} (to exclusive) — verifiziert
-// in api/routes.ts:375-378. PassedSummit hat kein coord_index-Feld (Position
-// via lat/lng, verifiziert api/routes.ts:380-388).
+// CoordRange shape: {from: number, to: number} (to exclusive), verified in
+// api/routes.ts:375-378. PassedSummit has no coord_index field; position is via
+// lat/lng, verified in api/routes.ts:380-388.
 export type RouteStats = {
   forest_pct: number | null
   protected_pct: number | null
@@ -304,9 +305,9 @@ export type RouteStats = {
   vf_ranges: Record<string, CoordRange[]> | null
   vf_unknown_ranges: CoordRange[] | null
   summits_passed: PassedSummit[] | null
-  // coordinates: Referenz-Coord-Array gegen das alle Range-Indizes aufgelöst
-  // werden. Im Multi-Segment-Fall: Concat aller Segment-Coords mit Dedup des
-  // ersten Coords jedes Nachfolger-Segments (Spec §4.2.4 E).
+  // coordinates: reference coordinate array used to resolve all range indexes.
+  // In the multi-segment case, concatenate all segment coordinates and dedupe
+  // the first coordinate of each following segment (Spec §4.2.4 E).
   coordinates: number[][]
 }
 
@@ -337,32 +338,31 @@ function extractRouteStatsFromFeature(feature: GeoJSON.Feature | undefined): Rou
 /**
  * Build combined elevation profile from per-segment RouteElevationPoint[] arrays.
  *
- * Distanz-Konvention (Spec §10 Q1 + §6.2):
- * - segment.elevation_profile[i].dist_m ist segment-lokal (startet bei 0 pro Segment).
- * - Helper addiert die Profil-letzte-DistM (NICHT seg.distance_m, weil das
- *   approach-inklusiv wäre und gegen das approach-exklusive Profil driftet —
+ * Distance convention (Spec §10 Q1 + §6.2):
+ * - segment.elevation_profile[i].dist_m is segment-local and starts at 0 per segment.
+ * - The helper adds the profile's final dist_m, NOT seg.distance_m, because
+ *   seg.distance_m would be approach-inclusive and drift from the approach-exclusive profile
  *   Spec §5.5).
  *
- * Achsen-Diskrepanz (regression case): Bei Segmenten ohne Profil wird
- * ersatzweise seg.distance_m als Offset verwendet. Für routed-Segmente ist das
- * approach-inklusiv, für offroad approach-exklusiv. Der resultierende Drift ist
- * typischerweise 10–100 m (abhängig von der Approach-Länge), also im Bereich eines
- * einzelnen Elevation-Profile-Sample-Intervalls. Akzeptierter Drift in Phase 1.
+ * Axis mismatch (regression case): when a segment has no profile, seg.distance_m
+ * is used as the fallback offset. For routed segments that is approach-inclusive;
+ * for offroad it is approach-exclusive. The resulting drift is typically 10-100 m
+ * depending on approach length, roughly one elevation-profile sample interval.
+ * Accepted drift in Phase 1.
  *
- * Phase-4-Folgepunkt (Plan §10 Q1, Hover-Sync): Beheben via per-Segment
- * profile_dist_m-Feld, das die tatsächliche routed Distanz exklusive Approach
- * liefert. Wird in TestBuildCombinedProfileFromSegments_NoProfile_DistanceDrift
- * (noch zu ergänzen) quantitativ abgedeckt.
+ * Phase 4 follow-up (Plan §10 Q1, hover sync): fix this via a per-segment
+ * profile_dist_m field that provides the actual routed distance excluding the approach.
+ * Quantitative coverage belongs in TestBuildCombinedProfileFromSegments_NoProfile_DistanceDrift.
  *
- * Junction-Dedup: Erstes Profil-Sample pro Folge-Segment wird übersprungen,
- * weil es den letzten Punkt des Vorgänger-Segments dupliziert.
+ * Junction dedupe: skip the first profile sample of each following segment
+ * because it duplicates the previous segment's last point.
  *
  * Exported for unit tests only.
  */
-// Perf (Wave 3, Fix 4): Cost-Analyse — O(W) Map-Build + O(S log S) Sort +
-// O(N) Doppelloop über Segments×Profile-Punkte. Ein Push + ein Object pro
-// Profilpunkt, keine Allocations in der Inner Loop. Bei 100km / 10 Segmenten /
-// 5000 Profilpunkten ≈ <2ms gemessen — keine Architektur-Änderung sinnvoll.
+// Perf (Wave 3, Fix 4): cost analysis: O(W) map build + O(S log S) sort +
+// O(N) double loop across segments x profile points. One push and one object per
+// profile point, with no allocations in the inner loop. Measured at about <2ms
+// for 100km / 10 segments / 5000 profile points, so no architecture change is useful.
 export function buildCombinedProfileFromSegments(
   segments: RouteSegment[],
   waypoints: RouteWaypoint[],
@@ -403,16 +403,16 @@ export function mergeSegmentStatsForState(
 ): RouteStats | null {
   if (segments.length === 0) return null
 
-  // Early-out: kein Segment hat Cache-Eintrag → null (BRouter-Gesamtroute)
+  // Early-out: no segment has a cache entry, so this is a full BRouter route.
   const anyStats = segments.some(s => cache[`${s.from_waypoint}:${s.to_waypoint}`])
   if (!anyStats) return null
 
-  // Distance-gewichtete Prozent-Werte (forest_pct, protected_pct).
+  // Distance-weighted percentage values (forest_pct, protected_pct).
   let totalDist = 0
   let forestWeighted = 0
   let protectedWeighted = 0
 
-  // Range-Maps mit Coord-Offset-Shift pro Segment.
+  // Range maps with coordinate-offset shifts per segment.
   const sacMerged: Record<string, CoordRange[]> = {}
   const mtbMerged: Record<string, CoordRange[]> = {}
   const vfMerged: Record<string, CoordRange[]> = {}
@@ -437,7 +437,7 @@ export function mergeSegmentStatsForState(
     const segCoords = (seg.geometry?.coordinates ?? []) as number[][]
     const segLen = segCoords.length
 
-    // Coords mergen mit Dedup: ab Segment 2 ersten Coord überspringen.
+    // Merge coordinates with dedupe: skip the first coordinate from segment 2 onward.
     if (i === 0) {
       for (const c of segCoords) coordinatesMerged.push(c)
     } else {
@@ -476,9 +476,9 @@ export function mergeSegmentStatsForState(
       shiftFlatRanges(stats.forest_ranges, forestRangesMerged)
       shiftFlatRanges(stats.protected_ranges, protectedRangesMerged)
       if (stats.summits_passed) {
-        // Summits dedupliziert: kann an Segment-Grenzen doppelt auftreten.
-        // regression case fix: osm_id=0 (DB-Importbug) → Coord-Fallback-Key statt osm_id,
-        // sonst werden alle osm_id=0-Gipfel fälschlich als Duplikate behandelt.
+        // Dedupe summits that can appear twice at segment boundaries.
+        // regression case fix: osm_id=0 (DB import bug) uses coordinate fallback key instead of osm_id,
+        // otherwise all osm_id=0 summits are incorrectly treated as duplicates.
         const dedupKey = (sm: { osm_id: number; lat: number; lng: number }) =>
           sm.osm_id > 0 ? String(sm.osm_id) : `${sm.lat.toFixed(5)},${sm.lng.toFixed(5)}`
         const seenKeys = new Set(summitsMerged.map(dedupKey))
@@ -492,8 +492,8 @@ export function mergeSegmentStatsForState(
       }
     }
 
-    // Coord-Offset fortschalten. Für i==0: Offset wächst um segLen.
-    // Für i>0: Offset wächst um segLen-1 (erster Coord wurde geskippt).
+    // Advance the coordinate offset. For i==0, it grows by segLen.
+    // For i>0, it grows by segLen-1 because the first coordinate was skipped.
     coordOffset += i === 0 ? segLen : Math.max(segLen - 1, 0)
   }
 
@@ -760,6 +760,7 @@ async function fillOffroadSegmentProfile(
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useRoutePlanner() {
+  const { t } = useTranslation()
   const [state, setState] = useState<RoutePlannerState>(INITIAL_STATE)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -791,12 +792,12 @@ export function useRoutePlanner() {
   _stateRef.current = state
 
   // ── Scale-Pin + Hover state (SAC / MTB / Via Ferrata) ────────────────────────
-  // scalePin: persistente Auswahl (Click auf Badge, bleibt bis erneuter Click
-  // oder Reset). scaleHover: transient (Badge-Hover, clearet bei mouseleave).
-  // scaleEffective = scalePin ?? scaleHover — ein gepinneter Badge gewinnt,
-  // sonst wird der gehoverte Badge als Preview angezeigt. Consumers (MapPage,
-  // ScaleLegend) lesen scaleEffective statt scalePin, damit Hover einen
-  // Map-Preview inkl. Legende liefert ohne dass der User klicken muss.
+  // scalePin: persistent selection (badge click, remains until another click or reset).
+  // scaleHover: transient (badge hover, cleared on mouseleave).
+  // scaleEffective = scalePin ?? scaleHover. A pinned badge wins; otherwise the
+  // hovered badge is shown as a preview. Consumers (MapPage, ScaleLegend) read
+  // scaleEffective instead of scalePin so hover can provide a map preview including
+  // the legend without requiring the user to click.
   const [scalePin, setScalePin] = useState<'sac' | 'mtb' | 'vf' | null>(null)
   const [scaleHover, setScaleHover] = useState<'sac' | 'mtb' | 'vf' | null>(null)
 
@@ -857,8 +858,8 @@ export function useRoutePlanner() {
       .catch(() => {
         addToast({
           type: 'error',
-          title: 'Profil-Defaults konnten nicht geladen werden',
-          message: 'Bitte Seite neu laden.',
+          title: t('routePlanner.hook.profileDefaultsLoadFailed'),
+          message: t('routePlanner.hook.reloadPage'),
           duration: 0,
         })
       })
@@ -918,11 +919,11 @@ export function useRoutePlanner() {
     brouterProf: string = 'hiking-mountain',
   ): Promise<void> => {
     if (engine === 'badrouter' && capabilitiesQuery.data && !featureAvailable(capabilitiesQuery.data, 'badrouter')) {
-      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? 'nicht verfuegbar'
+      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? t('routePlanner.hook.notAvailable')
       addToast({
         type: 'error',
-        title: 'BadRouter nicht verfuegbar',
-        message: `Diese Route kann in diesem Profil nicht neu berechnet werden (${reason}).`,
+        title: t('routePlanner.hook.badRouterUnavailable'),
+        message: t('routePlanner.hook.recalculateUnavailable', { reason }),
         duration: 5000,
       })
       setState(s => ({ ...s, isCalculating: false, calculationError: 'feature_unavailable' }))
@@ -948,14 +949,13 @@ export function useRoutePlanner() {
 
       const segment = buildSegmentFromFeature(from, to, feature, isFallback)
 
-      // V6-Retrofit Quelle 1: Stats aus Response extrahieren. extractRouteStatsFromFeature
-      // hat einen hasAnyKey-Guard und returnt null, wenn die Response keine Enrichment-
-      // Keys enthält (BRouter-Proxy aktuell, Spec §3 Non-Goal + §4.1.5b). Kein Engine-Gate
-      // hier — die Funktion ist self-guarding. Hinweis: der hasAnyKey-Check sucht nach
-      // hart-kodierten snake_case-Keys (forest_pct, sac_ranges etc.); falls BRouter je Stats
-      // emittieren soll, müsste extractRouteStatsFromFeature an das konkrete Key-Schema
-      // angepasst werden — "robust gegen zukünftige Backend-Änderungen" gilt nur solange
-      // die Key-Namen konsistent bleiben.
+      // V6 retrofit source 1: extract stats from the response. extractRouteStatsFromFeature
+      // has a hasAnyKey guard and returns null when the response contains no enrichment
+      // keys (current BRouter proxy, Spec §3 Non-Goal + §4.1.5b). No engine gate here;
+      // the function is self-guarding. Note: the hasAnyKey check looks for hard-coded
+      // snake_case keys (forest_pct, sac_ranges, etc.). If BRouter should ever emit stats,
+      // extractRouteStatsFromFeature must be adapted to the concrete key schema; the
+      // "robust against future backend changes" claim only holds while key names stay consistent.
       const statsForSegment = extractRouteStatsFromFeature(feature)
       const segmentKey = `${from.id}:${to.id}`
 
@@ -978,7 +978,7 @@ export function useRoutePlanner() {
           .slice()
           .sort((a, b) => (wpOrder.get(a.from_waypoint) ?? Infinity) - (wpOrder.get(b.from_waypoint) ?? Infinity))
 
-        // _statsCache atomar mit-updaten
+        // Update _statsCache atomically with segments.
         const newCache = { ...s._statsCache }
         if (statsForSegment) {
           newCache[segmentKey] = statsForSegment
@@ -986,21 +986,20 @@ export function useRoutePlanner() {
           delete newCache[segmentKey]
         }
 
-        // Bug A fix (2026-04-25): Stats-Erhaltung bei geladenen Routen.
-        // RouteSegment-Type (api/routes.ts:19-34) persistiert KEINE Per-Segment-
-        // Stats — das aggregierte routeStats kommt aus route.enrichment JSONB.
-        // Wenn der User nach loadRoute einen Wegpunkt verschiebt/hinzufügt, hat
-        // _statsCache nur den NEU berechneten Eintrag, die anderen Segmente sind
-        // im Cache nicht vertreten. mergeSegmentStatsForState würde dann nur die
-        // Stats des neuen Segments zurückgeben → Gipfel/Forest/SAC anderer
-        // Segmente verschwinden aus dem Side-Panel.
+        // Bug A fix (2026-04-25): preserve stats for loaded routes.
+        // RouteSegment (api/routes.ts:19-34) does NOT persist per-segment stats;
+        // the aggregated routeStats comes from route.enrichment JSONB.
+        // If the user moves/adds a waypoint after loadRoute, _statsCache contains
+        // only the newly calculated entry and the other segments are absent from
+        // the cache. mergeSegmentStatsForState would then return only the new
+        // segment's stats, making other segments' summit/forest/SAC stats disappear
+        // from the side panel.
         //
-        // Schutzregel: wenn (a) ein deserialisiertes baseStats existiert (s.routeStats != null)
-        // UND (b) der Cache NICHT für alle Segmente Einträge hat → das alte
-        // routeStats bleibt erhalten (best-effort: lieber leicht stale Aggregat
-        // als komplett verlorenes Enrichment). Sobald der User recalculateAll()
-        // triggert oder alle Segmente einzeln neu berechnet werden, ist der
-        // Cache vollständig und der Merge übernimmt wieder.
+        // Guard rule: if (a) deserialized baseStats exist (s.routeStats != null)
+        // AND (b) the cache does NOT have entries for all segments, keep the old
+        // routeStats. Best-effort favors a slightly stale aggregate over completely
+        // lost enrichment. Once the user triggers recalculateAll() or all segments
+        // are individually recalculated, the cache is complete and the merge takes over again.
         const allSegmentsInCache = newSegments.every(
           seg => newCache[`${seg.from_waypoint}:${seg.to_waypoint}`],
         )
@@ -1031,7 +1030,7 @@ export function useRoutePlanner() {
       }
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Routenberechnung fehlgeschlagen'
+        err instanceof Error ? err.message : t('routePlanner.hook.routeCalculationFailed')
       setState(s => ({
         ...s,
         isCalculating: false,
@@ -1130,8 +1129,8 @@ export function useRoutePlanner() {
       const newSegments = s.segments.filter(
         seg => seg.from_waypoint !== wpId && seg.to_waypoint !== wpId,
       )
-      // V6-Retrofit Quelle 4: invalidate cached stats — stale after waypoint removal.
-      // Next recalculate() will repopulate via Quelle 1.
+      // V6 retrofit source 4: invalidate cached stats after waypoint removal.
+      // Next recalculate() will repopulate via source 1.
       return { ...s, waypoints: newWaypoints, segments: newSegments, routeStats: null, _statsCache: {} }
     })
     // Note: adjacent segment recalculation is triggered by the caller component
@@ -1168,7 +1167,7 @@ export function useRoutePlanner() {
   const reorderWaypoints = useCallback((newOrder: RouteWaypoint[]) => {
     setState(s => {
       const retyped = assignWaypointTypes(newOrder)
-      // V6-Retrofit Quelle 4: segments + stats invalid after reorder — full recalc needed.
+      // V6 retrofit source 4: segments and stats are invalid after reorder; full recalc needed.
       return { ...s, waypoints: retyped, segments: [], routeStats: null, _statsCache: {} }
     })
   }, [])
@@ -1188,8 +1187,8 @@ export function useRoutePlanner() {
       const newSegments = s.segments.filter(
         seg => !(seg.from_waypoint === afterId && seg.to_waypoint === nextWp.id),
       )
-      // V6-Retrofit Quelle 4: evict stats cache — affected segment is gone,
-      // two new segments will be calculated and will repopulate via Quelle 1.
+      // V6 retrofit source 4: evict stats cache. The affected segment is gone;
+      // two new segments will be calculated and will repopulate via source 1.
       const newCache = { ...s._statsCache }
       delete newCache[`${afterId}:${nextWp.id}`]
       return { ...s, waypoints: newWaypoints, segments: newSegments, routeStats: null, _statsCache: newCache }
@@ -1219,7 +1218,7 @@ export function useRoutePlanner() {
       // regression case fix (Option b): do NOT clear existing segments here.
       // Keeps DB-loaded segments visible while re-routing is in-flight, preventing
       // the visible flash (route → blank → route). _calculateSegment replaces each
-      // segment in-place via findIndex+map (Quelle 1 path).
+      // segment in-place via findIndex+map (source 1 path).
       // Stats cache IS cleared: will be repopulated per-segment by _calculateSegment.
       // Bug #4 fix: mark the active engine dirty BEFORE kicking off the recompute,
       // so the invariant "dirty=true iff this engine has uncomputed pending changes"
@@ -1503,8 +1502,8 @@ export function useRoutePlanner() {
         .catch(() => {
           addToast({
             type: 'error',
-            title: 'Profil-Defaults konnten nicht geladen werden',
-            message: `Profil "${defaultsProfile}" konnte nicht geladen werden.`,
+            title: t('routePlanner.hook.profileDefaultsLoadFailed'),
+            message: t('routePlanner.hook.profileLoadFailedMessage', { profile: defaultsProfile }),
             duration: 0,
           })
         })
@@ -1595,8 +1594,8 @@ export function useRoutePlanner() {
         // Toast is shown so the user knows the profile may be incomplete.
         addToast({
           type: 'error',
-          title: 'Höhenprofil-Migration fehlgeschlagen',
-          message: 'Höhenprofil bleibt unvollständig — bitte Seite neu laden.',
+          title: t('routePlanner.hook.elevationMigrationFailed'),
+          message: t('routePlanner.hook.elevationMigrationIncomplete'),
           duration: 0,
         })
         setState(s => {
@@ -1622,7 +1621,7 @@ export function useRoutePlanner() {
         }
       })
     })()
-  }, [addToast])
+  }, [addToast, t])
 
   const loadRouteDraft = useCallback((incomingRoute: PlannedRoute) => {
     const route = routeWithGeometryFallback(incomingRoute)
@@ -1678,13 +1677,13 @@ export function useRoutePlanner() {
         .catch(() => {
           addToast({
             type: 'error',
-            title: 'Profil-Defaults konnten nicht geladen werden',
-            message: `Profil "${defaultsProfile}" konnte nicht geladen werden.`,
+            title: t('routePlanner.hook.profileDefaultsLoadFailed'),
+            message: t('routePlanner.hook.profileLoadFailedMessage', { profile: defaultsProfile }),
             duration: 0,
           })
         })
     }
-  }, [addToast])
+  }, [addToast, t])
 
   // Load waypoints into the planner without creating/linking a saved route.
   const loadWaypoints = useCallback((waypoints: RouteWaypoint[]) => {
@@ -1709,8 +1708,7 @@ export function useRoutePlanner() {
   // This prevents the previous bug where only 3 waypoints were extracted and
   // the segment router re-calculated a completely different route.
   const loadSuggestion = useCallback((s: RouteSuggestion) => {
-    // I3-Invariant: MUSS als erste Anweisung bleiben — "Übernehmen"-Flow
-    // im Comparison-Panel (onSelect-Handler des RouteComparisonPanel) ist von diesem Reset abhängig.
+    // I3 invariant: must remain first; the ComparisonPanel apply flow depends on this reset.
     resetScalePin()
     loadedRouteRef.current = null
     const firstFeature = s.geojson?.features?.[0]
@@ -1718,7 +1716,7 @@ export function useRoutePlanner() {
     if (!coords || coords.length < 2) {
       setState(st => ({
         ...st,
-        calculationError: 'Suggestion-Geometrie fehlt oder ungültig',
+        calculationError: t('routePlanner.hook.invalidSuggestionGeometry'),
       }))
       return
     }
@@ -1779,7 +1777,7 @@ export function useRoutePlanner() {
       elevation_profile: segElevationProfile,
     }
 
-    // V6-Retrofit Quelle 2: Stats aus Suggestion direkt übernehmen + synthetisch cachen.
+    // V6 retrofit source 2: take stats directly from the suggestion and cache them synthetically.
     const suggestionCoords = (s.geojson?.features?.[0]?.geometry?.coordinates
       ?? []) as number[][]
     const statsFromSuggestion: RouteStats = {
@@ -1801,7 +1799,7 @@ export function useRoutePlanner() {
       waypoints: [startWp, endWp],
       segments: [segment],
       _statsCache: { [synthKey]: statsFromSuggestion },
-      routeStats: statsFromSuggestion, // kein Shift nötig — einzelnes Segment, coordOffset=0
+      routeStats: statsFromSuggestion, // no shift needed: single segment, coordOffset=0
       editingRouteId: null,
       editingRouteVersion: null,
       routeSchemaVersion: null,
@@ -1848,11 +1846,11 @@ export function useRoutePlanner() {
 
   const setRoutingEngine = useCallback(async (engine: RoutingEngine) => {
     if (engine === 'badrouter' && capabilitiesQuery.data && !featureAvailable(capabilitiesQuery.data, 'badrouter')) {
-      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? 'nicht verfuegbar'
+      const reason = featureReason(capabilitiesQuery.data, 'badrouter') ?? t('routePlanner.hook.notAvailable')
       addToast({
         type: 'error',
-        title: 'BadRouter nicht verfuegbar',
-        message: `Gespeicherte BadRouter-Geometrien bleiben sichtbar, koennen aber nicht neu berechnet werden (${reason}).`,
+        title: t('routePlanner.hook.badRouterUnavailable'),
+        message: t('routePlanner.hook.savedBadRouterVisibleOnly', { reason }),
         duration: 5000,
       })
       return
@@ -1909,7 +1907,7 @@ export function useRoutePlanner() {
       lastRenderedEngine: engine,
       dirtyEngines: { ...s.dirtyEngines, [engine]: false },
     }))
-  }, [state, _calculateSegment, capabilitiesQuery.data, addToast])
+  }, [state, _calculateSegment, capabilitiesQuery.data, addToast, t])
 
   const setBrouterProfile = useCallback(async (profile: string) => {
     // Fix #5 (React 19 StrictMode): compute the recompute decision from the
@@ -1978,8 +1976,8 @@ export function useRoutePlanner() {
       if (!state.profileConfig) {
         addToast({
           type: 'error',
-          title: 'Route kann noch nicht gespeichert werden',
-          message: 'Profil-Defaults sind noch nicht geladen.',
+          title: t('routePlanner.hook.routeNotReadyToSave'),
+          message: t('routePlanner.hook.profileDefaultsNotLoaded'),
           duration: 0,
         })
         return Promise.reject(new Error('profileConfig not loaded'))
@@ -1998,8 +1996,8 @@ export function useRoutePlanner() {
       if (combinedCoords.length < 2) {
         addToast({
           type: 'error',
-          title: 'Route kann nicht gespeichert werden',
-          message: 'Die Route hat keine Geometrie. Bitte zuerst Wegpunkte und eine Strecke erzeugen.',
+          title: t('routePlanner.hook.routeCannotBeSaved'),
+          message: t('routePlanner.hook.routeMissingGeometry'),
           duration: 0,
         })
         return Promise.reject(new Error('route has no geometry'))
@@ -2074,7 +2072,7 @@ export function useRoutePlanner() {
       if (wasUpdateRef.current) {
         addToast({
           type: 'success',
-          title: 'Route aktualisiert',
+          title: t('routePlanner.save.updated'),
           message: saved.name || undefined,
         })
       }
@@ -2089,7 +2087,7 @@ export function useRoutePlanner() {
       //
       // The ETag cache is NOT updated here (apiClient no longer does it either).
       // It is only advanced when the user explicitly accepts the conflict body by
-      // clicking "Neu laden". This prevents a second save of the stale local
+      // clicking reload. This prevents a second save of the stale local
       // state from silently overwriting the concurrent change with the fresh ETag.
       const apiErr = err as { status?: number; json?: Record<string, unknown>; serverETag?: string } | null
       if (apiErr && apiErr.status === 412 && apiErr.json) {
@@ -2098,12 +2096,11 @@ export function useRoutePlanner() {
         const conflictRouteId = savingRouteIdRef.current
         addToast({
           type: 'warning',
-          title: 'Route wurde anderswo geändert',
-          message:
-            'Diese Route wurde inzwischen anderswo bearbeitet. Bitte neu laden, um die aktuellen Änderungen zu sehen — lokale Änderungen gehen dabei verloren.',
+          title: t('routePlanner.hook.routeChangedElsewhere'),
+          message: t('routePlanner.hook.routeChangedElsewhereMessage'),
           duration: 0,
           action: {
-            label: 'Neu laden',
+            label: t('routePlanner.hook.reload'),
             onClick: () => {
               // Advance the ETag cache to the server's current version so the
               // next save (after the user edits the freshly loaded state) uses
@@ -2151,24 +2148,23 @@ export function useRoutePlanner() {
 
   // ── Elevation profile (Spec §6.2 / Rev 2.3) ─────────────────────────────────
   //
-  // Quelle 1 (Primary): pro-Segment elevation_profile — vom Backend in
-  //   RouteSegment.elevation_profile geliefert (Phase 2/3.1) bzw. später
-  //   von Lazy-Fill nachgeladen (Phase 5).
-  // Quelle 2 (Fallback): POST /elevation/profile gegen die kombinierte
-  //   Geometrie — nur wenn KEIN Segment ein Profil trägt.
-  // Die effectiveProfile-State wird via useEffect aus diesen Quellen synchronisiert
-  // und ist die single-source-of-truth für Konsumenten + Save-Pfad.
+  // Source 1 (primary): per-segment elevation_profile, delivered by the backend
+  //   in RouteSegment.elevation_profile (Phase 2/3.1) or later loaded by lazy fill (Phase 5).
+  // Source 2 (fallback): POST /elevation/profile against the combined geometry,
+  //   only when NO segment carries a profile.
+  // effectiveProfile is synchronized from these sources via useEffect and is the
+  // single source of truth for consumers and the save path.
 
   // Build combined coordinate list from all segment geometries, sorted by
   // waypoint order (state.segments is normally sorted, but defensive sort here
   // covers the brief window between loadRoute and recalculateAll completing).
   //
-  // Bug D fix (2026-04-25): vorher wurden combinedCoordinates, profileFromSegments
-  // und _totalDistMForProfile bei JEDEM Render neu berechnet. Beim schnellen
-  // Setzen mehrerer Wegpunkte erzeugte das ständig neue Array-Identitäten
-  // → neuer queryKey für elevationProfileQuery → Refetch + useEffect-Trigger
-  // → Render-Storm und UI-Ruckler. useMemo bündelt die Ableitungen mit den
-  // einzigen wirklichen Inputs (segments + waypoints).
+  // Bug D fix (2026-04-25): combinedCoordinates, profileFromSegments, and
+  // _totalDistMForProfile used to be recalculated on EVERY render. Quickly setting
+  // multiple waypoints created constantly new array identities, causing a new
+  // queryKey for elevationProfileQuery, refetches, useEffect triggers, render storms,
+  // and UI jitter. useMemo binds these derivations to their real inputs only
+  // (segments + waypoints).
   const { combinedCoordinates, profileFromSegments, _totalDistMForProfile } = useMemo(() => {
     const wpOrder = new Map(state.waypoints.map((wp, i) => [wp.id, i]))
     const sorted = [...state.segments].sort(
@@ -2216,14 +2212,14 @@ export function useRoutePlanner() {
   // re-render loops: buildCombinedProfileFromSegments returns a new array each
   // render, so reference comparison alone would always trigger setState.
   //
-  // Bug B fix (2026-04-25): Source-Tracking gegen Höhenprofil-Trunkierung.
-  // Vorher schützte der Guard nur bei `editingRouteId !== null` (geladene Route).
-  // Bei frischer Route (editingRouteId=null) konnte ein Add-Waypoint mit kurz
-  // unvollständigem profileFromSegments (neues Segment ohne elevation_profile-
-  // Feld → distAccum advanced, aber keine Punkte) das DEM-Fallback (200-Sample-
-  // Resampling) als Sieger küren und das vorhandene Vollprofil überschreiben.
-  // Neue Regel: wenn `prev` aus 'segments' kam und `next` aus 'dem-fallback'
-  // kommt UND `prev.length > next.length` → next verwerfen. Engine-agnostisch.
+  // Bug B fix (2026-04-25): source tracking against elevation-profile truncation.
+  // Previously, the guard protected only `editingRouteId !== null` (loaded route).
+  // For a fresh route (editingRouteId=null), adding a waypoint with briefly incomplete
+  // profileFromSegments (new segment without an elevation_profile field, so distAccum
+  // advanced but no points were present) could let the DEM fallback (200-sample
+  // resampling) win and overwrite the existing full profile.
+  // New rule: when `prev` came from 'segments' and `next` comes from 'dem-fallback'
+  // AND `prev.length > next.length`, reject next. Engine-agnostic.
   const nextSource: 'segments' | 'dem-fallback' | 'none' =
     profileFromSegments !== null
       ? 'segments'
@@ -2240,11 +2236,11 @@ export function useRoutePlanner() {
       const prev = s.effectiveProfile
       if (prev === next) return s
       if (prev === null && next === null) return s
-      // Perf (Wave 3, Fix 3): Equality-Check ist bewusst O(1) — Length-Match
-      // plus first/last dist_m+ele_m. Bei 10k-Punkt-Profilen reicht das, weil
-      // jede Profil-Modifikation entweder die Länge oder den Endpunkt verschiebt
-      // (Waypoint-Move ändert distAccum am Segment-Übergang). Vollscan würde
-      // 40k Vergleiche pro setState kosten und keinen praktischen Nutzen bringen.
+      // Perf (Wave 3, Fix 3): the equality check is intentionally O(1): length match
+      // plus first/last dist_m+ele_m. This is enough for 10k-point profiles because
+      // every profile modification changes either the length or the endpoint
+      // (waypoint moves change distAccum at the segment transition). A full scan would
+      // cost 40k comparisons per setState without practical benefit.
       if (
         prev && next && prev.length === next.length &&
         prev[0]?.dist_m === next[0]?.dist_m &&
@@ -2268,14 +2264,13 @@ export function useRoutePlanner() {
       ) {
         return s
       }
-      // Bug B fix (2026-04-25): engine-agnostischer Trunkierungsschutz.
-      // Wenn das aktuelle Profil aus dem (vollständigen) Segment-Aggregat kam
-      // und der neue Kandidat aus dem DEM-Fallback (200-Sample-Resampling) ist
-      // UND kürzer, dann ist das eine Regression — typisches Symptom: ein neu
-      // hinzugefügtes Segment hat kurz noch kein elevation_profile, sodass
-      // profileFromSegments null wird und das DEM-Fallback gewinnt. Der vorige
-      // editingRouteId-Guard fing den Fall nur für geladene Routen ab.
-      // _prevSourceRef tracked die Quelle des aktuellen prev-Profils.
+      // Bug B fix (2026-04-25): engine-agnostic truncation protection.
+      // If the current profile came from the complete segment aggregate and the
+      // new candidate is a shorter DEM fallback (200-sample resampling), this is
+      // a regression. Typical symptom: a newly added segment briefly has no
+      // elevation_profile, so profileFromSegments becomes null and the DEM fallback
+      // wins. The previous editingRouteId guard only caught loaded routes.
+      // _prevSourceRef tracks the source of the current prev profile.
       if (
         prev !== null &&
         next !== null &&
@@ -2415,8 +2410,8 @@ export function useRoutePlanner() {
     setScaleHover,
     resetScalePin,
 
-    // ── V6-Retrofit: aggregierte Route-Stats ──────────────────────────────
-    // null wenn BRouter-Engine, kein Segment, oder noch keine Stats berechnet.
+    // ── V6 retrofit: aggregated route stats ────────────────────────────────
+    // null for the BRouter engine, no segments, or no calculated stats yet.
     routeStats: state.routeStats,
 
     // ── Lazy-Fill DEM (Spec §7.4) ─────────────────────────────────────────

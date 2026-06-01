@@ -1,12 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Wrench } from 'lucide-react'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { apiClient } from '@/api/client'
 import { fmtDuration, fmtDateCompact } from '@/lib/format'
 import type { Segment } from '@/api/segments'
 import type { ActivityFilterState } from '@/components/ActivityFilters'
+import { isSupportedLanguage } from '@/i18n/languages'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 interface Performance {
   id: string
@@ -24,13 +28,35 @@ interface Performance {
   timezone?: string | null
 }
 
-function getDirectionLabels(segment?: Segment) {
-  if (segment?.segment_type === 'lift') return { standard: 'Bergfahrt', reverse: 'Talfahrt', all: 'Alle' }
+function getDirectionLabels(segment: Segment | undefined, t: TFunction) {
+  if (segment?.segment_type === 'lift') {
+    return {
+      standard: t('segmentDetail.activityList.directions.liftUp'),
+      reverse: t('segmentDetail.activityList.directions.liftDown'),
+      all: t('common.all'),
+    }
+  }
   // Track-Orientierung beim Erstellen = climb_type. Also ist "standard"-Richtung
   // exakt der climb_type des Segments, "reverse" die Gegenrichtung.
-  if (segment?.climb_type === 'bergab') return { standard: 'Bergab', reverse: 'Bergauf', all: 'Alle' }
-  if (segment?.climb_type === 'bergauf') return { standard: 'Bergauf', reverse: 'Bergab', all: 'Alle' }
-  return { standard: 'Standard', reverse: 'Reverse', all: 'Alle' }
+  if (segment?.climb_type === 'bergab') {
+    return {
+      standard: t('segmentsList.elevationKinds.downhill'),
+      reverse: t('segmentsList.elevationKinds.uphill'),
+      all: t('common.all'),
+    }
+  }
+  if (segment?.climb_type === 'bergauf') {
+    return {
+      standard: t('segmentsList.elevationKinds.uphill'),
+      reverse: t('segmentsList.elevationKinds.downhill'),
+      all: t('common.all'),
+    }
+  }
+  return {
+    standard: t('segmentDetail.activityList.directions.standard'),
+    reverse: t('segmentDetail.activityList.directions.reverse'),
+    all: t('common.all'),
+  }
 }
 
 function getAvailableModes(segment?: Segment): Array<'standard' | 'reverse' | 'all'> {
@@ -48,8 +74,11 @@ interface SegmentActivityListProps {
 
 export function SegmentActivityList({ segmentId, segment, filters }: SegmentActivityListProps) {
   const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(isSupportedLanguage(i18n.language) ? i18n.language : 'de')
   const availableModes = getAvailableModes(segment)
   const [directionMode, setDirectionMode] = useState<'standard' | 'reverse' | 'all'>('standard')
+  const directionLabels = getDirectionLabels(segment, t)
 
   const isReverse = directionMode === 'all' ? undefined : directionMode === 'reverse'
 
@@ -112,7 +141,7 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            {getDirectionLabels(segment)[mode as 'standard' | 'reverse' | 'all']}
+            {directionLabels[mode as 'standard' | 'reverse' | 'all']}
           </button>
         ))}
       </div>}
@@ -120,11 +149,11 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
       {/* Activity list */}
       <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
         {isLoading && (
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">Lädt...</div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-400">{t('segmentDetail.activityList.loading')}</div>
         )}
         {!isLoading && filtered.length === 0 && (
           <div className="text-sm text-neutral-500 dark:text-neutral-400">
-            Keine Aktivitäten mit diesen Filtern.
+            {t('segmentDetail.activityList.empty')}
           </div>
         )}
         {filtered.map(perf => (
@@ -134,14 +163,14 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
             className="text-left p-3 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:border-neutral-300 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
           >
             <div className="font-medium text-sm truncate text-neutral-900 dark:text-neutral-100">
-              {perf.title || sportLabel(perf.sport_type)}
+              {perf.title || sportLabel(perf.sport_type, perf.sub_type, { language })}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 flex flex-wrap gap-2 mt-1">
               <span>{fmtDateCompact(perf.started_at, perf.timezone)}</span>
               <span>·</span>
               <span>{fmtDuration(perf.elapsed_time_s)}</span>
               <span>·</span>
-              <span>{sportLabel(perf.sport_type)}</span>
+              <span>{sportLabel(perf.sport_type, perf.sub_type, { language })}</span>
               {perf.gear_name && (
                 <>
                   <span>·</span>
@@ -160,8 +189,8 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
       {!isLoading && all.length > 0 && (
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
           {filtered.length === all.length
-            ? `${all.length} Aktivität${all.length !== 1 ? 'en' : ''}`
-            : `${filtered.length} von ${all.length} Aktivitäten`}
+            ? t('segmentDetail.activityList.count', { count: all.length })
+            : t('segmentDetail.activityList.filteredCount', { count: filtered.length, filtered: filtered.length, total: all.length })}
         </div>
       )}
     </div>

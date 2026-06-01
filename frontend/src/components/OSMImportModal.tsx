@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { fetchOSMRegions, startOSMImport, getDEMRegionStatus, type OSMRegion } from '@/api/osm'
@@ -7,44 +8,40 @@ import { fmtBytes } from '@/lib/format'
 import { ModalShell } from '@/components/ui/ModalShell'
 
 const ALL_CATEGORIES = [
-  // POI-Kategorien
-  { id: 'summits',        label: 'Gipfel & Sättel',          group: 'POIs' },
-  { id: 'passes',         label: 'Passstraßen',              group: 'POIs' },
-  { id: 'settlements',    label: 'Ortschaften',              group: 'POIs' },
-  { id: 'gastronomy',     label: 'Gastronomie',              group: 'POIs' },
-  { id: 'accommodation',  label: 'Unterkünfte & Hütten',     group: 'POIs' },
-  { id: 'infrastructure', label: 'Infrastruktur (WC/Wasser/P)', group: 'POIs' },
-  { id: 'transport',      label: 'Öffentlicher Verkehr',     group: 'POIs' },
-  { id: 'viewpoints',     label: 'Aussichtspunkte',          group: 'POIs' },
-  { id: 'shops',          label: 'Geschäfte & Versorgung',   group: 'POIs' },
-  { id: 'sport',          label: 'Sportanlagen',             group: 'POIs' },
-  { id: 'camping',        label: 'Camping & Feuerstellen',   group: 'POIs' },
-  { id: 'information',    label: 'Wegweiser & Info',         group: 'POIs' },
-  { id: 'landmarks',      label: 'Landmarks & Natur',        group: 'POIs' },
-  { id: 'religion',       label: 'Kapellen & Wegkreuze',     group: 'POIs' },
-  { id: 'wind_turbines', label: 'Windkraftanlagen',         group: 'POIs' },
-  // Wege
-  { id: 'ways',           label: 'Wegenetz (Routing)',       group: 'Wege' },
-  { id: 'lifts',          label: 'Lifte & Seilbahnen',       group: 'Wege' },
-  { id: 'pistes',         label: 'Skipisten',                group: 'Wege' },
-  { id: 'climbing',       label: 'Kletterrouten & Via Ferrata', group: 'Wege' },
-  { id: 'ferries',        label: 'Fährrouten',               group: 'Wege' },
-  { id: 'routes',         label: 'Benannte Routen (Fernwege/Radrouten)', group: 'Wege' },
-  // Flächen
-  { id: 'waterways',      label: 'Gewässer',                 group: 'Flächen' },
-  { id: 'forests',        label: 'Wälder',                   group: 'Flächen' },
-  { id: 'glaciers',       label: 'Gletscher',                group: 'Flächen' },
-  { id: 'wetlands',       label: 'Feuchtgebiete & Moore',    group: 'Flächen' },
-  { id: 'boundaries',     label: 'Grenzen & Schutzgebiete',   group: 'Flächen' },
-  { id: 'landuse',        label: 'Landnutzung (Felder, Industrie, Militär)', group: 'Flächen' },
-  // Wege (additional)
-  { id: 'railways',       label: 'Eisenbahnlinien',            group: 'Wege' },
+  { id: 'summits',        labelKey: 'summits',        group: 'pois' },
+  { id: 'passes',         labelKey: 'passes',         group: 'pois' },
+  { id: 'settlements',    labelKey: 'settlements',    group: 'pois' },
+  { id: 'gastronomy',     labelKey: 'gastronomy',     group: 'pois' },
+  { id: 'accommodation',  labelKey: 'accommodation',  group: 'pois' },
+  { id: 'infrastructure', labelKey: 'infrastructure', group: 'pois' },
+  { id: 'transport',      labelKey: 'transport',      group: 'pois' },
+  { id: 'viewpoints',     labelKey: 'viewpoints',     group: 'pois' },
+  { id: 'shops',          labelKey: 'shops',          group: 'pois' },
+  { id: 'sport',          labelKey: 'sport',          group: 'pois' },
+  { id: 'camping',        labelKey: 'camping',        group: 'pois' },
+  { id: 'information',    labelKey: 'information',    group: 'pois' },
+  { id: 'landmarks',      labelKey: 'landmarks',      group: 'pois' },
+  { id: 'religion',       labelKey: 'religion',       group: 'pois' },
+  { id: 'wind_turbines',  labelKey: 'windTurbines',   group: 'pois' },
+  { id: 'ways',           labelKey: 'ways',           group: 'ways' },
+  { id: 'lifts',          labelKey: 'lifts',          group: 'ways' },
+  { id: 'pistes',         labelKey: 'pistes',         group: 'ways' },
+  { id: 'climbing',       labelKey: 'climbing',       group: 'ways' },
+  { id: 'ferries',        labelKey: 'ferries',        group: 'ways' },
+  { id: 'routes',         labelKey: 'routes',         group: 'ways' },
+  { id: 'waterways',      labelKey: 'waterways',      group: 'areas' },
+  { id: 'forests',        labelKey: 'forests',        group: 'areas' },
+  { id: 'glaciers',       labelKey: 'glaciers',       group: 'areas' },
+  { id: 'wetlands',       labelKey: 'wetlands',       group: 'areas' },
+  { id: 'boundaries',     labelKey: 'boundaries',     group: 'areas' },
+  { id: 'landuse',        labelKey: 'landuse',        group: 'areas' },
+  { id: 'railways',       labelKey: 'railways',       group: 'ways' },
 ] as const
 
 type CategoryId = (typeof ALL_CATEGORIES)[number]['id']
 type CategoryGroup = (typeof ALL_CATEGORIES)[number]['group']
 
-const GROUPS: CategoryGroup[] = ['POIs', 'Wege', 'Flächen']
+const GROUPS: CategoryGroup[] = ['pois', 'ways', 'areas']
 
 interface Props {
   onClose: () => void
@@ -54,6 +51,7 @@ interface Props {
 }
 
 export default function OSMImportModal({ onClose, initialRegionId, initialContinent, initialCategories }: Props) {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
@@ -85,9 +83,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
 
   const tilesDisabled = !runEnrichment || (!hasDEM && !downloadDEM)
   const tilesDisabledReason = !runEnrichment
-    ? '(benötigt Enrichment)'
+    ? t('osm.import.dependencies.requiresEnrichment')
     : (!hasDEM && !downloadDEM)
-      ? '(benötigt DEM — aktiviere "DEM herunterladen")'
+      ? t('osm.import.dependencies.requiresDemDownload')
       : ''
   const coverageDisabled = !runEnrichment
   // buildTopology removed: pgRouting 4.0+ removed pgr_createTopology
@@ -100,12 +98,12 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
   const mutation = useMutation({
     mutationFn: startOSMImport,
     onSuccess: () => {
-      addToast({ type: 'success', title: 'Import gestartet', message: 'Status im Berechnungs-Indikator (oben rechts)' })
+      addToast({ type: 'success', title: t('osm.import.toasts.started'), message: t('osm.import.toasts.statusHint') })
       queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
       onClose()
     },
     onError: (err: Error) => {
-      addToast({ type: 'error', title: 'Fehler beim Starten', message: err.message, duration: 0 })
+      addToast({ type: 'error', title: t('osm.import.toasts.startFailed'), message: err.message, duration: 0 })
     },
   })
 
@@ -169,17 +167,17 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
       <div className="w-full max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800">
-          <h2 className="text-base font-semibold">OSM Import-Assistent</h2>
+          <h2 className="text-base font-semibold">{t('osm.import.title')}</h2>
           <button onClick={onClose} className="cursor-pointer text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
             <X size={18} />
           </button>
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
-          {/* Sektion 1: Regionen */}
+          {/* Section 1: regions */}
           <div>
-            <h3 className="text-sm font-medium mb-3">Regionen</h3>
-            {/* Kontinent-Tabs */}
+            <h3 className="text-sm font-medium mb-3">{t('osm.import.regions')}</h3>
+            {/* Continent tabs */}
             <div className="flex flex-wrap gap-1 mb-3">
               {continents.map(c => (
                 <button
@@ -197,7 +195,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             </div>
 
             {isLoading ? (
-              <div className="text-sm text-neutral-400">Lade Regionen...</div>
+              <div className="text-sm text-neutral-400">{t('osm.import.loadingRegions')}</div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {visibleRegions.map(r => {
@@ -207,7 +205,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                     <button
                       key={r.id}
                       onClick={() => toggleRegion(r.id)}
-                      title={`${fmtMB(r.size_mb)}${large ? ' — Import kann mehrere Stunden dauern' : ''}`}
+                      title={`${fmtMB(r.size_mb)}${large ? t('osm.import.largeRegionTitleSuffix') : ''}`}
                       className={`cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                         selected
                           ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
@@ -225,10 +223,10 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             )}
           </div>
 
-          {/* Sektion 2: Kategorien */}
+          {/* Section 2: categories */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium">Datenkategorien</h3>
+              <h3 className="text-sm font-medium">{t('osm.import.dataCategories')}</h3>
               <button
                 onClick={() =>
                   allSelected
@@ -237,7 +235,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                 }
                 className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
               >
-                {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
+                {allSelected ? t('osm.import.deselectAll') : t('osm.import.selectAll')}
               </button>
             </div>
 
@@ -247,13 +245,13 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               return (
                 <div key={group}>
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">{group}</h4>
+                    <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">{t(`osm.import.groups.${group}`)}</h4>
                     <button
                       type="button"
                       className="cursor-pointer text-xs text-accent-DEFAULT hover:text-accent-700"
                       onClick={() => selectGroup(group)}
                     >
-                      {groupAllSelected ? 'Gruppe abwählen' : 'Alle'}
+                      {groupAllSelected ? t('osm.import.deselectGroup') : t('common.all')}
                     </button>
                   </div>
                   <div className="grid grid-cols-3 gap-1 mb-4">
@@ -265,7 +263,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                           onChange={() => toggleCategory(cat.id)}
                           className="accent-accent-DEFAULT"
                         />
-                        <span className="text-neutral-700 dark:text-neutral-300">{cat.label}</span>
+                        <span className="text-neutral-700 dark:text-neutral-300">{t(`osm.import.categories.${cat.labelKey}`)}</span>
                       </label>
                     ))}
                   </div>
@@ -274,9 +272,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
             })}
           </div>
 
-          {/* Sektion 3: Nach dem Import */}
+          {/* Section 3: after import */}
           <div>
-            <h3 className="text-sm font-medium mb-3">Nach dem Import</h3>
+            <h3 className="text-sm font-medium mb-3">{t('osm.import.afterImport')}</h3>
             <div className="space-y-2.5">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -291,8 +289,8 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   }}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">Route-Membership berechnen</span>
-                <span className="text-xs text-neutral-400">(Radrouten/Wanderrouten-Zugehörigkeit)</span>
+                <span className="text-neutral-700 dark:text-neutral-300">{t('osm.import.options.routeMembership')}</span>
+                <span className="text-xs text-neutral-400">{t('osm.import.options.routeMembershipHint')}</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -301,9 +299,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   onChange={e => setDownloadDEM(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">DEM-Höhendaten herunterladen</span>
-                <span className="text-xs text-neutral-400">(GLO-30, 30m — für Routing-Tiles)</span>
-                {hasDEM && <span className="text-xs text-green-500">(bereits vorhanden)</span>}
+                <span className="text-neutral-700 dark:text-neutral-300">{t('osm.import.options.downloadDem')}</span>
+                <span className="text-xs text-neutral-400">{t('osm.import.options.downloadDemHint')}</span>
+                {hasDEM && <span className="text-xs text-green-500">{t('osm.import.options.alreadyAvailable')}</span>}
               </label>
               <label className={`flex items-center gap-2 text-sm ${coverageDisabled ? 'opacity-40' : ''}`}>
                 <input
@@ -313,9 +311,9 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   onChange={e => setBuildCoverage(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">Coverage-Grids bauen</span>
-                <span className="text-xs text-neutral-400">(Wald, Lärm, Verkehr — für Karten-Overlays)</span>
-                {coverageDisabled && <span className="text-xs text-red-500">(benötigt Enrichment)</span>}
+                <span className="text-neutral-700 dark:text-neutral-300">{t('osm.import.options.buildCoverage')}</span>
+                <span className="text-xs text-neutral-400">{t('osm.import.options.buildCoverageHint')}</span>
+                {coverageDisabled && <span className="text-xs text-red-500">{t('osm.import.dependencies.requiresEnrichment')}</span>}
               </label>
               <label className={`flex items-center gap-2 text-sm ${tilesDisabled ? 'opacity-40' : ''}`}>
                 <input
@@ -325,8 +323,8 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   onChange={e => setBuildTiles(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">Routing-Tiles bauen</span>
-                <span className="text-xs text-neutral-400">(BadRouter Graph mit DEM)</span>
+                <span className="text-neutral-700 dark:text-neutral-300">{t('osm.import.options.buildRoutingTiles')}</span>
+                <span className="text-xs text-neutral-400">{t('osm.import.options.buildRoutingTilesHint')}</span>
                 {tilesDisabled && <span className="text-xs text-red-500">{tilesDisabledReason}</span>}
               </label>
               <label className="flex items-center gap-2 text-sm">
@@ -336,63 +334,61 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
                   onChange={e => setBuildBRouter(e.target.checked)}
                   className="accent-accent-DEFAULT"
                 />
-                <span className="text-neutral-700 dark:text-neutral-300">BRouter rd5-Segmente lokal generieren</span>
-                <span className="text-xs text-neutral-400">(aus PBF-Daten)</span>
+                <span className="text-neutral-700 dark:text-neutral-300">{t('osm.import.options.buildBrouter')}</span>
+                <span className="text-xs text-neutral-400">{t('osm.import.options.buildBrouterHint')}</span>
               </label>
             </div>
           </div>
 
-          {/* Sektion 3b: Speicherbedarf */}
+          {/* Section 3b: storage estimate */}
           {storageSummary && (
             <div className="rounded-lg bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-xs space-y-1">
-              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Geschätzter Speicherbedarf</p>
+              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('osm.import.storage.title')}</p>
               <p className="text-neutral-500 dark:text-neutral-400">
-                PBF-Download: <span className="font-mono">{(storageSummary.pbfMB / 1024).toFixed(1)} GB</span>
+                {t('osm.import.storage.pbfDownload')}: <span className="font-mono">{fmtMB(storageSummary.pbfMB)}</span>
               </p>
               {downloadDEM && (
                 <p className="text-neutral-500 dark:text-neutral-400">
-                  DEM-Höhendaten: <span className="font-mono">~{(storageSummary.demMB / 1024).toFixed(1)} GB</span>
-                  <span className="text-neutral-400"> ({storageSummary.demTiles} Kacheln × 25 MB)</span>
+                  {t('osm.import.storage.demElevation')}: <span className="font-mono">~{fmtMB(storageSummary.demMB)}</span>
+                  <span className="text-neutral-400"> {t('osm.import.storage.tileEstimate', { count: storageSummary.demTiles })}</span>
                 </p>
               )}
               <p className="text-neutral-500 dark:text-neutral-400">
-                PostgreSQL: <span className="font-mono">~{(storageSummary.pgMB / 1024).toFixed(1)} GB</span>
-                <span className="text-neutral-400"> (ca. 4× PBF)</span>
+                PostgreSQL: <span className="font-mono">~{fmtMB(storageSummary.pgMB)}</span>
               </p>
               {(buildTiles || buildCoverage) && (
                 <p className="text-neutral-500 dark:text-neutral-400">
-                  Routing + Coverage: <span className="font-mono">~{(storageSummary.routingMB / 1024).toFixed(1)} GB</span>
-                  <span className="text-neutral-400"> (ca. 4× PBF)</span>
+                  {t('osm.import.storage.routingCoverage')}: <span className="font-mono">~{fmtMB(storageSummary.routingMB)}</span>
                 </p>
               )}
               <div className="border-t border-neutral-200 dark:border-neutral-700 mt-1 pt-1 flex justify-between">
                 <span className="font-medium text-neutral-600 dark:text-neutral-300">
-                  Gesamt: ~{(storageSummary.totalMB / 1024).toFixed(1)} GB
+                  {t('osm.import.storage.total')}: ~{fmtMB(storageSummary.totalMB)}
                 </span>
                 <span className={`font-medium ${storageSummary.freeMB < storageSummary.totalMB ? 'text-red-500' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                  Verfügbar: {(storageSummary.freeMB / 1024).toFixed(0)} GB
+                  {t('osm.import.storage.available')}: {fmtMB(storageSummary.freeMB)}
                 </span>
               </div>
               {storageSummary.totalMB > 0 && (
                 <p className="text-neutral-400 mt-1">
-                  In Summe bis zu 12× der PBF-Größe wenn alle Optionen aktiviert.
+                  {t('osm.import.storage.multiplierHint')}
                 </p>
               )}
             </div>
           )}
 
-          {/* Sektion 4: Hinweise */}
+          {/* Section 4: notes */}
           <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-400 space-y-1">
-            <p>Die gewählten Datenkategorien werden vor dem Import vollständig geleert und neu befüllt.</p>
-            <p>Große Regionen (z.B. Europa gesamt, China) können mehrere Stunden dauern.</p>
-            <p>Während des Imports — insbesondere beim Einlesen der Daten — können CPU-Auslastung, RAM-Verbrauch und benötigter Speicherplatz zeitweise sehr hoch sein.</p>
+            <p>{t('osm.import.warnings.replaceCategories')}</p>
+            <p>{t('osm.import.warnings.largeRegions')}</p>
+            <p>{t('osm.import.warnings.resourceUsage')}</p>
           </div>
         </div>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
           <span className="text-xs text-neutral-400">
-            {selectedRegions.length} Region(en), {selectedCategories.length} Kategorie(n) gewählt
+            {t('osm.import.selectionSummary', { regions: selectedRegions.length, categories: selectedCategories.length })}
           </span>
           <div className="flex gap-3">
             <button
@@ -400,7 +396,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               disabled={mutation.isPending}
               className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
             <button
               onClick={() => {
@@ -420,7 +416,7 @@ export default function OSMImportModal({ onClose, initialRegionId, initialContin
               disabled={!canStart}
               className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {mutation.isPending ? 'Wird gestartet…' : 'Import starten'}
+              {mutation.isPending ? t('osm.import.starting') : t('osm.import.start')}
             </button>
           </div>
         </div>

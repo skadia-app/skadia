@@ -2,12 +2,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoutePlannerPanelProps } from '../RoutePlannerPanel'
 import RoutePlannerPanel from '../RoutePlannerPanel'
 import { ModalProvider } from '@/lib/modal'
 import { ToastProvider } from '@/lib/toast'
 import * as routesApi from '@/api/routes'
+
+const mockUserPrefs = vi.hoisted((): { locale: string; units: 'metric' | 'imperial' } => ({ locale: 'de', units: 'metric' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
 
 vi.mock('@/api/routes', () => ({
   getProfileDefaults: vi.fn().mockResolvedValue({ profile: 'hiking' }),
@@ -104,6 +110,11 @@ function renderPanel(overrides: Partial<RoutePlannerPanelProps> = {}) {
 }
 
 describe('RoutePlannerPanel capability gates', () => {
+  beforeEach(() => {
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
+  })
+
   it('hides BadRouter-only controls and falls back to BRouter surface in Core', async () => {
     renderPanel()
 
@@ -153,5 +164,42 @@ describe('RoutePlannerPanel capability gates', () => {
     expect(screen.queryByLabelText('Kompatibilitätsprofil')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Veröffentlichungsart')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Fork-Name')).not.toBeInTheDocument()
+  })
+
+  it('formats route distances and elevation with the selected unit system', () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+
+    renderPanel({
+      waypoints: [
+        { id: 'a', latlng: [0, 0], type: 'start' },
+        { id: 'b', latlng: [1, 1], type: 'end' },
+      ],
+      segments: [
+        {
+          from_waypoint: 'a',
+          to_waypoint: 'b',
+          mode: 'routed',
+          control_points: [],
+          smooth: false,
+          distance_m: 1609.344,
+          elevation_gain: 100,
+          elevation_loss: 10,
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [0, 0],
+              [1, 1],
+            ],
+          },
+        },
+      ],
+      totalDistanceM: 1609.344,
+      totalElevationGain: 100,
+      totalElevationLoss: 10,
+    })
+
+    expect(screen.getAllByText('1.0 mi').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/328 ft/).length).toBeGreaterThan(0)
   })
 })

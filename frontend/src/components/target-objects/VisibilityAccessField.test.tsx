@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import VisibilityAccessField from './VisibilityAccessField'
+import '@/i18n/i18n'
 
 const mocks = vi.hoisted(() => ({
   createObjectAccessScope: vi.fn(),

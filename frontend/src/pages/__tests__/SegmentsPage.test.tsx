@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
     },
   } as Record<string, unknown>,
 }))
+const mockUserPrefs = vi.hoisted((): { locale: string; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 vi.mock('@/api/segments', async () => {
   const actual = await vi.importActual<typeof import('@/api/segments')>('@/api/segments')
@@ -54,6 +58,10 @@ vi.mock('@/lib/toast', () => ({
   useToast: () => ({ addToast: vi.fn() }),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
+
 function LocationProbe() {
   const location = useLocation()
   return <div data-testid="location-search">{location.search}</div>
@@ -84,6 +92,8 @@ describe('SegmentsPage filters', () => {
         segment_enrichment_suggest: { configured: true, available: true },
       },
     }
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
   })
 
   it('preserves explicit empty segment type selection after unchecking the last type', async () => {
@@ -98,7 +108,7 @@ describe('SegmentsPage filters', () => {
       expect(screen.getByTestId('location-search')).toHaveTextContent('segment_types=')
     })
 
-    for (const label of ['Standard', 'Trail', 'Runde', 'Lift', 'Wintersport', 'Wassersport']) {
+    for (const label of ['Standard', 'Trail', 'Rundkurs', 'Lift', 'Wintersport', 'Wassersport']) {
       expect(screen.getByRole('checkbox', { name: label })).not.toBeChecked()
     }
     expect(screen.getByText('Keine Segmente gefunden.')).toBeInTheDocument()
@@ -239,6 +249,38 @@ describe('SegmentsPage filters', () => {
     expect(screen.getByText('Sichtbarkeit')).toBeInTheDocument()
   })
 
+  it('uses generic labels for unknown segment taxonomy values', async () => {
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'unknown-taxonomy',
+          name: 'Unbekanntes Segment',
+          sport_group: 'mystery_group',
+          segment_type: 'mystery_type',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: true,
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments')
+
+    expect(await screen.findByText('Unbekanntes Segment')).toBeInTheDocument()
+    const page = screen.getByText('Unbekanntes Segment').closest('main') ?? document.body
+    expect(page).toHaveTextContent('Unbekannte Sportgruppe')
+    expect(page).toHaveTextContent('Unbekannter Segmenttyp')
+    expect(page).not.toHaveTextContent('mystery_group')
+    expect(page).not.toHaveTextContent('mystery_type')
+  })
+
   it('loads checkpoint courses through course kind filters', async () => {
     renderSegmentsPage('/segments?checkpoint_courses=true')
 
@@ -281,6 +323,41 @@ describe('SegmentsPage filters', () => {
     expect(await screen.findByText('Freie Linie')).toBeInTheDocument()
     expect(screen.getByText('Checkpoint-Kurs')).toBeInTheDocument()
     expect(screen.getByText('3 Checkpoints')).toBeInTheDocument()
+  })
+
+  it('formats segment card distance and elevation with the selected user units', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'imperial-segment',
+          name: 'Imperial Segment',
+          sport_group: 'bike',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: true,
+          distance_m: 1609.344,
+          elevation_gain_m: 100,
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments')
+
+    expect(await screen.findByText('Imperial Segment')).toBeInTheDocument()
+    expect(screen.getByText('1.0 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('1.61 km')
+    expect(document.body).not.toHaveTextContent('+100 m')
   })
 
   it('adds elevation-kind filters to URL state and segment requests', async () => {
@@ -374,8 +451,8 @@ describe('SegmentsPage filters', () => {
     renderSegmentsPage('/segments?checkpoint_courses=true')
 
     expect(await screen.findByText('Checkpoint-Aktionen')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Segment bearbeiten' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Segment löschen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Bearbeiten' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Löschen' })).toBeInTheDocument()
   })
 
   it('does not offer reverse leaderboard direction for checkpoint courses', async () => {

@@ -227,10 +227,10 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
 }
 
 export function findFirstVectorOverlayLayer(map: MaplibreMap): string | undefined {
-  // Coverage-Raster-Overlays sollen UNTER der Route-Linie liegen, damit der
-  // Nutzer die Route immer klar über dem Hintergrund sieht.
-  // route-planner-line-casing/-line werden von useRouteEditor via style.load
-  // vor diesem Effect eingefügt (style.load-Handler < styleVersion-Effect).
+  // Coverage raster overlays must sit below the route line so the route stays
+  // clearly visible over the background.
+  // route-planner-line-casing/-line are inserted by useRouteEditor via
+  // style.load before this effect (style.load handler < styleVersion effect).
   if (map.getLayer('route-planner-line-casing')) return 'route-planner-line-casing'
   if (map.getLayer('route-planner-line')) return 'route-planner-line'
 

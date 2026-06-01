@@ -1,21 +1,16 @@
 import { Activity } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { TargetActivityObservation } from '@/api/targetOverlays'
-
-const OBSERVATION_LABELS: Record<string, string> = {
-  matched_traversal: 'Durchfahrt',
-  visit: 'Besuch',
-  dwell: 'Aufenthalt',
-  check_in: 'Check-in',
-  completion: 'Abgeschlossen',
-}
+import { observationTypeLabel } from '@/components/target-objects/targetLabels'
 
 export default function ObservationList({ observations, loading }: { observations: TargetActivityObservation[]; loading?: boolean }) {
+  const { i18n, t } = useTranslation()
   if (loading) {
-    return <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">Aktivität wird geladen...</p>
+    return <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">{t('targetOverlays.observations.loading')}</p>
   }
 
   if (observations.length === 0) {
-    return <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">Noch keine sichtbaren Aktivitäten.</p>
+    return <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">{t('targetOverlays.observations.empty')}</p>
   }
 
   return (
@@ -27,9 +22,9 @@ export default function ObservationList({ observations, loading }: { observation
           </span>
           <div className="min-w-0">
             <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {OBSERVATION_LABELS[observation.observation_type] ?? observation.observation_type}
+              {observationTypeLabel(observation.observation_type, t)}
             </p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(observation.occurred_at)}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(observation.occurred_at, i18n.language)}</p>
           </div>
         </div>
       ))}
@@ -37,8 +32,8 @@ export default function ObservationList({ observations, loading }: { observation
   )
 }
 
-function formatDateTime(value: string): string {
+function formatDateTime(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+  return date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
 }

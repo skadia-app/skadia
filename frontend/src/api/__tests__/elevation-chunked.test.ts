@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import type GeoJSON from 'geojson'
 import type { ElevationPoint } from '@/api/routes'
+import { i18n } from '@/i18n/i18n'
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — hoisted before imports
@@ -214,9 +215,10 @@ describe('concatProfilesWithDedup', () => {
 // ---------------------------------------------------------------------------
 
 describe('getElevationAtVerticesChunked', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks()
     clearDemCoverageWarning()
+    await i18n.changeLanguage('de')
   })
 
   test('single call below cap', async () => {
@@ -287,6 +289,29 @@ describe('getElevationAtVerticesChunked', () => {
     // Second call: flag already set, toast must NOT fire again
     await getElevationAtVerticesChunked(line, addToast)
     expect(addToast).toHaveBeenCalledOnce() // still just one
+  })
+
+  test('all-null profile uses the active language for the coverage toast', async () => {
+    const expected = [
+      ['de', 'Höhendaten nicht verfügbar', 'Für diese Region sind keine Höhendaten vorhanden.'],
+      ['en', 'Elevation data unavailable', 'No elevation data is available for this region.'],
+      ['fr', 'Données d’altitude indisponibles', 'Aucune donnée d’altitude n’est disponible pour cette région.'],
+      ['it', 'Dati quota non disponibili', 'Non sono disponibili dati quota per questa regione.'],
+      ['es', 'Datos de elevación no disponibles', 'No hay datos de elevación disponibles para esta región.'],
+    ] as const
+
+    for (const [language, title, message] of expected) {
+      clearDemCoverageWarning()
+      await i18n.changeLanguage(language)
+      const line = makeLine(2)
+      const nullProfile = makeProfile(line.coordinates, [null, null])
+      vi.mocked(getElevationProfile).mockResolvedValueOnce({ profile: nullProfile })
+
+      const addToast = vi.fn()
+      await getElevationAtVerticesChunked(line, addToast)
+
+      expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ title, message }))
+    }
   })
 
   test('non-null profile does not trigger toast', async () => {

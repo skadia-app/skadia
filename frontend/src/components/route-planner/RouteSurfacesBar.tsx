@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import StackedBar from '@/components/shared/StackedBar'
 import {
   SURFACE_GROUPS,
@@ -66,6 +67,7 @@ function buildAggregated(
 }
 
 function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: Props) {
+  const { t } = useTranslation()
   const [hoveredType, setHoveredType] = useState<{ kind: 'highway' | 'surface'; key: string } | null>(null)
 
   const { highways, surfaces } = useMemo(() => {
@@ -140,7 +142,7 @@ function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: P
           aggregated={highways}
           colorMap={HIGHWAY_COLORS}
           labelMap={HIGHWAY_LABELS}
-          title="Wegearten"
+          title={t('routePlanner.surfaces.highways')}
           compact
           onHover={handleHwHover}
           onPin={handleHwPin}
@@ -151,7 +153,7 @@ function RouteSurfacesBar({ segments, onHighlight, pinnedType = null, onPin }: P
         <StackedBar
           aggregated={surfaces}
           colorMap={SURFACE_COLORS}
-          title="Oberflächen"
+          title={t('routePlanner.surfaces.surfaces')}
           compact
           onHover={handleSfHover}
           onPin={handleSfPin}
