@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface RegionItem {
   id: string
@@ -15,6 +16,7 @@ interface RegionSelectorProps {
 }
 
 export default function RegionSelector({ regions, selected, onChange, showContinentTabs, hint }: RegionSelectorProps) {
+  const { t } = useTranslation()
   const continents = showContinentTabs
     ? ([...new Set(regions.map(r => r.continent).filter(Boolean))] as string[])
     : []
@@ -67,7 +69,7 @@ export default function RegionSelector({ regions, selected, onChange, showContin
               : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:border-accent-DEFAULT'
           }`}
         >
-          Alle
+          {t('common.all')}
         </button>
         {visibleRegions.map(r => (
           <button

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useToast } from '@/lib/toast'
 import { Link } from 'react-router-dom'
 import { fmtDateCompact } from '@/lib/format'
@@ -8,14 +9,17 @@ import type { ReprocessFilter, ReprocessCompleted } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
-import { availableReprocessScopeKeys, DEFAULT_SCOPES, scopeLabel, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
-import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
+import { availableReprocessScopeKeys, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { analysisModuleLabelKeyForScope, ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { isSupportedLanguage } from '@/i18n/languages'
 
 type ReprocessMode = 'all' | 'selection'
 const SELECTION_PAGE_SIZE = 100
 
 export default function WorkshopReprocessPage() {
+  const { t, i18n } = useTranslation()
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
   const [mode, setMode] = useState<ReprocessMode>('all')
   const [sportFilter, setSportFilter] = useState('')
   const [formatFilter, setFormatFilter] = useState('')
@@ -59,9 +63,9 @@ export default function WorkshopReprocessPage() {
       setShowConfirm(false)
       if (isReprocessAccepted(data)) {
         // 202: background job started — progress tracked via global job banner
-        addToast({ type: 'info', title: 'Verarbeitung gestartet', message: `${data.total} Aktivität${data.total === 1 ? '' : 'en'} werden neu verarbeitet.` })
+        addToast({ type: 'info', title: t('workshopOperations.reprocess.toasts.startedTitle'), message: t('workshopOperations.reprocess.toasts.startedMessage', { count: data.total }) })
       } else if (data.status === 'already_running') {
-        addToast({ type: 'warning', title: 'Job läuft bereits', message: 'Ein Recompute-Job ist bereits aktiv.' })
+        addToast({ type: 'warning', title: t('workshopOperations.reprocess.toasts.alreadyRunningTitle'), message: t('workshopOperations.reprocess.toasts.alreadyRunningMessage') })
       } else {
         setResult(data)
       }
@@ -104,6 +108,11 @@ export default function WorkshopReprocessPage() {
     mutation.mutate(buildFilter())
   }
 
+  function reprocessScopeLabel(key: string): string {
+    const scopeKey = `reprocessScopes.items.${key}.label`
+    return t(i18n.exists(scopeKey) ? scopeKey : analysisModuleLabelKeyForScope(key))
+  }
+
   function toggleId(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -133,7 +142,7 @@ export default function WorkshopReprocessPage() {
   const activities = activitiesData?.pages.flatMap(page => page.activities) ?? []
   const filteredActivities = activities
   const tagsReprocessed = selectedScopeKeys.includes('tags')
-  const reprocessPreservationCopy = 'Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten. Tags bleiben nur unverändert, wenn „Tags“ nicht ausgewählt ist; bei „Tags“ werden Automations- und Systemtags neu ausgewertet.'
+  const reprocessPreservationCopy = t('workshopOperations.reprocess.preservationCopy')
 
   return (
     <div className="space-y-6">
@@ -142,14 +151,14 @@ export default function WorkshopReprocessPage() {
           to="/workshop"
           className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
         >
-          &#8592; Werkstatt
+          &#8592; {t('workshopOperations.workshop.title')}
         </Link>
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Neu verarbeiten</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('workshopOperations.reprocess.title')}</h1>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Aktivitäten neu verarbeiten: Je nach Umfang werden Originaldateien erneut geparst oder abgeleitete Daten aus bestehender Enrichment-Basis aktualisiert. {reprocessPreservationCopy}
+          {t('workshopOperations.reprocess.description', { preservation: reprocessPreservationCopy })}
         </p>
 
         {/* Mode toggle */}
@@ -162,7 +171,7 @@ export default function WorkshopReprocessPage() {
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            Alle / Filter
+            {t('workshopOperations.reprocess.modeAll')}
           </button>
           <button
             onClick={() => setMode('selection')}
@@ -172,7 +181,7 @@ export default function WorkshopReprocessPage() {
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            Auswahl
+            {t('workshopOperations.reprocess.modeSelection')}
           </button>
         </div>
 
@@ -180,39 +189,39 @@ export default function WorkshopReprocessPage() {
         {mode === 'all' && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart</label>
+              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('workshopOperations.reprocess.filters.sport')}</label>
               <select
                 value={sportFilter}
                 onChange={e => setSportFilter(e.target.value)}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900
                            text-sm text-neutral-900 dark:text-neutral-100 px-2.5 py-1.5"
               >
-                <option value="">Alle</option>
-                <option value="cycling">Radfahren</option>
-                <option value="running">Laufen</option>
-                <option value="hiking">Wandern</option>
-                <option value="swimming">Schwimmen</option>
-                <option value="walking">Gehen</option>
-                <option value="skiing">Ski</option>
-                <option value="strength_training">Kraft</option>
+                <option value="">{t('common.all')}</option>
+                <option value="cycling">{t('workshopOperations.reprocess.sports.cycling')}</option>
+                <option value="running">{t('workshopOperations.reprocess.sports.running')}</option>
+                <option value="hiking">{t('workshopOperations.reprocess.sports.hiking')}</option>
+                <option value="swimming">{t('workshopOperations.reprocess.sports.swimming')}</option>
+                <option value="walking">{t('workshopOperations.reprocess.sports.walking')}</option>
+                <option value="skiing">{t('workshopOperations.reprocess.sports.skiing')}</option>
+                <option value="strength_training">{t('workshopOperations.reprocess.sports.strengthTraining')}</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Dateiformat</label>
+              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('workshopOperations.reprocess.filters.fileFormat')}</label>
               <select
                 value={formatFilter}
                 onChange={e => setFormatFilter(e.target.value)}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900
                            text-sm text-neutral-900 dark:text-neutral-100 px-2.5 py-1.5"
               >
-                <option value="">Alle</option>
+                <option value="">{t('common.all')}</option>
                 <option value="fit">FIT</option>
                 <option value="gpx">GPX</option>
                 <option value="tcx">TCX</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Nach</label>
+              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('workshopOperations.reprocess.filters.after')}</label>
               <input
                 type="date"
                 value={afterFilter}
@@ -222,7 +231,7 @@ export default function WorkshopReprocessPage() {
               />
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">Vor</label>
+              <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('workshopOperations.reprocess.filters.before')}</label>
               <input
                 type="date"
                 value={beforeFilter}
@@ -246,7 +255,7 @@ export default function WorkshopReprocessPage() {
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Titel oder Sportart suchen..."
+                placeholder={t('workshopOperations.reprocess.searchPlaceholder')}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900
                            text-sm text-neutral-900 dark:text-neutral-100 pl-8 pr-3 py-1.5
                            placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
@@ -256,11 +265,11 @@ export default function WorkshopReprocessPage() {
             <div className="max-h-64 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
               {activitiesLoading ? (
                 <div className="p-4 text-center text-sm text-neutral-400">
-                  Lädt Aktivitäten...
+                  {t('workshopOperations.reprocess.loadingActivities')}
                 </div>
               ) : filteredActivities.length === 0 ? (
                 <div className="p-4 text-center text-sm text-neutral-400">
-                  {activities.length === 0 ? 'Keine Aktivitäten vorhanden' : 'Keine Treffer'}
+                  {activities.length === 0 ? t('workshopOperations.reprocess.noActivities') : t('workshopOperations.reprocess.noMatches')}
                 </div>
               ) : (
                 <table className="w-full text-sm">
@@ -274,9 +283,9 @@ export default function WorkshopReprocessPage() {
                           className="rounded"
                         />
                       </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">Datum</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">Titel</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('workshopOperations.reprocess.table.date')}</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('workshopOperations.reprocess.table.sport')}</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('workshopOperations.reprocess.table.title')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -300,12 +309,12 @@ export default function WorkshopReprocessPage() {
                           {fmtDateCompact(a.started_at, a.timezone)}
                         </td>
                         <td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-300">
-                          {sportLabel(a.sport_type, a.sub_type)}
+                          {sportLabel(a.sport_type, a.sub_type, { language })}
                         </td>
                         <td className="px-3 py-1.5 text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">
-                          {displayActivityTitle(a, 'Kein Titel') === 'Kein Titel'
-                            ? <span className="text-neutral-400 italic">Kein Titel</span>
-                            : displayActivityTitle(a, 'Kein Titel')}
+                          {displayActivityTitle(a, t('workshopOperations.reprocess.untitled')) === t('workshopOperations.reprocess.untitled')
+                            ? <span className="text-neutral-400 italic">{t('workshopOperations.reprocess.untitled')}</span>
+                            : displayActivityTitle(a, t('workshopOperations.reprocess.untitled'))}
                         </td>
                       </tr>
                     ))}
@@ -314,7 +323,7 @@ export default function WorkshopReprocessPage() {
               )}
               {selectedIds.size > 0 && (
                 <div className="px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400 border-t border-neutral-200 dark:border-neutral-700">
-                  {selectedIds.size} ausgewählt
+                  {t('workshopOperations.reprocess.selectedCount', { count: selectedIds.size })}
                 </div>
               )}
               {hasNextPage && (
@@ -324,7 +333,7 @@ export default function WorkshopReprocessPage() {
                     disabled={isFetchingNextPage}
                     className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 disabled:opacity-50 cursor-pointer"
                   >
-                    {isFetchingNextPage ? 'Lädt...' : 'Weitere laden'}
+                    {isFetchingNextPage ? t('common.loading') : t('workshopOperations.reprocess.loadMore')}
                   </button>
                 </div>
               )}
@@ -334,7 +343,7 @@ export default function WorkshopReprocessPage() {
 
         {/* Scope selection */}
         <div>
-          <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">Was neu berechnen?</label>
+          <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-2">{t('workshopOperations.reprocess.scopeLabel')}</label>
           <ScopeCheckboxList selected={scope} onToggle={toggleScope} layout="inline" capabilities={capabilities} />
         </div>
 
@@ -347,14 +356,14 @@ export default function WorkshopReprocessPage() {
                        hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed
                        transition-colors cursor-pointer"
           >
-            {mutation.isPending ? 'Verarbeite...' : 'Neu verarbeiten'}
+            {mutation.isPending ? t('workshopOperations.reprocess.processing') : t('workshopOperations.reprocess.startButton')}
           </button>
 
           {result && (
             <span className="text-sm text-neutral-600 dark:text-neutral-300">
-              {result.processed} / {result.total} verarbeitet
+              {t('workshopOperations.reprocess.processedResult', { processed: result.processed, total: result.total })}
               {result.errors > 0 && (
-                <span className="text-red-500 ml-2">({result.errors} Fehler)</span>
+                <span className="text-red-500 ml-2">({t('workshopOperations.reprocess.errorCount', { count: result.errors })})</span>
               )}
             </span>
           )}
@@ -365,22 +374,22 @@ export default function WorkshopReprocessPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
               <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                Aktivitäten neu verarbeiten?
+                {t('workshopOperations.reprocess.confirmTitle')}
               </h3>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 {mode === 'selection'
-                  ? `${selectedIds.size} ausgewählte Aktivität${selectedIds.size === 1 ? '' : 'en'} werden neu verarbeitet.`
-                  : 'Alle passenden Aktivitäten werden neu verarbeitet.'}
+                  ? t('workshopOperations.reprocess.confirmSelection', { count: selectedIds.size })
+                  : t('workshopOperations.reprocess.confirmAll')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Umfang: {selectedScopeKeys.length === 0 ? 'Nichts ausgewählt' : [
-                  ...selectedScopeKeys.map(key => scopeLabel(key)),
+                {t('workshopOperations.reprocess.scopeSummary')}: {selectedScopeKeys.length === 0 ? t('workshopOperations.reprocess.noScopeSelected') : [
+                  ...selectedScopeKeys.map(key => reprocessScopeLabel(key)),
                 ].join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 {tagsReprocessed
                   ? reprocessPreservationCopy
-                  : 'Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten. Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
+                  : t('workshopOperations.reprocess.preservationWithoutTags')}
               </p>
               <div className="flex justify-end gap-3">
                 <button
@@ -388,14 +397,14 @@ export default function WorkshopReprocessPage() {
                   className="px-4 py-2 rounded-lg text-sm text-neutral-600 dark:text-neutral-400
                              hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                 >
-                  Abbrechen
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleConfirm}
                   className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
                              hover:bg-accent-600 transition-colors cursor-pointer"
                 >
-                  Bestätigen
+                  {t('common.confirm')}
                 </button>
               </div>
             </div>

@@ -106,15 +106,39 @@ func TestMapWeatherCodeReturnsCorrectConditions(t *testing.T) {
 		{2, "teilweise bewölkt", "bewölkt"},
 		{3, "bedeckt", "bewölkt"},
 		{45, "Nebel", "nebel"},
+		{48, "Nebel", "nebel"},
+		{51, "Nieselregen", "regen"},
+		{55, "Nieselregen", "regen"},
+		{56, "gefrierender Nieselregen", "regen"},
+		{57, "gefrierender Nieselregen", "regen"},
 		{61, "Regen", "regen"},
+		{65, "Regen", "regen"},
+		{66, "gefrierender Regen", "regen"},
+		{67, "gefrierender Regen", "regen"},
 		{71, "Schneefall", "schnee"},
+		{75, "Schneefall", "schnee"},
+		{77, "Schneegriesel", "schnee"},
+		{80, "Regenschauer", "regen"},
+		{82, "Regenschauer", "regen"},
+		{85, "Schneeschauer", "schnee"},
+		{86, "Schneeschauer", "schnee"},
 		{95, "Gewitter", "gewitter"},
+		{96, "Gewitter mit leichtem Hagel", "gewitter"},
+		{99, "Gewitter mit starkem Hagel", "gewitter"},
+		{-1, "unbekannt", ""},
 	}
 
 	for _, tt := range tests {
 		condition, tags := mapWeatherCode(tt.code)
 		if condition != tt.expectedCondition {
 			t.Errorf("code %d: expected condition '%s', got '%s'", tt.code, tt.expectedCondition, condition)
+		}
+
+		if tt.expectedAnyTag == "" {
+			if len(tags) != 0 {
+				t.Errorf("code %d: expected no tags, got %v", tt.code, tags)
+			}
+			continue
 		}
 
 		if len(tags) == 0 {

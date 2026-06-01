@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { SAC_COLOR_MAP, MTB_COLOR_MAP } from './segment-editor/constants'
 
 interface DifficultyBadgeProps {
@@ -6,16 +7,15 @@ interface DifficultyBadgeProps {
   color?: string | null
 }
 
-// DAV-Skipisten-Konvention: blau (leicht) — rot (mittel) — schwarz (schwer).
-// „Schwarz" muss im Light-Mode tatsächlich dunkel sein, nicht transparentes Grau,
-// sonst wirkt ein T4-Badge blasser als T2. Im Dark-Mode invertieren wir den
-// Schwarz-Ton (heller Hintergrund auf dunkler Karte), damit er nicht mit der
-// Card-Fläche verschmilzt. Blau/Rot nutzen Light: satte Pastell-Fülle,
-// Dark: transparenter Akzent wie vorher.
+// Slope color convention: blue (easy), red (medium), black (hard).
+// Black must stay truly dark in light mode, not transparent gray, otherwise
+// a T4 badge looks paler than T2. In dark mode, the black shade is inverted
+// so it remains visible on dark cards. Blue/red keep saturated pastel fills
+// in light mode and transparent accents in dark mode.
 const COLOR_MAP = {
-  blue:  { bg: 'bg-blue-500',                          text: 'text-white',                           label: 'Blau' },
-  red:   { bg: 'bg-red-600',                           text: 'text-white',                           label: 'Rot' },
-  black: { bg: 'bg-neutral-900 dark:bg-neutral-100',   text: 'text-white dark:text-neutral-900',     label: 'Schwarz' },
+  blue:  { bg: 'bg-blue-500',                          text: 'text-white' },
+  red:   { bg: 'bg-red-600',                           text: 'text-white' },
+  black: { bg: 'bg-neutral-900 dark:bg-neutral-100',   text: 'text-white dark:text-neutral-900' },
 }
 
 const SCALE_COLOR_MAP: Record<string, { bg: string, text: string }> = {
@@ -25,9 +25,14 @@ const SCALE_COLOR_MAP: Record<string, { bg: string, text: string }> = {
 }
 
 export function DifficultyBadge({ sac, mtb, color }: DifficultyBadgeProps) {
+  const { t } = useTranslation()
   if (!color && !sac && !mtb) return null
 
-  const style = color ? COLOR_MAP[color as keyof typeof COLOR_MAP] : null
+  const rawStyle = color ? COLOR_MAP[color as keyof typeof COLOR_MAP] : null
+  const style = rawStyle && color ? {
+    ...rawStyle,
+    label: t(`difficultyBadge.colors.${color}`),
+  } : null
 
   return (
     <span className="inline-flex items-center gap-1">

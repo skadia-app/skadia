@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import Toggle from '@/components/Toggle'
 import {
   getUserMLSettings,
@@ -9,15 +10,19 @@ import {
 } from '@/api/ml'
 import { useToast } from '@/lib/toast'
 import { SettingsSection } from '@/components/ui/SettingsSection'
+import { useUser } from '@/providers/UserProvider'
+import { localeForLanguage } from '@/i18n/languages'
 
 const NOTIFICATION_TOGGLES = [
-  { key: 'notify_enrichment' as NotifyKey, label: 'Enrichment abgeschlossen', description: 'Nach jeder automatischen Analyse' },
-  { key: 'notify_anomaly' as NotifyKey,    label: 'Anomalie erkannt',         description: 'Bei ungewöhnlichen Trainingswerten' },
-  { key: 'notify_gear' as NotifyKey,       label: 'Ausrüstungs-Alerts',       description: 'Wartungshinweise und Verschleiß' },
-  { key: 'notify_chat' as NotifyKey,       label: 'Assistent-Antworten',      description: 'Wenn der KI-Assistent antwortet' },
+  { key: 'notify_enrichment' as NotifyKey, translationKey: 'enrichment' },
+  { key: 'notify_anomaly' as NotifyKey, translationKey: 'anomaly' },
+  { key: 'notify_gear' as NotifyKey, translationKey: 'gear' },
+  { key: 'notify_chat' as NotifyKey, translationKey: 'chat' },
 ] as const
 
 export function NotificationSettingsSection() {
+  const { t } = useTranslation()
+  const { locale } = useUser()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -38,7 +43,7 @@ export function NotificationSettingsSection() {
       queryClient.invalidateQueries({ queryKey: ['ml-user-settings'] })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Benachrichtigungseinstellung konnte nicht gespeichert werden', duration: 0 })
+      addToast({ type: 'error', title: t('settings.notifications.saveFailed'), duration: 0 })
     },
   })
 
@@ -48,7 +53,7 @@ export function NotificationSettingsSection() {
       queryClient.invalidateQueries({ queryKey: ['devices'] })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Gerät konnte nicht entfernt werden', duration: 0 })
+      addToast({ type: 'error', title: t('settings.notifications.removeDeviceFailed'), duration: 0 })
     },
   })
 
@@ -61,11 +66,13 @@ export function NotificationSettingsSection() {
   }
 
   return (
-    <SettingsSection title="Benachrichtigungen" description="Welche Ereignisse sollen als Benachrichtigung erscheinen.">
+    <SettingsSection title={t('settings.notifications.title')} description={t('settings.notifications.description')}>
 
       <div className="space-y-2">
-        {NOTIFICATION_TOGGLES.map(({ key, label, description }) => {
+        {NOTIFICATION_TOGGLES.map(({ key, translationKey }) => {
           const enabled = userSettings?.[key] ?? false
+          const label = t(`settings.notifications.toggles.${translationKey}.label`)
+          const description = t(`settings.notifications.toggles.${translationKey}.description`)
           return (
             <div key={key} className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0 flex-1">
@@ -75,7 +82,7 @@ export function NotificationSettingsSection() {
               <Toggle
                 checked={enabled}
                 onChange={() => toggleNotify(key, !enabled)}
-                aria-label={`${label} aktivieren`}
+                aria-label={t('settings.notifications.toggleAria', { label })}
               />
             </div>
           )
@@ -85,7 +92,7 @@ export function NotificationSettingsSection() {
       {devices && devices.length > 0 && (
         <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800/60 space-y-2">
           <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-            Registrierte Geräte
+            {t('settings.notifications.registeredDevices')}
           </p>
           <div className="space-y-1.5">
             {devices.map(device => (
@@ -96,17 +103,17 @@ export function NotificationSettingsSection() {
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm">{device.platform === 'ios' ? '🍎' : '🤖'}</span>
                   <span className="text-sm text-neutral-800 dark:text-neutral-200 truncate">
-                    {device.device_name ?? (device.platform === 'ios' ? 'iPhone/iPad' : 'Android-Gerät')}
+                    {device.device_name ?? (device.platform === 'ios' ? 'iPhone/iPad' : t('settings.notifications.androidDevice'))}
                   </span>
                   <span className="text-xs text-neutral-400 flex-shrink-0">
-                    {new Date(device.created_at).toLocaleDateString('de-DE')}
+                    {new Date(device.created_at).toLocaleDateString(localeForLanguage(locale))}
                   </span>
                 </div>
                 <button
                   onClick={() => handleRemoveDevice(device.id)}
                   className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors flex-shrink-0"
                 >
-                  Entfernen
+                  {t('settings.notifications.removeDevice')}
                 </button>
               </div>
             ))}

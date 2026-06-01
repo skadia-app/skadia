@@ -1,6 +1,8 @@
 // Admin section for managing system map_layers (CRUD + bulk sort via up/down buttons).
 import { useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useToast } from '@/lib/toast'
 import { useAdminMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -18,51 +20,58 @@ import ConfirmModal from '@/components/ConfirmModal'
 import { ApiError } from '@/api/client'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
 
-// ── i18n-ready labels ─────────────────────────────────────────────────────────
-
-const LABELS = {
-  title: 'Karten-Layer (Admin)',
-  description: 'Systemweite Kachel-Layer: Reihenfolge, Sichtbarkeit, URL und Fähigkeiten.',
-  addButton: 'Layer hinzufügen',
-  editButton: 'Bearbeiten',
-  deleteButton: 'Löschen',
-  upButton: 'Nach oben',
-  downButton: 'Nach unten',
-  systemBadge: 'System',
-  disabledBadge: 'Deaktiviert',
-  capWarning: 'Fähigkeit nicht erfüllt',
-  modalAddTitle: 'Layer hinzufügen',
-  modalEditTitle: 'Layer bearbeiten',
-  modalSave: 'Speichern',
-  modalSaving: 'Speichere…',
-  modalCancel: 'Abbrechen',
-  deleteConfirmTitle: 'Layer löschen?',
-  deleteConfirmMsg: (name: string) => `Soll "${name}" dauerhaft gelöscht werden?`,
-  deleteConfirmLabel: 'Löschen',
-  toastCreated: 'Layer erstellt',
-  toastUpdated: 'Layer gespeichert',
-  toastDeleted: 'Layer gelöscht',
-  toastSortSaved: 'Reihenfolge gespeichert',
-  toastError: 'Fehler',
-  toastOutdated: 'Veraltet – bitte neu laden und erneut versuchen.',
-  toastFieldImmutable: 'Diese Felder lassen sich nach dem Anlegen nicht mehr ändern',
-  toastPrivateAddress: 'Private Adressen sind nicht erlaubt',
-  fieldName: 'Name',
-  fieldRole: 'Rolle',
-  fieldRoleBase: 'Basiskarte',
-  fieldRoleOverlay: 'Überlagerung',
-  fieldSourceKind: 'Quelle',
-  fieldUrlTemplate: 'URL-Vorlage (Tile-URL)',
-  fieldStyleUrl: 'Style-URL (Vector / Protomaps)',
-  fieldAttribution: 'Attribution',
-  fieldMinZoom: 'Min. Zoom',
-  fieldMaxZoom: 'Max. Zoom',
-  fieldDefaultOpacity: 'Standard-Deckkraft (%)',
-  fieldEnabled: 'Aktiviert',
-  fieldRequiresCap: 'Benötigt Fähigkeit',
-  fieldCapNone: '(keine)',
-  loading: 'Lade Layer…',
+function mapLayerLabels(t: TFunction) {
+  return {
+    title: t('mapLayersAdmin.title'),
+    description: t('mapLayersAdmin.description'),
+    addButton: t('mapLayersAdmin.addButton'),
+    editButton: t('mapLayersAdmin.editButton'),
+    deleteButton: t('mapLayersAdmin.deleteButton'),
+    upButton: t('mapLayersAdmin.upButton'),
+    downButton: t('mapLayersAdmin.downButton'),
+    systemBadge: t('mapLayersAdmin.systemBadge'),
+    disabledBadge: t('mapLayersAdmin.disabledBadge'),
+    capWarning: t('mapLayersAdmin.capWarning'),
+    modalAddTitle: t('mapLayersAdmin.modalAddTitle'),
+    modalEditTitle: t('mapLayersAdmin.modalEditTitle'),
+    modalSave: t('mapLayersAdmin.modalSave'),
+    modalSaving: t('mapLayersAdmin.modalSaving'),
+    modalCancel: t('common.cancel'),
+    deleteConfirmTitle: t('mapLayersAdmin.deleteConfirmTitle'),
+    deleteConfirmMsg: (name: string) => t('mapLayersAdmin.deleteConfirmMsg', { name }),
+    deleteConfirmLabel: t('mapLayersAdmin.deleteConfirmLabel'),
+    toastCreated: t('mapLayersAdmin.toasts.created'),
+    toastUpdated: t('mapLayersAdmin.toasts.updated'),
+    toastDeleted: t('mapLayersAdmin.toasts.deleted'),
+    toastSortSaved: t('mapLayersAdmin.toasts.sortSaved'),
+    toastError: t('common.viewLoadError'),
+    toastOutdated: t('mapLayersAdmin.toasts.outdated'),
+    toastFieldImmutable: t('mapLayersAdmin.toasts.fieldImmutable'),
+    toastPrivateAddress: t('mapLayersAdmin.toasts.privateAddress'),
+    fieldName: t('mapLayersAdmin.fields.name'),
+    fieldRole: t('mapLayersAdmin.fields.role'),
+    fieldRoleBase: t('mapLayersAdmin.fields.roleBase'),
+    fieldRoleOverlay: t('mapLayersAdmin.fields.roleOverlay'),
+    fieldSourceKind: t('mapLayersAdmin.fields.sourceKind'),
+    sourceKindRasterTiles: t('mapLayersAdmin.sourceKinds.rasterTiles'),
+    sourceKindVectorStyle: t('mapLayersAdmin.sourceKinds.vectorStyle'),
+    sourceKindProtomapsOffline: t('mapLayersAdmin.sourceKinds.protomapsOffline'),
+    fieldUrlTemplate: t('mapLayersAdmin.fields.urlTemplate'),
+    fieldStyleUrl: t('mapLayersAdmin.fields.styleUrl'),
+    fieldAttribution: t('mapLayersAdmin.fields.attribution'),
+    fieldMinZoom: t('mapLayersAdmin.fields.minZoom'),
+    fieldMaxZoom: t('mapLayersAdmin.fields.maxZoom'),
+    fieldDefaultOpacity: t('mapLayersAdmin.fields.defaultOpacity'),
+    fieldEnabled: t('mapLayersAdmin.fields.enabled'),
+    fieldRequiresCap: t('mapLayersAdmin.fields.requiresCapability'),
+    fieldCapNone: t('mapLayersAdmin.fields.capabilityNone'),
+    loading: t('mapLayersAdmin.loading'),
+    systemDeleteDisabled: t('mapLayersAdmin.systemDeleteDisabled'),
+    requiresCapabilityTitle: (capability: string | null | undefined) => t('mapLayersAdmin.requiresCapabilityTitle', { capability: capability ?? '' }),
+  }
 }
+
+type MapLayerLabels = ReturnType<typeof mapLayerLabels>
 
 // ── Layer form state ──────────────────────────────────────────────────────────
 
@@ -141,11 +150,12 @@ function formToBody(f: LayerFormState): Partial<MapLayer> {
 interface LayerModalProps {
   layer: MapLayer | null  // null = create mode
   capabilityKeys: string[]
+  labels: MapLayerLabels
   onClose: () => void
   onSaved: () => void
 }
 
-function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps) {
+function LayerModal({ layer, capabilityKeys, labels, onClose, onSaved }: LayerModalProps) {
   const { addToast } = useToast()
   const qc = useQueryClient()
   const [form, setForm] = useState<LayerFormState>(() =>
@@ -193,7 +203,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
       }
     },
     onSuccess: () => {
-      addToast({ type: 'success', title: layer ? LABELS.toastUpdated : LABELS.toastCreated })
+      addToast({ type: 'success', title: layer ? labels.toastUpdated : labels.toastCreated })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
       qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
       onSaved()
@@ -204,30 +214,30 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         // Use structured JSON body for precise discrimination
         const code = typeof err.json?.error === 'string' ? err.json.error : ''
         if (err.status === 412 || err.status === 428) {
-          addToast({ type: 'error', title: LABELS.toastOutdated, duration: 0 })
+          addToast({ type: 'error', title: labels.toastOutdated, duration: 0 })
           qc.invalidateQueries({ queryKey: ['map-layers'] })
           qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
           onClose()
           return
         }
         if (code === 'field_immutable') {
-          addToast({ type: 'error', title: LABELS.toastFieldImmutable, duration: 0 })
+          addToast({ type: 'error', title: labels.toastFieldImmutable, duration: 0 })
           return
         }
         if (code === 'private_address_blocked') {
-          addToast({ type: 'error', title: LABELS.toastPrivateAddress, duration: 0 })
+          addToast({ type: 'error', title: labels.toastPrivateAddress, duration: 0 })
           return
         }
-        addToast({ type: 'error', title: LABELS.toastError, message: err.body, duration: 0 })
+        addToast({ type: 'error', title: labels.toastError, message: err.body, duration: 0 })
         return
       }
       // Fallback: string-match for non-ApiError throws (network errors etc.)
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('field_immutable')) {
-        addToast({ type: 'error', title: LABELS.toastFieldImmutable, duration: 0 })
+        addToast({ type: 'error', title: labels.toastFieldImmutable, duration: 0 })
         return
       }
-      addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
+      addToast({ type: 'error', title: labels.toastError, message: msg, duration: 0 })
     },
   })
 
@@ -237,13 +247,13 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
     <ModalShell onClose={onClose} maxWidth="max-w-lg">
       <div className="p-5 space-y-4">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          {layer ? LABELS.modalEditTitle : LABELS.modalAddTitle}
+          {layer ? labels.modalEditTitle : labels.modalAddTitle}
         </h2>
 
         {/* Name */}
         <div className="space-y-1">
           <label htmlFor="layer-modal-name" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldName}
+            {labels.fieldName}
           </label>
           <input
             id="layer-modal-name"
@@ -257,7 +267,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {/* Role */}
         <fieldset className="space-y-1">
           <legend className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldRole}
+            {labels.fieldRole}
           </legend>
           <div className="flex gap-4">
             {(['base', 'overlay'] as MapLayerRole[]).map(r => (
@@ -271,7 +281,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
                   className="accent-accent-DEFAULT"
                 />
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                  {r === 'base' ? LABELS.fieldRoleBase : LABELS.fieldRoleOverlay}
+                  {r === 'base' ? labels.fieldRoleBase : labels.fieldRoleOverlay}
                 </span>
               </label>
             ))}
@@ -281,16 +291,16 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {/* Source kind */}
         <div className="space-y-1">
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldSourceKind}
+            {labels.fieldSourceKind}
           </label>
           <select
             value={form.source_kind}
             onChange={e => patch({ source_kind: e.target.value as MapLayerSourceKind })}
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
           >
-            <option value="raster_tiles">Raster-Tiles</option>
-            <option value="vector_style">Vector Style (MapLibre)</option>
-            <option value="protomaps_offline">Protomaps Offline</option>
+            <option value="raster_tiles">{labels.sourceKindRasterTiles}</option>
+            <option value="vector_style">{labels.sourceKindVectorStyle}</option>
+            <option value="protomaps_offline">{labels.sourceKindProtomapsOffline}</option>
           </select>
         </div>
 
@@ -298,7 +308,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {!isVectorSource ? (
           <div className="space-y-1">
             <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              {LABELS.fieldUrlTemplate}
+              {labels.fieldUrlTemplate}
             </label>
             <input
               type="url"
@@ -311,7 +321,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         ) : (
           <div className="space-y-1">
             <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              {LABELS.fieldStyleUrl}
+              {labels.fieldStyleUrl}
             </label>
             <input
               type="url"
@@ -326,7 +336,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {/* Attribution */}
         <div className="space-y-1">
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldAttribution}
+            {labels.fieldAttribution}
           </label>
           <textarea
             value={form.attribution}
@@ -340,7 +350,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         <div className="flex gap-3">
           <div className="flex-1 space-y-1">
             <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              {LABELS.fieldMinZoom}
+              {labels.fieldMinZoom}
             </label>
             <input
               type="number"
@@ -353,7 +363,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
           </div>
           <div className="flex-1 space-y-1">
             <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              {LABELS.fieldMaxZoom}
+              {labels.fieldMaxZoom}
             </label>
             <input
               type="number"
@@ -369,7 +379,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {/* Default opacity */}
         <div className="space-y-1">
           <label className="flex items-center justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            <span>{LABELS.fieldDefaultOpacity}</span>
+            <span>{labels.fieldDefaultOpacity}</span>
             <span className="tabular-nums text-neutral-500">{form.default_opacity_pct}%</span>
           </label>
           <input
@@ -385,7 +395,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
         {/* Requires capability */}
         <div className="space-y-1">
           <label htmlFor="layer-modal-cap" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            {LABELS.fieldRequiresCap}
+            {labels.fieldRequiresCap}
           </label>
           <select
             id="layer-modal-cap"
@@ -393,7 +403,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
             onChange={e => patch({ requires_capability: e.target.value })}
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
           >
-            <option value="">{LABELS.fieldCapNone}</option>
+            <option value="">{labels.fieldCapNone}</option>
             {capabilityKeys.map(k => (
               <option key={k} value={k}>{k}</option>
             ))}
@@ -408,7 +418,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
             onChange={e => patch({ enabled: e.target.checked })}
             className="h-4 w-4 rounded border-neutral-300 accent-accent-DEFAULT"
           />
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">{LABELS.fieldEnabled}</span>
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">{labels.fieldEnabled}</span>
         </label>
 
         {/* Actions */}
@@ -419,7 +429,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
             disabled={saveMut.isPending || !form.name.trim()}
             className="cursor-pointer rounded-lg px-4 py-2 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {saveMut.isPending ? LABELS.modalSaving : LABELS.modalSave}
+            {saveMut.isPending ? labels.modalSaving : labels.modalSave}
           </button>
           <button
             type="button"
@@ -427,7 +437,7 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
             disabled={saveMut.isPending}
             className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {LABELS.modalCancel}
+            {labels.modalCancel}
           </button>
         </div>
       </div>
@@ -438,6 +448,8 @@ function LayerModal({ layer, capabilityKeys, onClose, onSaved }: LayerModalProps
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function MapLayersAdminSection() {
+  const { t } = useTranslation()
+  const labels = mapLayerLabels(t)
   const { addToast } = useToast()
   const qc = useQueryClient()
   const { raw: layers, isLoading } = useAdminMapLayers()
@@ -460,27 +472,27 @@ export function MapLayersAdminSection() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteMapLayer(id),
     onSuccess: () => {
-      addToast({ type: 'success', title: LABELS.toastDeleted })
+      addToast({ type: 'success', title: labels.toastDeleted })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
       qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
       setDeleteTarget(null)
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
-      addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
+      addToast({ type: 'error', title: labels.toastError, message: msg, duration: 0 })
     },
   })
 
   const sortMut = useMutation({
     mutationFn: bulkSortMapLayers,
     onSuccess: () => {
-      addToast({ type: 'success', title: LABELS.toastSortSaved })
+      addToast({ type: 'success', title: labels.toastSortSaved })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
       qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
-      addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
+      addToast({ type: 'error', title: labels.toastError, message: msg, duration: 0 })
     },
   })
 
@@ -511,7 +523,7 @@ export function MapLayersAdminSection() {
   if (isLoading) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-        <p className="text-sm text-neutral-400">{LABELS.loading}</p>
+        <p className="text-sm text-neutral-400">{labels.loading}</p>
       </div>
     )
   }
@@ -521,15 +533,15 @@ export function MapLayersAdminSection() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{LABELS.title}</h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{LABELS.description}</p>
+          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{labels.title}</h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{labels.description}</p>
         </div>
         <button
           type="button"
           onClick={() => { setModalLayer(null); setShowModal(true) }}
           className="shrink-0 cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
-          {LABELS.addButton}
+          {labels.addButton}
         </button>
       </div>
 
@@ -548,7 +560,7 @@ export function MapLayersAdminSection() {
                   type="button"
                   disabled={idx === 0 || sortMut.isPending}
                   onClick={() => moveLayer(idx, -1)}
-                  aria-label={LABELS.upButton}
+                  aria-label={labels.upButton}
                   className="p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   ▲
@@ -557,7 +569,7 @@ export function MapLayersAdminSection() {
                   type="button"
                   disabled={idx === sorted.length - 1 || sortMut.isPending}
                   onClick={() => moveLayer(idx, 1)}
-                  aria-label={LABELS.downButton}
+                  aria-label={labels.downButton}
                   className="p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   ▼
@@ -572,20 +584,20 @@ export function MapLayersAdminSection() {
                   </span>
                   {layer.is_system && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500">
-                      {LABELS.systemBadge}
+                      {labels.systemBadge}
                     </span>
                   )}
                   {!layer.enabled && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
-                      {LABELS.disabledBadge}
+                      {labels.disabledBadge}
                     </span>
                   )}
                   {!satisfied && (
                     <span
                       className="text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                      title={`requires_capability: ${layer.requires_capability}`}
+                      title={labels.requiresCapabilityTitle(layer.requires_capability)}
                     >
-                      ⚠️ {LABELS.capWarning}
+                      ⚠️ {labels.capWarning}
                     </span>
                   )}
                   {satisfied && layer.requires_capability && (
@@ -606,16 +618,16 @@ export function MapLayersAdminSection() {
                   onClick={() => { setModalLayer(layer); setShowModal(true) }}
                   className="cursor-pointer rounded px-2 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
                 >
-                  {LABELS.editButton}
+                  {labels.editButton}
                 </button>
                 <button
                   type="button"
                   disabled={layer.is_system}
                   onClick={() => setDeleteTarget(layer)}
-                  title={layer.is_system ? 'System-Layer können nicht gelöscht werden' : undefined}
+                  title={layer.is_system ? labels.systemDeleteDisabled : undefined}
                   className="cursor-pointer rounded px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {LABELS.deleteButton}
+                  {labels.deleteButton}
                 </button>
               </div>
             </li>
@@ -628,6 +640,7 @@ export function MapLayersAdminSection() {
         <LayerModal
           layer={modalLayer}
           capabilityKeys={capabilityKeys}
+          labels={labels}
           onClose={() => setShowModal(false)}
           onSaved={() => setShowModal(false)}
         />
@@ -636,9 +649,9 @@ export function MapLayersAdminSection() {
       {/* Delete confirm */}
       {deleteTarget && (
         <ConfirmModal
-          title={LABELS.deleteConfirmTitle}
-          message={LABELS.deleteConfirmMsg(deleteTarget.name)}
-          confirmLabel={LABELS.deleteConfirmLabel}
+          title={labels.deleteConfirmTitle}
+          message={labels.deleteConfirmMsg(deleteTarget.name)}
+          confirmLabel={labels.deleteConfirmLabel}
           isPending={deleteMut.isPending}
           onConfirm={() => deleteMut.mutate(deleteTarget.id)}
           onClose={() => setDeleteTarget(null)}

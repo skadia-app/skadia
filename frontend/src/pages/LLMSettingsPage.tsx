@@ -1,6 +1,8 @@
 import { useId, useState, useEffect } from 'react'
 import Toggle from '@/components/Toggle'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   fetchLLMConfig, saveLLMRole, fetchOllamaModels, testLLMConnection, runLLMEval, waiveLLMEval,
   type LLMSystemConfig, type LLMTestResult, type LLMAPIKeyState, type LLMSaveResult,
@@ -8,27 +10,15 @@ import {
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
 import type { EnrichmentSettings } from '@/api/types'
 
-const ROLE_LABELS: Record<string, string> = {
-  tool_agent: 'Tool-Agent',
-  document_extract: 'Dokumente',
-  markdown_extract: 'Markdown',
-  vision: 'Vision',
-}
-
-const ROLE_DESCRIPTIONS: Record<string, string> = {
-  tool_agent: 'Chat, Tool-Aufrufe, SQL-Readonly, Write-Preview, JSON-Argumente und passende Antwortsprache.',
-  document_extract: 'OCR/PDF-Textextraktion, Gear-Dokumente und strukturierte Felder.',
-  markdown_extract: 'Markdown-Konvertierung mit Tabellen-Erhalt.',
-  vision: 'Bild-, PDF- und Screenshot-Verständnis.',
-}
-
 const ROLE_ORDER = ['tool_agent', 'document_extract', 'markdown_extract', 'vision']
+const MANAGED_ROLE_KEYS = new Set(ROLE_ORDER)
+const EVAL_STATUS_KEYS = new Set(['passed', 'waived', 'failed', 'untested', 'unknown'])
 
 const BACKEND_OPTIONS = [
-  { value: 'disabled', label: 'Deaktiviert' },
-  { value: 'ollama', label: 'Ollama (Container)' },
-  { value: 'llama_server', label: 'llama-server / OpenAI-kompatibel' },
-  { value: 'openai', label: 'OpenAI API' },
+  { value: 'disabled', labelKey: 'common.disabled' },
+  { value: 'ollama', labelKey: 'llmSettings.backends.ollama' },
+  { value: 'llama_server', labelKey: 'llmSettings.backends.llamaServer' },
+  { value: 'openai', labelKey: 'llmSettings.backends.openai' },
 ]
 
 const DEFAULT_URLS: Record<string, string> = {
@@ -50,26 +40,34 @@ function parseContextWindowInput(value: string): number | null {
   return Number(trimmed)
 }
 
-function validateContextWindowInput(value: string): string | null {
+function getRoleLabel(role: string, t: TFunction): string {
+  if (MANAGED_ROLE_KEYS.has(role)) return t(`llmSettings.roles.${role}.label`)
+  return t('llmSettings.roles.custom.label', { role })
+}
+
+function getRoleDescription(role: string, t: TFunction): string {
+  if (MANAGED_ROLE_KEYS.has(role)) return t(`llmSettings.roles.${role}.description`)
+  return t('llmSettings.roles.custom.description')
+}
+
+function validateContextWindowInput(value: string, t: TFunction): string | null {
   const parsed = parseContextWindowInput(value)
   if (parsed === null) return null
   if (!Number.isInteger(parsed) || parsed < CONTEXT_WINDOW_MIN || parsed > CONTEXT_WINDOW_MAX) {
-    return `Kontextfenster muss leer sein oder zwischen ${CONTEXT_WINDOW_MIN} und ${CONTEXT_WINDOW_MAX} liegen.`
+    return t('llmSettings.validation.contextWindow', { min: CONTEXT_WINDOW_MIN, max: CONTEXT_WINDOW_MAX })
   }
   return null
 }
 
-function evalStatusLabel(status: LLMSystemConfig['eval_status'] | string | undefined): string {
-  switch (status) {
-    case 'passed':
-      return 'geprüft'
-    case 'waived':
-      return 'freigegeben'
-    case 'failed':
-      return 'Prüfung fehlgeschlagen'
-    default:
-      return 'nicht geprüft'
-  }
+function evalStatusLabel(status: LLMSystemConfig['eval_status'] | string | undefined, t: TFunction): string {
+  const key = status && EVAL_STATUS_KEYS.has(status) ? status : 'unknown'
+  return t(`llmSettings.evalStatus.${key}`)
+}
+
+function isSuccessfulEvalMessage(message: string, t: TFunction): boolean {
+  return message === t('llmSettings.eval.allActivePassed') ||
+    message === t('llmSettings.eval.allPassed') ||
+    message === t('llmSettings.eval.passed')
 }
 
 function isManagedRole(config: LLMSystemConfig): boolean {
@@ -85,22 +83,56 @@ function sameConnection(a?: LLMSystemConfig, b?: LLMSystemConfig): boolean {
     a.has_api_key === b.has_api_key
 }
 
-function mutationErrorMessage(err: unknown): string {
+function mutationErrorMessage(err: unknown, t: TFunction): string {
   if (err && typeof err === 'object') {
     const json = (err as { json?: Record<string, unknown> }).json
     const jsonMessage = json?.message
     if (typeof jsonMessage === 'string' && jsonMessage.trim()) return jsonMessage
+    const jsonDetail = json?.detail
+    if (typeof jsonDetail === 'string' && jsonDetail.trim()) return jsonDetail
     const status = (err as { status?: number }).status
     const body = (err as { body?: string }).body
     if (status === 500 && typeof body === 'string' && body.trim() === '') {
-      return 'Der Server oder Dev-Proxy hat die Verbindung ohne Fehlermeldung beendet.'
+      return t('llmSettings.errors.emptyProxyResponse')
     }
   }
   if (err instanceof Error && err.message.trim()) return err.message
-  return 'Unbekannter Fehler'
+  return t('common.unknownError')
+}
+
+function llmTestMessage(result: LLMTestResult, t: TFunction): string {
+  const detail = result.message.trim()
+  switch (result.message_code) {
+    case 'api_reachable':
+      return t('llmSettings.connectionTest.messages.apiReachable', { detail })
+    case 'api_responded_with_status':
+      return t('llmSettings.connectionTest.messages.apiRespondedWithStatus', { detail })
+    case 'connection_failed':
+      return detail
+        ? t('llmSettings.connectionTest.messages.connectionFailedWithDetail', { detail })
+        : t('llmSettings.connectionTest.messages.connectionFailed')
+    case 'invalid_url':
+      return detail
+        ? t('llmSettings.connectionTest.messages.invalidUrlWithDetail', { detail })
+        : t('llmSettings.connectionTest.messages.invalidUrl')
+    case 'unknown_backend_type':
+      return t('llmSettings.connectionTest.messages.unknownBackendType')
+    default:
+      return detail
+  }
+}
+
+function llmTestWarning(result: LLMTestResult, t: TFunction): string | null {
+  switch (result.warning_code) {
+    case 'localhost_rewritten_for_container':
+      return t('llmSettings.connectionTest.warnings.localhostRewrittenForContainer')
+    default:
+      return result.warning?.trim() || null
+  }
 }
 
 function OcrPromptsSection() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [localPrompts, setLocalPrompts] = useState<Record<string, string>>({})
 
@@ -117,16 +149,16 @@ function OcrPromptsSection() {
   if (!settings) return null
 
   const fields = [
-    { key: 'ocr_invoice_prompt' as const, label: 'Rechnungen' },
-    { key: 'ocr_gear_prompt' as const, label: 'Gear-Dokumente' },
+    { key: 'ocr_invoice_prompt' as const, label: t('llmSettings.ocr.invoice') },
+    { key: 'ocr_gear_prompt' as const, label: t('llmSettings.ocr.gearDocuments') },
   ]
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
       <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">OCR-Prompts</h2>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('llmSettings.ocr.title')}</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Eigene Anweisungen für die Dokumentenerkennung. Leer lassen = Standard-Prompt.
+          {t('llmSettings.ocr.description')}
         </p>
       </div>
       {fields.map(({ key, label }) => (
@@ -134,7 +166,7 @@ function OcrPromptsSection() {
           <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</h3>
           <textarea
             value={localPrompts[key] ?? settings[key] ?? ''}
-            placeholder="Standard-Prompt verwenden (leer lassen)"
+            placeholder={t('llmSettings.ocr.placeholder')}
             onChange={e => setLocalPrompts(prev => ({ ...prev, [key]: e.target.value }))}
             onBlur={e => {
               const val = e.target.value || null
@@ -151,7 +183,7 @@ function OcrPromptsSection() {
               onClick={() => mut.mutate({ [key]: null })}
               className="cursor-pointer text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
             >
-              Auf Standard zurücksetzen
+              {t('settings.adminSystem.actions.reset')}
             </button>
           )}
         </div>
@@ -161,6 +193,7 @@ function OcrPromptsSection() {
 }
 
 export default function LLMSettingsPage() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [separateRolesOverride, setSeparateRolesOverride] = useState<boolean | null>(null)
   const { data: configs = [], isLoading } = useQuery({
@@ -169,7 +202,7 @@ export default function LLMSettingsPage() {
   })
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('common.loading')}</div>
   }
 
   const roles = configs.filter(isManagedRole).sort((a, b) => {
@@ -190,24 +223,24 @@ export default function LLMSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI & Modelle</h2>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('llmSettings.title')}</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Direkte OpenAI-kompatible LLM-Backends konfigurieren. LiteLLM bleibt optional als internes Gateway-Artefakt.
+          {t('llmSettings.description')}
         </p>
       </div>
 
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="font-medium text-neutral-900 dark:text-neutral-100">Ein Backend für alle Rollen</h3>
+            <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{t('llmSettings.sharedToggle.title')}</h3>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-              Standardmodus: Chat, Dokumente, Markdown und Vision verwenden dieselbe Verbindung. Separate Rollen nur aktivieren, wenn Modelle gezielt getrennt werden sollen.
+              {t('llmSettings.sharedToggle.description')}
             </p>
           </div>
           <Toggle
             checked={!separateRoles}
             onChange={checked => setSeparateRolesOverride(!checked)}
-            aria-label="Ein Backend für alle Rollen verwenden"
+            aria-label={t('llmSettings.sharedToggle.ariaLabel')}
           />
         </div>
       </section>
@@ -245,6 +278,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   roleNames: string[]
   onSave: () => void
 }) {
+  const { t } = useTranslation()
   const [backend, setBackend] = useState(primaryConfig.backend_type || 'disabled')
   const [apiBase, setApiBase] = useState(primaryConfig.api_base || '')
   const [modelName, setModelName] = useState(primaryConfig.model_name || '')
@@ -295,14 +329,14 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
   const validateBeforeSave = (): string | null => {
     if (activeRoleNames.length === 0) return null
-    if (backend === 'disabled') return 'Aktive Rollen brauchen ein Backend.'
-    if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
-    if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
-    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (backend === 'disabled') return t('llmSettings.validation.backendRequired')
+    if (needsURL && !apiBase.trim()) return t('llmSettings.validation.apiBaseRequired')
+    if (!modelName.trim()) return t('llmSettings.validation.modelRequired')
+    const contextWindowError = validateContextWindowInput(contextWindow, t)
     if (contextWindowError) return contextWindowError
     if (needsAPIKey && apiKeyState !== 'set') {
       const roleWithoutKey = activeRoleNames.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
-      if (roleWithoutKey) return 'Für den gemeinsamen OpenAI-Modus den API-Schlüssel neu eingeben, damit alle aktiven Rollen ihn erhalten.'
+      if (roleWithoutKey) return t('llmSettings.validation.sharedOpenAiKeyRequired')
     }
     return null
   }
@@ -329,7 +363,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       onSave()
     },
     onError: err => {
-      setLocalSaveError(mutationErrorMessage(err))
+      setLocalSaveError(mutationErrorMessage(err, t))
     },
   })
 
@@ -354,7 +388,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   }
 
   const runTest = async () => {
-    const contextWindowError = validateContextWindowInput(contextWindow)
+    const contextWindowError = validateContextWindowInput(contextWindow, t)
     if (contextWindowError) {
       setTestResult({ success: false, message: contextWindowError })
       return
@@ -370,14 +404,14 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       })
       setTestResult(result)
     } catch (err) {
-      setTestResult({ success: false, message: mutationErrorMessage(err) })
+      setTestResult({ success: false, message: mutationErrorMessage(err, t) })
     }
     setIsTesting(false)
   }
 
   const runEval = async () => {
     if (isDirty) {
-      setEvalResult('Qualitätsprüfung erst nach dem Speichern starten')
+      setEvalResult(t('llmSettings.eval.saveBeforeEval'))
       return
     }
     setIsEvaluating(true)
@@ -386,18 +420,18 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       const results = await Promise.all(activeRoleNames.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
       const failed = results.filter(item => item.result.status !== 'passed')
       setEvalResult(failed.length === 0
-        ? 'Qualitätsprüfung: alle aktiven Rollen bestanden'
-        : `Qualitätsprüfung: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${evalStatusLabel(item.result.status)}`).join(', ')}`)
+        ? t('llmSettings.eval.allActivePassed')
+        : t('llmSettings.eval.failedSummary', { summary: failed.map(item => `${getRoleLabel(item.roleName, t)} ${evalStatusLabel(item.result.status, t)}`).join(', ') }))
       onSave()
     } catch (err) {
-      setEvalResult(`Qualitätsprüfung fehlgeschlagen: ${mutationErrorMessage(err)}`)
+      setEvalResult(t('llmSettings.eval.failed', { error: mutationErrorMessage(err, t) }))
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async (roleName: string) => {
     if (isDirty) {
-      setLocalSaveError('Erst speichern, dann Verbindung freigeben.')
+      setLocalSaveError(t('llmSettings.eval.saveBeforeWaiver'))
       return
     }
     const reason = (waiverReasons[roleName] ?? '').trim()
@@ -414,7 +448,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       })
       onSave()
     } catch (err) {
-      setLocalSaveError(mutationErrorMessage(err))
+      setLocalSaveError(mutationErrorMessage(err, t))
     } finally {
       setWaivingRole(null)
     }
@@ -429,16 +463,16 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
     saveMutation.mutate()
   }
 
-  const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
-  const evalDisabledReason = isDirty ? 'Erst speichern, dann Qualitätsprüfung starten.' : null
-  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Verbindung freigeben.' : null
+  const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error, t) : null)
+  const evalDisabledReason = isDirty ? t('llmSettings.eval.saveBeforeEvalSentence') : null
+  const waiverDisabledReason = isDirty ? t('llmSettings.eval.saveBeforeWaiver') : null
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 space-y-4">
       <div>
-        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">Gemeinsame Verbindung</h3>
+        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{t('llmSettings.shared.title')}</h3>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-          Diese Backend-Daten werden für alle unten aktivierten Rollen gespeichert.
+          {t('llmSettings.shared.description')}
         </p>
       </div>
 
@@ -447,8 +481,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
           <div key={role.role} className="rounded-lg border border-neutral-100 dark:border-neutral-800 px-3 py-2 space-y-2">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{ROLE_LABELS[role.role] ?? role.role}</div>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">{ROLE_DESCRIPTIONS[role.role] ?? 'Benutzerdefinierte Rolle.'}</p>
+                <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{getRoleLabel(role.role, t)}</div>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{getRoleDescription(role.role, t)}</p>
                 <span className={`mt-1 inline-block rounded px-2 py-0.5 text-xs ${
                   role.eval_status === 'passed'
                     ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
@@ -458,7 +492,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                         ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
                         : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
                 }`}>
-                  Status: {evalStatusLabel(role.eval_status)}
+                  {t('llmSettings.statusWithValue', { status: evalStatusLabel(role.eval_status, t) })}
                 </span>
               </div>
               <Toggle
@@ -473,7 +507,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                     if (!apiBase) setApiBase(DEFAULT_URLS.llama_server)
                   }
                 }}
-                aria-label={`${ROLE_LABELS[role.role] ?? role.role} aktivieren`}
+                aria-label={t('llmSettings.enableRole', { role: getRoleLabel(role.role, t) })}
               />
             </div>
             {enabledByRole[role.role] && role.eval_status !== 'passed' && role.eval_status !== 'waived' && (
@@ -482,9 +516,9 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                   type="text"
                   value={waiverReasons[role.role] ?? ''}
                   onChange={e => setWaiverReasons(current => ({ ...current, [role.role]: e.target.value }))}
-                  placeholder="Begründung für Freigabe"
+                  placeholder={t('llmSettings.waiver.reasonPlaceholder')}
                   className="min-w-0 flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none"
-                  aria-label={`${ROLE_LABELS[role.role] ?? role.role} Freigabe-Begründung`}
+                  aria-label={t('llmSettings.waiver.reasonAriaLabel', { role: getRoleLabel(role.role, t) })}
                 />
                 <button
                   type="button"
@@ -493,7 +527,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                   title={waiverDisabledReason ?? undefined}
                   className="cursor-pointer px-2 py-1 rounded-lg text-xs border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
-                  {waivingRole === role.role ? 'Speichere...' : 'Freigeben'}
+                  {waivingRole === role.role ? t('common.saving') : t('llmSettings.waiver.submit')}
                 </button>
               </div>
             )}
@@ -507,14 +541,14 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       {activeRoleNames.length > 0 && (
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Backend</label>
+            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">{t('llmSettings.fields.backend')}</label>
             <select
               value={backend}
               onChange={e => handleBackendChange(e.target.value)}
               className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none"
             >
               {BACKEND_OPTIONS.filter(o => o.value !== 'disabled').map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
               ))}
             </select>
           </div>
@@ -522,7 +556,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
           {needsURL && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                {isOllama ? 'Ollama URL' : 'API-Basis-URL'}
+                {isOllama ? 'Ollama URL' : t('llmSettings.fields.apiBaseUrl')}
               </label>
               <input
                 type="text"
@@ -542,14 +576,14 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
           {needsURL && (
             <div>
-              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Modell</label>
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">{t('llmSettings.fields.model')}</label>
               {isOllama && ollamaModels.length > 0 ? (
                 <select
                   value={modelName}
                   onChange={e => setModelName(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 >
-                  <option value="">-- Modell wählen --</option>
+                  <option value="">{t('llmSettings.fields.selectModel')}</option>
                   {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
@@ -573,7 +607,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                       disabled={isLoadingModels}
                       className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                     >
-                      {isLoadingModels ? 'Lade...' : 'Modelle laden'}
+                      {isLoadingModels ? t('common.loading') : t('llmSettings.actions.loadModels')}
                     </button>
                   )}
                 </div>
@@ -583,7 +617,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
           {needsURL && (
             <div>
-              <label htmlFor={contextWindowInputID} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Kontextfenster</label>
+              <label htmlFor={contextWindowInputID} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">{t('llmSettings.fields.contextWindow')}</label>
               <input
                 id={contextWindowInputID}
                 type="number"
@@ -597,11 +631,11 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                   setLocalSaveError(null)
                   setSaveWarning(null)
                 }}
-                placeholder="Standard aus Server-Umgebung"
+                placeholder={t('llmSettings.fields.contextWindowPlaceholder')}
                 className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
               />
               <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                Optional. Muss zum tatsächlich gestarteten LLM-Backend passen; leer verwendet den Server-Fallback.
+                {t('llmSettings.fields.contextWindowHint')}
               </p>
             </div>
           )}
@@ -609,8 +643,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
           {canShowKeyControls && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                API-Schlüssel {roles.some(role => role.has_api_key) && apiKeyState === 'unchanged' && <span className="text-green-500">(gesetzt)</span>}
-                {apiKeyState === 'clear' && <span className="text-amber-500">(wird gelöscht)</span>}
+                {t('llmSettings.fields.apiKey')} {roles.some(role => role.has_api_key) && apiKeyState === 'unchanged' && <span className="text-green-500">{t('llmSettings.apiKey.set')}</span>}
+                {apiKeyState === 'clear' && <span className="text-amber-500">{t('llmSettings.apiKey.willDelete')}</span>}
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -624,7 +658,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                     setLocalSaveError(null)
                     setSaveWarning(null)
                   }}
-                  placeholder={roles.some(role => role.has_api_key) ? 'Neuen Schlüssel für aktive Rollen setzen' : 'sk-...'}
+                  placeholder={roles.some(role => role.has_api_key) ? t('llmSettings.apiKey.sharedPlaceholder') : 'sk-...'}
                   className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 />
                 {roles.some(role => role.has_api_key) && (
@@ -636,7 +670,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                     }}
                     className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors whitespace-nowrap"
                   >
-                    {apiKeyState === 'clear' ? 'Behalten' : 'Löschen'}
+                    {apiKeyState === 'clear' ? t('llmSettings.apiKey.keep') : t('common.delete')}
                   </button>
                 )}
               </div>
@@ -649,7 +683,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
               disabled={isTesting || !needsURL}
               className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isTesting ? 'Teste...' : 'Verbindung testen'}
+              {isTesting ? t('llmSettings.actions.testing') : t('llmSettings.actions.testConnection')}
             </button>
             <button
               onClick={runEval}
@@ -657,16 +691,19 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
               title={evalDisabledReason ?? undefined}
               className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isEvaluating ? 'Prüfung läuft...' : 'Qualitätsprüfung starten'}
+              {isEvaluating ? t('llmSettings.actions.evaluating') : t('llmSettings.actions.startEval')}
             </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
-                {testResult.success ? 'OK' : 'Fehler'} {testResult.message}
+                {testResult.success ? 'OK' : t('common.error')} {llmTestMessage(testResult, t)}
                 {testResult.latency_ms ? ` (${testResult.latency_ms}ms)` : ''}
               </span>
             )}
+            {testResult && llmTestWarning(testResult, t) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">! {llmTestWarning(testResult, t)}</p>
+            )}
             {evalResult && (
-              <span className={`text-xs ${evalResult.includes('bestanden') ? 'text-green-500' : 'text-rose-500'}`}>
+              <span className={`text-xs ${isSuccessfulEvalMessage(evalResult, t) ? 'text-green-500' : 'text-rose-500'}`}>
                 {evalResult}
               </span>
             )}
@@ -681,17 +718,17 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
           disabled={saveMutation.isPending}
           className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white bg-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
+          {saveMutation.isPending ? t('common.saving') : t('common.save')}
         </button>
       </div>
       {saveError && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          Speichern fehlgeschlagen: {saveError}
+          {t('llmSettings.saveFailed', { error: saveError })}
         </p>
       )}
       {saveWarning && (
         <p role="status" className="text-sm text-amber-600 dark:text-amber-400">
-          Gespeichert, aber LiteLLM-Konfiguration konnte nicht aktualisiert werden: {saveWarning}
+          {t('llmSettings.saveWarning', { warning: saveWarning })}
         </p>
       )}
     </div>
@@ -715,6 +752,7 @@ function LLMRoleCard({
   saveRoleNames?: string[]
   onSave: () => void
 }) {
+  const { t } = useTranslation()
   const [backend, setBackend] = useState(config?.backend_type || 'disabled')
   const [apiBase, setApiBase] = useState(config?.api_base || '')
   const [modelName, setModelName] = useState(config?.model_name || '')
@@ -768,7 +806,7 @@ function LLMRoleCard({
       onSave()
     },
     onError: err => {
-      setLocalSaveError(mutationErrorMessage(err))
+      setLocalSaveError(mutationErrorMessage(err, t))
     },
   })
 
@@ -795,7 +833,7 @@ function LLMRoleCard({
   }
 
   const runTest = async () => {
-    const contextWindowError = validateContextWindowInput(contextWindow)
+    const contextWindowError = validateContextWindowInput(contextWindow, t)
     if (contextWindowError) {
       setTestResult({ success: false, message: contextWindowError })
       return
@@ -811,14 +849,14 @@ function LLMRoleCard({
       })
       setTestResult(result)
     } catch (err) {
-      setTestResult({ success: false, message: mutationErrorMessage(err) })
+      setTestResult({ success: false, message: mutationErrorMessage(err, t) })
     }
     setIsTesting(false)
   }
 
   const runEval = async () => {
     if (isDirty) {
-      setEvalResult('Qualitätsprüfung erst nach dem Speichern starten')
+      setEvalResult(t('llmSettings.eval.saveBeforeEval'))
       return
     }
     setIsEvaluating(true)
@@ -827,20 +865,20 @@ function LLMRoleCard({
       const results = await Promise.all(rolesToSave.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
       const failed = results.filter(item => item.result.status !== 'passed')
       if (failed.length === 0) {
-        setEvalResult(isSharedCard ? 'Qualitätsprüfung: alle bestanden' : 'Qualitätsprüfung bestanden')
+        setEvalResult(isSharedCard ? t('llmSettings.eval.allPassed') : t('llmSettings.eval.passed'))
       } else {
-        setEvalResult(`Qualitätsprüfung: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${evalStatusLabel(item.result.status)}`).join(', ')}`)
+        setEvalResult(t('llmSettings.eval.failedSummary', { summary: failed.map(item => `${getRoleLabel(item.roleName, t)} ${evalStatusLabel(item.result.status, t)}`).join(', ') }))
       }
       onSave()
     } catch (err) {
-      setEvalResult(`Qualitätsprüfung fehlgeschlagen: ${mutationErrorMessage(err)}`)
+      setEvalResult(t('llmSettings.eval.failed', { error: mutationErrorMessage(err, t) }))
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async () => {
     if (isDirty) {
-      setLocalSaveError('Erst speichern, dann Verbindung freigeben.')
+      setLocalSaveError(t('llmSettings.eval.saveBeforeWaiver'))
       return
     }
     const reason = waiverReason.trim()
@@ -850,10 +888,10 @@ function LLMRoleCard({
     try {
       await waiveLLMEval(role, reason)
       setWaiverReason('')
-      setEvalResult('Verbindung freigegeben')
+      setEvalResult(t('llmSettings.waiver.saved'))
       onSave()
     } catch (err) {
-      setLocalSaveError(mutationErrorMessage(err))
+      setLocalSaveError(mutationErrorMessage(err, t))
     }
     setIsWaiving(false)
   }
@@ -870,23 +908,23 @@ function LLMRoleCard({
     contextWindow !== contextWindowToInput(config?.context_window) ||
     enabled !== (config?.enabled || false) ||
     apiKeyState !== 'unchanged'
-  const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
-  const evalDisabledReason = isDirty ? 'Erst speichern, dann Qualitätsprüfung starten.' : null
-  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Verbindung freigeben.' : null
+  const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error, t) : null)
+  const evalDisabledReason = isDirty ? t('llmSettings.eval.saveBeforeEvalSentence') : null
+  const waiverDisabledReason = isDirty ? t('llmSettings.eval.saveBeforeWaiver') : null
 
   const validateBeforeSave = (): string | null => {
     if (!enabled) return null
-    if (backend === 'disabled') return 'Aktive Rollen brauchen ein Backend.'
-    if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
-    if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
-    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (backend === 'disabled') return t('llmSettings.validation.backendRequired')
+    if (needsURL && !apiBase.trim()) return t('llmSettings.validation.apiBaseRequired')
+    if (!modelName.trim()) return t('llmSettings.validation.modelRequired')
+    const contextWindowError = validateContextWindowInput(contextWindow, t)
     if (contextWindowError) return contextWindowError
-    if (needsAPIKey && !config?.has_api_key && apiKeyState !== 'set') return 'Aktive OpenAI-Rollen brauchen einen API-Schlüssel.'
+    if (needsAPIKey && !config?.has_api_key && apiKeyState !== 'set') return t('llmSettings.validation.openAiKeyRequired')
     if (isSharedCard && needsAPIKey && apiKeyState !== 'set') {
       const roleWithoutKey = rolesToSave.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
-      if (roleWithoutKey) return 'Für den gemeinsamen OpenAI-Modus den API-Schlüssel neu eingeben, damit alle Rollen ihn erhalten.'
+      if (roleWithoutKey) return t('llmSettings.validation.sharedOpenAiKeyRequired')
     }
-    if (providerBaseChanged && apiKeyState === 'unchanged') return 'Backend oder URL wurde geändert. Schlüssel neu setzen oder löschen.'
+    if (providerBaseChanged && apiKeyState === 'unchanged') return t('llmSettings.validation.keyResetRequired')
     return null
   }
 
@@ -939,10 +977,10 @@ function LLMRoleCard({
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
-            {roleLabel ?? ROLE_LABELS[role] ?? role}
+            {roleLabel ?? getRoleLabel(role, t)}
           </h3>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {roleDescription ?? ROLE_DESCRIPTIONS[role] ?? 'Benutzerdefinierte Rolle.'}
+            {roleDescription ?? getRoleDescription(role, t)}
           </p>
           {isSharedCard ? (
             <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
@@ -950,7 +988,7 @@ function LLMRoleCard({
                 const roleConfig = roleConfigsByName.get(roleName)
                 return (
                   <span key={roleName} className="rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 px-2 py-0.5">
-                    {ROLE_LABELS[roleName] ?? roleName}: {evalStatusLabel(roleConfig?.eval_status)}
+                    {getRoleLabel(roleName, t)}: {evalStatusLabel(roleConfig?.eval_status, t)}
                   </span>
                 )
               })}
@@ -966,10 +1004,10 @@ function LLMRoleCard({
                       ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
                       : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
               }`}>
-                Status: {evalStatusLabel(config.eval_status)}
+                {t('llmSettings.statusWithValue', { status: evalStatusLabel(config.eval_status, t) })}
               </span>
               {config.eval_status === 'waived' && (
-                <span className="text-amber-600 dark:text-amber-400">Admin-Freigabe aktiv</span>
+                <span className="text-amber-600 dark:text-amber-400">{t('llmSettings.waiver.active')}</span>
               )}
             </div>
           )}
@@ -977,16 +1015,16 @@ function LLMRoleCard({
         <Toggle
           checked={enabled}
           onChange={handleEnabledChange}
-          aria-label={`${roleLabel ?? ROLE_LABELS[role] ?? role} aktivieren`}
+          aria-label={t('llmSettings.enableRole', { role: roleLabel ?? getRoleLabel(role, t) })}
         />
       </div>
 
       {enabled && (
         <div className="space-y-3">
-          {/* Backend-Auswahl */}
+          {/* Backend selector */}
           <div>
             <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-              Backend
+              {t('llmSettings.fields.backend')}
             </label>
             <select
               value={backend}
@@ -996,16 +1034,16 @@ function LLMRoleCard({
                          text-neutral-900 dark:text-neutral-100 focus:outline-none"
             >
               {BACKEND_OPTIONS.filter(o => o.value !== 'disabled').map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
               ))}
             </select>
           </div>
 
-          {/* API-Base URL */}
+          {/* API base URL */}
           {needsURL && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                {isOllama ? 'Ollama URL' : 'API-Basis-URL'}
+                {isOllama ? 'Ollama URL' : t('llmSettings.fields.apiBaseUrl')}
               </label>
               <input
                 type="text"
@@ -1019,11 +1057,11 @@ function LLMRoleCard({
             </div>
           )}
 
-          {/* Modell-Auswahl */}
+          {/* Model selector */}
           {needsURL && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                Modell
+                {t('llmSettings.fields.model')}
               </label>
               {isOllama && ollamaModels.length > 0 ? (
                 <select
@@ -1033,7 +1071,7 @@ function LLMRoleCard({
                              bg-white dark:bg-neutral-800 px-3 py-2 text-sm
                              text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 >
-                  <option value="">-- Modell wählen --</option>
+                  <option value="">{t('llmSettings.fields.selectModel')}</option>
                   {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
@@ -1055,7 +1093,7 @@ function LLMRoleCard({
                                  text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                                  disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                     >
-                      {isLoadingModels ? 'Lade...' : 'Modelle laden'}
+                      {isLoadingModels ? t('common.loading') : t('llmSettings.actions.loadModels')}
                     </button>
                   )}
                 </div>
@@ -1063,11 +1101,11 @@ function LLMRoleCard({
             </div>
           )}
 
-          {/* Kontextfenster */}
+          {/* Context window */}
           {needsURL && (
             <div>
               <label htmlFor={contextWindowInputID} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                Kontextfenster
+                {t('llmSettings.fields.contextWindow')}
               </label>
               <input
                 id={contextWindowInputID}
@@ -1077,23 +1115,23 @@ function LLMRoleCard({
                 step={1024}
                 value={contextWindow}
                 onChange={e => handleContextWindowChange(e.target.value)}
-                placeholder="Standard aus Server-Umgebung"
+                placeholder={t('llmSettings.fields.contextWindowPlaceholder')}
                 className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700
                            bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono
                            text-neutral-900 dark:text-neutral-100 focus:outline-none"
               />
               <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                Optional. Muss zum tatsächlich gestarteten LLM-Backend passen; leer verwendet den Server-Fallback.
+                {t('llmSettings.fields.contextWindowHint')}
               </p>
             </div>
           )}
 
-          {/* API Key (nur Cloud) */}
+          {/* API key */}
           {canShowKeyControls && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                API-Schlüssel {config?.has_api_key && apiKeyState === 'unchanged' && <span className="text-green-500">(gesetzt)</span>}
-                {apiKeyState === 'clear' && <span className="text-amber-500">(wird gelöscht)</span>}
+                {t('llmSettings.fields.apiKey')} {config?.has_api_key && apiKeyState === 'unchanged' && <span className="text-green-500">{t('llmSettings.apiKey.set')}</span>}
+                {apiKeyState === 'clear' && <span className="text-amber-500">{t('llmSettings.apiKey.willDelete')}</span>}
               </label>
               <div className="mt-1 flex gap-2">
                 <input
@@ -1107,7 +1145,7 @@ function LLMRoleCard({
                     setLocalSaveError(null)
                     setSaveWarning(null)
                   }}
-                  placeholder={config?.has_api_key ? 'Neuen Schlüssel setzen' : 'sk-...'}
+                  placeholder={config?.has_api_key ? t('llmSettings.apiKey.placeholder') : 'sk-...'}
                   className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700
                              bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono
                              text-neutral-900 dark:text-neutral-100 focus:outline-none"
@@ -1127,19 +1165,19 @@ function LLMRoleCard({
                                text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                                transition-colors whitespace-nowrap"
                   >
-                    {apiKeyState === 'clear' ? 'Behalten' : 'Löschen'}
+                    {apiKeyState === 'clear' ? t('llmSettings.apiKey.keep') : t('common.delete')}
                   </button>
                 )}
               </div>
               {providerBaseChanged && apiKeyState === 'unchanged' && (
                 <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                  Backend oder URL wurde geändert. Schlüssel neu setzen oder löschen.
+                  {t('llmSettings.validation.keyResetRequired')}
                 </p>
               )}
             </div>
           )}
 
-          {/* Verbindung testen */}
+          {/* Connection checks */}
           <div className="flex items-center gap-3 pt-1">
             <button
               onClick={runTest}
@@ -1148,7 +1186,7 @@ function LLMRoleCard({
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                          disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isTesting ? 'Teste...' : 'Verbindung testen'}
+              {isTesting ? t('llmSettings.actions.testing') : t('llmSettings.actions.testConnection')}
             </button>
             <button
               onClick={runEval}
@@ -1158,19 +1196,19 @@ function LLMRoleCard({
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                          disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isEvaluating ? 'Prüfung läuft...' : 'Qualitätsprüfung starten'}
+              {isEvaluating ? t('llmSettings.actions.evaluating') : t('llmSettings.actions.startEval')}
             </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
-                {testResult.success ? 'OK' : 'Fehler'} {testResult.message}
+                {testResult.success ? 'OK' : t('common.error')} {llmTestMessage(testResult, t)}
                 {testResult.latency_ms ? ` (${testResult.latency_ms}ms)` : ''}
               </span>
             )}
-            {testResult?.warning && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠ {testResult.warning}</p>
+            {testResult && llmTestWarning(testResult, t) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">! {llmTestWarning(testResult, t)}</p>
             )}
             {evalResult && (
-              <span className={`text-xs ${evalResult.includes('bestanden') ? 'text-green-500' : 'text-rose-500'}`}>
+              <span className={`text-xs ${isSuccessfulEvalMessage(evalResult, t) ? 'text-green-500' : 'text-rose-500'}`}>
                 {evalResult}
               </span>
             )}
@@ -1182,7 +1220,7 @@ function LLMRoleCard({
           {!isSharedCard && config?.eval_status !== 'passed' && config?.eval_status !== 'waived' && (
             <div className="pt-2 space-y-2">
               <label htmlFor={`waiver-${role}`} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                Freigabe-Begründung
+                {t('llmSettings.waiver.reasonLabel')}
               </label>
               <div className="flex gap-2">
                 <input
@@ -1190,7 +1228,7 @@ function LLMRoleCard({
                   type="text"
                   value={waiverReason}
                   onChange={e => setWaiverReason(e.target.value)}
-                  placeholder="Warum diese Verbindung freigegeben wird"
+                  placeholder={t('llmSettings.waiver.reasonPlaceholderLong')}
                   className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700
                              bg-white dark:bg-neutral-800 px-3 py-2 text-sm
                              text-neutral-900 dark:text-neutral-100 focus:outline-none"
@@ -1204,7 +1242,7 @@ function LLMRoleCard({
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                              disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
-                  {isWaiving ? 'Speichere...' : 'Freigeben'}
+                  {isWaiving ? t('common.saving') : t('llmSettings.waiver.submit')}
                 </button>
               </div>
               {waiverDisabledReason && (
@@ -1215,24 +1253,24 @@ function LLMRoleCard({
         </div>
       )}
 
-      {/* Speichern – immer sichtbar, auch wenn deaktiviert */}
+      {/* Save button stays visible even when disabled */}
       <div className="flex justify-end pt-1">
         <button
           onClick={handleSave}
           disabled={saveMutation.isPending}
           className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white bg-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
+          {saveMutation.isPending ? t('common.saving') : t('common.save')}
         </button>
       </div>
       {saveError && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          Speichern fehlgeschlagen: {saveError}
+          {t('llmSettings.saveFailed', { error: saveError })}
         </p>
       )}
       {saveWarning && (
         <p role="status" className="text-sm text-amber-600 dark:text-amber-400">
-          Gespeichert, aber LiteLLM-Konfiguration konnte nicht aktualisiert werden: {saveWarning}
+          {t('llmSettings.saveWarning', { warning: saveWarning })}
         </p>
       )}
     </div>

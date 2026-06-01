@@ -1,28 +1,13 @@
 // Admin section for configuring default visibility of the 14 fixed system overlay keys.
 import { useState, useRef, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useToast } from '@/lib/toast'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useSystemLayerKeys } from '@/hooks/useSystemLayerKeys'
 import { patchSystemLayerVisibility, type SystemLayerVisibility } from '@/api/mapLayers'
 
-// ── i18n-ready labels ─────────────────────────────────────────────────────────
-
-const LABELS = {
-  title: 'System-Overlay-Sichtbarkeit',
-  description: 'Aktivierung und Standardwerte der 14 festen System-Layer für alle Benutzer.',
-  groupVector: 'Vektorkacheln',
-  groupCoverage: 'Abdeckungs-Layer',
-  colEnabled: 'Aktiv',
-  colDefaultNew: 'Standard für neue Nutzer',
-  colOpacity: 'Standard-Deckkraft (%)',
-  colLabel: 'Label-Überschreibung',
-  placeholderLabel: '(Standard-Label)',
-  toastSaved: 'Sichtbarkeit gespeichert',
-  toastError: 'Fehler beim Speichern',
-  loading: 'Lade Einstellungen…',
-  labelMaxLength: 100,
-}
+const labelMaxLength = 100
 
 // ── Debounce helper ───────────────────────────────────────────────────────────
 
@@ -51,6 +36,7 @@ interface RowProps {
 }
 
 function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, unavailableReason, visibility, onPatch }: RowProps) {
+  const { t } = useTranslation()
   // Local state mirrors DB value; parent patches debounced
   const [enabled, setEnabled] = useState(visibility?.enabled ?? true)
   const [defaultEnabled, setDefaultEnabled] = useState(
@@ -81,7 +67,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
 
   function handleLabel(val: string) {
     if (!available) return
-    const trimmed = val.slice(0, LABELS.labelMaxLength)
+    const trimmed = val.slice(0, labelMaxLength)
     setLabel(trimmed)
     onPatch(layerKey, { label_override: trimmed || undefined })
   }
@@ -96,7 +82,9 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
         <p className="text-xs text-neutral-400 font-mono">{layerKey}</p>
         {!available && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            Nicht verfügbar{unavailableReason ? `: ${unavailableReason}` : ''}
+            {unavailableReason
+              ? t('mapLayersAdmin.systemVisibility.unavailableWithReason', { reason: unavailableReason })
+              : t('mapLayersAdmin.systemVisibility.unavailable')}
           </p>
         )}
       </div>
@@ -109,7 +97,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
           onChange={e => handleEnabled(e.target.checked)}
           disabled={!available}
           className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer disabled:cursor-not-allowed"
-          aria-label={`${defaultLabel} — ${LABELS.colEnabled}`}
+          aria-label={t('mapLayersAdmin.systemVisibility.enabledAria', { label: defaultLabel })}
         />
       </div>
 
@@ -121,7 +109,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
           onChange={e => handleDefaultEnabled(e.target.checked)}
           disabled={!available}
           className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer disabled:cursor-not-allowed"
-          aria-label={`${defaultLabel} — ${LABELS.colDefaultNew}`}
+          aria-label={t('mapLayersAdmin.systemVisibility.defaultNewAria', { label: defaultLabel })}
         />
       </div>
 
@@ -138,7 +126,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
               onChange={e => handleOpacity(Number(e.target.value))}
               disabled={!available}
               className="flex-1 accent-accent-DEFAULT disabled:cursor-not-allowed"
-              aria-label={`${defaultLabel} — ${LABELS.colOpacity}`}
+              aria-label={t('mapLayersAdmin.systemVisibility.opacityAria', { label: defaultLabel })}
             />
             <span className="tabular-nums text-xs text-neutral-500 w-10 text-right">{opacity}%</span>
           </div>
@@ -146,12 +134,12 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
         <input
           type="text"
           value={label}
-          maxLength={LABELS.labelMaxLength}
-          placeholder={LABELS.placeholderLabel}
+          maxLength={labelMaxLength}
+          placeholder={t('mapLayersAdmin.systemVisibility.placeholderLabel')}
           onChange={e => handleLabel(e.target.value)}
           disabled={!available}
           className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT disabled:cursor-not-allowed"
-          aria-label={`${defaultLabel} — ${LABELS.colLabel}`}
+          aria-label={t('mapLayersAdmin.systemVisibility.labelAria', { label: defaultLabel })}
         />
       </div>
     </li>
@@ -161,12 +149,17 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, u
 // ── Group header (column titles, rendered once per group) ────────────────────
 
 function GroupHeader({ isCoverage }: { isCoverage: boolean }) {
+  const { t } = useTranslation()
   return (
     <li className="grid grid-cols-[1fr_5rem_8rem_10rem] gap-3 items-end px-3 pb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
       <span></span>
-      <span className="text-center">{LABELS.colEnabled}</span>
-      <span className="text-center leading-tight">{LABELS.colDefaultNew}</span>
-      <span>{isCoverage ? `${LABELS.colOpacity} / ${LABELS.colLabel}` : LABELS.colLabel}</span>
+      <span className="text-center">{t('mapLayersAdmin.systemVisibility.colEnabled')}</span>
+      <span className="text-center leading-tight">{t('mapLayersAdmin.systemVisibility.colDefaultNew')}</span>
+      <span>
+        {isCoverage
+          ? t('mapLayersAdmin.systemVisibility.colOpacityAndLabel')
+          : t('mapLayersAdmin.systemVisibility.colLabel')}
+      </span>
     </li>
   )
 }
@@ -199,6 +192,7 @@ function LayerGroup({ title, defaultOpen = true, children }: GroupProps) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function SystemLayerVisibilityAdminSection() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const qc = useQueryClient()
   const { systemVisibility, isLoading } = useMapLayers()
@@ -208,13 +202,13 @@ export function SystemLayerVisibilityAdminSection() {
     mutationFn: ({ key, body }: { key: string; body: Partial<SystemLayerVisibility> }) =>
       patchSystemLayerVisibility(key, body),
     onSuccess: () => {
-      addToast({ type: 'success', title: LABELS.toastSaved })
+      addToast({ type: 'success', title: t('mapLayersAdmin.systemVisibility.toastSaved') })
       qc.invalidateQueries({ queryKey: ['map-layers'] })
       qc.invalidateQueries({ queryKey: ['admin-map-layers'] })
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
-      addToast({ type: 'error', title: LABELS.toastError, message: msg, duration: 0 })
+      addToast({ type: 'error', title: t('mapLayersAdmin.systemVisibility.toastError'), message: msg, duration: 0 })
     },
   })
 
@@ -227,7 +221,7 @@ export function SystemLayerVisibilityAdminSection() {
   if (isLoading || keysLoading) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-        <p className="text-sm text-neutral-400">{LABELS.loading}</p>
+        <p className="text-sm text-neutral-400">{t('mapLayersAdmin.systemVisibility.loading')}</p>
       </div>
     )
   }
@@ -238,11 +232,15 @@ export function SystemLayerVisibilityAdminSection() {
   return (
     <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-5">
       <div>
-        <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{LABELS.title}</h3>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{LABELS.description}</p>
+        <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          {t('mapLayersAdmin.systemVisibility.title')}
+        </h3>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+          {t('mapLayersAdmin.systemVisibility.description')}
+        </p>
       </div>
 
-      <LayerGroup title={LABELS.groupVector}>
+      <LayerGroup title={t('mapLayersAdmin.systemVisibility.groupVector')}>
         <GroupHeader isCoverage={false} />
         {vectorKeys.map(descriptor => (
           <VisibilityRow
@@ -258,7 +256,7 @@ export function SystemLayerVisibilityAdminSection() {
         ))}
       </LayerGroup>
 
-      <LayerGroup title={LABELS.groupCoverage}>
+      <LayerGroup title={t('mapLayersAdmin.systemVisibility.groupCoverage')}>
         <GroupHeader isCoverage={true} />
         {coverageKeys.map(descriptor => (
           <VisibilityRow

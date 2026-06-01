@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { previewRename, executeRename } from '@/api/settings'
 import type { RenameResult } from '@/api/settings'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -11,6 +12,7 @@ interface RenamePreviewProps {
 }
 
 export default function RenamePreview({ open, onClose, schema }: RenamePreviewProps) {
+  const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [result, setResult] = useState<RenameResult | null>(null)
 
@@ -42,7 +44,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Dateien reorganisieren
+            {t('workshopOperations.renamePreview.title')}
           </h2>
           <button
             onClick={handleClose}
@@ -58,25 +60,25 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {isLoading && (
             <div className="flex items-center justify-center py-8 text-neutral-400">
-              Lade Vorschau...
+              {t('workshopOperations.renamePreview.loadingPreview')}
             </div>
           )}
 
           {isError && (
             <div className="rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-900/20 p-4 text-sm text-rose-600 dark:text-rose-400">
-              {error instanceof Error ? error.message : 'Vorschau konnte nicht geladen werden.'}
+              {error instanceof Error ? error.message : t('workshopOperations.renamePreview.previewLoadError')}
             </div>
           )}
 
           {result && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 text-center space-y-2">
               <p className="text-lg font-medium text-neutral-900 dark:text-neutral-100">
-                Reorganisierung abgeschlossen
+                {t('workshopOperations.renamePreview.completedTitle')}
               </p>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{result.succeeded}</span> erfolgreich
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{result.succeeded}</span> {t('workshopOperations.renamePreview.succeeded')}
                 {result.failed > 0 && (
-                  <>, <span className="text-rose-500 font-medium">{result.failed}</span> fehlgeschlagen</>
+                  <>, <span className="text-rose-500 font-medium">{result.failed}</span> {t('workshopOperations.renamePreview.failed')}</>
                 )}
               </p>
             </div>
@@ -86,8 +88,8 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
             <>
               <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
                 {items.length === 0
-                  ? 'Alle Dateien entsprechen bereits dem aktuellen Schema.'
-                  : `${items.length} ${items.length === 1 ? 'Datei wird' : 'Dateien werden'} verschoben`}
+                  ? t('workshopOperations.renamePreview.alreadyCurrent')
+                  : t('workshopOperations.renamePreview.filesWillMove', { count: items.length })}
               </p>
 
               {items.length > 0 && (
@@ -119,13 +121,13 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
               <div className="h-2 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
                 <div className="h-full bg-accent-DEFAULT rounded-full animate-pulse w-full" />
               </div>
-              <p className="text-xs text-neutral-400 mt-2 text-center">Dateien werden verschoben...</p>
+              <p className="text-xs text-neutral-400 mt-2 text-center">{t('workshopOperations.renamePreview.filesMoving')}</p>
             </div>
           )}
 
           {renameMutation.isError && (
             <p className="mt-4 text-sm text-rose-500">
-              Fehler: {renameMutation.error instanceof Error ? renameMutation.error.message : 'Unbekannter Fehler'}
+              {t('common.error')}: {renameMutation.error instanceof Error ? renameMutation.error.message : t('common.unknownError')}
             </p>
           )}
         </div>
@@ -138,12 +140,12 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
               className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium
                          bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors"
             >
-              Schließen
+              {t('common.close')}
             </button>
           ) : confirmOpen ? (
             <>
               <span className="text-sm text-neutral-600 dark:text-neutral-400 mr-auto">
-                Wirklich alle Dateien verschieben?
+                {t('workshopOperations.renamePreview.confirmMove')}
               </span>
               <button
                 onClick={() => setConfirmOpen(false)}
@@ -153,7 +155,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                            text-neutral-600 dark:text-neutral-300
                            hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => renameMutation.mutate(items ?? [])}
@@ -162,7 +164,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                            bg-rose-500 hover:bg-rose-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {renameMutation.isPending ? 'Wird ausgeführt...' : 'Ja, verschieben'}
+                {renameMutation.isPending ? t('workshopOperations.renamePreview.running') : t('workshopOperations.renamePreview.confirmMoveButton')}
               </button>
             </>
           ) : (
@@ -174,7 +176,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                            text-neutral-600 dark:text-neutral-300
                            hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => setConfirmOpen(true)}
@@ -183,7 +185,7 @@ export default function RenamePreview({ open, onClose, schema }: RenamePreviewPr
                            bg-accent-DEFAULT hover:bg-accent-600
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Reorganisieren
+                {t('workshopOperations.renamePreview.reorganize')}
               </button>
             </>
           )}

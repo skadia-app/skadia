@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geosearch"
@@ -22,12 +23,101 @@ import (
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/go-chi/chi/v5"
 )
 
 var validRegionID = regexp.MustCompile(`^[a-z0-9_-]+$`)
 var geoSearchCache = geosearch.NewCache(10 * time.Minute)
 var geoSearchLimiter = geosearch.NewLimiter(60, time.Hour, time.Now)
+
+type adminJobI18n struct {
+	MessageCode string         `json:"message_code,omitempty"`
+	StatusCode  string         `json:"status_code,omitempty"`
+	EntityKey   string         `json:"entity_key,omitempty"`
+	Params      map[string]any `json:"params,omitempty"`
+}
+
+func adminJobConflictResponse(legacyError string, meta adminJobI18n) map[string]any {
+	resp := map[string]any{"error": legacyError}
+	addAdminJobI18n(resp, meta)
+	if meta.MessageCode != "" {
+		resp["error_code"] = meta.MessageCode
+	}
+	return resp
+}
+
+func adminJobAcceptedResponse(jobID string, legacy map[string]any, meta adminJobI18n) map[string]any {
+	resp := map[string]any{}
+	if jobID != "" {
+		resp["job_id"] = jobID
+	}
+	for k, v := range legacy {
+		resp[k] = v
+	}
+	addAdminJobI18n(resp, meta)
+	return resp
+}
+
+func addAdminJobI18n(resp map[string]any, meta adminJobI18n) {
+	if meta.MessageCode != "" {
+		resp["message_code"] = meta.MessageCode
+	}
+	if meta.StatusCode != "" {
+		resp["status_code"] = meta.StatusCode
+	}
+	if meta.EntityKey != "" {
+		resp["entity_key"] = meta.EntityKey
+	}
+	if len(meta.Params) > 0 {
+		resp["params"] = meta.Params
+	}
+}
+
+func (h *Handler) setBackgroundJobI18nMetadata(ctx context.Context, jobID string, meta adminJobI18n) {
+	if h == nil || h.DB == nil || h.DB.Pool == nil || jobID == "" {
+		return
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		slog.Warn("background job i18n metadata marshal failed", "job_id", jobID, "error", err)
+		return
+	}
+	if _, err := h.DB.Pool.Exec(ctx, `
+		UPDATE background_jobs
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+		    updated_at = NOW()
+		WHERE id = $1`, jobID, raw); err != nil {
+		slog.Warn("background job i18n metadata update failed", "job_id", jobID, "error", err)
+	}
+}
+
+func (r *jobReporter) SetMessageCode(code string, params map[string]any) {
+	if r == nil || r.db == nil || r.db.Pool == nil || r.jobID == "" {
+		return
+	}
+	meta := adminJobI18n{MessageCode: code, StatusCode: "failed", Params: params}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		slog.Warn("job reporter i18n metadata marshal failed", "job_id", r.jobID, "error", err)
+		return
+	}
+	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := r.db.Pool.Exec(dbCtx, `
+		UPDATE background_jobs
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+		    updated_at = NOW()
+		WHERE id = $1`, r.jobID, raw); err != nil {
+		slog.Warn("job reporter i18n metadata update failed", "job_id", r.jobID, "error", err)
+	}
+}
+
+func (r *regionReporter) SetMessageCode(code string, params map[string]any) {
+	if structured, ok := r.inner.(interface {
+		SetMessageCode(string, map[string]any)
+	}); ok {
+		structured.SetMessageCode(code, params)
+	}
+}
 
 // GetOSMStatus returns counts from OSM tables.
 // GET /api/v1/admin/osm-status
@@ -390,7 +480,12 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	// Concurrent-Guard: nur ein Enrichment gleichzeitig
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "osm_enrichment"); running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, adminJobAcceptedResponse("", map[string]any{"status": "already_running"}, adminJobI18n{
+			MessageCode: "admin.osm.enrichment.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "osm.enrichment",
+			Params:      map[string]any{"job_type": "osm_enrichment"},
+		}))
 		return
 	}
 
@@ -415,6 +510,13 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.osm.enrichment.started",
+		StatusCode:  "started",
+		EntityKey:   "osm.enrichment",
+		Params:      map[string]any{"region_count": len(req.Regions)},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	regionFilter := strings.Join(req.Regions, ",")
 	shutdown.Go(jobID, func(ctx context.Context) {
@@ -424,7 +526,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 		pipeline.RunEnrichmentAndSplitting(ctx, regionFilter, reporter)
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, nil, jobMeta))
 }
 
 // RetryOSMTopology was removed: BadRouter's CSR graph builder computes topology
@@ -617,11 +719,23 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 		// RunPerRegion uses ON CONFLICT DO UPDATE SET status='importing', which works
 		// regardless of the previous status — so 'needs_redownload' is a valid starting point.
 		h.DB.Pool.Exec(ctx, `UPDATE osm_import_regions SET status = 'needs_redownload' WHERE region_id = $1`, regionID)
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.osm.update.pbf_too_old",
+			StatusCode:  "failed",
+			EntityKey:   "osm.update",
+			Params:      map[string]any{"region_id": regionID},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, "PBF zu alt für inkrementelles Update — bitte neu herunterladen")
 		return
 	}
 	if err != nil {
 		slog.Error("osm update: patchPBF failed", "region", regionID, "error", err)
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.osm.update.patch_failed",
+			StatusCode:  "failed",
+			EntityKey:   "osm.update",
+			Params:      map[string]any{"region_id": regionID, "error": err.Error()},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
 		return
 	}
@@ -633,6 +747,12 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 	reg, ok := osmregions.RegionByID(regionID)
 	if !ok {
 		slog.Error("osm update: region not in catalog", "region", regionID)
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.osm.update.region_not_in_catalog",
+			StatusCode:  "failed",
+			EntityKey:   "osm.update",
+			Params:      map[string]any{"region_id": regionID},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Region nicht im Katalog: "+regionID)
 		return
 	}
@@ -669,11 +789,23 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 
 	if reporter.failed {
 		slog.Error("osm update: enrichment failed", "region", regionID)
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.osm.update.enrichment_failed",
+			StatusCode:  "failed",
+			EntityKey:   "osm.update",
+			Params:      map[string]any{"region_id": regionID},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, "Reimport OK, Enrichment fehlgeschlagen")
 		return
 	}
 
 	slog.Info("osm update: completed", "region", regionID, "new_seq", newSeq)
+	h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+		MessageCode: "admin.osm.update.completed",
+		StatusCode:  "completed",
+		EntityKey:   "osm.update",
+		Params:      map[string]any{"region_id": regionID, "sequence_number": newSeq},
+	})
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }
 
@@ -718,7 +850,12 @@ func (h *Handler) TriggerOSMRegionUpdate(w http.ResponseWriter, r *http.Request)
 
 	// Guard: no running import or update
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "osm_import"); running {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "Import läuft bereits"})
+		httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse("Import läuft bereits", adminJobI18n{
+			MessageCode: "admin.osm.import.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "osm.import",
+			Params:      map[string]any{"job_type": "osm_import"},
+		}))
 		return
 	}
 
@@ -729,16 +866,28 @@ func (h *Handler) TriggerOSMRegionUpdate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !created {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "Update läuft bereits"})
+		httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse("Update läuft bereits", adminJobI18n{
+			MessageCode: "admin.osm.update.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "osm.update",
+			Params:      map[string]any{"job_type": "osm_update", "region_id": regionID},
+		}))
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.osm.update.started",
+		StatusCode:  "started",
+		EntityKey:   "osm.update",
+		Params:      map[string]any{"region_id": regionID},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	rReplURL, rPbfPath := *replURL, *pbfPath
 	shutdown.Go(jobID, func(jobCtx context.Context) {
 		h.runRegionUpdate(jobCtx, jobID, regionID, label, rReplURL, rPbfPath, lastSeq)
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, nil, jobMeta))
 }
 
 // allCategoryIDs returns all known OSM category IDs as fallback for incremental updates.
@@ -778,7 +927,12 @@ func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) 
 	// Comprehensive guards — no concurrent OSM/routing jobs
 	for _, jt := range []string{"osm_import", "osm_update", "osm_update_all", "osm_enrichment", "tile_build", "coverage_build"} {
 		if running, _ := h.DB.HasRunningJobGlobal(r.Context(), jt); running {
-			httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": jt + " is already running"})
+			httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse(jt+" is already running", adminJobI18n{
+				MessageCode: "admin.jobs.already_running",
+				StatusCode:  "already_running",
+				EntityKey:   "background_job",
+				Params:      map[string]any{"job_type": jt},
+			}))
 			return
 		}
 	}
@@ -810,15 +964,27 @@ func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) 
 	entityName := fmt.Sprintf("Batch Update (%d Regionen)", len(targets))
 	jobID, created, err := h.DB.InsertBackgroundJobGuarded(r.Context(), userID, "osm_update_all", nil, &entityName, 0)
 	if err != nil || !created {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{"error": "batch update already running"})
+		httputil.WriteJSON(w, http.StatusConflict, adminJobConflictResponse("batch update already running", adminJobI18n{
+			MessageCode: "admin.osm.update_all.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "osm.update_all",
+			Params:      map[string]any{"job_type": "osm_update_all"},
+		}))
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.osm.update_all.started",
+		StatusCode:  "started",
+		EntityKey:   "osm.update_all",
+		Params:      map[string]any{"region_count": len(targets)},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		h.runBatchUpdate(ctx, jobID, targets, req.RebuildTiles)
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, nil, jobMeta))
 }
 
 func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []patchTarget, rebuildTiles bool) {
@@ -864,6 +1030,12 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		if len(needsRedownload) > 0 {
 			msg += ". Neu herunterladen: " + strings.Join(needsRedownload, ", ")
 		}
+		h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+			MessageCode: "admin.osm.update_all.no_regions_patched",
+			StatusCode:  "failed",
+			EntityKey:   "osm.update_all",
+			Params:      map[string]any{"needs_redownload": needsRedownload},
+		})
 		h.DB.CompleteBackgroundJob(ctx, jobID, true, msg)
 		return
 	}
@@ -938,6 +1110,12 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 		}
 		if !hasHGT {
 			slog.Warn("batch update: skipping tiles — no DEM data found", "dir", hgtDir)
+			h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+				MessageCode: "admin.osm.update_all.completed_tiles_skipped_missing_dem",
+				StatusCode:  "completed",
+				EntityKey:   "osm.update_all",
+				Params:      map[string]any{"patched_regions": len(patchedRegions)},
+			})
 			h.DB.CompleteBackgroundJob(ctx, jobID, false,
 				"Import + Enrichment OK. Routing-Tiles übersprungen — DEM-Höhendaten fehlen.")
 			return
@@ -976,5 +1154,15 @@ func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []pa
 	}
 
 	slog.Info("batch update: completed", "patched", len(patchedRegions), "needs_redownload", len(needsRedownload))
+	h.setBackgroundJobI18nMetadata(ctx, jobID, adminJobI18n{
+		MessageCode: "admin.osm.update_all.completed",
+		StatusCode:  "completed",
+		EntityKey:   "osm.update_all",
+		Params: map[string]any{
+			"patched_regions":  len(patchedRegions),
+			"needs_redownload": len(needsRedownload),
+			"rebuild_tiles":    rebuildTiles,
+		},
+	})
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 }

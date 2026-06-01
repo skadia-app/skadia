@@ -1,9 +1,18 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RuleEditor from '../RuleEditor'
 import type { AutomationRule } from '@/api/types'
+import { i18n } from '@/i18n/i18n'
+
+const userPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' as 'metric' | 'imperial' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
+}))
 
 vi.mock('@/api/gear', () => ({ fetchGear: vi.fn(async () => [
   { id: 'gear-active', name: 'Gravelbike', is_retired: false },
@@ -85,12 +94,123 @@ function renderNewEditor(seed: Partial<AutomationRule> = {}, onSave = vi.fn()) {
 }
 
 describe('RuleEditor sport tuple controls', () => {
+  beforeEach(async () => {
+    userPrefs.locale = 'de'
+    userPrefs.units = 'metric'
+    await i18n.changeLanguage('de')
+  })
+
   it('starts new rules with the generic condition picker instead of an empty sport tuple', () => {
     renderNewEditor()
 
     expect(screen.getByDisplayValue('Titel')).toBeInTheDocument()
     expect(screen.queryByLabelText('Sportart')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('E-Antrieb')).not.toBeInTheDocument()
+  })
+
+  it('localizes the editor shell controls', async () => {
+    await i18n.changeLanguage('en')
+
+    renderNewEditor()
+
+    expect(screen.getByText('Name *')).toBeInTheDocument()
+    expect(screen.getByText('Priority')).toBeInTheDocument()
+    expect(screen.getByText('Trigger')).toBeInTheDocument()
+    expect(screen.getByLabelText('Stop further rules')).toBeInTheDocument()
+    expect(screen.getByText('Conditions *')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Add group' })).toBeInTheDocument()
+    expect(screen.getByText('Actions *')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+  })
+
+  it('localizes action controls and validation messages', async () => {
+    await i18n.changeLanguage('en')
+
+    renderNewEditor({
+      actions: [{ action: 'set_gear', params: {} }],
+    })
+
+    expect(screen.getByRole('option', { name: 'Assign gear' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Add tag' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Set visibility' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Choose gear...' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await screen.findByText('Action "Assign gear" is incomplete: choose gear')
+  })
+
+  it('does not use raw RuleEditor labels as translation fallbacks for known controls', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/RuleEditor.tsx'), 'utf8')
+
+    expect(source).not.toMatch(/defaultValue:\s*(category|field|option)\.label/)
+  })
+
+  it('does not fall back to raw backend segment preview codes', async () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/RuleEditor.tsx'), 'utf8')
+
+    expect(source).not.toMatch(/ruleEditor\.segmentPreview\.[^`]+`,\s*\{\s*defaultValue:/)
+    for (const locale of ['de', 'en', 'fr', 'it', 'es']) {
+      await i18n.changeLanguage(locale)
+      expect(i18n.exists('ruleEditor.segmentPreview.types.unknown')).toBe(true)
+      expect(i18n.exists('ruleEditor.segmentPreview.sportGroups.unknown')).toBe(true)
+      expect(i18n.exists('ruleEditor.segmentPreview.visibility.unknown')).toBe(true)
+    }
+  })
+
+  it('localizes condition group and sport tuple controls', async () => {
+    await i18n.changeLanguage('en')
+
+    renderEditor({})
+
+    expect(screen.getByText('Group 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'AND' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'OR' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Sport type')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sub-sport type')).toBeInTheDocument()
+    expect(screen.getAllByRole('option', { name: 'any' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '+ Add condition' })).toBeInTheDocument()
+  })
+
+  it('localizes condition category options', async () => {
+    await i18n.changeLanguage('en')
+
+    renderNewEditor()
+
+    expect(screen.getByRole('option', { name: 'Activity' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Gear' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Visibility' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Aktivität' })).not.toBeInTheDocument()
+  })
+
+  it('localizes condition field and enum option labels without changing stored values', async () => {
+    await i18n.changeLanguage('en')
+
+    renderNewEditor()
+
+    fireEvent.change(screen.getByDisplayValue('Title'), { target: { value: 'activity' } })
+
+    expect(screen.getByDisplayValue('Source')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Manual' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Quelle' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Manuell' })).not.toBeInTheDocument()
+  })
+
+  it('localizes gear usage condition fields without changing stored field ids', async () => {
+    await i18n.changeLanguage('en')
+
+    renderNewEditor()
+
+    fireEvent.change(screen.getByDisplayValue('Title'), { target: { value: 'gear' } })
+
+    expect(screen.getAllByDisplayValue('Gear')).toHaveLength(2)
+    expect(screen.getByRole('option', { name: 'Total distance' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Distanz gesamt' })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getAllByDisplayValue('Gear')[1], { target: { value: 'gear_total_distance_m' } })
+
+    expect(screen.getByDisplayValue('Total distance')).toBeInTheDocument()
   })
 
   it('keeps newly added conditions visible when a sport tuple already exists', () => {
@@ -154,6 +274,37 @@ describe('RuleEditor sport tuple controls', () => {
     expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
       { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling' }] },
       { field: 'is_electric', op: 'eq', value: true },
+    ])
+  })
+
+  it('shows distance and elevation condition inputs in user units but saves meter values', async () => {
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+    await i18n.changeLanguage('en')
+    const onSave = renderNewEditor({
+      condition_groups: [{
+        logic: 'and',
+        conditions: [
+          { field: 'distance_m', op: 'gte', value: 1609.344 },
+          { field: 'elevation_gain_m', op: 'gte', value: 100 },
+        ],
+      }],
+      actions: [{ action: 'set_visibility', params: { visibility: 'private' } }],
+    })
+
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument()
+    expect(screen.getByText('mi')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('328.084')).toBeInTheDocument()
+    expect(screen.getByText('ft')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '2' } })
+    fireEvent.change(screen.getByDisplayValue('328.084'), { target: { value: '656.168' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'distance_m', op: 'gte', value: 3218.688 },
+      { field: 'elevation_gain_m', op: 'gte', value: 200 },
     ])
   })
 
@@ -264,6 +415,38 @@ describe('RuleEditor sport tuple controls', () => {
     ])
   })
 
+  it('edits numeric conditions in the selected user units while saving canonical values', async () => {
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+    await i18n.changeLanguage('en')
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [
+        { field: 'avg_speed_ms', op: 'gt', value: 10 },
+        { field: 'distance_m', op: 'gt', value: 1609.344 },
+        { field: 'avg_temperature_c', op: 'gt', value: 20 },
+      ] }],
+    })
+
+    expect(screen.getByDisplayValue('22.369')).toBeInTheDocument()
+    expect(screen.getByText('mph')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument()
+    expect(screen.getByText('mi')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('68')).toBeInTheDocument()
+    expect(screen.getByText('°F')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByDisplayValue('22.369'), { target: { value: '33.554' } })
+    fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '2' } })
+    fireEvent.change(screen.getByDisplayValue('68'), { target: { value: '86' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'avg_speed_ms', op: 'gt', value: 15 },
+      { field: 'distance_m', op: 'gt', value: 3218.688 },
+      { field: 'avg_temperature_c', op: 'gt', value: 30 },
+    ])
+  })
+
   it('uses an access-aware segment picker with preview text for segment conditions', async () => {
     renderEditor({
       condition_groups: [{ logic: 'and', conditions: [{ field: 'has_segment_effort', op: 'eq', value: '' }] }],
@@ -272,7 +455,7 @@ describe('RuleEditor sport tuple controls', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: 'Sichtbares Segment' })).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Segment wählen'), { target: { value: 'segment-visible' } })
 
-    expect(screen.getByText('Trail · Radfahren · 1,2 km · 85 hm · Geteilt')).toBeInTheDocument()
+    expect(screen.getByText('Trail · Radfahren · 1,2 km · 85 m · Geteilt')).toBeInTheDocument()
   })
 
   it('serializes sport condition and action as canonical tuple plus electric modifier', async () => {

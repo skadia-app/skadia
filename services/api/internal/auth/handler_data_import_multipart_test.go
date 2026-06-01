@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestDataImportStoresSingleZipInArtifactStoreNotTmp(t *testing.T) {
@@ -115,6 +115,29 @@ func TestRunImportProgressMergesImportProgressWithoutReplacingArtifact(t *testin
 	}
 	if meta.ImportResult == nil {
 		t.Fatalf("import_result missing after import: %s", metadata)
+	}
+}
+
+func TestDataImportJobPhaseNameUsesStableKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   dataimport.ProgressEvent
+		want string
+	}{
+		{name: "named files phase", ev: dataimport.ProgressEvent{Phase: 0, PhaseName: "files"}, want: "data_import_files"},
+		{name: "named profile phase", ev: dataimport.ProgressEvent{Phase: 1, PhaseName: "profile"}, want: "data_import_profile"},
+		{name: "activity table progress", ev: dataimport.ProgressEvent{Phase: 5, Table: "activities"}, want: "data_import_activities"},
+		{name: "health table progress", ev: dataimport.ProgressEvent{Phase: 7, Table: "body_composition"}, want: "data_import_health"},
+		{name: "generic table progress", ev: dataimport.ProgressEvent{Phase: 3, Table: "target_objects"}, want: "data_import_phase_3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dataImportJobPhaseName(tt.ev)
+			if got == nil || *got != tt.want {
+				t.Fatalf("dataImportJobPhaseName() = %v, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

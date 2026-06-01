@@ -8,7 +8,7 @@ import { ToastProvider } from '@/lib/toast'
 import { AdminLibrarySettingsTab } from './AdminLibrarySettingsTab'
 import type { AdminLibrarySettings, BulkRenameResponse } from '@/api/shadowfs'
 
-// ── Mock API ─────────────────────────────────────────────────────────────────
+// Mock API
 
 const mockGetAdminLibrarySettings = vi.fn()
 const mockAdminRenameBulk = vi.fn()
@@ -23,7 +23,7 @@ vi.mock('@/api/shadowfs', async () => {
   }
 })
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+// Fixtures
 
 const MOCK_SETTINGS: AdminLibrarySettings = {
   user_can_edit_dir_name: true,
@@ -40,7 +40,7 @@ const MOCK_SETTINGS: AdminLibrarySettings = {
   admin_managed_reason: null,
 }
 
-// ── Wrapper ──────────────────────────────────────────────────────────────────
+// Wrapper
 
 function makeWrapper() {
   const qc = new QueryClient({
@@ -56,7 +56,7 @@ function makeWrapper() {
   return Wrapper
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+// Tests
 
 describe('AdminLibrarySettingsTab', () => {
   beforeEach(() => {
@@ -68,12 +68,12 @@ describe('AdminLibrarySettingsTab', () => {
   it('renders 5 accordion rows for file types', async () => {
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
-    // Wait for data to load — accordion headers appear as buttons with German labels
+    // Wait for data to load. Accordion headers appear as buttons with localized labels.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
     })
 
-    // All 5 file type accordion headers should be present
+    // All five file type accordion headers should be present.
     expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Medien/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Dokumente/i })).toBeInTheDocument()
@@ -84,20 +84,20 @@ describe('AdminLibrarySettingsTab', () => {
   it('shows schema input when accordion row is expanded', async () => {
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
-    // Wait for data to load
+    // Wait for data to load.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument()
     })
 
-    // Click to expand the activity row
+    // Click to expand the activity row.
     fireEvent.click(screen.getByRole('button', { name: /Aktivitäten/i }))
 
-    // Input should now be visible with the saved value
+    // Input should now be visible with the saved value.
     await waitFor(() => {
       expect(screen.getByDisplayValue('{user_id}/activity')).toBeInTheDocument()
     })
 
-    // Only 1 textbox visible (other rows are collapsed)
+    // Only one textbox is visible because other rows are collapsed.
     expect(screen.getAllByRole('textbox')).toHaveLength(1)
   })
 
@@ -112,51 +112,51 @@ describe('AdminLibrarySettingsTab', () => {
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
     expect(await screen.findByText(/S3-Storage/i)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/User dürfen Verzeichnisname bearbeiten/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/User dürfen Schema-Templates bearbeiten/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Benutzer dürfen Verzeichnisnamen bearbeiten/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Benutzer dürfen Schema-Templates bearbeiten/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Aktivitäten/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Rename auf alle User anwenden/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Umbenennung auf alle Benutzer anwenden/i })).not.toBeInTheDocument()
   })
 
   it('bulk-rename confirm-dialog prevents double-click', async () => {
-    // Bulk rename returns in-progress on second call
+    // Bulk rename returns in-progress on second call.
     mockAdminRenameBulk.mockResolvedValue({
       status: 'bulk_rename_in_progress',
     } satisfies BulkRenameResponse)
 
     render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
 
-    // Wait until data loads and expand the activity row
+    // Wait until data loads and expand the activity row.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Aktivitäten/i })).toBeInTheDocument(),
     )
     fireEvent.click(screen.getByRole('button', { name: /Aktivitäten/i }))
 
-    // Wait for the bulk-rename trigger button to appear inside the expanded row
+    // Wait for the bulk-rename trigger button to appear inside the expanded row.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Rename auf alle User anwenden/i })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: /Umbenennung auf alle Benutzer anwenden/i })).toBeInTheDocument(),
     )
 
-    // Click the bulk-rename trigger button
-    const triggerBtn = screen.getByRole('button', { name: /Rename auf alle User anwenden/i })
+    // Click the bulk-rename trigger button.
+    const triggerBtn = screen.getByRole('button', { name: /Umbenennung auf alle Benutzer anwenden/i })
     fireEvent.click(triggerBtn)
 
-    // Confirm dialog should open
+    // Confirm dialog should open.
     await waitFor(() =>
-      expect(screen.getByText(/Bulk-Rename bestätigen/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Massenumbenennung bestätigen/i)).toBeInTheDocument(),
     )
 
-    // The confirm button in the modal has a distinct label — no ambiguity with the trigger
-    const confirmBtn = screen.getByRole('button', { name: /Bulk-Rename starten/i })
+    // The confirm button in the modal has a distinct label, avoiding ambiguity with the trigger.
+    const confirmBtn = screen.getByRole('button', { name: /Massenumbenennung starten/i })
     fireEvent.click(confirmBtn)
 
     // After the mutation resolves (status = bulk_rename_in_progress),
     // the modal should close (setBulkConfirm(false) in onSuccess)
     await waitFor(() =>
-      expect(screen.queryByText(/Bulk-Rename bestätigen/i)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/Massenumbenennung bestätigen/i)).not.toBeInTheDocument(),
     )
 
-    // Should have called the API exactly once
+    // Should have called the API exactly once.
     expect(mockAdminRenameBulk).toHaveBeenCalledWith('activity')
     expect(mockAdminRenameBulk).toHaveBeenCalledTimes(1)
   })

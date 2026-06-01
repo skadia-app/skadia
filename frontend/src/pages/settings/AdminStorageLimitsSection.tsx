@@ -1,64 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useToast } from '@/lib/toast'
 import { getAdminSettings, putAdminSettings, type SettingField } from '@/api/adminSettings'
-
-// ── i18n-ready labels ────────────────────────────────────────────────────────
-
-const LABELS = {
-  title: 'Speicher-Limits',
-  description: 'Upload- und Speichergrößen sowie Dateiversionierung.',
-  maxUpload: {
-    label: 'Max. Upload-Größe',
-    unit: 'MB',
-    hint: 'Maximale Dateigröße pro Upload.',
-  },
-  maxUserStorage: {
-    label: 'Max. Benutzer-Speicher',
-    unit: 'GB',
-    hint: 'Gesamtspeicher pro Benutzer. 0 = unbegrenzt.',
-  },
-  maxActivityPhotos: {
-    label: 'Max. Aktivitäts-Medien',
-    unit: 'Dateien',
-    hint: 'Fotos und Videos pro Aktivität. 0 = unbegrenzt.',
-  },
-  maxRoutePhotos: {
-    label: 'Max. Routen-Fotos',
-    unit: 'Fotos',
-    hint: 'Fotos pro Route. 0 = unbegrenzt.',
-  },
-  keepVersions: {
-    label: 'Versions-Aufbewahrung',
-    options: {
-      '0': 'Keine (sofort löschen)',
-      '1': 'Letzte Version behalten',
-      '-1': 'Alle Versionen behalten',
-    } satisfies Record<string, string>,
-    hint: 'Bestimmt, wie viele Dateiversionen aufbewahrt werden.',
-    warnDelete: 'Alle bisherigen Dateiversionen werden dauerhaft gelöscht.',
-  },
-  lockedHint: (envVar: string) =>
-    `Gesetzt per Umgebungsvariable — entferne ${envVar} aus .env`,
-  save: 'Speichern',
-  saving: 'Speichern…',
-  saveSuccess: 'Limits gespeichert',
-  saveError: 'Speichern fehlgeschlagen',
-  loading: 'Lade Einstellungen…',
-  loadError: 'Einstellungen konnten nicht geladen werden.',
-  validationUpload: {
-    title: 'Ungültige Max Upload-Größe',
-    message: 'Bitte eine positive Zahl eingeben oder Feld leer lassen für Default.',
-  },
-  validationStorage: {
-    title: 'Ungültiger Max Benutzer-Speicher',
-    message: 'Bitte 0 oder eine positive Zahl eingeben oder Feld leer lassen für Default.',
-  },
-  validationMediaCount: {
-    title: 'Ungültiges Medien-Limit',
-    message: 'Bitte 0 oder eine positive ganze Zahl eingeben oder Feld leer lassen für Default.',
-  },
-}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,10 +31,11 @@ function fieldOf(
 // ── Sub-component: locked hint ────────────────────────────────────────────────
 
 function LockedHint({ settingsKey }: { settingsKey: string }) {
+  const { t } = useTranslation()
   const envVar = ENV_VARS[settingsKey] ?? settingsKey
   return (
     <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-      {LABELS.lockedHint(envVar)}
+      {t('settings.adminStorageLimits.lockedHint', { envVar })}
     </p>
   )
 }
@@ -143,11 +88,11 @@ function draftFromField(field: SettingField | undefined, divisor = 1): string {
   return ''
 }
 
-function placeholderFromDefault(field: SettingField | undefined, divisor = 1): string | undefined {
+function placeholderFromDefault(field: SettingField | undefined, divisor = 1, standardLabel: string): string | undefined {
   if (!field) return undefined
   const value = parseInt(field.value, 10)
   if (Number.isNaN(value) || value < 0) return undefined
-  return `Standard: ${Math.round(value / divisor)}`
+  return `${standardLabel}: ${Math.round(value / divisor)}`
 }
 
 function parseStrictInteger(value: string): number | null {
@@ -160,6 +105,7 @@ function parseStrictInteger(value: string): number | null {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AdminStorageLimitsSection() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const queryClient = useQueryClient()
 
@@ -209,11 +155,15 @@ export function AdminStorageLimitsSection() {
   const saveMut = useMutation({
     mutationFn: (updates: Record<string, string | null>) => putAdminSettings(updates),
     onSuccess: () => {
-      addToast({ type: 'success', title: LABELS.saveSuccess })
+      addToast({ type: 'success', title: t('settings.adminStorageLimits.saveSuccess') })
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
     },
-    onError: (err: Error) => {
-      addToast({ type: 'error', title: LABELS.saveError, message: err.message, duration: 0 })
+    onError: () => {
+      addToast({
+        type: 'error',
+        title: t('settings.adminStorageLimits.saveError'),
+        duration: 0,
+      })
     },
   })
 
@@ -227,7 +177,7 @@ export function AdminStorageLimitsSection() {
       } else {
         const mb = parseStrictInteger(mbStr)
         if (mb === null || mb <= 0) {
-          addToast({ type: 'error', title: LABELS.validationUpload.title, message: LABELS.validationUpload.message, duration: 0 })
+          addToast({ type: 'error', title: t('settings.adminStorageLimits.validationUpload.title'), message: t('settings.adminStorageLimits.validationUpload.message'), duration: 0 })
           return
         }
         updates['limits.max_upload_bytes'] = String(mb * MB)
@@ -241,7 +191,7 @@ export function AdminStorageLimitsSection() {
       } else {
         const gb = parseStrictInteger(gbStr)
         if (gb === null || gb < 0) {
-          addToast({ type: 'error', title: LABELS.validationStorage.title, message: LABELS.validationStorage.message, duration: 0 })
+          addToast({ type: 'error', title: t('settings.adminStorageLimits.validationStorage.title'), message: t('settings.adminStorageLimits.validationStorage.message'), duration: 0 })
           return
         }
         updates['limits.max_user_storage_bytes'] = String(gb * GB)
@@ -255,7 +205,7 @@ export function AdminStorageLimitsSection() {
       } else {
         const count = parseStrictInteger(countStr)
         if (count === null || count < 0) {
-          addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
+          addToast({ type: 'error', title: t('settings.adminStorageLimits.validationMediaCount.title'), message: t('settings.adminStorageLimits.validationMediaCount.message'), duration: 0 })
           return
         }
         updates['limits.max_activity_photos_per_activity'] = String(count)
@@ -269,7 +219,7 @@ export function AdminStorageLimitsSection() {
       } else {
         const count = parseStrictInteger(countStr)
         if (count === null || count < 0) {
-          addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
+          addToast({ type: 'error', title: t('settings.adminStorageLimits.validationMediaCount.title'), message: t('settings.adminStorageLimits.validationMediaCount.message'), duration: 0 })
           return
         }
         updates['limits.max_route_photos_per_route'] = String(count)
@@ -285,7 +235,7 @@ export function AdminStorageLimitsSection() {
 
   function handleKeepVersionsChange(value: string) {
     if (value === '0') {
-      addToast({ type: 'warning', title: LABELS.keepVersions.warnDelete })
+      addToast({ type: 'warning', title: t('settings.adminStorageLimits.keepVersions.warnDelete') })
     }
     setKeepVersions(value)
   }
@@ -295,7 +245,7 @@ export function AdminStorageLimitsSection() {
   if (isLoading) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-        <p className="text-sm text-neutral-400">{LABELS.loading}</p>
+        <p className="text-sm text-neutral-400">{t('settings.adminStorageLimits.loading')}</p>
       </div>
     )
   }
@@ -303,7 +253,7 @@ export function AdminStorageLimitsSection() {
   if (isError) {
     return (
       <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3">
-        <p className="text-sm text-red-600 dark:text-red-400">{LABELS.loadError}</p>
+        <p className="text-sm text-red-600 dark:text-red-400">{t('settings.adminStorageLimits.loadError')}</p>
       </div>
     )
   }
@@ -314,10 +264,10 @@ export function AdminStorageLimitsSection() {
       {/* Header */}
       <div>
         <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          {LABELS.title}
+          {t('settings.adminStorageLimits.title')}
         </h3>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-          {LABELS.description}
+          {t('settings.adminStorageLimits.description')}
         </p>
       </div>
 
@@ -325,22 +275,22 @@ export function AdminStorageLimitsSection() {
       <div className="space-y-5">
 
         <NumberField
-          label={LABELS.maxUpload.label}
-          unit={LABELS.maxUpload.unit}
-          hint={LABELS.maxUpload.hint}
+          label={t('settings.adminStorageLimits.maxUpload.label')}
+          unit={t('settings.adminStorageLimits.maxUpload.unit')}
+          hint={t('settings.adminStorageLimits.maxUpload.hint')}
           value={maxUploadMB}
-          placeholder={placeholderFromDefault(uploadField, MB)}
+          placeholder={placeholderFromDefault(uploadField, MB, t('settings.adminStorageLimits.standard'))}
           locked={uploadLocked}
           settingsKey="limits.max_upload_bytes"
           onChange={setMaxUploadMB}
         />
 
         <NumberField
-          label={LABELS.maxUserStorage.label}
-          unit={LABELS.maxUserStorage.unit}
-          hint={LABELS.maxUserStorage.hint}
+          label={t('settings.adminStorageLimits.maxUserStorage.label')}
+          unit={t('settings.adminStorageLimits.maxUserStorage.unit')}
+          hint={t('settings.adminStorageLimits.maxUserStorage.hint')}
           value={maxUserStorageGB}
-          placeholder={placeholderFromDefault(storageField, GB)}
+          placeholder={placeholderFromDefault(storageField, GB, t('settings.adminStorageLimits.standard'))}
           locked={storageLocked}
           settingsKey="limits.max_user_storage_bytes"
           min={0}
@@ -348,11 +298,11 @@ export function AdminStorageLimitsSection() {
         />
 
         <NumberField
-          label={LABELS.maxActivityPhotos.label}
-          unit={LABELS.maxActivityPhotos.unit}
-          hint={LABELS.maxActivityPhotos.hint}
+          label={t('settings.adminStorageLimits.maxActivityPhotos.label')}
+          unit={t('settings.adminStorageLimits.maxActivityPhotos.unit')}
+          hint={t('settings.adminStorageLimits.maxActivityPhotos.hint')}
           value={maxActivityPhotos}
-          placeholder={placeholderFromDefault(activityPhotosField)}
+          placeholder={placeholderFromDefault(activityPhotosField, 1, t('settings.adminStorageLimits.standard'))}
           locked={activityPhotosLocked}
           settingsKey="limits.max_activity_photos_per_activity"
           min={0}
@@ -360,24 +310,24 @@ export function AdminStorageLimitsSection() {
         />
 
         <NumberField
-          label={LABELS.maxRoutePhotos.label}
-          unit={LABELS.maxRoutePhotos.unit}
-          hint={LABELS.maxRoutePhotos.hint}
+          label={t('settings.adminStorageLimits.maxRoutePhotos.label')}
+          unit={t('settings.adminStorageLimits.maxRoutePhotos.unit')}
+          hint={t('settings.adminStorageLimits.maxRoutePhotos.hint')}
           value={maxRoutePhotos}
-          placeholder={placeholderFromDefault(routePhotosField)}
+          placeholder={placeholderFromDefault(routePhotosField, 1, t('settings.adminStorageLimits.standard'))}
           locked={routePhotosLocked}
           settingsKey="limits.max_route_photos_per_route"
           min={0}
           onChange={setMaxRoutePhotos}
         />
 
-        {/* Versions-Aufbewahrung */}
+        {/* Version retention */}
         <div className="space-y-1">
           <label className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
-            {LABELS.keepVersions.label}
+            {t('settings.adminStorageLimits.keepVersions.label')}
           </label>
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            {LABELS.keepVersions.hint}
+            {t('settings.adminStorageLimits.keepVersions.hint')}
           </p>
           <select
             value={keepVersions}
@@ -385,9 +335,9 @@ export function AdminStorageLimitsSection() {
             onChange={e => handleKeepVersionsChange(e.target.value)}
             className="mt-1.5 rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {Object.entries(LABELS.keepVersions.options).map(([val, label]) => (
-              <option key={val} value={val}>{label}</option>
-            ))}
+            <option value="0">{t('settings.adminStorageLimits.keepVersions.options.0')}</option>
+            <option value="1">{t('settings.adminStorageLimits.keepVersions.options.1')}</option>
+            <option value="-1">{t('settings.adminStorageLimits.keepVersions.options.-1')}</option>
           </select>
           {keepLocked && <LockedHint settingsKey="library.keep_versions" />}
         </div>
@@ -401,7 +351,7 @@ export function AdminStorageLimitsSection() {
           disabled={saveMut.isPending || allLocked}
           className="px-4 py-1.5 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
-          {saveMut.isPending ? LABELS.saving : LABELS.save}
+          {saveMut.isPending ? t('settings.adminStorageLimits.saving') : t('settings.adminStorageLimits.save')}
         </button>
       </div>
 

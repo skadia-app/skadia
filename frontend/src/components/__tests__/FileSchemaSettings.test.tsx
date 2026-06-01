@@ -13,6 +13,11 @@ type QueryOptions = {
 // Default: both queries return undefined (loading / no data)
 let mockSchemas: unknown = undefined
 let mockContext: unknown = undefined
+let mockMutationState: {
+  isPending?: boolean
+  isError?: boolean
+  error?: unknown
+} = {}
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: QueryOptions) => {
@@ -24,9 +29,9 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: () => ({
     mutate: vi.fn(),
-    isPending: false,
-    isError: false,
-    error: null,
+    isPending: mockMutationState.isPending ?? false,
+    isError: mockMutationState.isError ?? false,
+    error: mockMutationState.error ?? null,
   }),
   useQueryClient: () => ({
     invalidateQueries: vi.fn(() => Promise.resolve()),
@@ -79,6 +84,7 @@ vi.mock('@/lib/libraryLabels', async (importOriginal) => {
       libraryDirPrefix: 'Pfad-Präfix:',
       libraryDirManagedByAdmin: 'Wird vom Administrator verwaltet.',
       libraryDirNotApplicableS3: 'Nicht anwendbar bei S3-Storage.',
+      unknownErrorFallback: 'Lokalisierter Fallback',
     },
   }
 })
@@ -106,6 +112,7 @@ describe('FileSchemaSettings — editable state from context', () => {
       makeSchema('route', '{sport}/{title}'),
     ]
     mockContext = undefined
+    mockMutationState = {}
   })
 
   it('renders schema sections in editable state by default (no context)', () => {
@@ -161,5 +168,24 @@ describe('FileSchemaSettings — editable state from context', () => {
 
     // No hint text rendered
     expect(screen.queryByText('Diese Einstellung wird vom Administrator verwaltet.')).not.toBeInTheDocument()
+  })
+
+  it('uses the localized fallback for non-Error schema save failures', () => {
+    mockMutationState = { isError: true, error: { reason: 'missing message' } }
+
+    render(<FileSchemaSettings />)
+    fireEvent.click(screen.getByText('Aktivitäten').closest('button')!)
+
+    expect(screen.getAllByText('Fehler beim Speichern: Lokalisierter Fallback').length).toBeGreaterThan(0)
+  })
+
+  it('preserves Error.message details instead of replacing them with the fallback', () => {
+    mockMutationState = { isError: true, error: new Error('Backend detail bleibt sichtbar') }
+
+    render(<FileSchemaSettings />)
+    fireEvent.click(screen.getByText('Aktivitäten').closest('button')!)
+
+    expect(screen.getAllByText('Fehler beim Speichern: Backend detail bleibt sichtbar').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Fehler beim Speichern: Lokalisierter Fallback')).not.toBeInTheDocument()
   })
 })

@@ -456,17 +456,22 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	result := model.LLMTestResult{}
 
 	if !model.IsValidLLMBackendType(req.BackendType) || !model.IsDirectLLMBackendType(req.BackendType) {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unsupported direct backend_type", r.URL.Path)
+		result.MessageCode = "unknown_backend_type"
+		result.LatencyMs = time.Since(start).Milliseconds()
+		httputil.WriteJSON(w, http.StatusOK, result)
 		return
 	}
 
 	testAPIBase, err := model.NormalizeLLMAPIBase(req.BackendType, req.APIBase)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		result.MessageCode = "invalid_url"
+		result.Message = err.Error()
+		result.LatencyMs = time.Since(start).Milliseconds()
+		httputil.WriteJSON(w, http.StatusOK, result)
 		return
 	}
 	if llmAPIBaseHostWasRewrittenForContainer(req.APIBase, testAPIBase) {
-		result.Warning = "localhost wurde für den Test automatisch zu host.containers.internal übersetzt (Container-Netzwerk)."
+		result.WarningCode = "localhost_rewritten_for_container"
 	}
 
 	switch req.BackendType {
@@ -474,7 +479,8 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 		client := llmwire.NewSSRFProtectedHTTPClient(10*time.Second, nil)
 		testReq, err := http.NewRequest("GET", testAPIBase+"/models", nil)
 		if err != nil {
-			result.Message = "Ungueltige URL: " + err.Error()
+			result.MessageCode = "invalid_url"
+			result.Message = err.Error()
 			break
 		}
 		if req.APIKey != nil {
@@ -482,14 +488,20 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := client.Do(testReq)
 		if err != nil {
-			result.Message = "Verbindung fehlgeschlagen: " + err.Error()
+			result.MessageCode = "connection_failed"
+			result.Message = err.Error()
 		} else {
 			resp.Body.Close()
 			result.Success = resp.StatusCode < 400
-			result.Message = fmt.Sprintf("API erreichbar (HTTP %d)", resp.StatusCode)
+			if result.Success {
+				result.MessageCode = "api_reachable"
+			} else {
+				result.MessageCode = "api_responded_with_status"
+			}
+			result.Message = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		}
 	default:
-		result.Message = "Unbekannter Backend-Typ"
+		result.MessageCode = "unknown_backend_type"
 	}
 
 	result.LatencyMs = time.Since(start).Milliseconds()

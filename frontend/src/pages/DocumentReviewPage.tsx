@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   fetchPendingReviewGear,
   confirmGear,
@@ -8,16 +9,10 @@ import {
   type PendingReviewGear,
 } from '@/api/documents'
 
-const GEAR_TYPES = [
-  { value: 'bike', label: 'Fahrrad' },
-  { value: 'shoes', label: 'Laufschuhe' },
-  { value: 'goggles', label: 'Schwimmbrille' },
-  { value: 'ski', label: 'Ski' },
-  { value: 'paddle', label: 'Paddel' },
-  { value: 'other', label: 'Sonstiges' },
-]
+const GEAR_TYPES = ['bike', 'shoes', 'goggles', 'ski', 'paddle', 'other'] as const
 
 export default function DocumentReviewPage() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['pending-review-gear'],
@@ -43,24 +38,24 @@ export default function DocumentReviewPage() {
   })
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('documentReview.loading')}</div>
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Dokument-Überprüfung
+          {t('documentReview.title')}
         </h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Aus Rechnungen automatisch erkannte Ausrüstung überprüfen und bestätigen.
+          {t('documentReview.description')}
         </p>
       </div>
 
       {items.length === 0 ? (
         <div className="text-center py-16 text-neutral-400">
-          <p className="text-lg">Keine ausstehenden Überprüfungen</p>
-          <p className="text-sm mt-1">Hochgeladene Rechnungen werden hier nach der Verarbeitung angezeigt.</p>
+          <p className="text-lg">{t('documentReview.emptyTitle')}</p>
+          <p className="text-sm mt-1">{t('documentReview.emptyDescription')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -89,6 +84,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
   isConfirming: boolean
   isRejecting: boolean
 }) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [editData, setEditData] = useState({
     name: item.name,
@@ -113,7 +109,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
                              bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">
-              KI-Vorschlag
+              {t('documentReview.aiSuggestion')}
             </span>
             {!editing && (
               <span className="text-sm text-neutral-500 dark:text-neutral-400">{item.type}</span>
@@ -123,7 +119,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
           {editing ? (
             <div className="grid grid-cols-2 gap-2 mt-2">
               <div className="col-span-2">
-                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">Name</label>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">{t('documentReview.fields.name')}</label>
                 <input
                   type="text"
                   value={editData.name}
@@ -134,7 +130,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                 />
               </div>
               <div>
-                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">Typ</label>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">{t('documentReview.fields.type')}</label>
                 <select
                   value={editData.type}
                   onChange={e => setEditData(d => ({ ...d, type: e.target.value }))}
@@ -142,13 +138,13 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                              bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
                              focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
                 >
-                  {GEAR_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
+                  {GEAR_TYPES.map(type => (
+                    <option key={type} value={type}>{t(`documentReview.gearTypes.${type}`)}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">Marke</label>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">{t('documentReview.fields.brand')}</label>
                 <input
                   type="text"
                   value={editData.brand}
@@ -159,7 +155,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                 />
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">Modell</label>
+                <label className="text-xs text-neutral-500 dark:text-neutral-400 mb-0.5 block">{t('documentReview.fields.model')}</label>
                 <input
                   type="text"
                   value={editData.model}
@@ -180,13 +176,13 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mt-2">
                   {item.model && (
                     <>
-                      <span className="text-neutral-500 dark:text-neutral-400">Modell</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{t('documentReview.fields.model')}</span>
                       <span className="text-neutral-800 dark:text-neutral-200">{item.model}</span>
                     </>
                   )}
                   {item.purchase_price != null && (
                     <>
-                      <span className="text-neutral-500 dark:text-neutral-400">Preis</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{t('documentReview.fields.price')}</span>
                       <span className="text-neutral-800 dark:text-neutral-200">
                         {item.purchase_price} {item.currency || 'EUR'}
                       </span>
@@ -194,13 +190,13 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                   )}
                   {item.weight_g != null && (
                     <>
-                      <span className="text-neutral-500 dark:text-neutral-400">Gewicht</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{t('documentReview.fields.weight')}</span>
                       <span className="text-neutral-800 dark:text-neutral-200">{item.weight_g} g</span>
                     </>
                   )}
                   {item.notes && (
                     <>
-                      <span className="text-neutral-500 dark:text-neutral-400">Notizen</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{t('documentReview.fields.notes')}</span>
                       <span className="text-neutral-800 dark:text-neutral-200 truncate">{item.notes}</span>
                     </>
                   )}
@@ -217,7 +213,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
               className="inline-block text-xs mt-1"
               style={{ color: 'var(--color-accent-600)' }}
             >
-              Quelldokument anzeigen
+              {t('documentReview.showSourceDocument')}
             </a>
           )}
         </div>
@@ -231,7 +227,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
                          disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              Ablehnen
+              {t('documentReview.reject')}
             </button>
             {editing ? (
               <>
@@ -241,7 +237,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
                              cursor-pointer transition-colors"
                 >
-                  Abbrechen
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSaveAndConfirm}
@@ -250,7 +246,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                              hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                   style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
                 >
-                  Speichern & Bestätigen
+                  {t('documentReview.saveAndConfirm')}
                 </button>
               </>
             ) : (
@@ -261,7 +257,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
                              cursor-pointer transition-colors"
                 >
-                  Bearbeiten
+                  {t('documentReview.edit')}
                 </button>
                 <button
                   onClick={onConfirm}
@@ -270,7 +266,7 @@ function PendingGearCard({ item, onConfirm, onReject, onUpdateConfirm, isConfirm
                              hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                   style={{ backgroundColor: 'var(--color-accent-DEFAULT)' }}
                 >
-                  Bestätigen
+                  {t('documentReview.confirm')}
                 </button>
               </>
             )}

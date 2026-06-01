@@ -58,16 +58,16 @@ export interface WeatherPrefs {
   auto_tags: boolean
 }
 
-export const WEATHER_DISPLAY_FIELD_OPTIONS: { key: string; label: string }[] = [
-  { key: 'temp_c',           label: 'Temperatur' },
-  { key: 'apparent_temp_c',  label: 'Gefühlte Temperatur' },
-  { key: 'precipitation_mm', label: 'Niederschlag' },
-  { key: 'wind_speed_ms',    label: 'Windgeschwindigkeit' },
-  { key: 'wind_gusts_ms',    label: 'Windböen' },
-  { key: 'humidity',         label: 'Luftfeuchtigkeit' },
-  { key: 'uv_index',         label: 'UV-Index' },
-  { key: 'freezing_level_m', label: 'Schneefallgrenze' },
-  { key: 'condition',        label: 'Wetterlage (Text)' },
+export const WEATHER_DISPLAY_FIELD_OPTIONS: { key: string }[] = [
+  { key: 'temp_c' },
+  { key: 'apparent_temp_c' },
+  { key: 'precipitation_mm' },
+  { key: 'wind_speed_ms' },
+  { key: 'wind_gusts_ms' },
+  { key: 'humidity' },
+  { key: 'uv_index' },
+  { key: 'freezing_level_m' },
+  { key: 'condition' },
 ]
 
 export interface FusionMembership {

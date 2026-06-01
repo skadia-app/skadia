@@ -329,7 +329,10 @@ func applyChanges(ctx context.Context, db *database.DB, activityID, userID strin
 		if change.Field == "notify" {
 			if tmpl, ok := val.(string); ok && tmpl != "" {
 				body := resolveNameTemplate(tmpl, actMap)
-				if err := db.CreateNotification(ctx, userID, "rule", rule.Name, body); err != nil {
+				if err := db.CreateNotificationKeyed(ctx, userID, "rule", rule.Name, body, "notifications.automation.ruleNotification", map[string]any{
+					"ruleName": rule.Name,
+					"message":  body,
+				}); err != nil {
 					slog.Warn("rule notify", "activity_id", activityID, "rule_id", rule.ID, "error", err)
 				}
 			}
