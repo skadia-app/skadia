@@ -2,6 +2,7 @@
 // Handles brush zoom, hover sync, resize, and zoom-reset button.
 
 import { useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -19,6 +20,7 @@ import { useBrushZoom } from '@/hooks/useBrushZoom'
 import { useHoverSync, type SourceGpsData } from '@/hooks/useHoverSync'
 import { fmtDuration } from '@/lib/format'
 import { getSourceLineStyle, getSourceChartLineWidth } from '@/lib/comparisonColors'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 echarts.use([
   LineChart, GridComponent, TooltipComponent, LegendComponent,
@@ -45,10 +47,14 @@ interface StreamChartProps {
 
 // ── Tooltip value formatting ──────────────────────────────────────────────────
 
-/** Round value based on unit type: whole numbers for HR/power/cadence/ms/mm, 1 decimal otherwise. */
-function formatValueWithUnit(value: number, unit: string): string {
-  const wholeUnits = ['bpm', 'W', 'rpm', 'ms', 'mm']
-  const rounded = wholeUnits.includes(unit) ? Math.round(value) : parseFloat(value.toFixed(1))
+/** Round value based on unit type: whole numbers for HR/power/cadence/elevation/temperature, 1 decimal otherwise. */
+function formatValueWithUnit(value: number, unit: string, locale: string): string {
+  const wholeUnits = ['bpm', 'W', 'rpm', 'ms', 'mm', 'm', 'ft', '°C', '°F']
+  const digits = wholeUnits.includes(unit) ? 0 : 1
+  const rounded = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value)
   return `${rounded} ${unit}`
 }
 
@@ -57,6 +63,7 @@ function formatValueWithUnit(value: number, unit: string): string {
 function buildOption(
   series: StreamSeries[],
   unit: string,
+  locale: string,
   formatTooltipValue?: (v: number) => string,
 ): EChartsCoreOption {
   const xMax = series.reduce((m, s) => {
@@ -101,7 +108,7 @@ function buildOption(
           .map(it => {
             const formatted = formatTooltipValue
               ? formatTooltipValue(it.value[1])
-              : formatValueWithUnit(it.value[1], unit)
+              : formatValueWithUnit(it.value[1], unit, locale)
             return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${it.color};margin-right:4px;"></span>${it.seriesName}: <b>${formatted}</b>`
           })
         if (lines.length === 0) return ''
@@ -175,14 +182,16 @@ export default function StreamChart({
   height = 130,
   formatTooltipValue,
 }: StreamChartProps) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const [isZoomed, setIsZoomed] = useState(false)
 
   const { bindBrushZoom, resetZoom } = useBrushZoom(setIsZoomed)
   const { attachHover, detachHover } = useHoverSync(sourcesGps)
 
   const containerRef = useECharts(
-    () => buildOption(series, unit, formatTooltipValue),
-    [series, unit, formatTooltipValue],
+    () => buildOption(series, unit, unitOptions.locale, formatTooltipValue),
+    [series, unit, unitOptions.locale, formatTooltipValue],
     (chart) => {
       const xMax = series.reduce((m, s) => {
         const last = s.data[s.data.length - 1]
@@ -213,7 +222,7 @@ export default function StreamChart({
           onClick={handleReset}
           className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-800/80 text-neutral-200 hover:bg-neutral-700 cursor-pointer"
         >
-          Zoom zurücksetzen
+          {t('activityCharts.resetZoom')}
         </button>
       )}
     </div>

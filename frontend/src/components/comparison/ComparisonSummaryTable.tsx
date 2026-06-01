@@ -4,12 +4,15 @@
 // that range only using the source's stream data.
 
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSources } from './SourcesContext'
 import { useComparisonStore } from './useComparisonStore'
 import type { Activity, StreamPoint } from '@/api/types'
-import { formatDuration, formatDistance } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import type { UnitFormatters } from '@/lib/useUnitFormatters'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { formatSpeedValue } from '@/lib/sportFieldLabels'
-import { fmtHr, fmtPower, fmtElevation } from '@/lib/format'
+import { fmtHr, fmtPower } from '@/lib/format'
 
 function nanFallback(v: number): number | null {
   return isNaN(v) ? null : v
@@ -83,22 +86,23 @@ interface SourceMetrics {
   avgCadence: MetricValue
 }
 
-const METRIC_LABELS: Array<{ key: keyof SourceMetrics; label: string; higherIsBetter?: boolean }> = [
-  { key: 'distance',     label: 'Distanz',         higherIsBetter: true },
-  { key: 'duration',     label: 'Dauer',            higherIsBetter: false },
-  { key: 'elevationGain',label: 'Höhenmeter',       higherIsBetter: true },
-  { key: 'avgSpeed',     label: 'Ø Geschwindigkeit',higherIsBetter: true },
-  { key: 'avgHr',        label: 'Ø Herzfrequenz',   higherIsBetter: false },
-  { key: 'maxHr',        label: 'Max. HF',          higherIsBetter: false },
-  { key: 'avgPower',     label: 'Ø Leistung',       higherIsBetter: true },
-  { key: 'np',           label: 'NP',               higherIsBetter: true },
-  { key: 'avgCadence',   label: 'Ø Kadenz',         higherIsBetter: false },
+const METRIC_LABELS: Array<{ key: keyof SourceMetrics; labelKey: string; higherIsBetter?: boolean }> = [
+  { key: 'distance',      labelKey: 'distance',      higherIsBetter: true },
+  { key: 'duration',      labelKey: 'duration',      higherIsBetter: false },
+  { key: 'elevationGain', labelKey: 'elevationGain', higherIsBetter: true },
+  { key: 'avgSpeed',      labelKey: 'avgSpeed',      higherIsBetter: true },
+  { key: 'avgHr',         labelKey: 'avgHeartRate',  higherIsBetter: false },
+  { key: 'maxHr',         labelKey: 'maxHeartRate',  higherIsBetter: false },
+  { key: 'avgPower',      labelKey: 'avgPower',      higherIsBetter: true },
+  { key: 'np',            labelKey: 'np',            higherIsBetter: true },
+  { key: 'avgCadence',    labelKey: 'avgCadence',    higherIsBetter: false },
 ]
 
 function buildSourceMetrics(
   src: { activity?: Activity; streams?: StreamPoint[] },
   timeRange: [number, number] | null,
   sportType: string,
+  unitFormatters: Pick<UnitFormatters, 'formatDistance' | 'formatElevation' | 'options'>,
 ): SourceMetrics {
   const a = src.activity
   const rangeStats = computeRangeStats(src.streams, timeRange)
@@ -107,12 +111,12 @@ function buildSourceMetrics(
   // Speed display
   const effectiveSpeedMs = usingRange ? (rangeStats.avgSpeedMs ?? a?.avg_speed_ms) : a?.avg_speed_ms
   const speedDisplay = effectiveSpeedMs != null && effectiveSpeedMs > 0
-    ? formatSpeedValue(effectiveSpeedMs, sportType)
+    ? formatSpeedValue(effectiveSpeedMs, sportType, undefined, unitFormatters.options)
     : '\u2014'
 
   return {
     distance: {
-      display: a?.distance_m != null ? formatDistance(a.distance_m) : '\u2014',
+      display: a?.distance_m != null ? unitFormatters.formatDistance(a.distance_m) : '\u2014',
       raw: a?.distance_m ?? null,
     },
     duration: {
@@ -120,7 +124,7 @@ function buildSourceMetrics(
       raw: a?.elapsed_time_s ?? null,
     },
     elevationGain: {
-      display: fmtElevation(a?.elevation_gain_m),
+      display: unitFormatters.formatElevation(a?.elevation_gain_m),
       raw: a?.elevation_gain_m ?? null,
     },
     avgSpeed: {
@@ -173,21 +177,23 @@ function findBestIdx(
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface ComparisonSummaryTableProps {
-  /** Label for the first column header (default: 'Metrik') */
+  /** Label for the first column header. */
   metricColumnLabel?: string
 }
 
 export default function ComparisonSummaryTable({
-  metricColumnLabel = 'Metrik',
+  metricColumnLabel,
 }: ComparisonSummaryTableProps) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const { visibleSources } = useSources()
   const timeRange = useComparisonStore(s => s.timeRange)
 
   const primarySportType = visibleSources[0]?.activity?.sport_type ?? 'generic'
 
   const metrics = useMemo<SourceMetrics[]>(
-    () => visibleSources.map(src => buildSourceMetrics(src, timeRange, primarySportType)),
-    [visibleSources, timeRange, primarySportType]
+    () => visibleSources.map(src => buildSourceMetrics(src, timeRange, primarySportType, unitFormatters)),
+    [visibleSources, timeRange, primarySportType, unitFormatters]
   )
 
   if (visibleSources.length === 0) return null
@@ -196,14 +202,14 @@ export default function ComparisonSummaryTable({
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       {timeRange && (
         <div className="px-4 py-2 text-xs text-neutral-400 dark:text-neutral-500 bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-neutral-800">
-          Statistiken für ausgewählten Zeitbereich
+          {t('comparisonCharts.selectedRangeStats')}
         </div>
       )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
             <th className="text-left px-4 py-3 font-medium text-neutral-500 dark:text-neutral-400 w-36">
-              {metricColumnLabel}
+              {metricColumnLabel ?? t('comparisonCharts.metric')}
             </th>
             {visibleSources.map((src) => (
               <th key={src.id} className="text-left px-4 py-3">
@@ -221,12 +227,12 @@ export default function ComparisonSummaryTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-          {METRIC_LABELS.map(({ key, label, higherIsBetter }) => {
+          {METRIC_LABELS.map(({ key, labelKey, higherIsBetter }) => {
             const bestIdx = findBestIdx(metrics, key, higherIsBetter)
             return (
               <tr key={key}>
                 <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 font-medium">
-                  {label}
+                  {t(`comparisonCharts.summaryMetrics.${labelKey}`)}
                 </td>
                 {metrics.map((m, i) => (
                   <td

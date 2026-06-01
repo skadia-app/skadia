@@ -2,10 +2,22 @@
 // Renders a StreamChart for the active metric across all visible sources.
 
 import { useState, useMemo, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import StreamChart, { type StreamSeries } from './StreamChart'
 import { useSources } from './SourcesContext'
 import { useStreamData, type PreparedStreamData } from '@/hooks/useStreamData'
-import { formatPace } from '@/lib/sportFieldLabels'
+import {
+  elevationInputUnit,
+  elevationToDisplayValue,
+  paceDisplayUnit,
+  paceToDisplayValue,
+  speedDisplayUnit,
+  speedToDisplayValue,
+  temperatureDisplayUnit,
+  temperatureToDisplayValue,
+  type UnitSystem,
+} from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // ── Metric definitions ────────────────────────────────────────────────────────
 
@@ -15,7 +27,7 @@ type MetricKey =
 
 interface MetricDef {
   key: MetricKey
-  label: string
+  labelKey: string
   unit: string
   dataKey: keyof PreparedStreamData
   priority: 1 | 2
@@ -23,20 +35,38 @@ interface MetricDef {
 
 // Priority 1 = Core, Priority 2 = Running-specific
 const METRIC_DEFS: MetricDef[] = [
-  { key: 'hr',          label: 'Herzfrequenz',      unit: 'bpm',    dataKey: 'hrData',                  priority: 1 },
-  { key: 'power',       label: 'Leistung',           unit: 'W',      dataKey: 'powerData',               priority: 1 },
-  { key: 'speed',       label: 'Speed',              unit: 'km/h',   dataKey: 'speedData',               priority: 1 },
-  { key: 'altitude',    label: 'Höhe',               unit: 'm',      dataKey: 'altitudeData',            priority: 1 },
-  { key: 'cadence',     label: 'Kadenz',             unit: 'rpm',    dataKey: 'cadenceData',             priority: 1 },
-  { key: 'temperature', label: 'Temperatur',         unit: '°C',     dataKey: 'temperatureData',         priority: 1 },
-  { key: 'gct',         label: 'Bodenkontakt',       unit: 'ms',     dataKey: 'groundContactTimeData',   priority: 2 },
-  { key: 'vertOsc',     label: 'Vert. Bewegung',     unit: 'mm',     dataKey: 'verticalOscillationData', priority: 2 },
-  { key: 'stanceTime',  label: 'Standzeit',          unit: '%',      dataKey: 'stanceTimePercentData',   priority: 2 },
-  { key: 'stepLength',  label: 'Schrittlänge',       unit: 'mm',     dataKey: 'stepLengthData',          priority: 2 },
-  { key: 'lrBalance',   label: 'L/R Balance',        unit: '%',      dataKey: 'leftRightBalanceData',    priority: 2 },
+  { key: 'hr',          labelKey: 'heartRate',       unit: 'bpm',    dataKey: 'hrData',                  priority: 1 },
+  { key: 'power',       labelKey: 'power',           unit: 'W',      dataKey: 'powerData',               priority: 1 },
+  { key: 'speed',       labelKey: 'speed',           unit: '',       dataKey: 'speedData',               priority: 1 },
+  { key: 'altitude',    labelKey: 'altitude',        unit: 'm',      dataKey: 'altitudeData',            priority: 1 },
+  { key: 'cadence',     labelKey: 'cadence',         unit: 'rpm',    dataKey: 'cadenceData',             priority: 1 },
+  { key: 'temperature', labelKey: 'temperature',     unit: '',       dataKey: 'temperatureData',         priority: 1 },
+  { key: 'gct',         labelKey: 'groundContact',   unit: 'ms',     dataKey: 'groundContactTimeData',   priority: 2 },
+  { key: 'vertOsc',     labelKey: 'verticalMotion',  unit: 'mm',     dataKey: 'verticalOscillationData', priority: 2 },
+  { key: 'stanceTime',  labelKey: 'stanceTime',      unit: '%',      dataKey: 'stanceTimePercentData',   priority: 2 },
+  { key: 'stepLength',  labelKey: 'stepLength',      unit: 'mm',     dataKey: 'stepLengthData',          priority: 2 },
+  { key: 'lrBalance',   labelKey: 'leftRightBalance', unit: '%',     dataKey: 'leftRightBalanceData',    priority: 2 },
 ]
 
+const MILLIMETERS_PER_INCH = 25.4
+
+function shortLengthToDisplayValue(millimeters: number, units: UnitSystem): number {
+  if (units === 'imperial') return millimeters / MILLIMETERS_PER_INCH
+  return millimeters
+}
+
+function shortLengthDisplayUnit(units: UnitSystem): 'mm' | 'in' {
+  return units === 'imperial' ? 'in' : 'mm'
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
+
+function formatDurationMinutes(minutes: number): string {
+  const totalSeconds = Math.round(minutes * 60)
+  const mins = Math.floor(totalSeconds / 60)
+  const secs = String(totalSeconds % 60).padStart(2, '0')
+  return `${mins}:${secs}`
+}
 
 interface StreamChartContainerProps {
   /** Override chart height in px */
@@ -77,6 +107,8 @@ function StreamChartContainerInner({
   headerRight?: ReactNode
   className?: string
 }) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const { visibleSources, globalStartMs } = useSources()
 
   // Prepare data for each source (one hook call per source index — sources array
@@ -126,23 +158,43 @@ function StreamChartContainerInner({
 
   const activeKey = available.find(m => m.key === selectedKey)?.key ?? available[0]?.key ?? null
   const activeDef = METRIC_DEFS.find(m => m.key === activeKey) ?? null
+  const isPaceMode = allData[0]?.isPaceMode ?? false
+  const speedDef = activeDef?.key === 'speed'
 
   // Build series for active metric, then align all sources to a common timeline
   // so that ECharts trigger:'axis' shows all sources in the tooltip even when
   // devices recorded at slightly different timestamps.
   const series = useMemo<StreamSeries[]>(() => {
     if (!activeDef) return []
+    const toDisplayData = (data: [number, number][]): [number, number][] => {
+      if (activeDef.key === 'speed') {
+        if (isPaceMode) {
+          return data.map(([x, minutesPerKm]) => [x, paceToDisplayValue(minutesPerKm * 60, unitOptions.units)])
+        }
+        return data.map(([x, kmh]) => [x, speedToDisplayValue(kmh / 3.6, unitOptions.units)])
+      }
+      if (activeDef.key === 'temperature') {
+        return data.map(([x, celsius]) => [x, temperatureToDisplayValue(celsius, unitOptions.units)])
+      }
+      if (activeDef.key === 'altitude') {
+        return data.map(([x, meters]) => [x, elevationToDisplayValue(meters, unitOptions.units)])
+      }
+      if (activeDef.key === 'vertOsc' || activeDef.key === 'stepLength') {
+        return data.map(([x, millimeters]) => [x, shortLengthToDisplayValue(millimeters, unitOptions.units)])
+      }
+      return data
+    }
     const raw = visibleSources
       .map(src => {
         const pd = dataMap.get(src.id)
         if (!pd) return null
         const data = pd[activeDef.dataKey] as [number, number][]
         if (data.length === 0) return null
-        return { label: src.label, color: src.color, data }
+        return { label: src.label, color: src.color, data: toDisplayData(data) }
       })
       .filter((s): s is StreamSeries => s !== null)
     return raw
-  }, [activeDef, visibleSources, dataMap])
+  }, [activeDef, visibleSources, dataMap, isPaceMode, unitOptions.units])
 
   // GPS data for hover sync
   const sourcesGps = useMemo(() => visibleSources.map(src => ({
@@ -150,30 +202,28 @@ function StreamChartContainerInner({
     gpsPoints: dataMap.get(src.id)?.gpsPoints ?? [],
   })), [visibleSources, dataMap])
 
-  // Speed unit and pace formatter
-  const isPaceMode = allData[0]?.isPaceMode ?? false
-  const speedDef = activeDef?.key === 'speed'
-
   const effectiveUnit = useMemo(() => {
     if (!activeDef) return ''
-    if (speedDef && isPaceMode) return 'min/km'
+    if (speedDef && isPaceMode) return paceDisplayUnit(unitOptions.units)
+    if (speedDef) return speedDisplayUnit(unitOptions.units)
+    if (activeDef.key === 'temperature') return temperatureDisplayUnit(unitOptions.units)
+    if (activeDef.key === 'altitude') return elevationInputUnit(unitOptions.units)
+    if (activeDef.key === 'vertOsc' || activeDef.key === 'stepLength') return shortLengthDisplayUnit(unitOptions.units)
     return activeDef.unit
-  }, [activeDef, speedDef, isPaceMode])
+  }, [activeDef, speedDef, isPaceMode, unitOptions.units])
 
   const formatTooltipValue = useMemo(() => {
     if (!speedDef || !isPaceMode) return undefined
     return (v: number) => {
-      // v is already in min/km (decimal) — convert back to ms for formatPace
       if (v <= 0) return '—'
-      const speedMs = 1000 / (v * 60)
-      return formatPace(speedMs)
+      return `${formatDurationMinutes(v)} ${paceDisplayUnit(unitOptions.units)}`
     }
-  }, [speedDef, isPaceMode])
+  }, [speedDef, isPaceMode, unitOptions.units])
 
   if (available.length === 0) {
     return (
       <div className={`flex items-center justify-center h-32 text-neutral-400 text-xs rounded-xl border border-neutral-200 dark:border-neutral-800 ${className ?? ''}`}>
-        Keine Zeitreihendaten verfügbar
+        {t('comparisonCharts.noTimeSeriesData')}
       </div>
     )
   }
@@ -193,7 +243,7 @@ function StreamChartContainerInner({
                   : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300'
               }`}
             >
-              {m.label}
+              {t(`comparisonCharts.metrics.${m.labelKey}`)}
             </button>
           ))}
         </div>

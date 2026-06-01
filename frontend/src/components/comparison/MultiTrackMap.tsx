@@ -3,6 +3,7 @@
 // No fusion/comparison/recording-group specific logic.
 
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import type { LngLatLike } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -34,6 +35,7 @@ export default function MultiTrackMap({
   height = '100%',
   className,
 }: MultiTrackMapProps) {
+  const { t } = useTranslation()
   const { visibleSources } = useSources()
   const hoverPoints = useComparisonStore(s => s.hoverPoints)
 
@@ -256,7 +258,7 @@ export default function MultiTrackMap({
             <div className="flex items-center gap-1 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
               <button
                 onClick={() => setShowHeatmapState(v => !v)}
-                title={showHeatmapState ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+                title={showHeatmapState ? t('comparisonCharts.hideHeatmap') : t('comparisonCharts.showHeatmap')}
                 className={[
                   'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
                   showHeatmapState
@@ -267,7 +269,7 @@ export default function MultiTrackMap({
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 2C8.5 6 6 9 6 13a6 6 0 0012 0c0-2.5-1-4.5-2.5-6.5C14.5 8.5 13.5 10 13 12c-.5-1.5-.5-3 0-5.5C12.5 5 12.2 3.5 12 2z"/>
                 </svg>
-                Heatmap
+                {t('comparisonCharts.heatmap')}
               </button>
               {showHeatmapState && (
                 <ColorPicker value={heatmapColor} onChange={handleHeatmapColorChange} />
@@ -296,7 +298,7 @@ export default function MultiTrackMap({
       {!hasData && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span className="text-xs text-neutral-400 bg-white/80 dark:bg-neutral-900/80 px-3 py-1.5 rounded-lg">
-            GPS-Daten werden geladen…
+            {t('comparisonCharts.loadingGpsData')}
           </span>
         </div>
       )}
