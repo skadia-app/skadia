@@ -1,5 +1,7 @@
 import { apiFetch, getToken, refreshToken } from '@/lib/auth'
 import { API_BASE } from '@/api/client'
+import type { SupportedLanguage } from '@/i18n/languages'
+import type { UnitSystem } from '@/lib/units'
 
 export interface AuthConfig {
   registration_mode: 'invite' | 'open' | 'approval'
@@ -108,6 +110,8 @@ export interface MeData {
   has_password: boolean
   must_change_password: boolean
   registration_source?: string
+  locale: SupportedLanguage
+  units: UnitSystem
 }
 
 export async function getMe(): Promise<MeData> {
@@ -142,7 +146,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(data.error ?? 'Password change failed')
+    throw new Error(data.error ?? 'internal_error')
   }
 }
 
@@ -373,7 +377,14 @@ export async function revokeSession(familyId: string): Promise<{ status: string 
   return res.json() as Promise<{ status: string }>
 }
 
-export async function updateMe(data: { username?: string; display_name?: string }): Promise<{ status: string }> {
+export interface UpdateMeData {
+  username?: string
+  display_name?: string
+  locale?: SupportedLanguage
+  units?: UnitSystem
+}
+
+export async function updateMe(data: UpdateMeData): Promise<MeData> {
   const res = await apiFetch('/api/v1/me', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -381,9 +392,9 @@ export async function updateMe(data: { username?: string; display_name?: string 
   })
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(d.error ?? 'Update failed')
+    throw new Error(d.error ?? 'internal_error')
   }
-  return res.json() as Promise<{ status: string }>
+  return res.json() as Promise<MeData>
 }
 
 export async function changeEmail(data: { new_email: string; password?: string }): Promise<{ status: string }> {
@@ -394,7 +405,7 @@ export async function changeEmail(data: { new_email: string; password?: string }
   })
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(d.error ?? 'Email change failed')
+    throw new Error(d.error ?? 'internal_error')
   }
   return res.json() as Promise<{ status: string }>
 }
@@ -407,7 +418,7 @@ export async function deleteAccount(data: { password?: string; confirmation?: st
   })
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(d.error ?? 'Account deletion failed')
+    throw new Error(d.error ?? 'internal_error')
   }
   return res.json() as Promise<{ status: string }>
 }

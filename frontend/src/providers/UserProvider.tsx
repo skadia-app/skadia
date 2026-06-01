@@ -1,10 +1,17 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { getMe, type MeData } from '@/api/auth'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getMe, updateMe, type MeData } from '@/api/auth'
+import { i18n } from '@/i18n/i18n'
+import type { SupportedLanguage } from '@/i18n/languages'
+import type { UnitSystem } from '@/lib/units'
 
 interface UserContextType {
   user: MeData | undefined
+  locale: SupportedLanguage
+  units: UnitSystem
+  setLocale: (locale: SupportedLanguage) => Promise<void>
+  setUnits: (units: UnitSystem) => Promise<void>
   isAdmin: boolean
   isVerified: boolean
   hasPassword: boolean
@@ -14,12 +21,25 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | null>(null)
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const { data: user, isLoading } = useQuery({
     queryKey: ['me'],
     queryFn: getMe,
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
+
+  const preferenceMutation = useMutation({
+    mutationFn: updateMe,
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData(['me'], updatedUser)
+      void i18n.changeLanguage(updatedUser.locale)
+    },
+  })
+
+  useEffect(() => {
+    if (user?.locale) void i18n.changeLanguage(user.locale)
+  }, [user?.locale])
 
   if (isLoading) {
     return (
@@ -29,9 +49,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     )
   }
 
+  const locale = user?.locale ?? 'de'
+  const units = user?.units ?? 'metric'
+
   return (
     <UserContext.Provider value={{
       user,
+      locale,
+      units,
+      setLocale: async (nextLocale) => {
+        await preferenceMutation.mutateAsync({ locale: nextLocale })
+      },
+      setUnits: async (nextUnits) => {
+        await preferenceMutation.mutateAsync({ units: nextUnits })
+      },
       isAdmin: user?.is_admin ?? false,
       isVerified: user?.email_verified ?? false,
       hasPassword: user?.has_password ?? false,
