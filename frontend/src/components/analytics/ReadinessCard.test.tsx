@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { ReadinessCardCompact } from './ReadinessCard'
 import ReadinessCardFull from './ReadinessCard'
+import { I18nProvider } from '@/i18n/I18nProvider'
 import type { ReadinessResponse, ReadinessPreferences, ReadinessFactor } from '@/api/analytics'
 
 // ── Mock API ──────────────────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ function makeWrapper() {
     },
   })
   function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    return <I18nProvider><QueryClientProvider client={qc}>{children}</QueryClientProvider></I18nProvider>
   }
   return Wrapper
 }
@@ -297,6 +298,40 @@ describe('ReadinessCardFull', () => {
     expect(banner).toHaveTextContent('Letzte Messung zu alt')
     expect(banner).toHaveTextContent('DFA-α1')
     expect(banner).toHaveTextContent('Basislinie noch nicht ausreichend')
+  })
+
+  it('uses generic labels for unknown readiness factor and reason codes', async () => {
+    const responseWithUnknownCodes: ReadinessResponse = {
+      ...BASE_RESPONSE,
+      factors: [
+        {
+          key: 'mystery_factor',
+          value: 42,
+          raw_value: null,
+          raw_unit: null,
+          source: 'skadia',
+          available_sources: ['skadia'],
+          stale_hours: null,
+          missing: false,
+        },
+      ],
+      missing_factors: [
+        { key: 'mystery_missing_factor', reason: 'backend_code_without_label', last_seen_at: null },
+      ],
+    }
+    mockFetchReadiness.mockResolvedValue(responseWithUnknownCodes)
+    render(<ReadinessCardFull />, { wrapper: makeWrapper() })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readiness-full')).toBeInTheDocument()
+    })
+
+    const card = screen.getByTestId('readiness-full')
+    expect(card).toHaveTextContent('Unbekannter Faktor')
+    expect(card).toHaveTextContent('Unbekannter Grund')
+    expect(card).not.toHaveTextContent('mystery_factor')
+    expect(card).not.toHaveTextContent('mystery_missing_factor')
+    expect(card).not.toHaveTextContent('backend_code_without_label')
   })
 })
 

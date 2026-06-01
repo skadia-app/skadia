@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import DateRangePicker from '@/components/DateRangePicker'
 import { toLocalISO } from '@/lib/dateUtils'
 import { cn } from '@/lib/utils'
@@ -7,7 +8,7 @@ export type PresetValue = '7d' | '30d' | '90d' | '180d' | '1y' | '365d' | 'all' 
 
 export interface Preset {
   value: PresetValue
-  label: string
+  label?: string
 }
 
 export interface DateRange {
@@ -41,6 +42,7 @@ export function presetToRange(value: PresetValue): DateRange {
 }
 
 export default function RangePresetBar({ presets, value, onChange, dense }: Props) {
+  const { t } = useTranslation()
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [showPicker, setShowPicker] = useState(false)
@@ -50,7 +52,7 @@ export default function RangePresetBar({ presets, value, onChange, dense }: Prop
 
   const nonCustomPresets = presets.filter(p => p.value !== 'custom')
   const hasCustom = presets.some(p => p.value === 'custom')
-  const customLabel = presets.find(p => p.value === 'custom')?.label ?? 'Benutzerdefiniert'
+  const customLabel = presets.find(p => p.value === 'custom')?.label ?? t('analyticsTrainingStats.filters.ranges.custom')
 
   function handlePresetClick(preset: Preset) {
     if (preset.value === 'custom') {
@@ -81,7 +83,7 @@ export default function RangePresetBar({ presets, value, onChange, dense }: Prop
               ? cn(px, 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer')
               : cn(px, 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors')}
           >
-            {preset.label}
+            {preset.label ?? preset.value}
           </button>
         ))}
       </div>

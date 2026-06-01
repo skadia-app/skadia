@@ -5,9 +5,9 @@ const MTB_ORDER = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'] as const
 const VF_ORDER = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const
 
 export interface ScaleBadgeLevel {
-  level: string   // "T1".."T6" für SAC, "S0".."S5" für MTB
-  pct: number     // 0–1, Anteil an Route-Länge
-  km: number      // kumulierte Distanz in km
+  level: string   // "T1".."T6" for SAC, "S0".."S5" for MTB
+  pct: number     // 0-1 share of route length
+  km: number      // cumulative distance in km
 }
 
 function haversineM(a: number[], b: number[]): number {

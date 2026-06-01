@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
@@ -17,12 +18,20 @@ echarts.use([BarChart, GridComponent, TooltipComponent, MarkLineComponent, Canva
 
 type MetricKey = 'distance_km' | 'elevation_m'
 
-const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string; unit: string }[] = [
-  { value: 'distance_km', label: 'Distanz', apiValue: 'distance_km', unit: 'km' },
-  { value: 'elevation_m', label: 'Höhenmeter', apiValue: 'elevation', unit: 'm' },
+const METRIC_OPTIONS: { value: MetricKey; labelKey: string; apiValue: string; unit: string }[] = [
+  { value: 'distance_km', labelKey: 'analyticsTrainingStats.metrics.distance', apiValue: 'km', unit: 'km' },
+  { value: 'elevation_m', labelKey: 'analyticsTrainingStats.metrics.elevationGain', apiValue: 'elevation', unit: 'm' },
 ]
 
+function formatDisplayNumber(value: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
 export default function EddingtonChart() {
+  const { t, i18n } = useTranslation()
   const { toQueryString } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('distance_km')
   const params = toQueryString()
@@ -58,9 +67,9 @@ export default function EddingtonChart() {
             const item = items[0]
             const rank = item.dataIndex + 1
             return `<div style="font-size:12px">
-              <div style="font-weight:600;margin-bottom:4px">Rang ${rank}</div>
-              <div>${item.value.toFixed(1)} ${metricOption.unit}</div>
-              ${rank <= eddNum ? '<div style="color:#F97316;font-size:11px">Zählt zur Eddington-Zahl</div>' : ''}
+              <div style="font-weight:600;margin-bottom:4px">${t('analyticsTrainingStats.eddington.tooltipRank', { rank })}</div>
+              <div>${formatDisplayNumber(item.value, i18n.language)} ${metricOption.unit}</div>
+              ${rank <= eddNum ? `<div style="color:#F97316;font-size:11px">${t('analyticsTrainingStats.eddington.countsToward')}</div>` : ''}
             </div>`
           },
         },
@@ -104,7 +113,7 @@ export default function EddingtonChart() {
         ],
       }
     },
-    [data, metricOption.unit],
+    [data, i18n.language, metricOption.unit, t],
   )
 
   const nextLevel = data?.next_levels?.[0]
@@ -113,7 +122,7 @@ export default function EddingtonChart() {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Eddington-Zahl</h3>
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('analyticsTrainingStats.eddington.title')}</h3>
         <div className="flex rounded-md overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {METRIC_OPTIONS.map(opt => (
             <button
@@ -124,7 +133,7 @@ export default function EddingtonChart() {
                 : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </button>
           ))}
         </div>
@@ -134,14 +143,14 @@ export default function EddingtonChart() {
       {data && (
         <div className="rounded-lg border border-[var(--color-accent-DEFAULT)]/30 bg-[var(--color-accent-DEFAULT)]/5 dark:bg-[var(--color-accent-DEFAULT)]/10 p-3">
           <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            Eddington-Zahl: <span className="text-[var(--color-accent-DEFAULT)] text-lg">{data.number}</span>
+            {t('analyticsTrainingStats.eddington.label')}: <span className="text-[var(--color-accent-DEFAULT)] text-lg">{data.number}</span>
             <span className="text-neutral-500 dark:text-neutral-400 font-normal ml-1">{metricOption.unit}</span>
           </div>
           {data.number > 0 && data.next_levels && data.next_levels.length > 0 && nextLevel && (
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Für E{nextLevel.level}: noch{' '}
+              {t('analyticsTrainingStats.eddington.nextLevelPrefix', { level: nextLevel.level })}{' '}
               <span className="font-semibold text-neutral-700 dark:text-neutral-300">{nextLevel.remaining}</span>{' '}
-              {nextLevel.remaining === 1 ? 'Tag' : 'Tage'} mit mindestens {nextLevel.level} {metricOption.unit}
+              {t('analyticsTrainingStats.units.day', { count: nextLevel.remaining })} {t('analyticsTrainingStats.eddington.withAtLeast', { level: nextLevel.level, unit: metricOption.unit })}
             </div>
           )}
         </div>
@@ -151,15 +160,15 @@ export default function EddingtonChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-sm text-neutral-400">
-            Lade Eddington-Daten…
+            {t('analyticsTrainingStats.eddington.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-48 text-sm text-neutral-400">
-            Fehler beim Laden
+            {t('analyticsTrainingStats.states.loadError')}
           </div>
         ) : !data || !data.top_values || data.top_values.length === 0 ? (
           <div className="flex items-center justify-center h-48 text-sm text-neutral-400">
-            Keine Daten verfügbar
+            {t('analyticsTrainingStats.states.noDataAvailable')}
           </div>
         ) : (
           <div ref={containerRef} className="h-48 w-full" />

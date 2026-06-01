@@ -1,11 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchLifetimeStats } from '@/api/analytics'
 import type { LifetimeStats } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { fmtDuration } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
-function fmtNum(n: number): string {
-  return new Intl.NumberFormat('de-DE').format(Math.round(n))
+function fmtNum(n: number, locale: string): string {
+  return new Intl.NumberFormat(locale).format(Math.round(n))
+}
+
+function fmtDecimal(n: number, locale: string, digits: number): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(n)
 }
 
 interface StatCardProps {
@@ -51,6 +60,8 @@ interface StreakBadgeProps {
 }
 
 function StreakBadge({ label, count, isRecord }: StreakBadgeProps) {
+  const { t } = useTranslation()
+  const { options } = useUnitFormatters()
   const isFire = count >= 7
   return (
     <div className={`flex items-center gap-2 px-4 py-2.5 rounded-full border font-medium text-sm ${
@@ -62,8 +73,8 @@ function StreakBadge({ label, count, isRecord }: StreakBadgeProps) {
     }`}>
       {isFire && <span>🔥</span>}
       <span>{label}</span>
-      <span className="font-bold tabular-nums">{fmtNum(count)}</span>
-      <span className="text-xs opacity-70">{count === 1 ? 'Tag' : 'Tage'}</span>
+      <span className="font-bold tabular-nums">{fmtNum(count, options.locale)}</span>
+      <span className="text-xs opacity-70">{t('analyticsTrainingStats.units.day', { count })}</span>
     </div>
   )
 }
@@ -81,6 +92,8 @@ function LoadingSkeleton() {
 }
 
 export default function LifetimeStats() {
+  const { t } = useTranslation()
+  const { options, formatDistance, formatElevation } = useUnitFormatters()
   const { toQueryString } = useAnalyticsFilters()
   const params = toQueryString()
 
@@ -96,7 +109,7 @@ export default function LifetimeStats() {
   if (isError || !data) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-        Fehler beim Laden der Lifetime-Statistiken
+        {t('analyticsTrainingStats.lifetime.loadError')}
       </div>
     )
   }
@@ -106,36 +119,33 @@ export default function LifetimeStats() {
       {/* Primary stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
-          label="Aktivitäten"
-          value={fmtNum(data.total_activities)}
+          label={t('analyticsTrainingStats.metrics.activities')}
+          value={fmtNum(data.total_activities, options.locale)}
           accent
         />
         <StatCard
-          label="Distanz"
-          value={(data.total_distance_m / 1000).toFixed(0)}
-          unit="km"
+          label={t('analyticsTrainingStats.metrics.distance')}
+          value={formatDistance(data.total_distance_m)}
         />
         <StatCard
-          label="Höhenmeter ↑"
-          value={fmtNum(data.total_elevation_m)}
-          unit="m"
+          label={t('analyticsTrainingStats.metrics.elevationGainUp')}
+          value={formatElevation(data.total_elevation_m)}
         />
         <StatCard
-          label="Höhenmeter ↓"
-          value={fmtNum(data.total_elevation_loss_m)}
-          unit="m"
+          label={t('analyticsTrainingStats.metrics.elevationLossDown')}
+          value={formatElevation(data.total_elevation_loss_m)}
         />
         <StatCard
-          label="Bewegungszeit"
+          label={t('analyticsTrainingStats.metrics.movingTime')}
           value={fmtDuration(data.total_moving_time_s, 'lifetime')}
         />
         <StatCard
-          label="Aktive Tage"
-          value={fmtNum(data.active_days)}
+          label={t('analyticsTrainingStats.metrics.activeDays')}
+          value={fmtNum(data.active_days, options.locale)}
         />
         <StatCard
-          label="Länder"
-          value={fmtNum(data.countries)}
+          label={t('analyticsTrainingStats.metrics.countries')}
+          value={fmtNum(data.countries, options.locale)}
         />
       </div>
 
@@ -145,31 +155,31 @@ export default function LifetimeStats() {
         return (earthLaps >= 0.01 || data.moon_trips > 0 || data.everest_count > 0 || data.everest_count_down > 0) && (
           <div>
             <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-              Spass-Fakten
+              {t('analyticsTrainingStats.lifetime.funFacts')}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {earthLaps >= 0.01 && (
                 <FunFact
                   emoji="🌍"
-                  text={`Du hast die Erde ${earthLaps.toFixed(3).replace('.', ',')}× umrundet`}
+                  text={t('analyticsTrainingStats.lifetime.earthLaps', { count: fmtDecimal(earthLaps, options.locale, 3) })}
                 />
               )}
               {data.moon_trips > 0 && (
                 <FunFact
                   emoji="🌙"
-                  text={`${data.moon_trips.toFixed(2).replace('.', ',')}× auf den Mond und zurück`}
+                  text={t('analyticsTrainingStats.lifetime.moonTrips', { count: fmtDecimal(data.moon_trips, options.locale, 2) })}
                 />
               )}
               {data.everest_count > 0 && (
                 <FunFact
                   emoji="⛰️"
-                  text={`${fmtNum(data.everest_count)}× den Mount Everest bestiegen`}
+                  text={t('analyticsTrainingStats.lifetime.everestAscents', { count: fmtNum(data.everest_count, options.locale) })}
                 />
               )}
               {data.everest_count_down > 0 && (
                 <FunFact
                   emoji="⛰️"
-                  text={`${fmtNum(data.everest_count_down)}× den Mount Everest abgestiegen`}
+                  text={t('analyticsTrainingStats.lifetime.everestDescents', { count: fmtNum(data.everest_count_down, options.locale) })}
                 />
               )}
             </div>
@@ -181,14 +191,14 @@ export default function LifetimeStats() {
       {(data.current_day_streak > 0 || data.max_day_streak > 0) && (
         <div>
           <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-            Serien
+            {t('analyticsTrainingStats.streaks.title')}
           </h3>
           <div className="flex flex-wrap gap-2">
             {data.current_day_streak > 0 && (
-              <StreakBadge label="Aktuelle Serie" count={data.current_day_streak} />
+              <StreakBadge label={t('analyticsTrainingStats.lifetime.currentStreak')} count={data.current_day_streak} />
             )}
             {data.max_day_streak > 0 && (
-              <StreakBadge label="Rekord-Serie" count={data.max_day_streak} isRecord />
+              <StreakBadge label={t('analyticsTrainingStats.lifetime.recordStreak')} count={data.max_day_streak} isRecord />
             )}
           </div>
         </div>
@@ -198,13 +208,13 @@ export default function LifetimeStats() {
       {data.lift_ride_count > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-            Liftfahrten (Lifetime)
+            {t('analyticsTrainingStats.lifetime.liftRidesLifetime')}
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Liftfahrten" value={fmtNum(data.lift_ride_count)} />
-            <StatCard label="Lift ↑" value={fmtNum(data.lift_ascent_m)} unit="m" />
-            <StatCard label="Lift ↓" value={fmtNum(data.lift_descent_m)} unit="m" />
-            <StatCard label="Lift Distanz" value={(data.lift_distance_m / 1000).toFixed(0)} unit="km" />
+            <StatCard label={t('analyticsTrainingStats.lifetime.liftRides')} value={fmtNum(data.lift_ride_count, options.locale)} />
+            <StatCard label={t('analyticsTrainingStats.lifetime.liftUp')} value={formatElevation(data.lift_ascent_m)} />
+            <StatCard label={t('analyticsTrainingStats.lifetime.liftDown')} value={formatElevation(data.lift_descent_m)} />
+            <StatCard label={t('analyticsTrainingStats.lifetime.liftDistance')} value={formatDistance(data.lift_distance_m)} />
           </div>
         </div>
       )}

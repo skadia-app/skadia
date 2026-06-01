@@ -4,8 +4,11 @@ import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { useRef } from 'react'
+import { i18n } from '@/i18n/i18n'
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
+
+let chartOptionBuilder: (() => any) | null = null
 
 vi.mock('echarts/core', () => ({
   default: undefined,
@@ -26,7 +29,10 @@ vi.mock('echarts/components', () => ({
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 
 vi.mock('@/hooks/useECharts', () => ({
-  useECharts: () => useRef<HTMLDivElement>(null),
+  useECharts: (buildOption: () => any) => {
+    chartOptionBuilder = buildOption
+    return useRef<HTMLDivElement>(null)
+  },
 }))
 
 // ── Global filter mock — returns controllable params ──────────────────────────
@@ -84,6 +90,8 @@ function renderWithProviders(url = '/analytics/stats') {
 describe('StreaksDisplay — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    chartOptionBuilder = null
+    void i18n.changeLanguage('de')
     mockToQueryString.mockReturnValue('')
     mockFetchStreaks.mockResolvedValue(makeStreaksResponse())
   })
@@ -129,5 +137,26 @@ describe('StreaksDisplay — global filter', () => {
     })
     renderWithProviders()
     await screen.findByText('Noch keine Serien')
+  })
+
+  it('formats streak history tooltip dates with the active locale', async () => {
+    await i18n.changeLanguage('en')
+    mockFetchStreaks.mockResolvedValue({
+      current_streak: 7,
+      max_streak: 30,
+      current_week_streak: 3,
+      max_week_streak: 12,
+      streak_history: [
+        { count: 5, from: '2024-01-02', to: '2024-01-06' },
+      ],
+    })
+    renderWithProviders()
+
+    await screen.findByText('Top streaks')
+
+    const option = chartOptionBuilder?.()
+    const html = option.tooltip.formatter([{ dataIndex: 0, value: 5 }])
+    expect(html).toContain('Jan 2, 2024')
+    expect(html).toContain('Jan 6, 2024')
   })
 })

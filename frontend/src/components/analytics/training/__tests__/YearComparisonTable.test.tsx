@@ -1,10 +1,22 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
+import '@/i18n/i18n'
 import YearComparisonTable, { lockedMonthIndex } from '../YearComparisonTable'
 import type { YearComparisonTableProps } from '../YearComparisonTable'
 import type { YearProgressionYearData } from '@/api/analytics'
+
+const userPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' as 'metric' | 'imperial' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
+}))
+
+beforeEach(() => {
+  userPrefs.locale = 'de'
+  userPrefs.units = 'metric'
+})
 
 // Helper to build minimal YearProgressionYearData.
 function makeYear(year: number, monthly: number[], cumulative?: number[]): YearProgressionYearData {
@@ -86,13 +98,42 @@ describe('YearComparisonTable — Δ calculations', () => {
   it('Δ prev year: 2023 row shows difference against 2022', () => {
     render(<YearComparisonTable {...defaultProps({ years: yearData, yearColorIndex: colorIndex, currentYear: 2024 })} />)
     // 2023 total = 200000 m = 200 km; 2022 total = 80000 m = 80 km; Δ = +120 km
-    expect(screen.getByText('+120.0 km')).toBeInTheDocument()
+    expect(screen.getByText('+120,0 km')).toBeInTheDocument()
   })
 
   it('Δ with 2024: 2023 row shows difference against 2024', () => {
     render(<YearComparisonTable {...defaultProps({ years: yearData, yearColorIndex: colorIndex, currentYear: 2024 })} />)
     // 2023 = 200 km, 2024 = 300 km → 2023 Δ against 2024 = 200-300 = -100 km
-    expect(screen.getByText('−100.0 km')).toBeInTheDocument()
+    expect(screen.getByText('−100,0 km')).toBeInTheDocument()
+  })
+
+  it('formats distance values and deltas with imperial user units', () => {
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+
+    render(<YearComparisonTable {...defaultProps({ years: yearData, yearColorIndex: colorIndex, currentYear: 2024 })} />)
+
+    expect(screen.getByText('186.4 mi')).toBeInTheDocument()
+    expect(screen.getByText('+74.6 mi')).toBeInTheDocument()
+    expect(screen.getByText('−62.1 mi')).toBeInTheDocument()
+  })
+
+  it('formats elevation values and deltas with imperial user units', () => {
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+
+    render(<YearComparisonTable {...defaultProps({
+      years: [
+        makeYear(2024, [100]),
+        makeYear(2023, [50]),
+      ],
+      yearColorIndex: new Map([[2024, 0], [2023, 1]]),
+      metric: 'elevation_gain_m',
+      currentYear: 2024,
+    })} />)
+
+    expect(screen.getByText('328 ft')).toBeInTheDocument()
+    expect(screen.getByText('−164 ft')).toBeInTheDocument()
   })
 })
 
@@ -107,7 +148,7 @@ describe('YearComparisonTable — empty-year handling', () => {
     ]
     const colorIndex = new Map([[2024, 0]])
     render(<YearComparisonTable {...defaultProps({ years, yearColorIndex: colorIndex, currentYear: 2024 })} />)
-    expect(screen.getByText('0.0 km')).toBeInTheDocument()
+    expect(screen.getByText('0,0 km')).toBeInTheDocument()
   })
 })
 
@@ -207,6 +248,6 @@ describe('YearComparisonTable — locked-date behaviour', () => {
       />
     )
     // cumulative[3] = 400000 m = 400 km
-    expect(screen.getByText('400.0 km')).toBeInTheDocument()
+    expect(screen.getByText('400,0 km')).toBeInTheDocument()
   })
 })

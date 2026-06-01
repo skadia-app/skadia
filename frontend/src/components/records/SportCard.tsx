@@ -1,12 +1,13 @@
 import type { BestEffortRanked } from '@/api/bestEfforts'
+import { useTranslation } from 'react-i18next'
 import { CategoryGrid } from './CategoryGrid'
 import {
   MAIN_CATEGORIES,
-  MAIN_CATEGORY_LABELS,
-  SPORT_GROUP_BADGE_LABELS,
-  SPORT_GROUP_LABELS,
+  getMainCategoryLabel,
+  getSportGroupBadgeLabel,
   type MainCategory,
 } from '@/lib/recordsConstants'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +16,7 @@ interface SportCardProps {
   records: BestEffortRanked[]
   color: string
   onNavigate: () => void
+  language?: SupportedLanguage
 }
 
 const VARIANT_BADGE_STYLES: Record<string, string> = {
@@ -24,7 +26,8 @@ const VARIANT_BADGE_STYLES: Record<string, string> = {
   swim_pool:        'bg-cyan-500/10 text-cyan-300 border-cyan-500/15',
 }
 
-export function SportCard({ mainCategory, records, color, onNavigate }: SportCardProps) {
+export function SportCard({ mainCategory, records, color, onNavigate, language }: SportCardProps) {
+  const { t } = useTranslation()
   const rank1Count = pickBestPerCategory(records).length
 
   const sportGroups = MAIN_CATEGORIES[mainCategory]
@@ -33,7 +36,7 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
     .filter((sg) => VARIANT_BADGE_STYLES[sg] && presentGroups.has(sg))
     .map((sg) => ({
       key: sg,
-      label: SPORT_GROUP_BADGE_LABELS[sg] ?? SPORT_GROUP_LABELS[sg] ?? sg,
+      label: getSportGroupBadgeLabel(sg, language),
       className: VARIANT_BADGE_STYLES[sg],
     }))
 
@@ -45,9 +48,9 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
       >
         <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-          {MAIN_CATEGORY_LABELS[mainCategory]}
+          {getMainCategoryLabel(mainCategory, language)}
         </span>
-        <span className="text-xs text-neutral-500 dark:text-neutral-600">{rank1Count} Rekorde</span>
+        <span className="text-xs text-neutral-500 dark:text-neutral-600">{t('records.recordCount', { count: rank1Count })}</span>
         {badges.length > 0 && (
           <div className="ml-auto flex items-center gap-1.5">
             {badges.map((b) => (
@@ -62,7 +65,7 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
         )}
         {badges.length === 0 && (
           <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-600 flex items-center gap-1">
-            Details
+            {t('records.details')}
             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path d="M9 5l7 7-7 7" />
             </svg>
@@ -70,7 +73,7 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
         )}
       </div>
       <div className="p-4">
-        <CategoryGrid records={records} />
+        <CategoryGrid records={records} language={language} />
       </div>
     </div>
   )

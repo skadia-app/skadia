@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, BarChart } from 'echarts/charts'
 import {
@@ -14,6 +15,8 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { formatDistance, type UnitFormatOptions } from '@/lib/units'
 
 echarts.use([PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -21,17 +24,17 @@ type ChartType = 'pie' | 'bar'
 type MetricKey = 'count' | 'distance' | 'duration'
 type DistType = 'sport' | 'country' | 'gear' | 'distance_bucket'
 
-const DISTRIBUTION_CARDS: { type: DistType; label: string }[] = [
-  { type: 'sport', label: 'Sportart' },
-  { type: 'country', label: 'Land' },
-  { type: 'gear', label: 'Ausrüstung' },
-  { type: 'distance_bucket', label: 'Distanz-Verteilung' },
+const DISTRIBUTION_CARDS: { type: DistType; labelKey: string }[] = [
+  { type: 'sport', labelKey: 'analyticsTrainingStats.distributions.cards.sport' },
+  { type: 'country', labelKey: 'analyticsTrainingStats.distributions.cards.country' },
+  { type: 'gear', labelKey: 'analyticsTrainingStats.distributions.cards.gear' },
+  { type: 'distance_bucket', labelKey: 'analyticsTrainingStats.distributions.cards.distanceBucket' },
 ]
 
-const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string }[] = [
-  { value: 'count', label: 'Anzahl', apiValue: 'count' },
-  { value: 'distance', label: 'Distanz', apiValue: 'distance_m' },
-  { value: 'duration', label: 'Zeit', apiValue: 'moving_time_s' },
+const METRIC_OPTIONS: { value: MetricKey; labelKey: string; apiValue: string }[] = [
+  { value: 'count', labelKey: 'analyticsTrainingStats.metrics.count', apiValue: 'count' },
+  { value: 'distance', labelKey: 'analyticsTrainingStats.metrics.distance', apiValue: 'distance_m' },
+  { value: 'duration', labelKey: 'analyticsTrainingStats.metrics.time', apiValue: 'moving_time_s' },
 ]
 
 const CHART_COLORS = [
@@ -42,27 +45,36 @@ const CHART_COLORS = [
 // Backend returns raw English keys for label fields (sport_type column,
 // 'Unknown', 'No Gear', 'No distance' placeholders). Map them to the German
 // display strings the rest of the UI uses.
-const PLACEHOLDER_LABELS: Record<string, string> = {
-  Unknown: 'Unbekannt',
-  unknown: 'Unbekannt',
-  'No Gear': 'Keine Ausrüstung',
-  'No distance': 'Keine Distanz',
+const PLACEHOLDER_LABEL_KEYS: Record<string, string> = {
+  Unknown: 'analyticsTrainingStats.placeholders.unknown',
+  unknown: 'analyticsTrainingStats.placeholders.unknown',
+  'No Gear': 'analyticsTrainingStats.placeholders.noGear',
+  'No distance': 'analyticsTrainingStats.placeholders.noDistance',
 }
 
-function displayLabel(raw: string, type: DistType): string {
+function displayLabel(raw: string, type: DistType, t: ReturnType<typeof useTranslation>['t']): string {
   if (type === 'sport') return sportLabel(raw)
-  return PLACEHOLDER_LABELS[raw] ?? raw
+  const key = PLACEHOLDER_LABEL_KEYS[raw]
+  return key ? t(key) : raw
 }
 
-function fmtMetricValue(value: number, metric: MetricKey): string {
+function fmtMetricValue(value: number, metric: MetricKey, options: UnitFormatOptions, t: ReturnType<typeof useTranslation>['t']): string {
   if (metric === 'distance') {
-    return `${(value / 1000).toFixed(0)} km`
+    return formatDistance(value, options)
   }
   if (metric === 'duration') {
     const h = Math.floor(value / 3600)
-    return `${h} h`
+    if (h >= 1) {
+      return t('analyticsTrainingStats.distributions.durationHours', {
+        value: new Intl.NumberFormat(options.locale, { maximumFractionDigits: 0 }).format(h),
+      })
+    }
+    const minutes = Math.round(value / 60)
+    return t('analyticsTrainingStats.distributions.durationMinutes', {
+      value: new Intl.NumberFormat(options.locale, { maximumFractionDigits: 0 }).format(minutes),
+    })
   }
-  return new Intl.NumberFormat('de-DE').format(Math.round(value))
+  return new Intl.NumberFormat(options.locale).format(Math.round(value))
 }
 
 interface DistChartProps {
@@ -74,7 +86,13 @@ interface DistChartProps {
 }
 
 function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartProps) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const [chartType, setChartType] = useState<ChartType>('pie')
+  const percentFormatter = new Intl.NumberFormat(unitOptions.locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })
 
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
 
@@ -99,7 +117,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
               const p = params as { name: string; value: number; percent: number }
               return `<div style="font-size:12px">
                 <div style="font-weight:600">${p.name}</div>
-                <div>${fmtMetricValue(p.value, metric)} (${p.percent?.toFixed(1)}%)</div>
+                <div>${fmtMetricValue(p.value, metric, unitOptions, t)} (${percentFormatter.format(p.percent ?? 0)}%)</div>
               </div>`
             },
           },
@@ -118,7 +136,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
               radius: ['40%', '70%'],
               center: ['38%', '50%'],
               data: topData.map((d, i) => ({
-                name: displayLabel(d.label, type),
+                name: displayLabel(d.label, type, t),
                 value: d.value,
                 // sport_type carries the canonical backend token; the click handler
                 // reads this field so the filter receives the raw key, never the
@@ -147,7 +165,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
             const item = items[0]
             return `<div style="font-size:12px">
               <div style="font-weight:600">${item.name}</div>
-              <div>${fmtMetricValue(item.value, metric)}</div>
+              <div>${fmtMetricValue(item.value, metric, unitOptions, t)}</div>
             </div>`
           },
         },
@@ -158,7 +176,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
         },
         yAxis: {
           type: 'category',
-          data: [...topData].reverse().map(d => displayLabel(d.label, type)),
+          data: [...topData].reverse().map(d => displayLabel(d.label, type, t)),
           axisLabel: {
             fontSize: 10,
             color: '#9ca3af',
@@ -180,7 +198,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
         ],
       }
     },
-    [data, chartType, metric],
+    [data, chartType, metric, unitOptions, percentFormatter, t],
     (chart) => {
       const handler = (params: unknown) => {
         const p = params as { name?: string; data?: { sport_type?: string } }
@@ -200,21 +218,21 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
           className="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700
                      text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800
                      cursor-pointer transition-colors"
-          title={chartType === 'pie' ? 'Als Balkendiagramm' : 'Als Kreisdiagramm'}
+          title={chartType === 'pie' ? t('analyticsTrainingStats.chartView.asBarChart') : t('analyticsTrainingStats.chartView.asPieChart')}
         >
-          {chartType === 'pie' ? 'Balken' : 'Kreis'}
+          {chartType === 'pie' ? t('analyticsTrainingStats.chartView.bar') : t('analyticsTrainingStats.chartView.pie')}
         </button>
       </div>
 
       <div className="relative h-40">
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Lade…</div>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">{t('common.loading')}</div>
         )}
         {!isLoading && isError && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Fehler</div>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">{t('common.error')}</div>
         )}
         {!isLoading && !isError && (!data || data.length === 0) && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Keine Daten</div>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">{t('analyticsTrainingStats.states.noDataShort')}</div>
         )}
         <div ref={containerRef} className={cn("w-full h-full", { invisible: isLoading || isError || !data || data.length === 0 })} />
       </div>
@@ -223,6 +241,7 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
 }
 
 export default function DistributionCharts() {
+  const { t } = useTranslation()
   const { toQueryString, setFilters } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('count')
   const params = toQueryString()
@@ -240,7 +259,7 @@ export default function DistributionCharts() {
     <div className="space-y-3">
       {/* Global metric toggle */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Verteilungen</h3>
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('analyticsTrainingStats.distributions.title')}</h3>
         <div className="flex rounded-md overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {METRIC_OPTIONS.map(opt => (
             <button
@@ -251,7 +270,7 @@ export default function DistributionCharts() {
                 : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </button>
           ))}
         </div>
@@ -262,7 +281,7 @@ export default function DistributionCharts() {
           <DistChartCard
             key={card.type}
             type={card.type}
-            label={card.label}
+            label={t(card.labelKey)}
             metric={metric}
             params={params}
             onLabelClick={handleLabelClick}
@@ -271,7 +290,7 @@ export default function DistributionCharts() {
       </div>
 
       <p className="text-xs text-neutral-400 text-center">
-        Klick auf ein Segment filtert die Analytics-Ansicht
+        {t('analyticsTrainingStats.distributions.clickHint')}
       </p>
     </div>
   )

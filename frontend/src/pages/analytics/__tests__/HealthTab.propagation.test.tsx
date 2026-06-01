@@ -51,6 +51,10 @@ vi.mock('@/components/analytics/ChangepointMarkers', () => ({
   changepointsToMarkLines: () => [],
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
+
 // ── HRVAnalysis + FitnessAge + HRVCorrelation — not part of the 7 daily components ──
 
 vi.mock('@/components/analytics/health/HRVAnalysis', () => ({

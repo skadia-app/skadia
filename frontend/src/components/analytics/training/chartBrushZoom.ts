@@ -1,4 +1,5 @@
 import type * as echarts from 'echarts/core'
+import type { TFunction } from 'i18next'
 
 type EChartsInstance = echarts.ECharts
 
@@ -28,22 +29,28 @@ export const lineXBrush = {
 
 // The toolbox action must emit brushEnd; the handler below converts that range
 // to a dataZoom action for the chart's x-axis.
-export const lineXBrushToolboxFeature = {
-  show: true,
-  type: ['lineX', 'clear'],
-  title: {
-    lineX: 'Bereich zoomen (ziehen)',
-    clear: 'Auswahl entfernen',
-  },
+export function lineXBrushToolboxFeature(t: TFunction) {
+  return {
+    show: true,
+    type: ['lineX', 'clear'],
+    title: {
+      lineX: t('analyticsTrainingStats.chartBrushZoom.brushTitle'),
+      clear: t('analyticsTrainingStats.chartBrushZoom.clearTitle'),
+    },
+  }
 }
 
-export const lineXBrushRestoreToolboxFeature = {
-  title: 'Zoom zurücksetzen',
+export function lineXBrushRestoreToolboxFeature(t: TFunction) {
+  return {
+    title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle'),
+  }
 }
 
-export const lineXBrushToolboxFeatures = {
-  brush: lineXBrushToolboxFeature,
-  restore: lineXBrushRestoreToolboxFeature,
+export function lineXBrushToolboxFeatures(t: TFunction) {
+  return {
+    brush: lineXBrushToolboxFeature(t),
+    restore: lineXBrushRestoreToolboxFeature(t),
+  }
 }
 
 export function activateLineXBrush(chart: EChartsInstance) {

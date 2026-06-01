@@ -92,7 +92,7 @@ export function activeFilterCount(filters: AnalyticsFilterState): number {
   return count
 }
 
-// Explizites Mapping camelCase → URL-Parameter (NICHT regex-basiert!)
+// Explicit camelCase to URL parameter mapping. Keep this non-regex-based.
 const PARAM_MAP: Record<string, string> = {
   from: 'from', to: 'to', sportTypes: 'sport_type', tags: 'tags',
   weather: 'weather', tempMin: 'temp_min', tempMax: 'temp_max',

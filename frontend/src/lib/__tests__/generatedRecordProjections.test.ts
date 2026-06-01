@@ -31,7 +31,7 @@ describe('generatedRecordProjections', () => {
   })
 
   it('exports category labels, category order, power order, and sorted match rules', () => {
-    expect(GENERATED_RECORD_CATEGORY_LABELS.dist_400m).toBe('400 m')
+    expect(GENERATED_RECORD_CATEGORY_LABELS.dist_400m).toEqual({ de: '400 m' })
     expect(GENERATED_RECORD_CATEGORY_ORDER).toContain('dist_marathon')
     expect(GENERATED_RECORD_POWER_CATEGORY_ORDER).toEqual([
       'power_5s',

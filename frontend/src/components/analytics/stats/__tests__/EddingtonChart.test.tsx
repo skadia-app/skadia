@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { useRef } from 'react'
+import '@/i18n/i18n'
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
 

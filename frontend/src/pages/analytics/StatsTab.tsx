@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import LifetimeStats from '@/components/analytics/stats/LifetimeStats'
 import EddingtonChart from '@/components/analytics/stats/EddingtonChart'
 import DistributionCharts from '@/components/analytics/stats/DistributionCharts'
@@ -5,12 +6,13 @@ import YearlyOverview from '@/components/analytics/stats/YearlyOverview'
 import StreaksDisplay from '@/components/analytics/stats/StreaksDisplay'
 
 export default function StatsTab() {
+  const { t } = useTranslation()
   return (
     <div className="space-y-8">
       {/* Lifetime Stats — full width, highlighted */}
       <section className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 p-5">
         <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mb-4">
-          Lifetime-Statistiken
+          {t('analyticsStats.lifetimeStats')}
         </h2>
         <LifetimeStats />
       </section>
@@ -33,7 +35,7 @@ export default function StatsTab() {
       {/* Yearly Overview — full width */}
       <section>
         <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mb-4">
-          Jahres-Übersicht
+          {t('analyticsStats.yearlyOverview')}
         </h2>
         <YearlyOverview />
       </section>

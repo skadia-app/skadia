@@ -8,6 +8,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHealthFitnessAge } from '@/api/analytics'
 import { useECharts } from '@/hooks/useECharts'
 import PureAggregateRangePicker from '@/components/analytics/filters/PureAggregateRangePicker'
@@ -16,7 +17,9 @@ import { type DateRange } from '@/components/analytics/filters/RangePresetBar'
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export default function FitnessAgeChart() {
+  const { t } = useTranslation()
   const [range, setRange] = useState<DateRange | null>(null)
+  const yearsLabel = t('analyticsHealthInsights.common.years')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health', 'fitness-age', range?.from, range?.to],
@@ -54,7 +57,7 @@ export default function FitnessAgeChart() {
             const items = params as Array<{ value: number; axisValueLabel: string }>
             if (!Array.isArray(items) || items.length === 0) return ''
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
-              <div><strong style="color:#f9fafb">${items[0].value}</strong> <span style="color:#9ca3af">Jahre</span></div>`
+              <div><strong style="color:#f9fafb">${items[0].value}</strong> <span style="color:#9ca3af">${yearsLabel}</span></div>`
           },
         },
         xAxis: {
@@ -89,7 +92,7 @@ export default function FitnessAgeChart() {
         ],
       }
     },
-    [validEntries],
+    [validEntries, yearsLabel],
   )
 
   return (
@@ -97,11 +100,11 @@ export default function FitnessAgeChart() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-            Fitness-Alter
+            {t('analyticsHealthInsights.fitnessAge.title')}
           </h2>
           {latestAge != null && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              Aktuell: {latestAge} Jahre
+              {t('analyticsHealthInsights.fitnessAge.current', { age: latestAge })}
             </span>
           )}
         </div>
@@ -111,11 +114,11 @@ export default function FitnessAgeChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[240px] text-sm text-neutral-400">
-            Lade Fitness-Alter-Daten...
+            {t('analyticsHealthInsights.fitnessAge.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[240px] text-sm text-neutral-400">
-            Fehler beim Laden der Fitness-Alter-Daten
+            {t('analyticsHealthInsights.fitnessAge.loadFailed')}
           </div>
         ) : validEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[240px] gap-3 text-neutral-400">
@@ -123,7 +126,7 @@ export default function FitnessAgeChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
-            <span className="text-sm">Keine Fitness-Alter-Daten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.fitnessAge.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[240px] w-full" />

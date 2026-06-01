@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+const userPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' as 'metric' | 'imperial' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
+}))
+
 // ── ResizeObserver stub (not available in jsdom) ──────────────────────────────
 
 global.ResizeObserver = class {

@@ -7,6 +7,7 @@ import {
   TooltipComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHRVCorrelation } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
@@ -17,11 +18,11 @@ echarts.use([ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 type TimePreset = '30d' | '90d' | '1y' | 'all'
 
-const presetLabels: Record<TimePreset, string> = {
-  '30d': '30T',
-  '90d': '90T',
-  '1y': '1J',
-  'all': 'Alle',
+const presetLabelKeys: Record<TimePreset, string> = {
+  '30d': 'analyticsHealthInsights.hrvCorrelation.presets.thirtyDays',
+  '90d': 'analyticsHealthInsights.hrvCorrelation.presets.ninetyDays',
+  '1y': 'analyticsHealthInsights.hrvCorrelation.presets.oneYear',
+  'all': 'analyticsHealthInsights.hrvCorrelation.presets.all',
 }
 
 function getDateRange(preset: TimePreset): { from: string; to: string } {
@@ -39,22 +40,28 @@ function getDateRange(preset: TimePreset): { from: string; to: string } {
   }
 }
 
-function interpretLabel(interpretation: string): string {
+function interpretLabel(interpretation: string, t: ReturnType<typeof useTranslation>['t']): string {
   const labels: Record<string, string> = {
-    'strong positive correlation': 'Starke positive Korrelation',
-    'moderate positive correlation': 'Moderate positive Korrelation',
-    'weak positive correlation': 'Schwache positive Korrelation',
-    'strong negative correlation': 'Starke negative Korrelation',
-    'moderate negative correlation': 'Moderate negative Korrelation',
-    'weak negative correlation': 'Schwache negative Korrelation',
-    'no meaningful correlation': 'Keine bedeutsame Korrelation',
+    'strong positive correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.strongPositive',
+    'moderate positive correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.moderatePositive',
+    'weak positive correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.weakPositive',
+    'strong negative correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.strongNegative',
+    'moderate negative correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.moderateNegative',
+    'weak negative correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.weakNegative',
+    'no meaningful correlation': 'analyticsHealthInsights.hrvCorrelation.interpretations.none',
   }
-  return labels[interpretation] ?? interpretation
+  const label = labels[interpretation]
+  return label ? t(label) : interpretation
 }
 
 export default function HRVCorrelationChart() {
+  const { t, i18n } = useTranslation()
   const { toQueryString } = useAnalyticsFilters()
   const [preset, setPreset] = useState<TimePreset>('90d')
+  const locale = i18n.language || 'de'
+  const formatNumber = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }), [locale])
+  const formatOneDecimal = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), [locale])
+  const formatTwoDecimals = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), [locale])
 
   const { from, to } = useMemo(() => getDateRange(preset), [preset])
 
@@ -93,13 +100,13 @@ export default function HRVCorrelationChart() {
             if (!p.value) return ''
             const date = data.points[p.dataIndex]?.date ?? ''
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${date}</div>
-              <div>TSS: <strong style="color:#f9fafb">${p.value[0].toFixed(0)}</strong></div>
-              <div>RMSSD: <strong style="color:#f9fafb">${p.value[1].toFixed(1)} ms</strong></div>`
+              <div>TSS: <strong style="color:#f9fafb">${formatNumber.format(p.value[0])}</strong></div>
+              <div>RMSSD: <strong style="color:#f9fafb">${formatOneDecimal.format(p.value[1])} ms</strong></div>`
           },
         },
         xAxis: {
           type: 'value',
-          name: 'TSS (Vortag)',
+          name: t('analyticsHealthInsights.hrvCorrelation.xAxis'),
           nameLocation: 'center',
           nameGap: 30,
           nameTextStyle: { fontSize: 11, color: '#6b7280' },
@@ -136,7 +143,7 @@ export default function HRVCorrelationChart() {
         ],
       }
     },
-    [data],
+    [data, formatNumber, formatOneDecimal, t],
   )
 
   const corrColor = data
@@ -153,16 +160,16 @@ export default function HRVCorrelationChart() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              HRV-Korrelation
+              {t('analyticsHealthInsights.hrvCorrelation.title')}
             </h2>
             <FilterActiveBadge />
           </div>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            HRV vs. Trainingsstress (TSS Vortag)
+            {t('analyticsHealthInsights.hrvCorrelation.subtitle')}
           </p>
         </div>
         <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-          {(Object.keys(presetLabels) as TimePreset[]).map(p => (
+          {(Object.keys(presetLabelKeys) as TimePreset[]).map(p => (
             <button
               key={p}
               onClick={() => setPreset(p)}
@@ -172,7 +179,7 @@ export default function HRVCorrelationChart() {
                   : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              {presetLabels[p]}
+              {t(presetLabelKeys[p])}
             </button>
           ))}
         </div>
@@ -185,13 +192,13 @@ export default function HRVCorrelationChart() {
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
             style={{ backgroundColor: `${corrColor}20`, color: corrColor }}
           >
-            Pearson r = {data.correlation.toFixed(2)}
+            {t('analyticsHealthInsights.hrvCorrelation.pearsonR', { value: formatTwoDecimals.format(data.correlation) })}
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-            {interpretLabel(data.interpretation)}
+            {interpretLabel(data.interpretation, t)}
           </span>
           <span className="text-xs text-neutral-400">
-            {data.points.length} Datenpunkte
+            {t('analyticsHealthInsights.hrvCorrelation.dataPoints', { count: data.points.length })}
           </span>
         </div>
       )}
@@ -199,11 +206,11 @@ export default function HRVCorrelationChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-neutral-400">
-            Lade HRV-Korrelationsdaten...
+            {t('analyticsHealthInsights.hrvCorrelation.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-neutral-400">
-            Fehler beim Laden der HRV-Korrelationsdaten
+            {t('analyticsHealthInsights.hrvCorrelation.loadFailed')}
           </div>
         ) : !data || !data.points || data.points.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[300px] gap-3 text-neutral-400">
@@ -211,9 +218,9 @@ export default function HRVCorrelationChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
             </svg>
-            <span className="text-sm">Keine HRV-Korrelationsdaten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.hrvCorrelation.noData')}</span>
             <span className="text-xs text-neutral-500">
-              Es werden HRV- und TSS-Daten benötigt
+              {t('analyticsHealthInsights.hrvCorrelation.noDataHint')}
             </span>
           </div>
         ) : (
