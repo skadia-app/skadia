@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMetricColoring } from './activity/useMetricColoring'
 import MapColorDropdown from './activity/MapColorDropdown'
 import MapColorLegend from './activity/MapColorLegend'
@@ -35,6 +36,16 @@ import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmap
 import { findClosestIdx } from '@/lib/utils'
 import type { ZoomRange } from '@/components/ActivityCharts'
 import { motionProfileForSport, type MotionProfile } from '@/lib/colorScaleRanges'
+import {
+  distanceInputUnit,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  speedDisplayUnit,
+  speedToDisplayValue,
+  temperatureDisplayUnit,
+  temperatureToDisplayValue,
+} from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 echarts.use([
   LineChart,
@@ -88,23 +99,34 @@ interface Props {
 
 // ── Stream definitions ────────────────────────────────────────────────────────
 
-function buildAllStreams(motionProfile: MotionProfile): StreamDef[] {
+interface StreamLabels {
+  cadenceFoot: string
+  cadencePaddle: string
+  cadenceDefault: string
+  altitude: string
+  heartRate: string
+  power: string
+  speed: string
+  temperature: string
+}
+
+export function buildAllStreams(motionProfile: MotionProfile, labels: StreamLabels, units: { elevation: string; speed: string; temperature: string }): StreamDef[] {
   const cadenceLabel =
-    motionProfile.cadence.startsWith('foot_') ? 'Schrittfrequenz' :
-    motionProfile.cadence === 'paddle' ? 'Paddelschläge' :
-    'Kadenz'
+    motionProfile.cadence.startsWith('foot_') ? labels.cadenceFoot :
+    motionProfile.cadence === 'paddle' ? labels.cadencePaddle :
+    labels.cadenceDefault
   const cadenceUnit =
     motionProfile.cadence.startsWith('foot_') ? 'spm' :
     motionProfile.cadence === 'paddle' ? 'spm' :
     'rpm'
 
   return [
-    { key: 'altitude', label: 'Höhe', unit: 'm', color: '#22c55e', yAxisIndex: 0 },
-    { key: 'heartRate', label: 'HF', unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
-    { key: 'power', label: 'Leistung', unit: 'W', color: '#a855f7', yAxisIndex: 2 },
+    { key: 'altitude', label: labels.altitude, unit: units.elevation, color: '#22c55e', yAxisIndex: 0 },
+    { key: 'heartRate', label: labels.heartRate, unit: 'bpm', color: '#ef4444', yAxisIndex: 1 },
+    { key: 'power', label: labels.power, unit: 'W', color: '#a855f7', yAxisIndex: 2 },
     { key: 'cadence', label: cadenceLabel, unit: cadenceUnit, color: '#f97316', yAxisIndex: 3 },
-    { key: 'speed', label: 'Geschw.', unit: 'km/h', color: '#3b82f6', yAxisIndex: 4 },
-    { key: 'temperature', label: 'Temp.', unit: '\u00b0C', color: '#06b6d4', yAxisIndex: 5 },
+    { key: 'speed', label: labels.speed, unit: units.speed, color: '#3b82f6', yAxisIndex: 4 },
+    { key: 'temperature', label: labels.temperature, unit: units.temperature, color: '#06b6d4', yAxisIndex: 5 },
   ]
 }
 
@@ -216,6 +238,8 @@ function findNearestIdx(arr: number[], value: number): number {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MapFullscreen({ streams, sportColor, sportType, subType, fitSportId, hasGps, onClose, activityId, geoTags }: Props) {
+  const { t } = useTranslation()
+  const { options: unitOptions, formatDistance, formatElevation } = useUnitFormatters()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -227,7 +251,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
   const [isZoomed, setIsZoomed] = useState(false)
   const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
   const [enabledStreams, setEnabledStreams] = useState<Set<MetricFieldKey>>(() => {
-    // Alle möglichen MetricFieldKeys vorausgewählt — ECharts blendet Serien ohne Daten automatisch aus
+    // Preselect every MetricFieldKey; ECharts automatically hides series without data.
     return new Set<MetricFieldKey>(['altitude', 'heartRate', 'power', 'cadence', 'speed', 'temperature'])
   })
 
@@ -309,9 +333,22 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
   // Filter to only streams with actual data
   const availableStreams = useMemo(() => {
     const motionProfile = motionProfileForSport(sportType, subType)
-    const all = buildAllStreams(motionProfile)
+    const all = buildAllStreams(motionProfile, {
+      cadenceFoot: t('components.mapFullscreen.metrics.cadenceFoot'),
+      cadencePaddle: t('components.mapFullscreen.metrics.cadencePaddle'),
+      cadenceDefault: t('components.mapFullscreen.metrics.cadenceDefault'),
+      altitude: t('components.mapFullscreen.metrics.altitude'),
+      heartRate: t('components.mapFullscreen.metrics.heartRate'),
+      power: t('components.mapFullscreen.metrics.power'),
+      speed: t('components.mapFullscreen.metrics.speed'),
+      temperature: t('components.mapFullscreen.metrics.temperature'),
+    }, {
+      elevation: elevationInputUnit(unitOptions.units),
+      speed: speedDisplayUnit(unitOptions.units),
+      temperature: temperatureDisplayUnit(unitOptions.units),
+    })
     return all.filter(s => hasValidData(data[s.key]))
-  }, [data, sportType, subType])
+  }, [data, sportType, subType, t, unitOptions.units])
 
   // Build coordinates for map
   const coordinates = useMemo(
@@ -395,15 +432,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
           type: 'geojson',
           data: {
             type: 'FeatureCollection',
-            features: summitTags.map((t) => ({
+            features: summitTags.map((tag) => ({
               type: 'Feature' as const,
-              geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
+              geometry: { type: 'Point' as const, coordinates: [tag.lng!, tag.lat!] },
               properties: {
-                name: t.name ?? '',
-                ele_m: t.ele_m ?? t.ele ?? null,
-                // 'pass' is the only non-summit category in this layer (filter
-                // above). Match TrackMap's popup wording verbatim.
-                categoryLabel: t.category === 'pass' ? 'Pass' : 'Gipfel',
+                name: tag.name ?? '',
+                ele_m: tag.ele_m ?? tag.ele ?? null,
+                category: tag.category,
               },
             })),
           },
@@ -470,10 +505,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
         m.on('click', 'fullscreen-summits-layer', (e) => {
           const props = e.features?.[0]?.properties
           if (!props) return
-          const name = escapeHtml(String(props.name || props.categoryLabel || 'POI'))
-          const label = escapeHtml(String(props.categoryLabel || 'POI'))
+          const fallbackLabel = props.category === 'pass'
+            ? t('components.mapFullscreen.poi.pass')
+            : t('components.mapFullscreen.poi.summit')
+          const name = escapeHtml(String(props.name || fallbackLabel))
+          const label = escapeHtml(fallbackLabel)
           const ele = props.ele_m != null
-            ? ` · ${Math.round(Number(props.ele_m)).toLocaleString('de-DE')} m`
+            ? ` · ${formatElevation(Number(props.ele_m))}`
             : ''
           summitPopup
             .setLngLat(e.lngLat)
@@ -738,6 +776,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
       const legendData: { name: string; itemStyle: { color: string } }[] = []
 
       const enabledList = availableStreams.filter(s => enabledStreams.has(s.key))
+      const displayMetricValue = (key: MetricFieldKey, value: number) => {
+        if (isNaN(value)) return value
+        if (key === 'altitude') return elevationToDisplayValue(value, unitOptions.units)
+        if (key === 'speed') return speedToDisplayValue(value / 3.6, unitOptions.units)
+        if (key === 'temperature') return temperatureToDisplayValue(value, unitOptions.units)
+        return value
+      }
 
       availableStreams.forEach((stream, idx) => {
         const isEnabled = enabledStreams.has(stream.key)
@@ -767,7 +812,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
           name: stream.label,
           type: 'line',
           yAxisIndex: idx,
-          data: xData.map((x, i) => [x, data[stream.key][i]]),
+          data: xData.map((x, i) => [x, displayMetricValue(stream.key, data[stream.key][i])]),
           showSymbol: false,
           lineStyle: { width: 1.5, color: stream.color },
           itemStyle: { color: stream.color },
@@ -816,7 +861,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            saveAsImage: { title: t('components.mapFullscreen.saveAsPng'), pixelRatio: 2 },
           },
         },
 
@@ -841,12 +886,12 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
             if (first?.dataIndex == null) return ''
             const idx = first.dataIndex
 
-            const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
+            const distanceStr = formatDistance((data.distanceKm[idx] ?? 0) * 1000)
             const elapsed = data.elapsedMin[idx] ?? 0
             const timeStr = formatElapsed(elapsed, data.maxElapsed)
             const posLine = xMode === 'distance'
-              ? `${kmStr}\u202fkm`
-              : `${timeStr}\u2009\u00b7\u2009${kmStr}\u202fkm`
+              ? distanceStr
+              : `${timeStr}\u2009\u00b7\u2009${distanceStr}`
 
             let html = `<div style="line-height:1.6;min-width:110px">`
             html += `<div style="color:#888;font-size:10px;margin-bottom:1px">${posLine}</div>`
@@ -891,7 +936,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, enabledStreams, availableStreams], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, xMode, enabledStreams, availableStreams, unitOptions.units, formatDistance, formatElevation], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       chartInstanceRef.current = chart
 
@@ -1093,7 +1138,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
           <div className="flex items-center gap-1 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
             <button
               onClick={() => setShowHeatmap(v => !v)}
-              title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+              title={showHeatmap ? t('components.mapFullscreen.hideHeatmap') : t('components.mapFullscreen.showHeatmap')}
               className={[
                 'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
                 showHeatmap
@@ -1104,7 +1149,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 2C8.5 6 6 9 6 13a6 6 0 0012 0c0-2.5-1-4.5-2.5-6.5C14.5 8.5 13.5 10 13 12c-.5-1.5-.5-3 0-5.5C12.5 5 12.2 3.5 12 2z"/>
               </svg>
-              Heatmap
+              {t('components.mapFullscreen.heatmap')}
             </button>
             {showHeatmap && (
               <ColorPicker value={heatmapColor} onChange={handleHeatmapColorChange} />
@@ -1138,7 +1183,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
         {(geoTags ?? []).some(t => (t.category === 'summit' || t.category === 'pass') && t.lat != null) && (
           <button
             onClick={() => setShowSummits(v => !v)}
-            title={showSummits ? 'Gipfel ausblenden' : 'Gipfel einblenden'}
+            title={showSummits ? t('trackMap.hideSummits') : t('trackMap.showSummits')}
             className={[
               // Position: left of the photo button (or in the photo slot if no photos).
               positionedPhotos.length > 0 ? 'absolute top-3 right-[9.5rem]' : 'absolute top-3 right-[6.5rem]',
@@ -1157,7 +1202,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
         {positionedPhotos.length > 0 && (
           <button
             onClick={() => setShowPhotos(v => !v)}
-            title={showPhotos ? 'Fotos ausblenden' : 'Fotos einblenden'}
+            title={showPhotos ? t('trackMap.hidePhotos') : t('trackMap.showPhotos')}
             className={[
               'absolute top-3 right-[6.5rem] z-10 flex items-center justify-center w-9 h-9',
               'rounded-lg backdrop-blur-sm shadow-md cursor-pointer transition-colors',
@@ -1179,7 +1224,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
                      rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
                      text-neutral-700 dark:text-neutral-200 shadow-md cursor-pointer
                      hover:bg-white dark:hover:bg-neutral-700 transition-colors"
-          title="Schließen (Esc)"
+          title={t('components.mapFullscreen.closeEsc')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -1198,7 +1243,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
                 className="cursor-pointer text-xs px-2.5 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                            dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors"
               >
-                Zoom zurücksetzen
+                {t('components.mapFullscreen.resetZoom')}
               </button>
             )}
           </div>
@@ -1210,7 +1255,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
                   ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
               >
-                km
+                {distanceInputUnit(unitOptions.units)}
               </button>
               <button
                 onClick={() => switchXMode('time')}
@@ -1218,7 +1263,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, subType,
                   ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                   : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}
               >
-                Zeit
+                {t('components.mapFullscreen.time')}
               </button>
             </div>
           </div>

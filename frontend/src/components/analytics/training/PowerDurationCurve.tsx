@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -20,17 +21,17 @@ echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, Toolbo
 
 const currentYear = new Date().getFullYear()
 
-const DEFAULT_CURVES: Array<{ label: string; color: string; params: PDCParams }> = [
-  { label: 'Dieses Jahr', color: '#F59E0B', params: { period: 'ytd' } },
+const DEFAULT_CURVES: Array<{ labelKey: string; color: string; params: PDCParams }> = [
+  { labelKey: 'analyticsTrainingStats.powerDuration.curves.thisYear', color: '#F59E0B', params: { period: 'ytd' } },
   {
-    label: 'Letztes Jahr',
+    labelKey: 'analyticsTrainingStats.powerDuration.curves.lastYear',
     color: '#6366F1',
     params: {
       from: `${currentYear - 1}-01-01`,
       to: `${currentYear - 1}-12-31`,
     },
   },
-  { label: 'Letzte 90 Tage', color: '#10B981', params: { period: '90d' } },
+  { labelKey: 'analyticsTrainingStats.powerDuration.curves.last90Days', color: '#10B981', params: { period: '90d' } },
 ]
 
 const DURATION_LABELS: Record<number, string> = {
@@ -53,18 +54,19 @@ function formatDuration(s: number): string {
 }
 
 export default function PowerDurationCurve() {
+  const { t } = useTranslation()
   const query0 = useQuery({
-    queryKey: ['power-curve', DEFAULT_CURVES[0].label, DEFAULT_CURVES[0].params],
+    queryKey: ['power-curve', DEFAULT_CURVES[0].labelKey, DEFAULT_CURVES[0].params],
     queryFn: () => getPowerCurve(DEFAULT_CURVES[0].params),
     staleTime: 5 * 60 * 1000,
   })
   const query1 = useQuery({
-    queryKey: ['power-curve', DEFAULT_CURVES[1].label, DEFAULT_CURVES[1].params],
+    queryKey: ['power-curve', DEFAULT_CURVES[1].labelKey, DEFAULT_CURVES[1].params],
     queryFn: () => getPowerCurve(DEFAULT_CURVES[1].params),
     staleTime: 5 * 60 * 1000,
   })
   const query2 = useQuery({
-    queryKey: ['power-curve', DEFAULT_CURVES[2].label, DEFAULT_CURVES[2].params],
+    queryKey: ['power-curve', DEFAULT_CURVES[2].labelKey, DEFAULT_CURVES[2].params],
     queryFn: () => getPowerCurve(DEFAULT_CURVES[2].params),
     staleTime: 5 * 60 * 1000,
   })
@@ -81,7 +83,7 @@ export default function PowerDurationCurve() {
         const points = queries[i].data?.points
         if (!points?.length) return null
         return {
-          name: curve.label,
+          name: t(curve.labelKey),
           type: 'line' as const,
           smooth: true,
           symbol: 'none',
@@ -98,9 +100,9 @@ export default function PowerDurationCurve() {
         toolbox: {
           right: 8, top: 2,
           feature: {
-            brush: lineXBrushToolboxFeature,
-            restore: { title: 'Zurücksetzen' },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            brush: lineXBrushToolboxFeature(t),
+            restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+            saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -138,7 +140,7 @@ export default function PowerDurationCurve() {
           type: 'log',
           min: 1,
           max: Math.max(3600, ...[query0, query1, query2].flatMap(q => q.data?.points?.map((p: PowerCurvePoint) => p.duration_s) ?? [])),
-          name: 'Dauer',
+          name: t('analyticsTrainingStats.metrics.duration'),
           nameTextStyle: { fontSize: 10, color: '#6b7280' },
           nameLocation: 'end',
           axisLabel: {
@@ -159,7 +161,7 @@ export default function PowerDurationCurve() {
         series,
       }
     },
-    [query0.data, query1.data, query2.data, hasData], // eslint-disable-line react-hooks/exhaustive-deps
+    [query0.data, query1.data, query2.data, hasData, t], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const maxDuration = Math.max(3600, ...queries.flatMap(q => q.data?.points?.map((p: PowerCurvePoint) => p.duration_s) ?? []))
       return bindLineXBrushZoom(chart, { dataZoomIndexes: [0], minValue: 1, maxValue: maxDuration, roundValues: false })
@@ -169,17 +171,17 @@ export default function PowerDurationCurve() {
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-        Power Duration Curve
+        {t('analyticsTrainingStats.powerDuration.title')}
       </h3>
 
       {isLoading ? (
         <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-          Lade Power-Kurven…
+          {t('analyticsTrainingStats.powerDuration.loading')}
         </div>
       ) : !hasData ? (
         <div className="flex flex-col items-center justify-center h-[280px] gap-2 text-neutral-400">
-          <span className="text-sm">Keine Leistungsdaten vorhanden</span>
-          <span className="text-xs">Aktivitäten mit Leistungsmesser werden benötigt</span>
+          <span className="text-sm">{t('analyticsTrainingStats.powerDuration.emptyTitle')}</span>
+          <span className="text-xs">{t('analyticsTrainingStats.powerDuration.emptyDescription')}</span>
         </div>
       ) : (
         <div ref={containerRef} className="h-[280px] w-full" />

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { ModalShell } from '@/components/ui/ModalShell'
 
 interface ConfirmModalProps {
@@ -19,13 +20,17 @@ interface ConfirmModalProps {
 export default function ConfirmModal({
   title,
   message,
-  confirmLabel = 'Bestätigen',
-  cancelLabel = 'Abbrechen',
+  confirmLabel,
+  cancelLabel,
   confirmClass,
   isPending = false,
   onConfirm,
   onClose,
 }: ConfirmModalProps) {
+  const { t } = useTranslation()
+  const resolvedConfirmLabel = confirmLabel ?? t('common.confirm')
+  const resolvedCancelLabel = cancelLabel ?? t('common.cancel')
+
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm">
       <div className="space-y-4">
@@ -37,7 +42,7 @@ export default function ConfirmModal({
             disabled={isPending}
             className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </button>
           <button
             onClick={onConfirm}
@@ -50,7 +55,7 @@ export default function ConfirmModal({
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
             )}
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </button>
         </div>
       </div>

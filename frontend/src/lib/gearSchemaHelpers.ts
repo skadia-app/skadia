@@ -3,8 +3,29 @@
 
 import type { GearSchema, GearType, Attribute, OptionValue } from './generatedGearSchema'
 import type { GearDefaultSportPredicate } from '@/api/types'
+import { localizeString } from '@/i18n/localizedString'
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from '@/i18n/languages'
 import type { GearCategoryScope, GearTypeOption } from './gearSchemaTypes'
 import { isGearCategoryScope } from './gearSchemaTypes'
+
+type GearSchemaLabelSource = {
+  labelDe: string
+  labels?: Parameters<typeof localizeString>[0]
+}
+
+export function gearSchemaLabel(item: GearSchemaLabelSource, language?: SupportedLanguage): string {
+  return localizeString(item.labels, language) || item.labelDe
+}
+
+export function gearSchemaLabelCandidates(item: GearSchemaLabelSource): string[] {
+  const labels = new Set<string>()
+  if (item.labelDe) labels.add(item.labelDe)
+  for (const language of SUPPORTED_LANGUAGES) {
+    const label = localizeString(item.labels, language)
+    if (label) labels.add(label)
+  }
+  return [...labels]
+}
 
 // ── Path label helpers ────────────────────────────────────────────────────────
 
@@ -22,10 +43,10 @@ function gearTypeAncestors(schema: GearSchema, typeKey: string): GearType[] {
   return path.reverse()
 }
 
-export function gearTypePathLabel(schema: GearSchema, typeKey: string): string {
+export function gearTypePathLabel(schema: GearSchema, typeKey: string, language?: SupportedLanguage): string {
   const path = gearTypeAncestors(schema, typeKey)
   if (path.length === 0) return typeKey
-  return path.map(item => item.labelDe).join(' / ')
+  return path.map(item => gearSchemaLabel(item, language)).join(' / ')
 }
 
 const LEGACY_GEAR_TYPE_LABELS: Record<string, string> = {
@@ -44,8 +65,8 @@ const LEGACY_GEAR_TYPE_SCOPES: Partial<Record<string, GearCategoryScope>> = {
   climbing_harness: 'climb',
 }
 
-export function gearTypeLabel(schema: GearSchema, typeKey: string): string {
-  const path = gearTypePathLabel(schema, typeKey)
+export function gearTypeLabel(schema: GearSchema, typeKey: string, language?: SupportedLanguage): string {
+  const path = gearTypePathLabel(schema, typeKey, language)
   return path !== typeKey ? path : (LEGACY_GEAR_TYPE_LABELS[typeKey] ?? typeKey)
 }
 
@@ -95,13 +116,13 @@ function hasManualChild(schema: GearSchema, typeKey: string): boolean {
   return schema.gearTypes.some(gt => gt.parentKey === typeKey)
 }
 
-export function gearTypeOptionsForScope(schema: GearSchema, scope: GearCategoryScope): GearTypeOption[] {
+export function gearTypeOptionsForScope(schema: GearSchema, scope: GearCategoryScope, language?: SupportedLanguage): GearTypeOption[] {
   return schema.gearTypes
     .filter(gt => gearTypeMatchesScope(gt.key, scope, schema))
     .filter(gt => gt.defaultAssignmentRoleKey !== 'consumable')
     .filter(gt => !hasManualChild(schema, gt.key))
-    .map(gt => ({ value: gt.key, label: gearTypePathLabel(schema, gt.key) }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+    .map(gt => ({ value: gt.key, label: gearTypePathLabel(schema, gt.key, language) }))
+    .sort((a, b) => a.label.localeCompare(b.label, language ?? 'de'))
 }
 
 // ── Attribute helpers ─────────────────────────────────────────────────────────

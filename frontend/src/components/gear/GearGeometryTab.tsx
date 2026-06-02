@@ -1,7 +1,9 @@
+import { useTranslation } from 'react-i18next'
 import type { Attribute, GearSchema } from '@/lib/generatedGearSchema'
-import { gearTypeAttributes, optionSetOptions } from '@/lib/gearSchemaHelpers'
+import { gearSchemaLabel, gearTypeAttributes, optionSetOptions } from '@/lib/gearSchemaHelpers'
 import type { Gear } from '@/api/types'
 import RecursiveSubfieldRenderer from '@/components/gear/RecursiveSubfieldRenderer'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 interface GearGeometryTabProps {
   item: Gear
@@ -10,6 +12,8 @@ interface GearGeometryTabProps {
 }
 
 export default function GearGeometryTab({ item, schema, onChange }: GearGeometryTabProps) {
+  const { i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const attrs = gearTypeAttributes(schema, item.type)
   const geometryAttrs = attrs.filter(
     (a) => (a.valueType === 'geometry' || a.valueType === 'object') && a.subfields && a.subfields.length > 0,
@@ -45,7 +49,7 @@ export default function GearGeometryTab({ item, schema, onChange }: GearGeometry
         return (
           <section key={attr.key} className="space-y-3">
             <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-              {attr.labelDe}
+              {gearSchemaLabel(attr, language)}
             </h3>
             <RecursiveSubfieldRenderer
               subfields={attr.subfields!}

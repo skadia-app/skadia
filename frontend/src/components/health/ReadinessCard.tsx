@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { HealthReadinessScore } from '@/api/health'
 
 interface Props {
@@ -10,14 +11,12 @@ function scoreColor(score: number): string {
   return '#22c55e'
 }
 
-function levelLabel(level: string | null): string {
+function levelLabel(level: string | null, t: ReturnType<typeof useTranslation>['t']): string {
   if (!level) return ''
-  const labels: Record<string, string> = {
-    LOW: 'Niedrig',
-    MODERATE: 'Moderat',
-    HIGH: 'Hoch',
+  if (level === 'LOW' || level === 'MODERATE' || level === 'HIGH') {
+    return t(`healthReadiness.levels.${level}`)
   }
-  return labels[level] ?? level
+  return t('healthReadiness.levels.unknown')
 }
 
 interface Factor {
@@ -27,16 +26,17 @@ interface Factor {
 }
 
 export default function ReadinessCard({ data }: Props) {
+  const { t } = useTranslation()
   const score = data.score ?? 0
   const color = scoreColor(score)
 
   const factors: Factor[] = [
-    { label: 'HRV (wöchentl. Ø)', value: data.hrv_weekly_avg_ms != null ? Math.round(data.hrv_weekly_avg_ms) : null, unit: 'ms' },
-    { label: 'Schlaf-Score', value: data.sleep_score },
-    { label: 'HRV-Faktor', value: data.hrv_factor_pct != null ? Math.round(data.hrv_factor_pct) : null, unit: '%' },
-    { label: 'Schlafhistorie', value: data.sleep_history_factor_pct != null ? Math.round(data.sleep_history_factor_pct) : null, unit: '%' },
-    { label: 'Stresshistorie', value: data.stress_history_factor_pct != null ? Math.round(data.stress_history_factor_pct) : null, unit: '%' },
-    { label: 'Erholungszeit', value: data.recovery_time_factor_pct != null ? Math.round(data.recovery_time_factor_pct) : null, unit: '%' },
+    { label: t('healthReadiness.factors.hrvWeeklyAvg'), value: data.hrv_weekly_avg_ms != null ? Math.round(data.hrv_weekly_avg_ms) : null, unit: 'ms' },
+    { label: t('healthReadiness.factors.sleepScore'), value: data.sleep_score },
+    { label: t('healthReadiness.factors.hrvFactor'), value: data.hrv_factor_pct != null ? Math.round(data.hrv_factor_pct) : null, unit: '%' },
+    { label: t('healthReadiness.factors.sleepHistory'), value: data.sleep_history_factor_pct != null ? Math.round(data.sleep_history_factor_pct) : null, unit: '%' },
+    { label: t('healthReadiness.factors.stressHistory'), value: data.stress_history_factor_pct != null ? Math.round(data.stress_history_factor_pct) : null, unit: '%' },
+    { label: t('healthReadiness.factors.recoveryTime'), value: data.recovery_time_factor_pct != null ? Math.round(data.recovery_time_factor_pct) : null, unit: '%' },
   ].filter(f => f.value != null)
 
   // Gradient background based on score
@@ -49,11 +49,11 @@ export default function ReadinessCard({ data }: Props) {
     <div className="rounded-xl border p-5" style={gradientStyle}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Bereitschaft heute
+          {t('healthReadiness.today')}
         </h3>
         {data.level && (
           <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${color}20`, color }}>
-            {levelLabel(data.level)}
+            {levelLabel(data.level, t)}
           </span>
         )}
       </div>
@@ -67,7 +67,7 @@ export default function ReadinessCard({ data }: Props) {
           >
             {data.score ?? '—'}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">von 100</div>
+          <div className="text-xs text-neutral-400 mt-1">{t('healthReadiness.outOf100')}</div>
         </div>
 
         {/* Score bar */}
@@ -103,7 +103,7 @@ export default function ReadinessCard({ data }: Props) {
       {data.acwr_pct != null && (
         <div className="mt-3 text-xs text-neutral-400">
           ACWR: {data.acwr_pct.toFixed(1)}%
-          {data.recovery_time_min != null && ` · Erholungszeit: ${Math.round(data.recovery_time_min / 60)}h`}
+          {data.recovery_time_min != null && ` · ${t('healthReadiness.recoveryHours', { hours: Math.round(data.recovery_time_min / 60) })}`}
         </div>
       )}
     </div>

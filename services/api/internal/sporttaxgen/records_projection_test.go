@@ -53,10 +53,10 @@ func TestLoadRecordsProjectionRejectsEmptyRequiredCollectionsAndLabels(t *testin
 		src  string
 	}{
 		{name: "empty record groups", src: strings.Replace(validRecordsProjectionFixture(), "record_groups:", "record_groups: []\nmain_categories_disabled:", 1)},
-		{name: "group missing label", src: strings.Replace(validRecordsProjectionFixture(), "labels: {de: Laufen}", "labels: {de: \"\"}", 1)},
+		{name: "group missing label", src: strings.Replace(validRecordsProjectionFixture(), "labels: {de: Laufen, en: Running}", "labels: {de: \"\"}", 1)},
 		{name: "group missing color", src: strings.Replace(validRecordsProjectionFixture(), "color: \"#3B82F6\"", "color: \"\"", 1)},
 		{name: "group missing match rules", src: strings.Replace(validRecordsProjectionFixture(), "match:\n      - priority: 10", "match: []\n    disabled_match:\n      - priority: 10", 1)},
-		{name: "main category missing label", src: strings.Replace(validRecordsProjectionFixture(), "labels: {de: Laufen}", "labels: {de: \"\"}", 3)},
+		{name: "main category missing label", src: strings.Replace(validRecordsProjectionFixture(), "labels: {de: Laufen, en: Running}", "labels: {de: \"\"}", 2)},
 		{name: "main category missing color", src: strings.Replace(validRecordsProjectionFixture(), "color: \"#3B82F6\"", "color: \"\"", 3)},
 		{name: "main category missing groups", src: strings.Replace(validRecordsProjectionFixture(), "record_groups: [running, running_trail]", "record_groups: []", 1)},
 	}
@@ -198,7 +198,10 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 		"export const GENERATED_RECORD_MATCH_RULES",
 		"export const GENERATED_RECORD_CATEGORY_ORDER",
 		"export const GENERATED_RECORD_POWER_CATEGORY_ORDER",
-		"'dist_1km': '1 km'",
+		"'dist_1km': { de: '1 km', en: '1 km' }",
+		"labels: { de: 'Laufen', en: 'Running' }",
+		"{ key: 'all', label: 'Alle', labels: { de: 'Alle', en: 'All' }, recordGroups: ['running', 'running_trail'] }",
+		"powerCurve: { key: 'power', label: 'Laufen', labels: { de: 'Laufen', en: 'Running' }, recordGroups: ['running'] }",
 		"subTypes: []",
 		"excludeSubTypes: ['treadmill']",
 		"modifiers: { isIndoor: false }",
@@ -248,13 +251,13 @@ func validRecordsProjectionFixture() string {
 category_sets:
   - key: distances_running
     categories:
-      - {key: dist_1km, type: time_lower, distance_m: 1000, labels: {de: 1 km}}
+      - {key: dist_1km, type: time_lower, distance_m: 1000, labels: {de: 1 km, en: 1 km}}
   - key: power
     categories:
-      - {key: power_5s, type: value_higher, duration_s: 5, labels: {de: 5 Sek}}
+      - {key: power_5s, type: value_higher, duration_s: 5, labels: {de: 5 Sek, en: 5 sec}}
   - key: superlatives_basic
     categories:
-      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz}}
+      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz, en: Longest distance}}
 
 category_profiles:
   - key: running_full
@@ -264,7 +267,7 @@ category_profiles:
 
 record_groups:
   - key: running
-    labels: {de: Laufen}
+    labels: {de: Laufen, en: Running}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_power
@@ -274,7 +277,7 @@ record_groups:
         exclude_sub_types: [treadmill]
         modifiers: {is_indoor: false}
   - key: running_trail
-    labels: {de: Laufen Trail}
+    labels: {de: Laufen Trail, en: Trail running}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_full
@@ -285,12 +288,12 @@ record_groups:
 
 main_categories:
   - key: laufen
-    labels: {de: Laufen}
+    labels: {de: Laufen, en: Running}
     color: "#3B82F6"
     record_groups: [running, running_trail]
     sub_filters:
-      - {label: Alle, record_groups: [running, running_trail]}
-    power_curve: {label: Laufen, record_groups: [running]}
+      - {key: all, labels: {de: Alle, en: All}, record_groups: [running, running_trail]}
+    power_curve: {key: power, labels: {de: Laufen, en: Running}, record_groups: [running]}
 `
 }
 

@@ -7,6 +7,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHealthStress } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
@@ -14,7 +15,12 @@ import { useECharts } from '@/hooks/useECharts'
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export default function StressChart() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const lowLabel = t('analyticsHealthInsights.common.status.low')
+  const mediumLabel = t('analyticsHealthInsights.common.status.medium')
+  const highLabel = t('analyticsHealthInsights.common.status.high')
+  const veryHighLabel = t('analyticsHealthInsights.common.status.veryHigh')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health', 'stress', from, to],
@@ -60,10 +66,10 @@ export default function StressChart() {
             const items = params as Array<{ value: number; axisValueLabel: string }>
             if (!Array.isArray(items) || items.length === 0) return ''
             const val = items[0].value
-            let level = 'Niedrig'
-            if (val >= 75) level = 'Sehr hoch'
-            else if (val >= 50) level = 'Hoch'
-            else if (val >= 25) level = 'Mittel'
+            let level = lowLabel
+            if (val >= 75) level = veryHighLabel
+            else if (val >= 50) level = highLabel
+            else if (val >= 25) level = mediumLabel
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
               <div><strong style="color:#f9fafb">${val}</strong> <span style="color:#9ca3af">(${level})</span></div>`
           },
@@ -101,25 +107,25 @@ export default function StressChart() {
         ],
       }
     },
-    [data],
+    [data, lowLabel, mediumLabel, highLabel, veryHighLabel],
   )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Stress-Verlauf
+          {t('analyticsHealthInsights.stress.title')}
         </h2>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade Stressdaten...
+            {t('analyticsHealthInsights.stress.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden der Stressdaten
+            {t('analyticsHealthInsights.stress.loadFailed')}
           </div>
         ) : !data || data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
@@ -127,7 +133,7 @@ export default function StressChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <span className="text-sm">Keine Stressdaten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.stress.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[280px] w-full" />

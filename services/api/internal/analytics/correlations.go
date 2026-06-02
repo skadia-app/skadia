@@ -19,14 +19,16 @@ const (
 
 // CorrelationEntry represents a single feature-pair correlation result.
 type CorrelationEntry struct {
-	FeatureA       string   `json:"feature_a"`
-	FeatureB       string   `json:"feature_b"`
-	LagDays        int      `json:"lag_days"`
-	RPearson       float64  `json:"r_pearson"`
-	RSpearman      *float64 `json:"r_spearman"`
-	AbsR           float64  `json:"abs_r"`
-	N              int      `json:"n"`
-	Interpretation string   `json:"interpretation"`
+	FeatureA             string         `json:"feature_a"`
+	FeatureB             string         `json:"feature_b"`
+	LagDays              int            `json:"lag_days"`
+	RPearson             float64        `json:"r_pearson"`
+	RSpearman            *float64       `json:"r_spearman"`
+	AbsR                 float64        `json:"abs_r"`
+	N                    int            `json:"n"`
+	Interpretation       string         `json:"interpretation"`
+	InterpretationKey    string         `json:"interpretation_key"`
+	InterpretationParams map[string]any `json:"interpretation_params,omitempty"`
 }
 
 // CorrelationsResult is the top-level output stored in analytics_cache.
@@ -128,15 +130,21 @@ func ComputeCorrelations(ctx context.Context, db *database.DB, userID string) er
 				rSpearman = &rs
 			}
 
+			interpretationKey := interpretR(rPearson, false)
 			allCorrelations = append(allCorrelations, CorrelationEntry{
-				FeatureA:       pair.a,
-				FeatureB:       pair.b,
-				LagDays:        lag,
-				RPearson:       roundN(rPearson, 3),
-				RSpearman:      roundSpearman(rSpearman),
-				AbsR:           roundN(math.Abs(rPearson), 3),
-				N:              len(xs),
-				Interpretation: interpretR(rPearson, false),
+				FeatureA:          pair.a,
+				FeatureB:          pair.b,
+				LagDays:           lag,
+				RPearson:          roundN(rPearson, 3),
+				RSpearman:         roundSpearman(rSpearman),
+				AbsR:              roundN(math.Abs(rPearson), 3),
+				N:                 len(xs),
+				Interpretation:    legacyInterpretR(rPearson, false),
+				InterpretationKey: interpretationKey,
+				InterpretationParams: map[string]any{
+					"strength":  correlationStrengthCode(rPearson),
+					"direction": correlationDirectionCode(rPearson, false),
+				},
 			})
 		}
 	}
@@ -293,8 +301,40 @@ func rankData(vals []float64) []float64 {
 	return ranks
 }
 
-// interpretR gibt eine textuelle Interpretation des Pearson-r zurück.
+// interpretR returns a stable i18n key for the Pearson-r interpretation.
 func interpretR(r float64, inverse bool) string {
+	return "analytics.correlation." + correlationStrengthCode(r) + "_" + correlationDirectionCode(r, inverse)
+}
+
+func correlationStrengthCode(r float64) string {
+	absR := math.Abs(r)
+
+	switch {
+	case absR < 0.1:
+		return "none"
+	case absR < 0.3:
+		return "weak"
+	case absR < 0.5:
+		return "moderate"
+	case absR < 0.7:
+		return "strong"
+	default:
+		return "very_strong"
+	}
+}
+
+func correlationDirectionCode(r float64, inverse bool) string {
+	effectiveR := r
+	if inverse {
+		effectiveR = -r
+	}
+	if effectiveR < 0 {
+		return "negative"
+	}
+	return "positive"
+}
+
+func legacyInterpretR(r float64, inverse bool) string {
 	absR := math.Abs(r)
 
 	var strength string

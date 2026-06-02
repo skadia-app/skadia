@@ -7,6 +7,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHealthSpO2 } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
@@ -14,7 +15,11 @@ import { useECharts } from '@/hooks/useECharts'
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export default function SpO2Chart() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const normalLabel = t('analyticsHealthInsights.common.status.normal')
+  const lowLabel = t('analyticsHealthInsights.common.status.low')
+  const slightlyReducedLabel = t('analyticsHealthInsights.spo2.slightlyReduced')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health', 'spo2', from, to],
@@ -56,9 +61,9 @@ export default function SpO2Chart() {
             const items = params as Array<{ value: number; axisValueLabel: string }>
             if (!Array.isArray(items) || items.length === 0) return ''
             const val = items[0].value
-            let status = 'Normal'
-            if (val < 90) status = 'Niedrig'
-            else if (val < 95) status = 'Leicht reduziert'
+            let status = normalLabel
+            if (val < 90) status = lowLabel
+            else if (val < 95) status = slightlyReducedLabel
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>
               <div><strong style="color:#f9fafb">${val}%</strong> <span style="color:#9ca3af">(${status})</span></div>`
           },
@@ -96,25 +101,25 @@ export default function SpO2Chart() {
         ],
       }
     },
-    [data],
+    [data, normalLabel, lowLabel, slightlyReducedLabel],
   )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          SpO2-Verlauf
+          {t('analyticsHealthInsights.spo2.title')}
         </h2>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade SpO2-Daten...
+            {t('analyticsHealthInsights.spo2.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden der SpO2-Daten
+            {t('analyticsHealthInsights.spo2.loadFailed')}
           </div>
         ) : !data || data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
@@ -122,7 +127,7 @@ export default function SpO2Chart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-sm">Keine SpO2-Daten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.spo2.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[280px] w-full" />

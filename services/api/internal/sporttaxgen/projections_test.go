@@ -447,6 +447,7 @@ eligible:`, 1)), testProjectionTaxonomy())
 		t.Fatalf("RenderTSSegmentProjection() error = %v", err)
 	}
 	for _, want := range []string{
+		"{ key: 'standard', label: 'Standard', labels: { de: 'Standard' }, activeDomains: ['real_world_gps'], compatibilityRole: 'legacy_segment_type' }",
 		"routeOptions: [",
 		"{ sportType: 'running' }",
 		"{ sportType: 'running', subType: 'indoor_running' }",

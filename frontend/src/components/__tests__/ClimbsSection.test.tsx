@@ -4,6 +4,10 @@ import '@testing-library/jest-dom'
 import type { Climb } from '@/api/types'
 
 let mockClimbs: Climb[] = []
+const mockUserPrefs = vi.hoisted((): { locale: 'de' | 'en'; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: mockClimbs, isLoading: false, isError: false }),
@@ -13,6 +17,11 @@ vi.mock('@/api/enrichment', () => ({
   fetchActivityClimbs: vi.fn(),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
+
+import '@/i18n/i18n'
 import ClimbsSection from '../ClimbsSection'
 
 describe('ClimbsSection', () => {
@@ -29,6 +38,8 @@ describe('ClimbsSection', () => {
       category: '4',
       sport_class: null,
     }]
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
   })
 
   it('explains that max gradient uses a 50m window', () => {
@@ -36,5 +47,16 @@ describe('ClimbsSection', () => {
 
     expect(screen.getByText('Max. Steigung')).toBeInTheDocument()
     expect(screen.getByTitle(/50-m-Abschnitt/)).toBeInTheDocument()
+  })
+
+  it('formats climb length and elevation with user units', () => {
+    mockUserPrefs.units = 'imperial'
+
+    render(<ClimbsSection activityId="act-1" />)
+
+    expect(screen.getByText('1.969 ft')).toBeInTheDocument()
+    expect(screen.getByText('138 ft')).toBeInTheDocument()
+    expect(screen.queryByText('600 m')).not.toBeInTheDocument()
+    expect(screen.queryByText('42 m')).not.toBeInTheDocument()
   })
 })

@@ -22,8 +22,8 @@ import (
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 
-	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/go-chi/chi/v5"
+	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
 // RoutingGraphStatus returns the current routing status based on tile availability.
@@ -330,7 +330,12 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 
 	// Concurrent-Guard
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "tile_build"); running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, adminJobAcceptedResponse("", map[string]any{"status": "already_running"}, adminJobI18n{
+			MessageCode: "admin.routing.tiles.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "routing.tiles",
+			Params:      map[string]any{"job_type": "tile_build"},
+		}))
 		return
 	}
 
@@ -363,6 +368,13 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.routing.tiles.started",
+		StatusCode:  "started",
+		EntityKey:   "routing.tiles",
+		Params:      map[string]any{"region_count": len(req.Regions), "force": req.Force},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	const tileCacheBytes = 4_000_000_000 // 4 GB — consistent with startup default
 
@@ -397,11 +409,10 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, map[string]any{
 		"status":   "started",
-		"job_id":   jobID,
 		"tile_dir": tileDir,
-	})
+	}, jobMeta))
 }
 
 // RebuildLandmarks runs ONLY the landmark preprocessing on existing tiles.
@@ -429,6 +440,12 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.routing.landmarks.started",
+		StatusCode:  "started",
+		EntityKey:   "routing.landmarks",
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		meta, landmarkErr := routing.RunUnifiedLandmarkPreprocessing(ctx, tileDir,
@@ -445,7 +462,7 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "started", "job_id": jobID})
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, map[string]any{"status": "started"}, jobMeta))
 }
 
 // BuildBRouterSegments builds BRouter rd5 segment files from local PBF data.
@@ -506,7 +523,12 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 
 	// Concurrent-Guard
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "brouter_segment_build"); running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, adminJobAcceptedResponse("", map[string]any{"status": "already_running"}, adminJobI18n{
+			MessageCode: "admin.brouter.segments.build.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "brouter.segments.build",
+			Params:      map[string]any{"job_type": "brouter_segment_build"},
+		}))
 		return
 	}
 
@@ -519,6 +541,13 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.brouter.segments.build.started",
+		StatusCode:  "started",
+		EntityKey:   "brouter.segments.build",
+		Params:      map[string]any{"region_count": len(regions)},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	shutdown.Go(jobID, func(ctx context.Context) {
 		osmDataDir := h.Config.OSMDataDir
@@ -543,11 +572,10 @@ func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, map[string]any{
 		"status":  "started",
-		"job_id":  jobID,
 		"regions": labels,
-	})
+	}, jobMeta))
 }
 
 // HandleGetProfileDefaults returns the full default ProfileConfig for a profile.
@@ -602,7 +630,12 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 	}
 
 	if running, _ := h.DB.HasRunningJobGlobal(r.Context(), "brouter_segment_download"); running {
-		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "already_running"})
+		httputil.WriteJSON(w, http.StatusOK, adminJobAcceptedResponse("", map[string]any{"status": "already_running"}, adminJobI18n{
+			MessageCode: "admin.brouter.segments.download.already_running",
+			StatusCode:  "already_running",
+			EntityKey:   "brouter.segments.download",
+			Params:      map[string]any{"job_type": "brouter_segment_download"},
+		}))
 		return
 	}
 
@@ -613,6 +646,13 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to create job"})
 		return
 	}
+	jobMeta := adminJobI18n{
+		MessageCode: "admin.brouter.segments.download.started",
+		StatusCode:  "started",
+		EntityKey:   "brouter.segments.download",
+		Params:      map[string]any{"tile_count": len(tiles)},
+	}
+	h.setBackgroundJobI18nMetadata(r.Context(), jobID, jobMeta)
 
 	segmentsDir := h.Config.BRouterSegmentsDir
 
@@ -636,13 +676,22 @@ func (h *Handler) DownloadBRouterSegments(w http.ResponseWriter, r *http.Request
 			}
 			_, _ = h.DB.Pool.Exec(bgCtx,
 				"UPDATE background_jobs SET entity_name = $1 WHERE id = $2", summary, jobID)
+			h.setBackgroundJobI18nMetadata(bgCtx, jobID, adminJobI18n{
+				MessageCode: "admin.brouter.segments.download.completed",
+				StatusCode:  "completed",
+				EntityKey:   "brouter.segments.download",
+				Params: map[string]any{
+					"downloaded": res.Downloaded,
+					"skipped":    res.Skipped,
+					"failed":     res.Failed,
+				},
+			})
 			_ = h.DB.CompleteBackgroundJob(bgCtx, jobID, false, "")
 		}
 	})
 
-	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
+	httputil.WriteJSON(w, http.StatusAccepted, adminJobAcceptedResponse(jobID, map[string]any{
 		"status": "started",
-		"job_id": jobID,
 		"tiles":  len(tiles),
-	})
+	}, jobMeta))
 }

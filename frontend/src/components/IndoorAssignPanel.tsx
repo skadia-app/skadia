@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchActivities } from '@/api/activities'
 import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { normTz } from '@/lib/format'
 import ColorPicker from '@/components/ColorPicker'
 
@@ -22,7 +24,9 @@ const colorPalette = [
 ]
 
 export default function IndoorAssignPanel({ locationTags, onClose, onPickLocation, onAssigned, onDragStateChange }: Props) {
+  const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
+  const language = supportedLanguageFrom(i18n.language)
   const [search, setSearch] = useState('')
   const [sportFilter, setSportFilter] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -52,7 +56,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     })
   }, [activities, search, sportFilter])
 
-  // Ausgewählte Items ganz oben anzeigen
+  // Keep selected items at the top.
   const sortedFiltered = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const aSelected = selectedIds.has(a.id) ? 0 : 1
@@ -87,7 +91,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   const assignMutation = useMutation({
     mutationFn: async () => {
       const tag = locationTags.find(t => t.id === selectedTagId)
-      if (!tag) throw new Error('Kein Standort ausgewählt')
+      if (!tag) throw new Error(t('indoorAssign.errors.noLocationSelected'))
       await assignActivitiesToTag(tag.id, Array.from(selectedIds))
     },
     onSuccess: () => {
@@ -149,8 +153,12 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
     <div className="absolute top-[3.5rem] right-[17.5rem] z-10 w-72 max-h-[calc(100vh-8.75rem)] flex flex-col rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm shadow-lg overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-        <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Standort zuweisen</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer">
+        <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('indoorAssign.title')}</span>
+        <button
+          onClick={onClose}
+          aria-label={t('common.close')}
+          className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+        >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
           </svg>
@@ -163,11 +171,11 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           onClick={() => setShowNewLocation(true)}
           className="px-2.5 py-1.5 text-xs text-accent-DEFAULT border border-accent-DEFAULT/30 rounded-lg hover:bg-accent-DEFAULT/10 cursor-pointer whitespace-nowrap"
         >
-          + Neu
+          {t('indoorAssign.newLocationShort')}
         </button>
         {hasSelection && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400 flex-1 truncate">
-            {selectedIds.size} ausgew.
+            {t('indoorAssign.selectedShort', { count: selectedIds.size })}
           </span>
         )}
         <div
@@ -180,18 +188,19 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               ? 'border-accent-DEFAULT/40 text-accent-DEFAULT cursor-grab active:cursor-grabbing hover:bg-accent-DEFAULT/10'
               : 'border-neutral-200 dark:border-neutral-700 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
           }`}
-          title={hasSelection ? 'Auf Karte ziehen zum Zuweisen' : 'Erst Aktivitäten auswählen'}
+          title={hasSelection ? t('indoorAssign.dragHandleReadyTitle') : t('indoorAssign.dragHandleDisabledTitle')}
+          aria-label={hasSelection ? t('indoorAssign.dragHandleReadyTitle') : t('indoorAssign.dragHandleDisabledTitle')}
         >
           {/* drag-hand icon */}
           <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path d="M9 3.5a1 1 0 00-2 0V9H5.5a1 1 0 000 2H7v1H5.5a1 1 0 000 2H7v.5a4.5 4.5 0 009 0v-5a1 1 0 00-2 0v2h-.5V9a1 1 0 00-2 0v2H11V3.5z" />
           </svg>
-          <span>Ziehen</span>
+          <span>{t('indoorAssign.drag')}</span>
         </div>
       </div>
       {dragHint && (
         <div className="px-3 py-1.5 bg-accent-DEFAULT/10 border-b border-accent-DEFAULT/30 text-xs text-accent-DEFAULT text-center animate-pulse">
-          Diesen Button auf einen Pin auf der Karte ziehen
+          {t('indoorAssign.dragButtonHint')}
         </div>
       )}
 
@@ -202,7 +211,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
             <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path d="M10 2a.75.75 0 01.75.75v8.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V2.75A.75.75 0 0110 2z" />
             </svg>
-            Aktivitäten wählen und auf die Karte ziehen
+            {t('indoorAssign.selectAndDragHint')}
           </span>
         </p>
       )}
@@ -213,7 +222,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Titel / Beschreibung suchen..."
+          placeholder={t('indoorAssign.searchPlaceholder')}
           className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         />
         <select
@@ -221,9 +230,9 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
           onChange={(e) => setSportFilter(e.target.value)}
           className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
         >
-          <option value="">Alle Sportarten</option>
+          <option value="">{t('indoorAssign.allSports')}</option>
           {sportTypes.map(s => (
-            <option key={s} value={s}>{sportLabel(s)}</option>
+            <option key={s} value={s}>{sportLabel(s, undefined, { language })}</option>
           ))}
         </select>
       </div>
@@ -231,9 +240,9 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
       {/* Activity list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="py-8 text-center text-xs text-neutral-400">Lade...</div>
+          <div className="py-8 text-center text-xs text-neutral-400">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
-          <div className="py-8 text-center text-xs text-neutral-400">Keine Aktivitäten ohne Standort gefunden</div>
+          <div className="py-8 text-center text-xs text-neutral-400">{t('indoorAssign.empty')}</div>
         ) : (
           <>
             <div className="px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800">
@@ -245,13 +254,13 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                   onChange={toggleAll}
                   className="w-3 h-3 rounded"
                 />
-                Alle auswählen ({filtered.length})
+                {t('indoorAssign.selectAll', { count: filtered.length })}
               </label>
             </div>
             {sortedFiltered.map(act => {
-              const displayTitle = displayActivityTitle(act, sportLabel(act.sport_type))
+              const displayTitle = displayActivityTitle(act, sportLabel(act.sport_type, undefined, { language }))
               const dateStr = act.started_at
-                ? new Date(act.started_at).toLocaleDateString('de-DE', {
+                ? new Date(act.started_at).toLocaleDateString(i18n.language, {
                     weekday: 'short', day: '2-digit', month: '2-digit',
                     ...(normTz(act.timezone) ? { timeZone: normTz(act.timezone) } : {}),
                   })
@@ -278,7 +287,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                       {displayTitle}
                     </div>
                     <div className="text-xs text-neutral-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <span>{sportLabel(act.sport_type)}</span>
+                      <span>{sportLabel(act.sport_type, undefined, { language })}</span>
                       {dateStr && <span>{dateStr}</span>}
                       {dur && <span>{dur}</span>}
                     </div>
@@ -299,7 +308,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               onChange={(e) => setSelectedTagId(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             >
-              <option value="">An Standort zuweisen...</option>
+              <option value="">{t('indoorAssign.assignToLocationPlaceholder')}</option>
               {locationTags.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -309,25 +318,25 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               disabled={selectedIds.size === 0 || !selectedTagId || assignMutation.isPending}
               className="w-full py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
-              {assignMutation.isPending ? 'Zuweisen...' : 'Zuweisen'}
+              {assignMutation.isPending ? t('indoorAssign.assigning') : t('indoorAssign.assign')}
             </button>
           </>
         ) : (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Neuer Standort</span>
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{t('indoorAssign.newLocation')}</span>
               <button
                 onClick={() => setShowNewLocation(false)}
                 className="text-xs text-neutral-400 hover:text-neutral-600 cursor-pointer"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
             </div>
             <input
               type="text"
               value={newLocName}
               onChange={(e) => setNewLocName(e.target.value)}
-              placeholder="Name des Standorts"
+              placeholder={t('indoorAssign.locationNamePlaceholder')}
               className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-neutral-900 dark:text-neutral-100 outline-none focus:border-accent-400"
             />
             <div className="space-y-1.5">
@@ -337,6 +346,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                     key={c}
                     type="button"
                     onClick={() => setNewLocColor(c)}
+                    aria-label={t('indoorAssign.selectColor', { color: c })}
                     className="w-5 h-5 rounded-full border-2 cursor-pointer"
                     style={{ backgroundColor: c, borderColor: newLocColor === c ? '#f97316' : 'transparent', transform: newLocColor === c ? 'scale(1.15)' : 'scale(1)' }}
                   />
@@ -350,7 +360,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                 disabled={!newLocName.trim()}
                 className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                {selectedIds.size > 0 ? 'Auf Karte setzen' : 'Erstellen'}
+                {selectedIds.size > 0 ? t('indoorAssign.placeOnMap') : t('indoorAssign.create')}
               </button>
               {selectedIds.size === 0 && (
                 <button
@@ -358,20 +368,20 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                   disabled={!newLocName.trim()}
                   className="px-2.5 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Nur erstellen
+                  {t('indoorAssign.createOnly')}
                 </button>
               )}
             </div>
             {selectedIds.size > 0 && (
               <p className="text-xs text-neutral-400">
-                Klick auf die Karte setzt den Standort-Pin und weist {selectedIds.size} Aktivität(en) zu.
+                {t('indoorAssign.placeOnMapHint', { count: selectedIds.size })}
               </p>
             )}
           </div>
         )}
 
         {assignMutation.error && (
-          <p className="text-xs text-rose-500">Fehler: {(assignMutation.error as Error).message}</p>
+          <p className="text-xs text-rose-500">{t('common.error')}: {(assignMutation.error as Error).message}</p>
         )}
       </div>
     </div>

@@ -25,7 +25,7 @@ vi.mock('@/api/systemStatus', () => ({
       db: { key: 'db', label: 'Database', state: 'degraded', reason_code: 'migration_dirty', checked_at: '2026-05-17T10:00:00Z' },
       timescale_compression: { key: 'timescale_compression', label: 'TimescaleDB compression', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
       storage: { key: 'storage', label: 'Storage', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
-      jobs: { key: 'jobs', label: 'Jobs', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
+      jobs: { key: 'jobs', label: 'Jobs', state: 'ok', reason_code: 'future_scheduler_state', checked_at: '2026-05-17T10:00:00Z' },
       gdpr_artifacts: { key: 'gdpr_artifacts', label: 'GDPR artifacts', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
       api: { key: 'api', label: 'API', state: 'ok', checked_at: '2026-05-17T10:00:00Z' },
       ml: { key: 'ml', label: 'ML service', state: 'disabled', reason_code: 'ml_disabled', checked_at: '2026-05-17T10:00:00Z' },
@@ -40,6 +40,7 @@ vi.mock('@/api/systemStatus', () => ({
     feature_matrix: {
       routing: { key: 'routing', label: 'routing', state: 'degraded', reason_code: 'missing_artifacts', checked_at: '2026-05-17T10:00:00Z' },
       document_ml: { key: 'document_ml', label: 'document_ml', state: 'disabled', reason_code: 'storage_unavailable', checked_at: '2026-05-17T10:00:00Z' },
+      future_pipeline: { key: 'future_pipeline', label: 'future_pipeline', state: 'degraded', reason_code: 'future_pipeline_reason', checked_at: '2026-05-17T10:00:00Z' },
     },
   })),
   downloadSystemStatusExport: mocks.downloadSystemStatusExport,
@@ -89,6 +90,11 @@ describe('AdminSystemStatusTab', () => {
     expect(screen.queryByText('document_ml')).not.toBeInTheDocument()
     expect(screen.queryByText('storage_unavailable')).not.toBeInTheDocument()
     expect(screen.getByText('Speicher ist nicht verfügbar.')).toBeInTheDocument()
+    expect(screen.queryByText('future_pipeline')).not.toBeInTheDocument()
+    expect(screen.queryByText('future_pipeline_reason')).not.toBeInTheDocument()
+    expect(screen.queryByText('future_scheduler_state')).not.toBeInTheDocument()
+    expect(screen.getByText('Unbekanntes Feature')).toBeInTheDocument()
+    expect(screen.getAllByText('Unbekannter Grund').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByRole('button', { name: 'Diagnose exportieren' })).toBeInTheDocument()
   })
 

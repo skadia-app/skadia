@@ -8,6 +8,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHealthBloodPressure } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
@@ -15,7 +16,11 @@ import { useECharts } from '@/hooks/useECharts'
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
 export default function BloodPressureChart() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const systolicLabel = t('analyticsHealthInsights.bloodPressure.systolic')
+  const diastolicLabel = t('analyticsHealthInsights.bloodPressure.diastolic')
+  const pulseLabel = t('analyticsHealthInsights.bloodPressure.pulse')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health', 'blood-pressure', from, to],
@@ -68,7 +73,7 @@ export default function BloodPressureChart() {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 44, bottom: 40 },
         legend: {
-          data: hasPulse ? ['Systolisch', 'Diastolisch', 'Puls'] : ['Systolisch', 'Diastolisch'],
+          data: hasPulse ? [systolicLabel, diastolicLabel, pulseLabel] : [systolicLabel, diastolicLabel],
           top: 8,
           textStyle: { fontSize: 10, color: '#9ca3af' },
           itemHeight: 8,
@@ -87,7 +92,7 @@ export default function BloodPressureChart() {
             let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
             for (const p of items) {
               if (p.value == null) continue
-              const unit = p.seriesName === 'Puls' ? ' bpm' : ' mmHg'
+              const unit = p.seriesName === pulseLabel ? ' bpm' : ' mmHg'
               html += `<div style="display:flex;align-items:center;gap:6px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
@@ -112,7 +117,7 @@ export default function BloodPressureChart() {
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
         series: [
           {
-            name: 'Systolisch',
+            name: systolicLabel,
             type: 'line',
             data: systolicValues,
             showSymbol: true,
@@ -122,7 +127,7 @@ export default function BloodPressureChart() {
             itemStyle: { color: '#ef4444' },
           },
           {
-            name: 'Diastolisch',
+            name: diastolicLabel,
             type: 'line',
             data: diastolicValues,
             showSymbol: true,
@@ -134,7 +139,7 @@ export default function BloodPressureChart() {
           ...(hasPulse
             ? [
                 {
-                  name: 'Puls',
+                  name: pulseLabel,
                   type: 'line' as const,
                   data: pulseValues,
                   showSymbol: false,
@@ -147,25 +152,25 @@ export default function BloodPressureChart() {
         ],
       }
     },
-    [data],
+    [data, systolicLabel, diastolicLabel, pulseLabel],
   )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Blutdruck
+          {t('analyticsHealthInsights.bloodPressure.title')}
         </h2>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade Blutdruckdaten...
+            {t('analyticsHealthInsights.bloodPressure.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden der Blutdruckdaten
+            {t('analyticsHealthInsights.bloodPressure.loadFailed')}
           </div>
         ) : !data || data.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
@@ -173,7 +178,7 @@ export default function BloodPressureChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
             </svg>
-            <span className="text-sm">Keine Blutdruckdaten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.bloodPressure.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[280px] w-full" />

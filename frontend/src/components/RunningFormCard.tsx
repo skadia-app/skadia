@@ -1,22 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
+import { useTranslation } from 'react-i18next'
 import type { Activity } from '@/api/types'
 import { fetchRunningFormBaseline, type RunningFormBaseline } from '@/api/analytics'
 
 // ── Label constants (i18n-ready) ──────────────────────────────────────────────
 
 const LABELS = {
-  title: 'Laufform',
   dutyFactor: 'Duty Factor',
   verticalRatio: 'Vertical Ratio',
   gctAsymmetry: 'GCT-Asymmetrie',
   fatigueIndex: 'Fatigue Index',
   fatigueVR: 'Fatigue VR',
-  tier: (n: number) => `Tier ${n}`,
-  tooltipBetter: (pct: string) => `${pct}% besser als dein 90-Tage-Median`,
-  tooltipWorse: (pct: string) => `${pct}% schlechter als Durchschnitt`,
-  tooltipNeutral: (pct: string) => `${pct}% vom 90-Tage-Median`,
-  tooltipAbsolute: 'Absoluter Wert (noch keine Baseline)',
 }
+
+const CARD_KEY = 'analyticsHealthInsights.runningFormCard'
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
@@ -36,12 +34,12 @@ function baselineRelativeColor(value: number, baseline: number): string {
   return COLOR_RED
 }
 
-function baselineTooltip(value: number, baseline: number): string {
+function baselineTooltip(value: number, baseline: number, t: TFunction): string {
   const deviation = ((value - baseline) / baseline) * 100
   const absPct = Math.abs(deviation).toFixed(1)
-  if (deviation < -5) return LABELS.tooltipBetter(absPct)
-  if (deviation > 5) return LABELS.tooltipWorse(absPct)
-  return LABELS.tooltipNeutral(Math.abs(deviation).toFixed(1))
+  if (deviation < -5) return t(`${CARD_KEY}.tooltipBetter`, { pct: absPct })
+  if (deviation > 5) return t(`${CARD_KEY}.tooltipWorse`, { pct: absPct })
+  return t(`${CARD_KEY}.tooltipNeutral`, { pct: absPct })
 }
 
 // Static fallback colors (used when no baseline available)
@@ -80,7 +78,7 @@ function isBaselineUsable(baseline: RunningFormBaseline | undefined): boolean {
 
 // ── Tier badge ────────────────────────────────────────────────────────────────
 
-function TierBadge({ tier }: { tier: number }) {
+function TierBadge({ tier, label }: { tier: number; label: string }) {
   const styles: Record<number, string> = {
     1: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
     2: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400 dark:border-violet-800',
@@ -88,7 +86,7 @@ function TierBadge({ tier }: { tier: number }) {
   }
   return (
     <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${styles[tier] ?? ''}`}>
-      {LABELS.tier(tier)}
+      {label}
     </span>
   )
 }
@@ -125,6 +123,7 @@ interface RunningFormCardProps {
 }
 
 export function RunningFormCard({ activity }: RunningFormCardProps) {
+  const { t } = useTranslation()
   const tier = activity.running_form_tier
   if (!tier || tier < 1) return null
 
@@ -151,8 +150,8 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
   }
 
   function metricTooltip(val: number, baselineVal: number | null | undefined): string {
-    if (usable && baselineVal != null) return baselineTooltip(val, baselineVal)
-    return LABELS.tooltipAbsolute
+    if (usable && baselineVal != null) return baselineTooltip(val, baselineVal, t)
+    return t(`${CARD_KEY}.tooltipAbsolute`)
   }
 
   return (
@@ -160,9 +159,9 @@ export function RunningFormCard({ activity }: RunningFormCardProps) {
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wide">
-          {LABELS.title}
+          {t(`${CARD_KEY}.title`)}
         </span>
-        <TierBadge tier={tier} />
+        <TierBadge tier={tier} label={t(`${CARD_KEY}.tier`, { tier })} />
       </div>
 
       {/* Tiles — responsive wrap */}

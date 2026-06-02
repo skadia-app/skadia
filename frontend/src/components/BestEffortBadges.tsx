@@ -1,10 +1,15 @@
 import { useState, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { addExclusion } from '@/api/bestEfforts'
 import { useToast } from '@/lib/toast'
 import { categoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import type { BestEffortRanked, NearMiss } from '@/api/bestEfforts'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { fmtDuration } from '@/lib/format'
+import { formatPower } from '@/lib/units'
 
 // ── Rank badge styling ────────────────────────────────────────────────────────
 
@@ -21,11 +26,11 @@ const RANK_DOT: Record<number, string> = {
   3: '#CD7F32',
 }
 
-function rankLabel(rank: number): string {
-  if (rank === 1) return 'PR!'
-  if (rank === 2) return '2. Bestzeit'
-  if (rank === 3) return '3. Bestzeit'
-  return `${rank}. Bestzeit`
+function rankLabel(rank: number, t: ReturnType<typeof useTranslation>['t']): string {
+  if (rank === 1) return t('activityOperations.bestEfforts.rank.pr')
+  if (rank === 2) return t('activityOperations.bestEfforts.rank.second')
+  if (rank === 3) return t('activityOperations.bestEfforts.rank.third')
+  return t('activityOperations.bestEfforts.rank.nth', { rank })
 }
 
 // ── Percentile badge ──────────────────────────────────────────────────────────
@@ -36,11 +41,13 @@ interface PercentileBadgeProps {
 }
 
 function PercentileBadge({ percentile, category }: PercentileBadgeProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   if (percentile == null || percentile < 0.50) return null
 
   const topPct = Math.round((1 - percentile) * 100)
-  const label = categoryLabel(category)
-  const tooltip = `Diese Leistung liegt in deinen besten ${topPct}% aller ${label} Zeiten`
+  const label = categoryLabel(category, language)
+  const tooltip = t('activityOperations.bestEfforts.percentileTooltip', { pct: topPct, label })
 
   if (percentile >= 0.90) {
     return (
@@ -48,7 +55,7 @@ function PercentileBadge({ percentile, category }: PercentileBadgeProps) {
         className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
         title={tooltip}
       >
-        Top {topPct}%
+        {t('activityOperations.bestEfforts.topPercent', { pct: topPct })}
       </span>
     )
   }
@@ -59,7 +66,7 @@ function PercentileBadge({ percentile, category }: PercentileBadgeProps) {
       className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
       title={tooltip}
     >
-      Top {topPct}%
+      {t('activityOperations.bestEfforts.topPercent', { pct: topPct })}
     </span>
   )
 }
@@ -73,6 +80,9 @@ interface EffortBadgeProps {
 }
 
 function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const unitFormatters = useUnitFormatters()
   const [open, setOpen] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
   const { addToast } = useToast()
@@ -83,17 +93,24 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
   const rank = Math.min(effort.rank, 3)
   const style = RANK_STYLES[rank] ?? RANK_STYLES[3]
   const dotColor = RANK_DOT[rank] ?? RANK_DOT[3]
+  const effortCategoryLabel = categoryLabel(effort.category, language)
+  const effortRankLabel = rankLabel(effort.rank, t)
+  const effortValueLabel = formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric, unitFormatters.options)
 
   const excludeMut = useMutation({
     mutationFn: () => addExclusion(activityId, effort.category),
     onSuccess: () => {
       setOpen(false)
       queryClient.invalidateQueries({ queryKey: ['activity-best-efforts', activityId] })
-      addToast({ type: 'success', title: 'Von PRs ausgeschlossen', message: `${categoryLabel(effort.category)} wird nicht mehr gewertet.` })
+      addToast({
+        type: 'success',
+        title: t('activityOperations.bestEfforts.toasts.excluded'),
+        message: t('activityOperations.bestEfforts.toasts.excludedMessage', { category: effortCategoryLabel }),
+      })
       onExcluded()
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Ausschluss fehlgeschlagen', message: 'Bitte versuche es erneut.' })
+      addToast({ type: 'error', title: t('activityOperations.bestEfforts.toasts.excludeFailed'), message: t('common.retry') })
     },
   })
 
@@ -103,19 +120,19 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
         type="button"
         onClick={() => setOpen(v => !v)}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold cursor-pointer transition-colors ${style.bg} ${style.text} ${style.border} hover:opacity-80`}
-        title={`${categoryLabel(effort.category)} — ${rankLabel(effort.rank)} — ${formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric)}`}
+        title={`${effortCategoryLabel} — ${effortRankLabel} — ${effortValueLabel}`}
       >
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
-        <span>{categoryLabel(effort.category)}</span>
-        <span className="opacity-75">{rankLabel(effort.rank)}</span>
-        <span className="font-mono opacity-60">{formatBestEffortValue(effort.category, effort.elapsed_time_s, effort.value_numeric)}</span>
+        <span>{effortCategoryLabel}</span>
+        <span className="opacity-75">{effortRankLabel}</span>
+        <span className="font-mono opacity-60">{effortValueLabel}</span>
       </button>
       <PercentileBadge percentile={effort.percentile} category={effort.category} />
 
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-52 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg p-2">
           <div className="text-xs text-neutral-500 dark:text-neutral-400 px-1 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
-            {categoryLabel(effort.category)} &mdash; {rankLabel(effort.rank)}
+            {effortCategoryLabel} &mdash; {effortRankLabel}
           </div>
           <button
             type="button"
@@ -123,7 +140,7 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
             onClick={() => excludeMut.mutate()}
             className="w-full text-left px-2 py-1.5 mt-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded cursor-pointer transition-colors disabled:opacity-50"
           >
-            Von PRs ausschließen
+            {t('activityOperations.bestEfforts.exclude')}
           </button>
         </div>
       )}
@@ -134,13 +151,16 @@ function EffortBadge({ effort, activityId, onExcluded }: EffortBadgeProps) {
 // ── Near-miss badge ───────────────────────────────────────────────────────────
 
 function NearMissBadge({ miss }: { miss: NearMiss }) {
-  const label = categoryLabel(miss.category)
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const unitFormatters = useUnitFormatters()
+  const label = categoryLabel(miss.category, language)
 
   let diffText: string
   if (miss.diff_seconds != null) {
-    diffText = `${Math.round(miss.diff_seconds)} s`
+    diffText = fmtDuration(miss.diff_seconds, 'abbr')
   } else if (miss.diff_watts != null) {
-    diffText = `${Math.round(miss.diff_watts)} W`
+    diffText = formatPower(miss.diff_watts, unitFormatters.options)
   } else {
     return null
   }
@@ -148,12 +168,12 @@ function NearMissBadge({ miss }: { miss: NearMiss }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800"
-      title={`Knapp verfehlt: ${diffText} von deinem ${label}-PR`}
+      title={t('activityOperations.bestEfforts.nearMissTitle', { diff: diffText, label })}
     >
       <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      {diffText} von {label}-PR entfernt
+      {t('activityOperations.bestEfforts.nearMissLabel', { diff: diffText, label })}
     </span>
   )
 }

@@ -1,7 +1,9 @@
 import { useId } from 'react'
 import { Building2, Droplet, Mountain } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { SummaryItem, StatsKind } from './StatsRow'
 import { useHoverPopover } from '@/hooks/useHoverPopover'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   kind: StatsKind
@@ -20,6 +22,8 @@ function itemIcon(kind: StatsKind) {
 }
 
 export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }: Props) {
+  const { t } = useTranslation()
+  const { formatElevation } = useUnitFormatters()
   // Stable ID for aria-describedby wiring (tooltip pattern — no listbox/option semantics
   // because we don't implement keyboard arrow navigation that role="listbox" implies).
   const tooltipId = useId()
@@ -36,10 +40,10 @@ export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }
 
   const ariaLabel =
     kind === 'summit'
-      ? `${label}, Gipfelliste öffnen`
+      ? t('mapEditor.symbolList.openSummits', { label })
       : kind === 'water'
-        ? `${label}, Gewässerliste öffnen`
-        : `${label}, Ortschaftsliste öffnen`
+        ? t('mapEditor.symbolList.openWaters', { label })
+        : t('mapEditor.symbolList.openSettlements', { label })
 
   return (
     <div className="relative inline-block" {...{ [sentinelAttr]: '' }}>
@@ -73,11 +77,11 @@ export function SymbolListPopover({ kind, icon, label, items, onHover, onLeave }
                 >
                   <span className="flex items-center gap-1 min-w-0 shrink">
                     {itemIcon(kind)}
-                    <span className="break-words">{item.name || '(kein Name)'}</span>
+                    <span className="break-words">{item.name || t('mapEditor.symbolList.unnamed')}</span>
                   </span>
                   {item.ele_m != null && (
                     <span className="text-right text-neutral-500 dark:text-neutral-400 tabular-nums shrink-0 ml-auto pl-2">
-                      {item.ele_m.toLocaleString('de')} m
+                      {formatElevation(item.ele_m)}
                     </span>
                   )}
                 </li>

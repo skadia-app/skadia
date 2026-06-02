@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -23,20 +24,6 @@ echarts.use([
   CanvasRenderer,
 ])
 
-// ── Labels ────────────────────────────────────────────────────────────────────
-
-const LABELS = {
-  title: 'Blood Glucose',
-  unit: 'mg/dL',
-  noData: 'No glucose data available',
-  disclaimer:
-    'Zones reflect exercise-appropriate thresholds. Values up to ~160 mg/dL are normal during activity. Dashed lines at 100/125 mg/dL show fasting reference for context.',
-  zoneNormal: 'Normal (<160)',
-  zoneElevated: 'Elevated (160–200)',
-  zoneHigh: 'High (≥200)',
-  tooltipValue: 'Glucose',
-}
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface GlucoseChartPanelProps {
@@ -46,6 +33,7 @@ interface GlucoseChartPanelProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
+  const { t } = useTranslation()
   const { hasGlucose, xValues, glucoseValues } = useMemo(() => {
     let hasAny = false
     const xs: number[] = []
@@ -64,6 +52,9 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
       if (!hasGlucose) return { series: [] }
 
       const data = xValues.map((x, i) => [x, glucoseValues[i]])
+      const zoneNormal = t('activityDetail.glucose.zones.normal')
+      const zoneElevated = t('activityDetail.glucose.zones.elevated')
+      const zoneHigh = t('activityDetail.glucose.zones.high')
 
       return {
         backgroundColor: 'transparent',
@@ -79,10 +70,10 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
             const elapsed = items[0].value[0]
             const val = items[0].value[1]
             if (val == null) return ''
-            let zone = LABELS.zoneNormal
+            let zone = zoneNormal
             let zoneColor = '#22c55e'
-            if (val >= 200) { zone = LABELS.zoneHigh; zoneColor = '#ef4444' }
-            else if (val >= 160) { zone = LABELS.zoneElevated; zoneColor = '#f59e0b' }
+            if (val >= 200) { zone = zoneHigh; zoneColor = '#ef4444' }
+            else if (val >= 160) { zone = zoneElevated; zoneColor = '#f59e0b' }
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${fmtDuration(elapsed)}</div>
               <div><strong style="color:#f9fafb">${val.toFixed(1)} mg/dL</strong> <span style="color:${zoneColor};font-size:10px">${zone}</span></div>`
           },
@@ -107,7 +98,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
             formatter: (v: number) => `${v}`,
           },
           splitLine: { lineStyle: { color: theme.gridLineColor, type: 'dashed' } },
-          name: LABELS.unit,
+          name: 'mg/dL',
           nameTextStyle: { color: theme.textColor, fontSize: 10 },
         },
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
@@ -153,12 +144,12 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
                 {
                   yAxis: 100,
                   lineStyle: { color: '#9ca3af', type: 'dashed', width: 1, opacity: 0.4 },
-                  label: { show: true, position: 'insideEndTop', formatter: '100 (fasting)', fontSize: 9, color: '#9ca3af' },
+                  label: { show: true, position: 'insideEndTop', formatter: t('activityDetail.glucose.fastingLabel', { value: 100 }), fontSize: 9, color: '#9ca3af' },
                 },
                 {
                   yAxis: 125,
                   lineStyle: { color: '#9ca3af', type: 'dashed', width: 1, opacity: 0.4 },
-                  label: { show: true, position: 'insideEndTop', formatter: '125 (fasting)', fontSize: 9, color: '#9ca3af' },
+                  label: { show: true, position: 'insideEndTop', formatter: t('activityDetail.glucose.fastingLabel', { value: 125 }), fontSize: 9, color: '#9ca3af' },
                 },
               ],
             },
@@ -166,7 +157,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
         ],
       }
     },
-    [hasGlucose, xValues, glucoseValues],
+    [hasGlucose, t, xValues, glucoseValues],
   )
 
   if (!hasGlucose) return null
@@ -175,20 +166,20 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          {LABELS.title}
+          {t('activityDetail.glucose.title')}
         </h3>
         <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-sm bg-green-500 opacity-70" />
-            {LABELS.zoneNormal}
+            {t('activityDetail.glucose.zones.normal')}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-sm bg-amber-500 opacity-70" />
-            {LABELS.zoneElevated}
+            {t('activityDetail.glucose.zones.elevated')}
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block w-2 h-2 rounded-sm bg-red-500 opacity-70" />
-            {LABELS.zoneHigh}
+            {t('activityDetail.glucose.zones.high')}
           </span>
         </div>
       </div>
@@ -198,7 +189,7 @@ export function GlucoseChartPanel({ streams }: GlucoseChartPanelProps) {
       </div>
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500 leading-relaxed">
-        {LABELS.disclaimer}
+        {t('activityDetail.glucose.disclaimer')}
       </p>
     </div>
   )

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchEnrichmentStatus, fetchEnrichmentSettings, type EnrichmentModuleStatus } from '@/api/enrichment'
@@ -18,6 +19,11 @@ function buildGloballyDisabled(settings: EnrichmentSettings | undefined): Set<st
   return disabled
 }
 
+function moduleLabel(moduleName: string, t: ReturnType<typeof useTranslation>['t']): string {
+  const meta = MODULE_META[moduleName]
+  return meta ? t(meta.labelKey) : t('enrichmentStatus.modules.unknown.label')
+}
+
 interface Props {
   activityId: string
   enrichmentStatus: string
@@ -26,6 +32,7 @@ interface Props {
 }
 
 export default function EnrichmentStatusSection({ activityId, enrichmentStatus, hiddenModules, onToggleModule }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(true)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -58,11 +65,11 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
       queryClient.invalidateQueries({ queryKey: ['activity-track-summary', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity-climbs', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity-intervals', activityId] })
-      const label = MODULE_META[moduleName]?.label ?? moduleName
-      addToast({ type: 'success', title: `${label} neu berechnet` })
+      const label = moduleLabel(moduleName, t)
+      addToast({ type: 'success', title: t('enrichmentStatus.toasts.recomputed', { label }) })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Starten', duration: 0 })
+      addToast({ type: 'error', title: t('enrichmentStatus.toasts.startFailed'), duration: 0 })
     },
   })
 
@@ -77,7 +84,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
     } else {
       // no_data or error: trigger recompute
       if (!reprocessScopeForModule(module.name)) {
-        addToast({ type: 'info', title: 'Nicht manuell neu berechenbar' })
+        addToast({ type: 'info', title: t('enrichmentStatus.toasts.notReprocessable') })
         return
       }
       recomputeMutation.mutate(module.name)
@@ -103,12 +110,12 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Enrichment-Module
+          {t('enrichmentStatus.title')}
         </h2>
         <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-1">
           {completedCount}/{modules.length}
           {errorCount > 0 && (
-            <span className="text-red-500 ml-1">({errorCount} Fehler)</span>
+            <span className="text-red-500 ml-1">({t('enrichmentStatus.errorCount', { count: errorCount })})</span>
           )}
         </span>
       </button>
@@ -123,16 +130,17 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
                 hidden={hiddenModules.has(m.name)}
                 globallyDisabled={globallyDisabled.has(m.name)}
                 computing={recomputeMutation.isPending}
+                t={t}
                 onClick={() => handleTileClick(m)}
               />
             ))}
           </div>
 
           <p className="text-[11px] text-neutral-400 dark:text-neutral-600">
-            Aktive Module werden in der Detailansicht angezeigt. Inaktive Module können durch Klick neu berechnet werden.{' '}
+            {t('enrichmentStatus.hint')}{' '}
             {globallyDisabled.size > 0 && (
               <Link to="/settings?tab=analysen" className="text-accent-DEFAULT hover:underline">
-                {globallyDisabled.size === 1 ? '1 Modul ist' : `${globallyDisabled.size} Module sind`} global deaktiviert.
+                {t('enrichmentStatus.globalDisabled', { count: globallyDisabled.size })}
               </Link>
             )}
           </p>
@@ -142,7 +150,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
             disabled={recomputeMutation.isPending || globallyDisabled.has('auto_naming')}
             className="text-xs font-medium text-accent-DEFAULT hover:underline disabled:text-neutral-400 disabled:no-underline disabled:cursor-not-allowed"
           >
-            Auto-Titel neu berechnen
+            {t('enrichmentStatus.recomputeAutoTitle')}
           </button>
         </div>
       )}
@@ -155,15 +163,17 @@ function ModuleTile({
   hidden,
   globallyDisabled,
   computing,
+  t,
   onClick,
 }: {
   module: EnrichmentModuleStatus
   hidden: boolean
   globallyDisabled: boolean
   computing: boolean
+  t: ReturnType<typeof useTranslation>['t']
   onClick: () => void
 }) {
-  const meta = MODULE_META[module.name] ?? { label: module.name, icon: '' }
+  const meta = MODULE_META[module.name]
 
   const isCompleted = module.status === 'completed'
   const isError = module.status === 'error'
@@ -180,37 +190,37 @@ function ModuleTile({
     ring = 'ring-neutral-100 dark:ring-neutral-800/30'
     dotColor = 'bg-neutral-200 dark:bg-neutral-700'
     titleColor = 'text-neutral-350 dark:text-neutral-600 opacity-50'
-    tooltip = 'Global deaktiviert — unter Einstellungen → Analysen aktivieren'
+    tooltip = t('enrichmentStatus.tooltips.globallyDisabled')
   } else if (hidden) {
     bg = 'bg-neutral-50 dark:bg-neutral-900/20'
     ring = 'ring-neutral-150 dark:ring-neutral-800/50'
     dotColor = 'bg-neutral-200 dark:bg-neutral-700'
     titleColor = 'text-neutral-400 dark:text-neutral-600 line-through'
-    tooltip = 'Ausgeblendet — klicken zum Einblenden'
+    tooltip = t('enrichmentStatus.tooltips.hidden')
   } else if (isCompleted) {
     bg = 'bg-emerald-50 dark:bg-emerald-950/30'
     ring = 'ring-emerald-200 dark:ring-emerald-800'
     dotColor = 'bg-emerald-500'
     titleColor = 'text-neutral-700 dark:text-neutral-300'
-    tooltip = 'Daten vorhanden — klicken zum Ausblenden'
+    tooltip = t('enrichmentStatus.tooltips.completed')
   } else if (isError) {
     bg = 'bg-red-50 dark:bg-red-950/30'
     ring = 'ring-red-200 dark:ring-red-800'
     dotColor = 'bg-red-500'
     titleColor = 'text-neutral-700 dark:text-neutral-300'
-    tooltip = module.error ?? 'Fehler — klicken zum Neu berechnen'
+    tooltip = module.error ?? t('enrichmentStatus.tooltips.error')
   } else if (isPending) {
     bg = 'bg-amber-50 dark:bg-amber-950/30'
     ring = 'ring-amber-200 dark:ring-amber-800'
     dotColor = 'bg-amber-500 animate-pulse'
     titleColor = 'text-neutral-700 dark:text-neutral-300'
-    tooltip = 'Ausstehend'
+    tooltip = t('enrichmentStatus.tooltips.pending')
   } else {
     bg = 'bg-neutral-50 dark:bg-neutral-900/30'
     ring = 'ring-neutral-200 dark:ring-neutral-800'
     dotColor = 'bg-neutral-300 dark:bg-neutral-600'
     titleColor = 'text-neutral-500 dark:text-neutral-500'
-    tooltip = 'Keine Daten — klicken zum Berechnen'
+    tooltip = t('enrichmentStatus.tooltips.noData')
   }
 
   const canClick = !computing && !isPending && !globallyDisabled
@@ -232,16 +242,16 @@ function ModuleTile({
         className={`w-4 h-4 shrink-0 text-neutral-500 dark:text-neutral-400 ${globallyDisabled ? 'opacity-40' : ''}`}
         fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}
       >
-        <path strokeLinecap="round" strokeLinejoin="round" d={meta.icon} />
+        <path strokeLinecap="round" strokeLinejoin="round" d={meta?.icon ?? ''} />
       </svg>
 
       <div className="min-w-0 flex-1">
         <div className={`text-xs font-medium truncate transition-colors ${titleColor}`}>
-          {meta.label}
+          {moduleLabel(module.name, t)}
         </div>
         {!hidden && !globallyDisabled && isCompleted && module.count > 0 && (
           <div className="text-[10px] text-neutral-500 dark:text-neutral-500">
-            {module.count} Treffer
+            {t('enrichmentStatus.hitCount', { count: module.count })}
           </div>
         )}
         {!hidden && !globallyDisabled && isError && (
@@ -251,7 +261,7 @@ function ModuleTile({
         )}
         {globallyDisabled && (
           <div className="text-[10px] text-neutral-400 dark:text-neutral-600">
-            global aus
+            {t('enrichmentStatus.globallyOff')}
           </div>
         )}
       </div>

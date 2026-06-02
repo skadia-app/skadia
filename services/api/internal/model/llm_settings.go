@@ -121,10 +121,12 @@ type OllamaModel struct {
 }
 
 type LLMTestResult struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	Warning   string `json:"warning,omitempty"`
-	LatencyMs int64  `json:"latency_ms,omitempty"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message"`
+	MessageCode string `json:"message_code,omitempty"`
+	Warning     string `json:"warning,omitempty"`
+	WarningCode string `json:"warning_code,omitempty"`
+	LatencyMs   int64  `json:"latency_ms,omitempty"`
 }
 
 func IsValidLLMRole(role string) bool {

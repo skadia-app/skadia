@@ -9,28 +9,34 @@ import (
 // The sync.OnceValue cache from the previous implementation is removed because
 // tags.SystemTagSyncs is already a package-level static var.
 type systemModifierTagSync struct {
-	ModifierKey   string
-	SystemTagName string
-	SystemType    string
-	RuleName      string
-	OnlySportType string
-	Color         string
-	Description   string
-	ReadonlySync  bool
+	ModifierKey    string
+	SystemTagName  string
+	SystemType     string
+	RuleName       string
+	OnlySportType  string
+	Color          string
+	Description    string
+	DisplayKey     string
+	DescriptionKey string
+	RuleLabelKey   string
+	ReadonlySync   bool
 }
 
 func systemModifierTagSyncs() []systemModifierTagSync {
 	result := make([]systemModifierTagSync, 0, len(tags.SystemTagSyncs))
 	for _, s := range tags.SystemTagSyncs {
 		result = append(result, systemModifierTagSync{
-			ModifierKey:   s.ModifierKey,
-			SystemTagName: s.SystemTag,
-			SystemType:    systemTypeForModifierKey(s.ModifierKey),
-			RuleName:      systemRuleNameForTagSync(s),
-			OnlySportType: s.OnlySportType,
-			Color:         s.Color,
-			Description:   s.Description,
-			ReadonlySync:  s.ReadonlySync,
+			ModifierKey:    s.ModifierKey,
+			SystemTagName:  s.SystemTag,
+			SystemType:     systemTypeForModifierKey(s.ModifierKey),
+			RuleName:       systemRuleNameForTagSync(s),
+			OnlySportType:  s.OnlySportType,
+			Color:          s.Color,
+			Description:    s.Description,
+			DisplayKey:     systemTagDisplayKeyForModifier(s.ModifierKey),
+			DescriptionKey: systemTagDescriptionKeyForModifier(s.ModifierKey),
+			RuleLabelKey:   systemRuleLabelKeyForSystemType(systemTypeForModifierKey(s.ModifierKey)),
+			ReadonlySync:   s.ReadonlySync,
 		})
 	}
 	return result
@@ -64,6 +70,18 @@ func systemTagNameForModifier(modifierKey string) string {
 		}
 	}
 	return ""
+}
+
+func systemTagDisplayKeyForModifier(modifierKey string) string {
+	return "tags.system." + modifierKey + ".label"
+}
+
+func systemTagDescriptionKeyForModifier(modifierKey string) string {
+	return "tags.system." + modifierKey + ".description"
+}
+
+func systemRuleLabelKeyForSystemType(systemType string) string {
+	return "automation.system_rules." + systemType + ".label"
 }
 
 // IsSystemModifierTagName reports whether tagName is the reserved system tag

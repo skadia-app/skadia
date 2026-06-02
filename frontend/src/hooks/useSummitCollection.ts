@@ -23,7 +23,7 @@ export function useSummitCollection({ countryFilter, elevClass, yearFilter }: Us
   const isFiltered = !!(countryFilter || elevClass.min != null || elevClass.max != null || yearFilter)
 
   const { data: filteredData, isLoading: isLoadingFiltered } = useQuery({
-    queryKey: ['summit-collection', userId, countryFilter, elevClass.label, yearFilter],
+    queryKey: ['summit-collection', userId, countryFilter, elevClass.id, yearFilter],
     queryFn: () => fetchSummitCollection({
       country: countryFilter || undefined,
       min_elevation: elevClass.min ?? undefined,

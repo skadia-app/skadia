@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -10,6 +11,8 @@ import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { createSummitMarker, type SummitMarker } from './markerUtils'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { elevationInputUnit, elevationToDisplayValue, type UnitFormatOptions } from '@/lib/units'
 
 interface SummitMapFullscreenProps {
   initialSelected?: SummitVisit | null
@@ -19,6 +22,20 @@ interface SummitMapFullscreenProps {
   onClose: () => void
 }
 
+function formatElevationClassLabel(
+  cls: ElevClass,
+  defaultLabel: string,
+  options: UnitFormatOptions,
+): string {
+  if (cls.min == null) return defaultLabel
+  const formatter = new Intl.NumberFormat(options.locale, { maximumFractionDigits: 0 })
+  const unit = elevationInputUnit(options.units)
+  const minDisplay = formatter.format(Math.round(elevationToDisplayValue(cls.min, options.units)))
+  if (cls.max == null) return `${minDisplay}+ ${unit}`
+  const maxDisplay = formatter.format(Math.round(elevationToDisplayValue(cls.max, options.units)))
+  return `${minDisplay}-${maxDisplay} ${unit}`
+}
+
 export default function SummitMapFullscreen({
   initialSelected,
   initialElevClass,
@@ -26,6 +43,8 @@ export default function SummitMapFullscreen({
   initialYear,
   onClose,
 }: SummitMapFullscreenProps) {
+  const { t } = useTranslation()
+  const { options, formatElevation } = useUnitFormatters()
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<SummitMarker[]>([])
@@ -48,7 +67,7 @@ export default function SummitMapFullscreen({
     [defaultLayer?.key, caps],
   )
 
-  // MapLibre initialisieren
+  // Initialize MapLibre
   useEffect(() => {
     if (!mapContainer.current || mapRef.current || !mapStyle) return
     const map = new maplibregl.Map({
@@ -67,7 +86,7 @@ export default function SummitMapFullscreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle])
 
-  // Marker bei Filterwechsel aktualisieren
+  // Update markers when filters change
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -90,7 +109,7 @@ export default function SummitMapFullscreen({
     }
   }, [displaySummits, selectedSummit])
 
-  // Karte auf selektierten Gipfel zentrieren
+  // Center the map on the selected summit
   useEffect(() => {
     if (selectedSummit?.lat != null && selectedSummit?.lng != null && mapRef.current) {
       mapRef.current.flyTo({ center: [selectedSummit.lng, selectedSummit.lat], zoom: 12 })
@@ -99,22 +118,22 @@ export default function SummitMapFullscreen({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col md:flex-row bg-black overflow-hidden">
-      {/* Karte */}
+      {/* Map */}
       <div ref={mapContainer} className="flex-1 h-[60vh] md:h-full" />
 
-      {/* Panel: auf Mobile als horizontaler Streifen unten, auf Desktop rechts */}
+      {/* Panel: horizontal bottom strip on mobile, right side on desktop */}
       <div className="w-full md:w-80 md:flex-none h-[40vh] md:h-full bg-white dark:bg-neutral-900
                       border-t md:border-t-0 md:border-l border-neutral-200 dark:border-neutral-800
                       flex flex-col overflow-hidden">
-        {/* Panel-Header */}
+        {/* Panel header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
           <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            Gipfelsammlung
+            {t('summitCollection.title')}
           </span>
           <button
             onClick={onClose}
             className="cursor-pointer p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-            title="Schließen"
+            title={t('common.close')}
           >
             <svg className="w-5 h-5 text-neutral-500" viewBox="0 0 20 20" fill="currentColor">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -122,26 +141,26 @@ export default function SummitMapFullscreen({
           </button>
         </div>
 
-        {/* Filter-Bereich */}
+        {/* Filters */}
         <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 space-y-3">
-          {/* Höhenklassen */}
+          {/* Elevation classes */}
           <div className="flex flex-wrap gap-1">
             {ELEV_CLASSES.map(cls => (
               <button
-                key={cls.label}
+                key={cls.id}
                 onClick={() => setElevClass(cls)}
                 className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
-                  elevClass.label === cls.label
+                  elevClass.id === cls.id
                     ? 'bg-accent-DEFAULT text-white'
                     : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                 }`}
               >
-                {cls.label}
+                {formatElevationClassLabel(cls, t(cls.labelKey), options)}
               </button>
             ))}
           </div>
 
-          {/* Länder-Filter */}
+          {/* Country filter */}
           {availableCountries.length > 1 && (
             <select
               value={countryFilter}
@@ -150,12 +169,12 @@ export default function SummitMapFullscreen({
                          bg-white dark:bg-neutral-800 px-2 py-1.5 text-xs
                          text-neutral-700 dark:text-neutral-300 focus:outline-none"
             >
-              <option value="">Alle Länder</option>
+              <option value="">{t('summitCollection.filters.allCountries')}</option>
               {availableCountries.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
 
-          {/* Jahr-Filter */}
+          {/* Year filter */}
           {availableYears.length > 0 && (
             <select
               value={yearFilter}
@@ -164,21 +183,21 @@ export default function SummitMapFullscreen({
                          bg-white dark:bg-neutral-800 px-2 py-1.5 text-xs
                          text-neutral-700 dark:text-neutral-300 focus:outline-none"
             >
-              <option value="">Alle Jahre</option>
+              <option value="">{t('summitCollection.filters.allYears')}</option>
               {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           )}
 
           <div className="text-xs text-neutral-400">
-            {displaySummits.length} Gipfel
+            {t('summitCollection.map.summitCount', { count: displaySummits.length })}
           </div>
         </div>
 
-        {/* Gipfel-Detail-Bereich (scrollbar) */}
+        {/* Summit detail area (scrollable) */}
         <div className="flex-1 overflow-y-auto p-4">
           {selectedSummit ? (
             <div className="space-y-4">
-              {/* Gipfel-Header */}
+              {/* Summit header */}
               <div>
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-accent-DEFAULT shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -190,23 +209,23 @@ export default function SummitMapFullscreen({
                 </div>
                 <div className="text-sm text-neutral-500 dark:text-neutral-400 mt-1 pl-7 flex gap-3">
                   {selectedSummit.elevation_m != null && (
-                    <span>{Math.round(selectedSummit.elevation_m)} m</span>
+                    <span>{formatElevation(selectedSummit.elevation_m)}</span>
                   )}
-                  <span>{selectedSummit.visit_count}× besucht</span>
+                  <span>{t('summitCollection.map.visitedTimes', { count: selectedSummit.visit_count })}</span>
                 </div>
               </div>
 
-              {/* Aktivitätenliste */}
+              {/* Activity list */}
               <div>
                 <h4 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-                  Aktivitäten
+                  {t('summitCollection.activities.title')}
                 </h4>
                 <SummitActivityList summit={selectedSummit} />
               </div>
             </div>
           ) : (
             <div className="text-sm text-neutral-400 text-center mt-8">
-              Gipfel anklicken für Details
+              {t('summitCollection.map.clickForDetails')}
             </div>
           )}
         </div>

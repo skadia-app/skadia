@@ -61,7 +61,9 @@ func MergeSchemaWithUserCustom(base GearSchema, custom []UserSchemaDefinition) (
 	// Build mutable copies.
 	result := GearSchema{
 		AssignmentRoles: base.AssignmentRoles,
+		UnitGroups:      base.UnitGroups,
 		GearTypes:       make([]GearType, len(base.GearTypes)),
+		ComponentTypes:  base.ComponentTypes,
 		Attributes:      make([]Attribute, len(base.Attributes)),
 		OptionSets:      make([]OptionSet, len(base.OptionSets)),
 	}

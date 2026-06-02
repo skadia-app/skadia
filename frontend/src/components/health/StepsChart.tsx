@@ -2,6 +2,7 @@ import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { useECharts } from '@/hooks/useECharts'
 import type { HealthDailySummary } from '@/api/health'
 
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function StepsChart({ data }: Props) {
+  const { t, i18n } = useTranslation()
   const containerRef = useECharts(
     (theme) => {
       const dates = data.map(d => d.calendar_date)
@@ -39,7 +41,7 @@ export default function StepsChart({ data }: Props) {
             const items = params as Array<{ axisValueLabel: string; value: number }>
             if (!Array.isArray(items) || items.length === 0) return ''
             const item = items[0]
-            return `<div style="font-size:12px"><strong>${item.axisValueLabel}</strong><br/>${item.value.toLocaleString('de-DE')} Schritte</div>`
+            return `<div style="font-size:12px"><strong>${item.axisValueLabel}</strong><br/>${t('healthCharts.stepsCount', { count: item.value.toLocaleString(i18n.language) })}</div>`
           },
         },
         xAxis: {
@@ -69,7 +71,7 @@ export default function StepsChart({ data }: Props) {
                     symbol: 'none',
                     lineStyle: { color: '#3b82f6', type: 'dashed', width: 1.5 },
                     label: {
-                      formatter: `Ziel: ${goal.toLocaleString('de-DE')}`,
+                      formatter: t('healthCharts.goal', { value: goal.toLocaleString(i18n.language) }),
                       position: 'end',
                       fontSize: 10,
                       color: '#3b82f6',
@@ -82,13 +84,13 @@ export default function StepsChart({ data }: Props) {
         ],
       }
     },
-    [data],
+    [data, i18n.language, t],
   )
 
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[220px] text-sm text-neutral-400">
-        Keine Schrittzähler-Daten vorhanden
+        {t('healthCharts.noStepsData')}
       </div>
     )
   }

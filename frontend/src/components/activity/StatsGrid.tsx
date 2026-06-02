@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Activity } from '@/api/types'
-import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
 import { fieldLabel, fieldUnit, formatSpeedValue, cyclesLabel, defaultSpeedMode } from '@/lib/sportFieldLabels'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { getNetActivityTotals } from '@/lib/netActivityTotals'
+import { localeForLanguage } from '@/i18n/languages'
+import { useUser } from '@/providers/UserProvider'
+import { formatDistance, formatElevation, formatShortLength, formatTemperature, type UnitFormatOptions } from '@/lib/units'
 
 interface StatsGridProps {
   activity: Activity
@@ -19,72 +23,79 @@ interface StatItem {
   title?: string
 }
 
-const TSS_METHOD_INFO: Record<string, { icon: string; label: string }> = {
-  power_np:  { icon: '⚡', label: 'Power-basiert (Normalized Power)' },
-  power_avg: { icon: '⚡', label: 'Power-basiert (Durchschnitt)' },
-  hr_stream: { icon: '♥',  label: 'HR-basiert (sekunden-weise)' },
-  hr_avg:    { icon: '♥',  label: 'HR-basiert (Durchschnitt)' },
-  pace_ngp:  { icon: '🏃', label: 'Pace-basiert (NGP)' },
-  pace_swim: { icon: '🏊', label: 'Pace-basiert (CSS)' },
-  multi:     { icon: '🔀', label: 'Multi-Sport' },
+const TSS_METHOD_INFO: Record<string, { icon: string; labelKey: string }> = {
+  power_np:  { icon: '⚡', labelKey: 'activityStats.tssMethods.powerNp' },
+  power_avg: { icon: '⚡', labelKey: 'activityStats.tssMethods.powerAvg' },
+  hr_stream: { icon: '♥',  labelKey: 'activityStats.tssMethods.hrStream' },
+  hr_avg:    { icon: '♥',  labelKey: 'activityStats.tssMethods.hrAvg' },
+  pace_ngp:  { icon: '🏃', labelKey: 'activityStats.tssMethods.paceNgp' },
+  pace_swim: { icon: '🏊', labelKey: 'activityStats.tssMethods.paceSwim' },
+  multi:     { icon: '🔀', labelKey: 'activityStats.tssMethods.multi' },
 }
 
 const STRENGTH_SPORT_TYPES = ['fitness_equipment', 'training', 'strength_training']
 
+function formatSignedElevation(meters: number | null | undefined, sign: '+' | '−', options: UnitFormatOptions): string | null {
+  if (meters == null || isNaN(meters) || meters <= 0) return null
+  return `${sign}${formatElevation(meters, options)}`
+}
+
 export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
+  const { t } = useTranslation()
+  const { locale, units } = useUser()
+  const unitOptions = { locale: localeForLanguage(locale), units }
   const sport = activity.sport_type
   const net = getNetActivityTotals(activity)
-  const gain = formatElevationGain(net.elevationGainM)
-  const loss = formatElevationLoss(net.elevationLossM)
+  const gain = formatSignedElevation(net.elevationGainM, '+', unitOptions)
+  const loss = formatSignedElevation(net.elevationLossM, '−', unitOptions)
   const isDEM = activity.elevation_source === 'dem'
 
   const stats: (StatItem | null)[] = [
-    { label: 'Distanz', value: formatDistance(net.distanceM) },
-    { label: 'Dauer', value: formatDuration(activity.elapsed_time_s ?? 0) },
-    { label: 'Bewegungszeit', value: activity.moving_time_s ? formatDuration(activity.moving_time_s) : null },
+    { label: t('activityStats.distance'), value: formatDistance(net.distanceM, unitOptions) },
+    { label: t('activityStats.duration'), value: formatDuration(activity.elapsed_time_s ?? 0) },
+    { label: t('activityStats.movingTime'), value: activity.moving_time_s ? formatDuration(activity.moving_time_s) : null },
     {
-      label: 'Anstieg',
+      label: t('activityStats.ascent'),
       value: gain,
       badge: isDEM ? (
         <span
           className="text-xs text-emerald-600 dark:text-emerald-400 ml-1 font-normal"
-          title="Höhe via DEM (Open-Meteo) korrigiert"
+          title={t('activityStats.demCorrectedElevation')}
         >
           DEM
         </span>
       ) : undefined,
     },
-    { label: 'Abstieg', value: loss },
+    { label: t('activityStats.descent'), value: loss },
 
-    // Ø Pace / Ø Geschwindigkeit — pace-native sports show pace primary + speed secondary
+    // Pace-native sports show pace primary plus speed secondary.
     activity.avg_speed_ms != null ? (
       defaultSpeedMode(sport) === 'pace'
-        ? { label: 'Ø Pace', value: formatSpeedValue(activity.avg_speed_ms, sport, 'pace'), secondary: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') }
-        : { label: 'Ø Geschwindigkeit', value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed') }
+        ? { label: t('activityStats.avgPace'), value: formatSpeedValue(activity.avg_speed_ms, sport, 'pace', unitOptions), secondary: formatSpeedValue(activity.avg_speed_ms, sport, 'speed', unitOptions) }
+        : { label: t('activityStats.avgSpeed'), value: formatSpeedValue(activity.avg_speed_ms, sport, 'speed', unitOptions) }
     ) : null,
 
-    // Beste Pace / Max. Geschwindigkeit — same pattern
+    // Best pace / max speed uses the same primary/secondary pattern.
     activity.max_speed_ms != null ? (
       defaultSpeedMode(sport) === 'pace'
-        ? { label: 'Beste Pace', value: formatSpeedValue(activity.max_speed_ms, sport, 'pace'), secondary: formatSpeedValue(activity.max_speed_ms, sport, 'speed') }
-        : { label: 'Max. Geschwindigkeit', value: formatSpeedValue(activity.max_speed_ms, sport, 'speed') }
+        ? { label: t('activityStats.bestPace'), value: formatSpeedValue(activity.max_speed_ms, sport, 'pace', unitOptions), secondary: formatSpeedValue(activity.max_speed_ms, sport, 'speed', unitOptions) }
+        : { label: t('activityStats.maxSpeed'), value: formatSpeedValue(activity.max_speed_ms, sport, 'speed', unitOptions) }
     ) : null,
 
-    // Herzfrequenz
     activity.avg_heart_rate != null ? {
-      label: 'Ø Herzfrequenz',
+      label: t('activityStats.avgHeartRate'),
       value: `${Math.round(activity.avg_heart_rate)} bpm`,
     } : null,
     activity.max_heart_rate != null ? {
-      label: 'Max. Herzfrequenz',
+      label: t('activityStats.maxHeartRate'),
       value: `${activity.max_heart_rate} bpm`,
     } : null,
     activity.min_heart_rate != null ? {
-      label: 'Min. Herzfrequenz',
+      label: t('activityStats.minHeartRate'),
       value: `${activity.min_heart_rate} bpm`,
     } : null,
 
-    // Leistung
+    // Sport-specific field labels are still provided by the domain label layer.
     activity.avg_power_w != null ? {
       label: `Ø ${fieldLabel('power', sport)}`,
       value: `${Math.round(activity.avg_power_w)} W`,
@@ -96,24 +107,22 @@ export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
     activity.normalized_power_w != null ? {
       label: 'NP',
       value: `${Math.round(activity.normalized_power_w)} W`,
-      title: 'Normalisierte Leistung',
+      title: t('activityStats.normalizedPower'),
     } : null,
 
-    // Kadenz
     activity.avg_cadence != null ? {
       label: `Ø ${fieldLabel('cadence', sport)}`,
       value: `${Math.round(activity.avg_cadence)} ${fieldUnit('cadence', sport)}`,
       title: fieldLabel('cadence', sport),
     } : null,
 
-    // Temperatur
     activity.avg_temperature_c != null ? {
-      label: 'Ø Temperatur',
-      value: `${Math.round(activity.avg_temperature_c)} °C`,
+      label: t('activityStats.avgTemperature'),
+      value: formatTemperature(activity.avg_temperature_c, unitOptions),
     } : null,
     (activity.min_temperature_c != null && activity.max_temperature_c != null && activity.min_temperature_c !== activity.max_temperature_c) ? {
-      label: 'Temperatur (Min–Max)',
-      value: `${Math.round(activity.min_temperature_c)} – ${Math.round(activity.max_temperature_c)} °C`,
+      label: t('activityStats.temperatureMinMax'),
+      value: `${formatTemperature(activity.min_temperature_c, unitOptions)} – ${formatTemperature(activity.max_temperature_c, unitOptions)}`,
     } : null,
 
     // TSS (prefer computed_tss if available, fall back to tss)
@@ -124,8 +133,8 @@ export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
       const isStrength = STRENGTH_SPORT_TYPES.includes(sport)
       const isHrBased = method?.icon === '♥'
       const methodSuffix = method ? ` ${method.icon}` : ''
-      const baseTitle = method?.label ?? 'Training Stress Score'
-      const warningNote = isStrength && isHrBased ? ' — bei Krafttraining möglicherweise ungenau' : ''
+      const baseTitle = method ? t(method.labelKey) : 'Training Stress Score'
+      const warningNote = isStrength && isHrBased ? ` ${t('activityStats.strengthHrTssWarning')}` : ''
       return {
         label: `TSS${methodSuffix}`,
         value: `${Math.round(tssValue)}`,
@@ -137,32 +146,30 @@ export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
     activity.trimp != null && activity.trimp > 0 ? {
       label: 'TRIMP',
       value: `${Math.round(activity.trimp)}`,
-      title: 'Edwards TRIMP — Zonen-gewichtete Belastungsminuten (Standard: 1,2,3,4,5)',
+      title: t('activityStats.trimpTitle'),
     } : null,
 
-    // Kalorien
     activity.total_calories != null ? {
-      label: 'Kalorien',
+      label: t('activityStats.calories'),
       value: `${Math.round(activity.total_calories)} kcal`,
     } : null,
 
-    // Arbeit (nur bei Power)
     activity.total_work_j != null ? {
-      label: 'Arbeit',
+      label: t('activityStats.work'),
       value: `${(activity.total_work_j / 1000).toFixed(1)} kJ`,
     } : null,
 
-    // Gesamt-Zyklen (sportspezifisch)
+    // Total cycles use sport-specific labels from the domain label layer.
     activity.total_cycles != null && cyclesLabel(sport) != null ? {
       label: cyclesLabel(sport)!,
-      value: `${activity.total_cycles.toLocaleString('de-DE')}`,
+      value: `${activity.total_cycles.toLocaleString(unitOptions.locale)}`,
     } : null,
 
     // IF (Intensity Factor)
     activity.intensity_factor != null ? {
       label: 'IF',
       value: activity.intensity_factor.toFixed(2),
-      title: 'Intensity Factor (Intensitätsfaktor)',
+      title: t('activityStats.intensityFactor'),
     } : null,
 
     // Balance L/R
@@ -171,56 +178,52 @@ export function StatsGrid({ activity, variant = 'default' }: StatsGridProps) {
       value: `${activity.left_right_balance.toFixed(1)} / ${(100 - activity.left_right_balance).toFixed(1)} %`,
     } : null,
 
-    // Belastungswert
     activity.training_load_peak != null ? {
-      label: 'Belastungswert',
+      label: t('activityStats.trainingLoad'),
       value: `${Math.round(activity.training_load_peak)}`,
     } : null,
 
-    // Anaerober TE
     activity.anaerobic_training_effect != null ? {
-      label: 'Anaerob TE',
+      label: t('activityStats.anaerobicTrainingEffect'),
       value: activity.anaerobic_training_effect.toFixed(1),
-      title: 'Anaerober Trainingseffekt',
+      title: t('activityStats.anaerobicTrainingEffectTitle'),
     } : null,
 
     // Ø SpO2
     activity.avg_spo2_pct != null ? {
       label: 'Ø SpO2',
       value: `${activity.avg_spo2_pct.toFixed(1)} %`,
-      title: 'Durchschnittliche Sauerstoffsättigung',
+      title: t('activityStats.avgSpo2Title'),
     } : null,
 
-    // E-Bike
     activity.is_electric && activity.avg_lev_motor_power_w != null ? {
-      label: 'Ø Motorleistung',
+      label: t('activityStats.avgMotorPower'),
       value: `${Math.round(activity.avg_lev_motor_power_w)} W`,
     } : null,
     activity.is_electric && activity.max_lev_motor_power_w != null ? {
-      label: 'Max. Motorleistung',
+      label: t('activityStats.maxMotorPower'),
       value: `${Math.round(activity.max_lev_motor_power_w)} W`,
     } : null,
     activity.is_electric && activity.lev_battery_consumption_pct != null ? {
-      label: 'Akkuverbrauch',
+      label: t('activityStats.batteryConsumption'),
       value: `${activity.lev_battery_consumption_pct.toFixed(1)} %`,
     } : null,
 
-    // Pool-Info (nur wenn pool_length_m vorhanden)
     activity.pool_length_m != null ? {
-      label: 'Bahnlänge', value: `${activity.pool_length_m} m`,
+      label: t('activityStats.poolLength'), value: formatElevation(activity.pool_length_m, unitOptions),
     } : null,
     activity.num_lengths != null ? {
-      label: 'Bahnen', value: `${activity.num_lengths}`,
+      label: t('activityStats.lengths'), value: `${activity.num_lengths}`,
     } : null,
     activity.num_active_lengths != null && activity.num_lengths != null && activity.num_active_lengths !== activity.num_lengths ? {
-      label: 'Aktive Bahnen', value: `${activity.num_active_lengths}`,
+      label: t('activityStats.activeLengths'), value: `${activity.num_active_lengths}`,
     } : null,
     activity.avg_stroke_count != null ? {
-      label: 'Ø Züge/Bahn', value: `${activity.avg_stroke_count.toFixed(1)}`,
+      label: t('activityStats.avgStrokesPerLength'), value: `${activity.avg_stroke_count.toFixed(1)}`,
     } : null,
     activity.avg_stroke_distance_m != null ? {
-      label: getSegmentGroup(sport) === 'swim' ? 'Ø Distanz/Zug' : 'Ø Distanz/Schlag',
-      value: `${activity.avg_stroke_distance_m.toFixed(2)} m`,
+      label: getSegmentGroup(sport) === 'swim' ? t('activityStats.avgDistancePerStroke') : t('activityStats.avgDistancePerStrike'),
+      value: formatShortLength(activity.avg_stroke_distance_m, unitOptions),
     } : null,
   ]
 

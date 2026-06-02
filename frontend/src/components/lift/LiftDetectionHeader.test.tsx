@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { ToastProvider } from '@/lib/toast'
 import { ToastContainer } from '@/components/Toast'
 import type { LiftDetectionConfigResponse } from '@/api/liftDetectionConfig'
+import { i18n } from '@/i18n/i18n'
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -31,6 +32,10 @@ const mockPut = putLiftDetectionConfig as ReturnType<typeof vi.fn>
 const mockDelete = deleteLiftDetectionConfig as ReturnType<typeof vi.fn>
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>
 const mockFetchActiveJobs = fetchActiveJobs as ReturnType<typeof vi.fn>
+
+beforeEach(async () => {
+  await i18n.changeLanguage('de')
+})
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

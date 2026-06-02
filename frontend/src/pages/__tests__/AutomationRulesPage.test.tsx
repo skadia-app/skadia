@@ -2,10 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AutomationRulesPage from '../AutomationRulesPage'
 import type { AutomationRule } from '@/api/types'
 import { ToastProvider } from '@/lib/toast'
+import { i18n } from '@/i18n/i18n'
+
+const userPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' as 'metric' | 'imperial' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
+}))
 
 const rules: AutomationRule[] = [
   rule({ id: 'electric-sync', name: 'E-Bike', is_system: true, system_type: 'electric_sync', priority: -100 }),
@@ -31,6 +38,7 @@ const rules: AutomationRule[] = [
     actions: [{ action: 'set_virtual', params: { virtual: true } }],
   }),
 ]
+const baseRuleCount = rules.length
 
 vi.mock('@/api/rules', () => ({
   fetchRules: vi.fn(async () => rules),
@@ -83,6 +91,13 @@ function renderPage() {
 }
 
 describe('AutomationRulesPage rule summaries', () => {
+  beforeEach(async () => {
+    rules.splice(baseRuleCount)
+    userPrefs.locale = 'de'
+    userPrefs.units = 'metric'
+    await i18n.changeLanguage('de')
+  })
+
   it('hides only readonly sync rules until the sync checkbox is enabled', async () => {
     renderPage()
 
@@ -106,5 +121,74 @@ describe('AutomationRulesPage rule summaries', () => {
     expect(screen.getByText(/Sportauswahl in Radfahren \(MTB\), E-Antrieb=Ja/)).toBeInTheDocument()
     expect(screen.getByText(/Virtuell\(Ja\)/)).toBeInTheDocument()
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument()
+  })
+
+  it('localizes the page shell and primary actions', async () => {
+    await i18n.changeLanguage('en')
+
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Automation rules' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply rules' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create rule' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search rules...')).toBeInTheDocument()
+  })
+
+  it('localizes rule condition and action summaries', async () => {
+    await i18n.changeLanguage('en')
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('MTB virtuell')).toBeInTheDocument())
+    expect(screen.getByText(/IF Sport selection in Cycling \(Mountainbike\), E-drive=Yes/)).toBeInTheDocument()
+    expect(screen.getByText(/THEN Virtual\(Yes\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/WENN/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/DANN/)).not.toBeInTheDocument()
+  })
+
+  it('uses localized unknown labels for unsupported summary fields and actions', async () => {
+    rules.push(rule({
+      id: 'unknown-summary-labels',
+      name: 'Unknown summary labels',
+      conditions: [{ field: 'backend_private_token', op: 'eq', value: '42' }],
+      actions: [
+        { action: 'backend_private_action', params: {} },
+        { action: 'set_field', params: { field: 'backend_private_field', value: 'x' } },
+      ],
+    }))
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Unknown summary labels')).toBeInTheDocument())
+    expect(screen.getByText(/Unbekanntes Feld = 42/)).toBeInTheDocument()
+    expect(screen.getByText(/Unbekannte Aktion\(\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Feld setzen\(Unbekanntes Feld = x\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/backend_private_token|backend_private_action|backend_private_field/)).not.toBeInTheDocument()
+  })
+
+  it('formats numeric rule summaries with the user unit preference', async () => {
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+    await i18n.changeLanguage('en')
+    rules.push(rule({
+      id: 'imperial-summary',
+      name: 'Imperial summary',
+      conditions: [
+        { field: 'distance_m', op: 'gt', value: 1609.344 },
+        { field: 'avg_speed_ms', op: 'gt', value: 10 },
+        { field: 'avg_pace_min_km', op: 'lt', value: 5 },
+        { field: 'avg_temperature_c', op: 'gt', value: 20 },
+      ],
+    }))
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Imperial summary')).toBeInTheDocument())
+    expect(screen.getByText(/Distance > 1.0 mi/)).toBeInTheDocument()
+    expect(screen.getByText(/Avg speed > 22.4 mph/)).toBeInTheDocument()
+    expect(screen.getByText(/Avg pace < 8:03 min\/mi/)).toBeInTheDocument()
+    expect(screen.getByText(/Avg temperature > 68 °F/)).toBeInTheDocument()
+    expect(screen.queryByText(/km\/h|min\/km|°C/)).not.toBeInTheDocument()
   })
 })

@@ -1,11 +1,13 @@
+import { useTranslation } from 'react-i18next'
 import { useCapabilities } from '@/hooks/useCapabilities'
 
 export function OfflineMapSettings() {
+  const { t } = useTranslation()
   const { data: caps, isLoading } = useCapabilities()
 
   if (isLoading) {
     return (
-      <div className="text-xs text-neutral-400 dark:text-neutral-500">Prüfe Verfügbarkeit…</div>
+      <div className="text-xs text-neutral-400 dark:text-neutral-500">{t('map.offline.checkingAvailability')}</div>
     )
   }
 
@@ -20,20 +22,20 @@ export function OfflineMapSettings() {
         />
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           {caps?.offline_map
-            ? 'Offline-Basemap verfügbar'
-            : 'Keine PMTiles-Basemap vorhanden'}
+            ? t('map.offline.available')
+            : t('map.offline.missing')}
         </span>
       </div>
 
       {/* Instructions when unavailable */}
       {!caps?.offline_map && (
         <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-2 pl-4">
-          <p>Für Offline-Karten PMTiles herunterladen:</p>
+          <p>{t('map.offline.downloadInstruction')}</p>
           <code className="block bg-neutral-100 dark:bg-neutral-800 px-2 py-1.5 rounded font-mono text-xs">
             ./scripts/download-pmtiles.sh
           </code>
           <p>
-            DACH-Region (~2–4 GB). Benötigt:{' '}
+            {t('map.offline.dachRegion')}. {t('map.offline.requires')}{' '}
             <code className="px-1 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 font-mono">
               pmtiles
             </code>{' '}
@@ -46,7 +48,7 @@ export function OfflineMapSettings() {
               rel="noopener noreferrer"
               className="text-accent-DEFAULT hover:underline underline-offset-2"
             >
-              Protomaps Projekt →
+              {t('map.offline.protomapsProject')}
             </a>
           </p>
         </div>
@@ -55,8 +57,9 @@ export function OfflineMapSettings() {
       {/* Info when available */}
       {caps?.offline_map && (
         <p className="text-xs text-neutral-500 dark:text-neutral-400 pl-4">
-          Der Kartenstil <strong className="text-neutral-700 dark:text-neutral-300">Offline (Protomaps)</strong>{' '}
-          ist in der Kartenansicht auswählbar.
+          {t('map.offline.styleAvailablePrefix')}{' '}
+          <strong className="text-neutral-700 dark:text-neutral-300">{t('map.offline.styleName')}</strong>{' '}
+          {t('map.offline.styleAvailableSuffix')}
         </p>
       )}
     </div>

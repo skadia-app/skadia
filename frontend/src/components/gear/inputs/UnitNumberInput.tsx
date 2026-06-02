@@ -1,4 +1,5 @@
-// i18n-strings — centralized for future extraction
+import { useTranslation } from 'react-i18next'
+
 const STRINGS = {
   numberPlaceholder: '0',
 } as const
@@ -23,6 +24,7 @@ export default function UnitNumberInput({
   onChange,
   disabled = false,
 }: UnitNumberInputProps) {
+  const { t } = useTranslation()
   const inputId = id ?? 'unit-number-input'
   const currentUnit = value?.unit ?? allowedUnits[0] ?? ''
   const currentNumber = value?.value ?? null
@@ -57,14 +59,14 @@ export default function UnitNumberInput({
       />
       {isSingleUnit ? (
         <span
-          aria-label={`Einheit: ${currentUnit}`}
+          aria-label={t('unitNumberInput.unitLabel', { unit: currentUnit })}
           className="flex items-center px-3 py-2 text-sm text-neutral-500 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-600 rounded bg-neutral-50 dark:bg-neutral-800 select-none"
         >
           {currentUnit}
         </span>
       ) : (
         <select
-          aria-label="Einheit"
+          aria-label={t('unitNumberInput.unit')}
           value={currentUnit}
           disabled={disabled}
           onChange={handleUnitChange}

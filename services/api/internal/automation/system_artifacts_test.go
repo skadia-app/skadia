@@ -325,6 +325,53 @@ func TestEnsureSystemArtifacts_TagBeforeRule(t *testing.T) {
 	}
 }
 
+func TestSystemArtifactsExposeStableDisplayKeys(t *testing.T) {
+	for _, t2 := range SystemTags {
+		if t2.Code == "" {
+			t.Errorf("SystemTag %q Code is empty", t2.Name)
+		}
+		if t2.DisplayKey == "" {
+			t.Errorf("SystemTag %q DisplayKey is empty", t2.Name)
+		}
+		if t2.DescriptionKey == "" {
+			t.Errorf("SystemTag %q DescriptionKey is empty", t2.Name)
+		}
+		if want := "tags.system." + t2.Code + ".label"; t2.DisplayKey != want {
+			t.Errorf("SystemTag %q DisplayKey = %q, want %q", t2.Name, t2.DisplayKey, want)
+		}
+		if want := "tags.system." + t2.Code + ".description"; t2.DescriptionKey != want {
+			t.Errorf("SystemTag %q DescriptionKey = %q, want %q", t2.Name, t2.DescriptionKey, want)
+		}
+	}
+	for _, r := range SystemRules {
+		if r.LabelKey == "" {
+			t.Errorf("SystemRule %q LabelKey is empty", r.SystemType)
+		}
+		if r.DescriptionKey == "" {
+			t.Errorf("SystemRule %q DescriptionKey is empty", r.SystemType)
+		}
+		if want := "automation.system_rules." + r.SystemType + ".label"; r.LabelKey != want {
+			t.Errorf("SystemRule %q LabelKey = %q, want %q", r.SystemType, r.LabelKey, want)
+		}
+		if want := "automation.system_rules." + r.SystemType + ".description"; r.DescriptionKey != want {
+			t.Errorf("SystemRule %q DescriptionKey = %q, want %q", r.SystemType, r.DescriptionKey, want)
+		}
+	}
+	for _, systemType := range OnDemandSystemTypes {
+		labelKey, descriptionKey, ok := SystemRuleDisplayKeysBySystemType(systemType)
+		if !ok {
+			t.Errorf("on-demand SystemRule %q has no display keys", systemType)
+			continue
+		}
+		if want := "automation.system_rules." + systemType + ".label"; labelKey != want {
+			t.Errorf("on-demand SystemRule %q label key = %q, want %q", systemType, labelKey, want)
+		}
+		if want := "automation.system_rules." + systemType + ".description"; descriptionKey != want {
+			t.Errorf("on-demand SystemRule %q description key = %q, want %q", systemType, descriptionKey, want)
+		}
+	}
+}
+
 func TestEnsureSystemArtifacts_PromotesExistingCustomTagNameCollision(t *testing.T) {
 	pool := systemArtifactsTestPool(t)
 	ctx := context.Background()

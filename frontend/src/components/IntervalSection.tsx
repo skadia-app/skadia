@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchActivityIntervals } from '@/api/enrichment'
 import type { ActivityInterval } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
@@ -10,25 +11,27 @@ interface Props {
   sportType: string
 }
 
-const intensityStyles: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  hard:     { label: 'Hart',     bg: 'bg-red-100 dark:bg-red-900/30',    text: 'text-red-700 dark:text-red-300',       dot: 'bg-red-500' },
-  moderate: { label: 'Mittel',   bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500' },
-  easy:     { label: 'Locker',   bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300',   dot: 'bg-green-500' },
-  recovery: { label: 'Erholung', bg: 'bg-blue-100 dark:bg-blue-900/30',  text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-400' },
+const intensityStyles: Record<string, { key: string; bg: string; text: string; dot: string }> = {
+  hard:     { key: 'hard',     bg: 'bg-red-100 dark:bg-red-900/30',    text: 'text-red-700 dark:text-red-300',       dot: 'bg-red-500' },
+  moderate: { key: 'moderate', bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500' },
+  easy:     { key: 'easy',     bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300',   dot: 'bg-green-500' },
+  recovery: { key: 'recovery', bg: 'bg-blue-100 dark:bg-blue-900/30',  text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-400' },
 }
 
 function IntensityBadge({ intensity }: { intensity: ActivityInterval['intensity'] }) {
+  const { t } = useTranslation()
   const style = intensityStyles[intensity] ?? intensityStyles.recovery
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${style.bg} ${style.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-      {style.label}
+      {t(`activityOperations.intervals.intensity.${style.key}`)}
     </span>
   )
 }
 
 
 export default function IntervalSection({ activityId, sportType }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: intervals = [], isLoading, isError } = useQuery({
@@ -55,10 +58,10 @@ export default function IntervalSection({ activityId, sportType }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Intervalle
+          {t('activityOperations.intervals.title')}
         </h2>
         <span className="text-sm text-neutral-400">
-          ({intervals.length} Segmente, {hardCount} hart)
+          {t('activityOperations.intervals.summary', { count: intervals.length, hardCount })}
         </span>
       </button>
 
@@ -68,12 +71,12 @@ export default function IntervalSection({ activityId, sportType }: Props) {
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">#</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Dauer</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Leistung</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">HF</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Tempo</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Kadenz</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Intensität</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityOperations.intervals.duration')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityOperations.intervals.power')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">HR</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityOperations.intervals.pace')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityOperations.intervals.cadence')}</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityOperations.intervals.intensityLabel')}</th>
               </tr>
             </thead>
             <tbody>

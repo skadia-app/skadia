@@ -1,7 +1,17 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import '@/i18n/i18n'
 import type { RouteElevationPoint } from '@/api/routes'
+
+const mockUserPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' }))
+const chartMockState = vi.hoisted(() => ({
+  optionFactory: null as null | (() => unknown),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
 // RouteProfileChart calls echarts.use([...]) at module level and echarts.init()
@@ -40,7 +50,8 @@ vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 // The real hook calls echarts.init(containerRef.current) — we skip that entirely.
 import { useRef } from 'react'
 vi.mock('@/hooks/useECharts', () => ({
-  useECharts: () => {
+  useECharts: (optionFactory: () => unknown) => {
+    chartMockState.optionFactory = optionFactory
     // eslint-disable-next-line react-hooks/rules-of-hooks
     return useRef<HTMLDivElement>(null)
   },
@@ -63,6 +74,13 @@ const FAKE_PROFILE = [
   { dist_m: 5850,  ele_m: 510 },
   { dist_m: 11700, ele_m: 500 },
 ]
+
+beforeEach(() => {
+  window.localStorage.clear()
+  mockUserPrefs.locale = 'de'
+  mockUserPrefs.units = 'metric'
+  chartMockState.optionFactory = null
+})
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -193,6 +211,33 @@ describe('RouteProfileChart — K?-Chip-Reset (LF-#11, V6-Retrofit)', () => {
     // No forest/protected/summits chips — the stats section should not render those labels
     // (the gradient legend also has "%" labels but no forest/summits-specific text)
     expect(screen.queryByText(/Wald|Forest|Gipfel|Naturschutz|Protected/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('RouteProfileChart — route unit display', () => {
+  it('uses imperial units for distance and elevation axes and tooltips', () => {
+    mockUserPrefs.units = 'imperial'
+
+    render(
+      <RouteProfileChart
+        profile={FAKE_PROFILE}
+        totalDistanceM={11700}
+        routeStats={null}
+        scalePin={null}
+        onTogglePin={() => {}}
+      />
+    )
+
+    const option = chartMockState.optionFactory?.() as {
+      xAxis: { axisLabel: { formatter: (value: number) => string } }
+      yAxis: { axisLabel: { formatter: (value: number) => string } }
+      tooltip: { formatter: (params: unknown) => string }
+    }
+
+    expect(option.xAxis.axisLabel.formatter(1.609344)).toBe('1,0 mi')
+    expect(option.yAxis.axisLabel.formatter(304.8)).toBe('1.000 ft')
+    expect(option.tooltip.formatter([{ dataIndex: 1, axisValue: 5.85 }])).toContain('3,6 mi')
+    expect(option.tooltip.formatter([{ dataIndex: 1, axisValue: 5.85 }])).toContain('1.673 ft')
   })
 })
 

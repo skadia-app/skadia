@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LLMSettingsPage from './LLMSettingsPage'
 import { runLLMEval, saveLLMRole, testLLMConnection, waiveLLMEval } from '@/api/llmSettings'
+import { i18n } from '@/i18n/i18n'
 
 const mockState = vi.hoisted(() => ({
   configs: [
@@ -41,7 +42,8 @@ async function enableSeparateRoles(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('LLMSettingsPage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
     mockState.configs = [
       { role: 'tool_agent', backend_type: 'llama_server', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'untested', eval_report: {} },
       { role: 'vision', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: [], eval_status: 'waived', eval_report: { admin_reason: 'manual' } },
@@ -52,8 +54,8 @@ describe('LLMSettingsPage', () => {
   it('renders roles from API contract with readable status labels instead of a hard-coded default role', async () => {
     renderPage()
 
-    expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
-    expect(screen.getByText(/Diese Backend-Daten/)).toBeInTheDocument()
+    expect(await screen.findByText('Gemeinsames Backend')).toBeInTheDocument()
+    expect(screen.getByText(/Alle aktiven Rollen/)).toBeInTheDocument()
     expect(screen.getByText('Tool-Agent')).toBeInTheDocument()
     expect(screen.getByText('Vision')).toBeInTheDocument()
     expect(screen.getByText('Status: nicht geprüft')).toBeInTheDocument()
@@ -70,7 +72,7 @@ describe('LLMSettingsPage', () => {
     ]
     renderPage()
 
-    expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
+    expect(await screen.findByText('Gemeinsames Backend')).toBeInTheDocument()
     expect(screen.getByText('Status: nicht geprüft')).toBeInTheDocument()
     expect(screen.queryByText('default')).not.toBeInTheDocument()
     expect(screen.queryByText('vlm')).not.toBeInTheDocument()
@@ -85,7 +87,7 @@ describe('LLMSettingsPage', () => {
     await enableSeparateRoles(user)
 
     await screen.findByText('Tool-Agent')
-    await user.type(screen.getByLabelText('Freigabe-Begründung'), 'Manuelle lokale Prüfung')
+    await user.type(screen.getByLabelText('Grund'), 'Manuelle lokale Prüfung')
     await user.click(screen.getByRole('button', { name: 'Freigeben' }))
 
     expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Manuelle lokale Prüfung')
@@ -99,7 +101,7 @@ describe('LLMSettingsPage', () => {
     renderPage()
     await enableSeparateRoles(user)
 
-    await user.click(await screen.findByLabelText('Vision aktivieren'))
+    await user.click(await screen.findByLabelText('Aktiviere Vision'))
     await user.type(await screen.findByPlaceholderText('gpt-4o'), 'vision-model')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
@@ -122,7 +124,7 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Gemeinsame Verbindung')
+    await screen.findByText('Gemeinsames Backend')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('optional LiteLLM config could not be regenerated')
@@ -136,7 +138,7 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Gemeinsame Verbindung')
+    await screen.findByText('Gemeinsames Backend')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Backend nicht erreichbar')
@@ -154,7 +156,7 @@ describe('LLMSettingsPage', () => {
     await user.clear(modelInput)
     await user.type(modelInput, 'other-model')
 
-    expect(screen.getByRole('button', { name: 'Qualitätsprüfung starten' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Evaluierung starten' })).toBeDisabled()
     expect(runLLMEval).not.toHaveBeenCalled()
   })
 
@@ -168,7 +170,7 @@ describe('LLMSettingsPage', () => {
     const modelInput = await screen.findByDisplayValue('tool-model')
     await user.clear(modelInput)
     await user.type(modelInput, 'other-model')
-    await user.type(screen.getByLabelText('Tool-Agent Freigabe-Begründung'), 'Manuelle lokale Prüfung')
+    await user.type(screen.getByLabelText('Grund für Tool-Agent'), 'Manuelle lokale Prüfung')
 
     expect(screen.getByRole('button', { name: 'Freigeben' })).toBeDisabled()
     expect(waiveLLMEval).not.toHaveBeenCalled()
@@ -176,7 +178,7 @@ describe('LLMSettingsPage', () => {
 
   it('surfaces connection test validation details from the API', async () => {
     vi.mocked(testLLMConnection).mockRejectedValueOnce(Object.assign(new Error('Bad Request'), {
-      json: { message: 'api_base address host.containers.internal:8181 is blocked by LLM SSRF policy' },
+      json: { detail: 'api_base address host.containers.internal:8181 is blocked by LLM SSRF policy' },
     }))
     mockState.configs = [
       { role: 'tool_agent', backend_type: 'llama_server', api_base: 'http://host.containers.internal:8181/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
@@ -184,10 +186,49 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Gemeinsame Verbindung')
+    await screen.findByText('Gemeinsames Backend')
     await user.click(screen.getByRole('button', { name: 'Verbindung testen' }))
 
     expect(await screen.findByText(/host\.containers\.internal:8181 is blocked/)).toBeInTheDocument()
+  })
+
+  it('localizes structured connection test result codes from the API', async () => {
+    vi.mocked(testLLMConnection).mockResolvedValueOnce({
+      success: false,
+      message: '',
+      message_code: 'connection_failed',
+      warning_code: 'localhost_rewritten_for_container',
+    })
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'llama_server', api_base: 'http://localhost:8000/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Gemeinsames Backend')
+    await user.click(screen.getByRole('button', { name: 'Verbindung testen' }))
+
+    expect(await screen.findByText(/Verbindung fehlgeschlagen/)).toBeInTheDocument()
+    expect(screen.getByText(/localhost wurde für den Test automatisch/)).toBeInTheDocument()
+  })
+
+  it('does not call non-2xx model responses reachable', async () => {
+    vi.mocked(testLLMConnection).mockResolvedValueOnce({
+      success: false,
+      message: 'HTTP 401',
+      message_code: 'api_responded_with_status',
+    })
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'openai', api_base: 'https://api.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Gemeinsames Backend')
+    await user.click(screen.getByRole('button', { name: 'Verbindung testen' }))
+
+    expect(await screen.findByText(/API antwortete mit Status HTTP 401/)).toBeInTheDocument()
+    expect(screen.queryByText(/API erreichbar/)).not.toBeInTheDocument()
   })
 
   it('saves the shared backend to every managed role shown by the API', async () => {
@@ -200,11 +241,11 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Gemeinsame Verbindung')
-    await user.click(screen.getByLabelText('Dokumente aktivieren'))
-    await user.click(screen.getByLabelText('Markdown aktivieren'))
-    await user.click(screen.getByLabelText('Vision aktivieren'))
-    await user.type(screen.getByPlaceholderText('Standard aus Server-Umgebung'), '32768')
+    await screen.findByText('Gemeinsames Backend')
+    await user.click(screen.getByLabelText('Aktiviere Dokumente'))
+    await user.click(screen.getByLabelText('Aktiviere Markdown'))
+    await user.click(screen.getByLabelText('Aktiviere Vision'))
+    await user.type(screen.getByPlaceholderText('z. B. 32768'), '32768')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(saveLLMRole).toHaveBeenCalledTimes(4)
@@ -222,8 +263,8 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Gemeinsame Verbindung')
-    await user.type(screen.getByLabelText('Tool-Agent Freigabe-Begründung'), 'Lokales Testmodell geprüft')
+    await screen.findByText('Gemeinsames Backend')
+    await user.type(screen.getByLabelText('Grund für Tool-Agent'), 'Lokales Testmodell geprüft')
     await user.click(screen.getByRole('button', { name: 'Freigeben' }))
 
     expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Lokales Testmodell geprüft')

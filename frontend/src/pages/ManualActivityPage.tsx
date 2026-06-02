@@ -1,11 +1,20 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { createManualActivity } from '@/api/manualActivity'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import { CATEGORIES, SPORT_DEFS, manualActivitySportOptions } from '@/lib/sportTaxonomy'
+import { localizeString, supportedLanguageFrom } from '@/i18n/localizedString'
+import { useUser } from '@/providers/UserProvider'
 import { useToast } from '@/lib/toast'
+import {
+  distanceFromDisplayValue,
+  distanceInputUnit,
+  elevationFromDisplayValue,
+  elevationInputUnit,
+} from '@/lib/units'
 import Toggle from '@/components/Toggle'
 import type { Gear } from '@/api/types'
 import type { Tag } from '@/api/tags'
@@ -30,18 +39,21 @@ const RPE_COLORS: Record<number, string> = {
 }
 
 const FEEL_OPTIONS = [
-  { value: 0, emoji: '😫', label: 'Erschöpft' },
-  { value: 1, emoji: '😕', label: 'Schlecht' },
-  { value: 2, emoji: '😐', label: 'Neutral' },
-  { value: 3, emoji: '🙂', label: 'Gut' },
-  { value: 4, emoji: '😄', label: 'Super' },
+  { value: 0, emoji: '😫', labelKey: 'manualActivity.feel.exhausted' },
+  { value: 1, emoji: '😕', labelKey: 'manualActivity.feel.bad' },
+  { value: 2, emoji: '😐', labelKey: 'manualActivity.feel.neutral' },
+  { value: 3, emoji: '🙂', labelKey: 'manualActivity.feel.good' },
+  { value: 4, emoji: '😄', labelKey: 'manualActivity.feel.great' },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ManualActivityPage() {
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const { units } = useUser()
+  const language = supportedLanguageFrom(i18n.language)
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [sportType, setSportType] = useState('running')
@@ -56,12 +68,12 @@ export default function ManualActivityPage() {
     return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   })
 
-  // Dauer in h / min / s
+  // Duration in h / min / s
   const [durH, setDurH] = useState('0')
   const [durM, setDurM] = useState('30')
   const [durS, setDurS] = useState('0')
 
-  const [distanceKm, setDistanceKm] = useState('')
+  const [distance, setDistance] = useState('')
   const [elevGain, setElevGain] = useState('')
   const [elevLoss, setElevLoss] = useState('')
 
@@ -90,6 +102,9 @@ export default function ManualActivityPage() {
   const selectedSportDef = SPORT_DEFS.find(d => d.sportType === sportType)
   const manualSports = manualActivitySportOptions()
   const hasElectricAssistToggle = selectedSportDef?.categoryKey === 'bike'
+  const distanceUnit = distanceInputUnit(units)
+  const elevationUnit = elevationInputUnit(units)
+  const elevationStep = units === 'imperial' ? 'any' : '1'
 
   function handleSportChange(newSport: string) {
     const nextDef = SPORT_DEFS.find(d => d.sportType === newSport)
@@ -111,11 +126,11 @@ export default function ManualActivityPage() {
 
     const elapsedTimeS = parseDuration(durH, durM, durS)
     if (elapsedTimeS <= 0) {
-      addToast({ type: 'error', title: 'Dauer fehlt', message: 'Bitte gib eine Dauer ein.' })
+      addToast({ type: 'error', title: t('manualActivity.toasts.durationMissingTitle'), message: t('manualActivity.toasts.durationMissingMessage') })
       return
     }
     if (selectedSportDef?.selectable === false && !subType) {
-      addToast({ type: 'error', title: 'Unterart fehlt', message: 'Bitte wähle eine konkrete Unterart.' })
+      addToast({ type: 'error', title: t('manualActivity.toasts.subTypeMissingTitle'), message: t('manualActivity.toasts.subTypeMissingMessage') })
       return
     }
 
@@ -131,9 +146,9 @@ export default function ManualActivityPage() {
         description: description || undefined,
         started_at: startedAt,
         elapsed_time_s: elapsedTimeS,
-        distance_m: distanceKm ? parseFloat(distanceKm) * 1000 : undefined,
-        elevation_gain_m: elevGain ? parseFloat(elevGain) : undefined,
-        elevation_loss_m: elevLoss ? parseFloat(elevLoss) : undefined,
+        distance_m: distance ? distanceFromDisplayValue(parseFloat(distance), units) : undefined,
+        elevation_gain_m: elevGain ? elevationFromDisplayValue(parseFloat(elevGain), units) : undefined,
+        elevation_loss_m: elevLoss ? elevationFromDisplayValue(parseFloat(elevLoss), units) : undefined,
         tags: selectedTags.length ? selectedTags : undefined,
         gear_id: gearId || undefined,
         is_electric: isElectric || undefined,
@@ -141,10 +156,10 @@ export default function ManualActivityPage() {
         workout_rpe: rpe ?? undefined,
         workout_feel: feel ?? undefined,
       })
-      addToast({ type: 'success', title: 'Aktivität erstellt' })
+      addToast({ type: 'success', title: t('manualActivity.toasts.created') })
       navigate(`/activities/${result.id}`)
     } catch {
-      addToast({ type: 'error', title: 'Fehler', message: 'Aktivität konnte nicht erstellt werden.' })
+      addToast({ type: 'error', title: t('common.error'), message: t('manualActivity.toasts.createFailed') })
     } finally {
       setSubmitting(false)
     }
@@ -164,9 +179,9 @@ export default function ManualActivityPage() {
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            Zurück
+            {t('common.back')}
           </Link>
-          <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Aktivität erstellen</h1>
+          <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('manualActivity.title')}</h1>
         </div>
       </div>
 
@@ -177,9 +192,9 @@ export default function ManualActivityPage() {
           {/* ── Linke Spalte ─────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-5">
 
-            {/* Sportart — Kategorie-Auswahl */}
+            {/* Sport — category picker */}
             <fieldset>
-              <legend className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Sportart</legend>
+              <legend className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('manualActivity.fields.sport')}</legend>
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900">
                 {CATEGORIES.map(cat => {
                   const sports = manualSports.filter(s => s.categoryKey === cat.key)
@@ -190,7 +205,7 @@ export default function ManualActivityPage() {
                         className="flex cursor-pointer select-none items-center gap-2 px-3 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                         style={{ borderLeft: `3px solid ${cat.color}` }}
                       >
-                        <span className="flex-1">{cat.label}</span>
+                        <span className="flex-1">{localizeString(cat.labels, language) || cat.label}</span>
                         <svg className="h-4 w-4 text-neutral-400 transition-transform group-open:rotate-180 dark:text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
@@ -208,7 +223,7 @@ export default function ManualActivityPage() {
                                 : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700',
                             ].join(' ')}
                           >
-                            {s.label}
+                            {localizeString(s.labels, language) || s.label}
                           </button>
                         ))}
                       </div>
@@ -222,16 +237,16 @@ export default function ManualActivityPage() {
             {selectedSportDef && selectedSportDef.subTypes.length > 0 && (
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                  Unterart
+                  {t('manualActivity.fields.subType')}
                 </label>
                 <select
                   value={subType}
                   onChange={e => setSubType(e.target.value)}
                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 >
-                  {selectedSportDef.selectable && <option value="">— keine —</option>}
+                  {selectedSportDef.selectable && <option value="">{t('manualActivity.none')}</option>}
                   {selectedSportDef.subTypes.filter(st => st.selectable).map(st => (
-                    <option key={st.subType} value={st.subType}>{st.label}</option>
+                    <option key={st.subType} value={st.subType}>{localizeString(st.labels, language) || st.label}</option>
                   ))}
                 </select>
               </div>
@@ -240,7 +255,7 @@ export default function ManualActivityPage() {
             {/* Datum + Uhrzeit */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Datum</label>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">{t('manualActivity.fields.date')}</label>
                 <input
                   type="date"
                   value={date}
@@ -250,7 +265,7 @@ export default function ManualActivityPage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Uhrzeit</label>
+                <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">{t('manualActivity.fields.time')}</label>
                 <input
                   type="time"
                   value={time}
@@ -261,9 +276,9 @@ export default function ManualActivityPage() {
               </div>
             </div>
 
-            {/* Dauer */}
+            {/* Duration */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">Dauer</label>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">{t('manualActivity.fields.duration')}</label>
               <div className="flex items-center gap-2">
                 <div className="flex-1">
                   <input
@@ -300,62 +315,64 @@ export default function ManualActivityPage() {
                     placeholder="0"
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
-                  <p className="mt-0.5 text-center text-xs text-neutral-500">sek</p>
+                  <p className="mt-0.5 text-center text-xs text-neutral-500">{t('manualActivity.units.secondsShort')}</p>
                 </div>
               </div>
             </div>
 
-            {/* Distanz */}
+            {/* Distance */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Distanz <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.distance')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               <div className="relative">
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={distanceKm}
-                  onChange={e => setDistanceKm(e.target.value)}
+                  value={distance}
+                  onChange={e => setDistance(e.target.value)}
                   placeholder="0.0"
                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-12 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-neutral-500">km</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-neutral-500">{distanceUnit}</span>
               </div>
             </div>
 
-            {/* Höhenmeter */}
+            {/* Elevation */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                  Anstieg <span className="text-neutral-500 font-normal">(optional)</span>
+                  {t('manualActivity.fields.ascent')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
                 </label>
                 <div className="relative">
                   <input
                     type="number"
                     min="0"
+                    step={elevationStep}
                     value={elevGain}
                     onChange={e => setElevGain(e.target.value)}
                     placeholder="0"
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">{elevationUnit}</span>
                 </div>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                  Abstieg <span className="text-neutral-500 font-normal">(optional)</span>
+                  {t('manualActivity.fields.descent')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
                 </label>
                 <div className="relative">
                   <input
                     type="number"
                     min="0"
+                    step={elevationStep}
                     value={elevLoss}
                     onChange={e => setElevLoss(e.target.value)}
                     placeholder="0"
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 pr-8 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">m</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500">{elevationUnit}</span>
                 </div>
               </div>
             </div>
@@ -363,13 +380,13 @@ export default function ManualActivityPage() {
             {/* Titel */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Titel <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.activityTitle')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               <input
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                placeholder="Aktivitätstitel"
+                placeholder={t('manualActivity.placeholders.title')}
                 maxLength={200}
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
               />
@@ -378,12 +395,12 @@ export default function ManualActivityPage() {
             {/* Beschreibung */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Beschreibung <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.description')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Notizen zur Aktivität..."
+                placeholder={t('manualActivity.placeholders.description')}
                 rows={4}
                 className="w-full resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-600"
               />
@@ -396,10 +413,10 @@ export default function ManualActivityPage() {
             {/* Tags */}
             <div>
               <label className="mb-2 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Tags <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.tags')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               {tagList.length === 0 ? (
-                <p className="text-sm text-neutral-500">Keine Tags vorhanden.</p>
+                <p className="text-sm text-neutral-500">{t('manualActivity.emptyTags')}</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {tagList.map(tag => {
@@ -428,17 +445,17 @@ export default function ManualActivityPage() {
               )}
             </div>
 
-            {/* Ausrüstung */}
+            {/* Gear */}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Ausrüstung <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.gear')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               <select
                 value={gearId}
                 onChange={e => setGearId(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
               >
-                <option value="">— keine —</option>
+                <option value="">{t('manualActivity.none')}</option>
                 {gearList.map(gear => (
                   <option key={gear.id} value={gear.id}>{gear.name}</option>
                 ))}
@@ -449,13 +466,13 @@ export default function ManualActivityPage() {
             {hasElectricAssistToggle && (
               <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
                 <div>
-                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Antrieb</p>
-                  <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
+                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('manualActivity.fields.electricAssist')}</p>
+                  <p className="text-xs text-neutral-500">{t('manualActivity.hints.electricAssist')}</p>
                 </div>
                 <Toggle
                   checked={isElectric}
                   onChange={(v) => setIsElectric(v)}
-                  aria-label="E-Antrieb"
+                  aria-label={t('manualActivity.fields.electricAssist')}
                 />
               </div>
             )}
@@ -463,13 +480,13 @@ export default function ManualActivityPage() {
             {/* Virtuell Toggle */}
             <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
               <div>
-                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Virtuell</p>
-                <p className="text-xs text-neutral-500">Simulierte GPS-Strecke</p>
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('manualActivity.fields.virtual')}</p>
+                <p className="text-xs text-neutral-500">{t('manualActivity.hints.virtual')}</p>
               </div>
               <Toggle
                 checked={isVirtual}
                 onChange={(v) => setIsVirtual(v)}
-                aria-label="Virtuell"
+                aria-label={t('manualActivity.fields.virtual')}
               />
             </div>
 
@@ -477,7 +494,7 @@ export default function ManualActivityPage() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                  Belastung (RPE) <span className="text-neutral-500 font-normal">(optional)</span>
+                  {t('manualActivity.fields.rpe')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
                 </label>
                 {rpe !== null && (
                   <span
@@ -509,7 +526,7 @@ export default function ManualActivityPage() {
                     className="mt-1 cursor-pointer text-center text-xs text-neutral-500 hover:text-neutral-700 dark:text-neutral-600 dark:hover:text-neutral-400"
                     onClick={() => setRpe(5)}
                   >
-                    Klicken zum Festlegen
+                    {t('manualActivity.rpe.setHint')}
                   </p>
                 )}
                 {rpe !== null && (
@@ -519,7 +536,7 @@ export default function ManualActivityPage() {
                       onClick={() => setRpe(null)}
                       className="cursor-pointer text-xs text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-600 dark:hover:text-neutral-400"
                     >
-                      Zurücksetzen
+                      {t('common.reset')}
                     </button>
                   </div>
                 )}
@@ -529,14 +546,14 @@ export default function ManualActivityPage() {
             {/* Feel Emoji-Buttons */}
             <div>
               <label className="mb-2 block text-sm font-medium text-neutral-600 dark:text-neutral-300">
-                Wie war es? <span className="text-neutral-500 font-normal">(optional)</span>
+                {t('manualActivity.fields.feel')} <span className="text-neutral-500 font-normal">{t('manualActivity.optional')}</span>
               </label>
               <div className="flex gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-3 dark:border-neutral-700 dark:bg-neutral-900">
                 {FEEL_OPTIONS.map(opt => (
                   <button
                     key={opt.value}
                     type="button"
-                    title={opt.label}
+                    title={t(opt.labelKey)}
                     onClick={() => setFeel(feel === opt.value ? null : opt.value)}
                     className={[
                       'cursor-pointer flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-xl transition-all',
@@ -546,7 +563,7 @@ export default function ManualActivityPage() {
                     ].join(' ')}
                   >
                     <span>{opt.emoji}</span>
-                    <span className="text-xs text-neutral-500 hidden sm:block">{opt.label}</span>
+                    <span className="text-xs text-neutral-500 hidden sm:block">{t(opt.labelKey)}</span>
                   </button>
                 ))}
               </div>
@@ -559,7 +576,7 @@ export default function ManualActivityPage() {
               disabled={submitting}
               className="w-full rounded-lg bg-accent-DEFAULT px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-accent-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? 'Wird gespeichert...' : 'Aktivität erstellen'}
+              {submitting ? t('common.saving') : t('manualActivity.create')}
             </button>
           </div>
         </div>

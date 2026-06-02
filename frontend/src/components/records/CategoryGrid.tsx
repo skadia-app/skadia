@@ -1,13 +1,15 @@
 import React, { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { PRCell } from './PRCell'
 import { CATEGORY_PREFIXES } from '@/lib/recordsConstants'
 import { CATEGORY_KEYS } from '@/lib/bestEffortLabels'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 
 interface SectionDef {
   prefix: string
-  label: string
+  labelKey: string
   color: string
 }
 
@@ -31,17 +33,19 @@ const SECTION_ICONS: Record<string, React.ReactElement> = {
 }
 
 const SECTIONS: SectionDef[] = [
-  { prefix: CATEGORY_PREFIXES.dist,  label: 'Distanz',     color: 'blue' },
-  { prefix: CATEGORY_PREFIXES.power, label: 'Leistung',    color: 'orange' },
-  { prefix: CATEGORY_PREFIXES.elev,  label: 'Höhenmeter',  color: 'green' },
+  { prefix: CATEGORY_PREFIXES.dist,  labelKey: 'records.sections.distance',  color: 'blue' },
+  { prefix: CATEGORY_PREFIXES.power, labelKey: 'records.sections.power',     color: 'orange' },
+  { prefix: CATEGORY_PREFIXES.elev,  labelKey: 'records.sections.elevation', color: 'green' },
 ]
 
 interface CategoryGridProps {
   records: BestEffortRanked[]
   sportGroup?: string
+  language?: SupportedLanguage
 }
 
-export function CategoryGrid({ records, sportGroup }: CategoryGridProps) {
+export function CategoryGrid({ records, sportGroup, language }: CategoryGridProps) {
+  const { t } = useTranslation()
   const rank1 = useMemo(() => pickBestPerCategory(records), [records])
 
   const sections = useMemo(() => {
@@ -76,7 +80,7 @@ export function CategoryGrid({ records, sportGroup }: CategoryGridProps) {
         <div key={sec.prefix} className={`border-l-[3px] ${borderClass[sec.color]} pl-3`}>
           <div className={`text-[10px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5 ${textClass[sec.color]}`}>
             {SECTION_ICONS[sec.color]}
-            {sec.label}
+            {t(sec.labelKey)}
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-1.5">
             {sec.items.map((record) => (
@@ -85,6 +89,7 @@ export function CategoryGrid({ records, sportGroup }: CategoryGridProps) {
                 record={record}
                 sportGroup={sportGroup}
                 colorHint={sec.color as 'blue' | 'orange' | 'green'}
+                language={language}
               />
             ))}
           </div>

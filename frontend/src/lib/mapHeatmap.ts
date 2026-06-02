@@ -17,7 +17,7 @@ export const HEATMAP_LAYER_IDS = [
 
 export const DEFAULT_HEATMAP_COLOR = '#F97316'
 
-/** Liest die persistierte Heatmap-Farbe aus localStorage (gleicher Key wie MapPage). */
+/** Reads the persisted heatmap color from localStorage using the same key as MapPage. */
 export function loadHeatmapColor(): string {
   try {
     const saved = localStorage.getItem('skadia-sport-colors')
@@ -25,22 +25,22 @@ export function loadHeatmapColor(): string {
       const parsed = JSON.parse(saved) as Record<string, unknown>
       if (typeof parsed.heatmapColor === 'string') return parsed.heatmapColor
     }
-  } catch { /* ignorieren */ }
+  } catch { /* ignore */ }
   return DEFAULT_HEATMAP_COLOR
 }
 
-/** Speichert die Heatmap-Farbe persistent (gleicher Key wie MapPage). */
+/** Persists the heatmap color using the same localStorage key as MapPage. */
 export function saveHeatmapColor(hex: string): void {
   try {
     const saved = localStorage.getItem('skadia-sport-colors')
     const existing = saved ? (JSON.parse(saved) as Record<string, unknown>) : {}
     localStorage.setItem('skadia-sport-colors', JSON.stringify({ ...existing, heatmapColor: hex }))
-  } catch { /* ignorieren */ }
+  } catch { /* ignore */ }
 }
 
 /**
- * Erzeugt aus einer Hex-Farbe die 5 Glow-Stufen für den Heatmap-Modus.
- * Exakt dieselbe Logik wie in MapPage.tsx deriveHeatmapGlowColors.
+ * Derives the five glow levels for heatmap mode from a hex color.
+ * Exact same logic as MapPage.tsx deriveHeatmapGlowColors.
  */
 export function deriveHeatmapGlowColors(hex: string): [string, string, string, string, string] {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -57,15 +57,15 @@ export function deriveHeatmapGlowColors(hex: string): [string, string, string, s
   ]
 }
 
-/** Baut die Martin-Tile-URL für heatmap_lines für einen User. */
+/** Builds the Martin tile URL for one user's heatmap_lines tiles. */
 export function buildHeatmapTileUrl(userID: string): string {
   const params = new URLSearchParams({ user_id: userID, _v: '125' })
   return `${MARTIN_BASE}/heatmap_lines/{z}/{x}/{y}?${params.toString()}`
 }
 
 /**
- * Fügt die 5 Heatmap-Glow-Layer zur Karte hinzu.
- * @param beforeLayerId  Layer-ID vor der eingefügt wird — Heatmap liegt dann darunter.
+ * Adds the five heatmap glow layers to the map.
+ * @param beforeLayerId Layer ID inserted before the heatmap so the heatmap stays below it.
  */
 export function addHeatmapLayers(
   map: MaplibreMap,
@@ -74,7 +74,7 @@ export function addHeatmapLayers(
   beforeLayerId?: string,
   opacityScale = 1.0,
 ): void {
-  if (map.getSource(HEATMAP_SOURCE_ID)) return // schon vorhanden
+  if (map.getSource(HEATMAP_SOURCE_ID)) return // already present
 
   // Only use beforeLayerId if the layer actually exists (avoids MapLibre error
   // when heatmap effect runs before track layers are added after style change)
@@ -116,7 +116,7 @@ export function addHeatmapLayers(
   }
 }
 
-/** Entfernt alle Heatmap-Layer und die Heatmap-Source von der Karte. */
+/** Removes all heatmap layers and the heatmap source from the map. */
 export function removeHeatmapLayers(map: MaplibreMap): void {
   for (const id of HEATMAP_LAYER_IDS) {
     if (map.getLayer(id)) map.removeLayer(id)

@@ -3,11 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
+import '@/i18n/i18n'
 
 // ── Global filter mock — returns controllable params ──────────────────────────
 
 const mockToQueryString = vi.fn(() => '')
 const mockSetFilters = vi.fn()
+const mockUserPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' }))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
 
 vi.mock('@/lib/analyticsFilters', () => ({
   useAnalyticsFilters: () => ({
@@ -73,6 +79,8 @@ function renderWithProviders(url = '/analytics/stats') {
 describe('LifetimeStats — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
     mockToQueryString.mockReturnValue('')
     mockFetchLifetimeStats.mockResolvedValue(makeLifetimeResponse())
   })
@@ -119,7 +127,28 @@ describe('LifetimeStats — global filter', () => {
 
     expect(await screen.findByText('Höhenmeter ↑')).toBeInTheDocument()
     expect(screen.getByText('Höhenmeter ↓')).toBeInTheDocument()
-    expect(screen.getByText('100.000')).toBeInTheDocument()
-    expect(screen.getByText('80.000')).toBeInTheDocument()
+    expect(screen.getByText('100.000 m')).toBeInTheDocument()
+    expect(screen.getByText('80.000 m')).toBeInTheDocument()
+  })
+
+  it('formats distance and elevation with imperial user units', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    mockFetchLifetimeStats.mockResolvedValue({
+      ...makeLifetimeResponse(),
+      total_distance_m: 1609.344,
+      total_elevation_m: 100,
+      total_elevation_loss_m: 50,
+      lift_ride_count: 1,
+      lift_ascent_m: 100,
+      lift_descent_m: 50,
+      lift_distance_m: 1609.344,
+    })
+
+    renderWithProviders()
+
+    expect(await screen.findAllByText('1.0 mi')).toHaveLength(2)
+    expect(screen.getAllByText('328 ft')).toHaveLength(2)
+    expect(screen.getAllByText('164 ft')).toHaveLength(2)
   })
 })

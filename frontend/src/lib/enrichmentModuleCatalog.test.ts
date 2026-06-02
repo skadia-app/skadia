@@ -7,6 +7,15 @@ import {
 } from './enrichmentModuleCatalog'
 
 describe('enrichment module catalog', () => {
+  it('keeps visible module text behind locale keys', () => {
+    for (const module of ANALYSIS_MODULES) {
+      expect(module.labelKey).toBe(`enrichmentStatus.modules.${module.name}.label`)
+      expect(module.descriptionKey).toBe(`enrichmentStatus.modules.${module.name}.description`)
+      expect(module).not.toHaveProperty('label')
+      expect(module).not.toHaveProperty('description')
+    }
+  })
+
   it('requires every automatic analysis setting to declare a reprocess policy', () => {
     for (const module of ANALYSIS_MODULES) {
       expect(module.reprocess).toBeDefined()

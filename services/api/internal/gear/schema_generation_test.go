@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/geargen"
 )
 
@@ -60,6 +61,463 @@ func assertGearTypeExists(t *testing.T, keys map[string]struct{}, key string) {
 	if _, ok := keys[key]; !ok {
 		t.Errorf("gear_type %q not found in schema", key)
 	}
+}
+
+func assertFiveLocaleLabels(t *testing.T, got map[string]string, want map[string]string) {
+	t.Helper()
+	for _, locale := range []string{"de", "en", "fr", "it", "es"} {
+		if got[locale] != want[locale] {
+			t.Errorf("labels[%q] = %q, want %q", locale, got[locale], want[locale])
+		}
+	}
+}
+
+func TestGearSchemaAllLabelsHaveFiveLocales(t *testing.T) {
+	s := loadTestSchema(t)
+
+	var missing []string
+	check := func(path string, labels map[string]string) {
+		for _, locale := range []string{"de", "en", "fr", "it", "es"} {
+			if labels[locale] == "" {
+				missing = append(missing, path+" labels."+locale)
+			}
+		}
+	}
+	var checkAttribute func(path string, attr geargen.Attribute)
+	checkAttribute = func(path string, attr geargen.Attribute) {
+		check(path, attr.Labels)
+		for _, sub := range attr.Subfields {
+			checkAttribute(path+".subfields["+sub.Key+"]", sub)
+		}
+	}
+
+	for _, role := range s.AssignmentRoles {
+		check("assignment_roles["+role.Key+"]", role.Labels)
+	}
+	for _, set := range s.OptionSets {
+		for _, option := range set.Options {
+			check("option_sets["+set.Key+"].options["+option.Key+"]", option.Labels)
+		}
+	}
+	for _, group := range s.UnitGroups {
+		check("unit_groups["+group.Key+"]", group.Labels)
+	}
+	for _, attr := range s.Attributes {
+		checkAttribute("attributes["+attr.Key+"]", attr)
+	}
+	for _, gearType := range s.GearTypes {
+		check("gear_types["+gearType.Key+"]", gearType.Labels)
+		for _, slot := range gearType.Slots {
+			check("gear_types["+gearType.Key+"].slots["+slot.Key+"]", slot.Labels)
+		}
+	}
+	for _, componentType := range s.ComponentTypes {
+		check("component_types["+componentType.Key+"]", componentType.Labels)
+	}
+
+	if len(missing) > 0 {
+		t.Fatalf("gear schema labels missing %d locale values:\n%s", len(missing), strings.Join(missing, "\n"))
+	}
+}
+
+func TestGearSchemaRejectsKnownBadLocalizedLabels(t *testing.T) {
+	s := loadTestSchema(t)
+
+	knownBad := map[string]map[string]struct{}{
+		"en": {
+			"Cantilevers":             {},
+			"Dropable":                {},
+			"Flip flop":               {},
+			"Trommelbremse":           {},
+			"Vollgummi":               {},
+			"Gummi":                   {},
+			"Trekkingstiefel":         {},
+			"Schwere Trekkingstiefel": {},
+			"Snowboard-Boots":         {},
+			"Sattelstützenklemmung":   {},
+			"Rahmengröße cm":          {},
+			"Dropper-Betätigung":      {},
+			"display":                 {},
+		},
+		"fr": {
+			"Porte-à-faux":            {},
+			"Dropable":                {},
+			"Porte-voix":              {},
+			"Bascule":                 {},
+			"Trommelbremse":           {},
+			"Vollgummi":               {},
+			"Gummi":                   {},
+			"Trekkingstiefel":         {},
+			"Schwere Trekkingstiefel": {},
+			"Snowboard-Boots":         {},
+			"Sattelstützenklemmung":   {},
+			"Rahmengröße cm":          {},
+			"Dropper-Betätigung":      {},
+			"afficher":                {},
+			"Filature":                {},
+		},
+		"it": {
+			"Rilasciabile":            {},
+			"Altoparlante":            {},
+			"Infradito":               {},
+			"Trommelbremse":           {},
+			"Vollgummi":               {},
+			"Gummi":                   {},
+			"Trekkingstiefel":         {},
+			"Schwere Trekkingstiefel": {},
+			"Snowboard-Boots":         {},
+			"Sattelstützenklemmung":   {},
+			"Rahmengröße cm":          {},
+			"Dropper-Betätigung":      {},
+			"visualizzazione":         {},
+			"Filatura":                {},
+		},
+		"es": {
+			"Voladizos":               {},
+			"Dropable":                {},
+			"Megáfono":                {},
+			"chanclas":                {},
+			"Trommelbremse":           {},
+			"Vollgummi":               {},
+			"Gummi":                   {},
+			"Trekkingstiefel":         {},
+			"Schwere Trekkingstiefel": {},
+			"Snowboard-Boots":         {},
+			"Sattelstützenklemmung":   {},
+			"Rahmengröße cm":          {},
+			"Dropper-Betätigung":      {},
+			"mostrar":                 {},
+			"girando":                 {},
+		},
+	}
+	knownBadAllLocales := map[string]struct{}{
+		"Gurtzgröße": {},
+	}
+
+	var failures []string
+	check := func(path string, labels map[string]string) {
+		for locale, value := range labels {
+			if _, ok := knownBadAllLocales[value]; ok {
+				failures = append(failures, path+" labels."+locale+" = "+value)
+			}
+		}
+		for locale, blocked := range knownBad {
+			if _, ok := blocked[labels[locale]]; ok {
+				failures = append(failures, path+" labels."+locale+" = "+labels[locale])
+			}
+		}
+	}
+	var checkAttribute func(path string, attr geargen.Attribute)
+	checkAttribute = func(path string, attr geargen.Attribute) {
+		check(path, attr.Labels)
+		for _, sub := range attr.Subfields {
+			checkAttribute(path+".subfields["+sub.Key+"]", sub)
+		}
+	}
+
+	for _, role := range s.AssignmentRoles {
+		check("assignment_roles["+role.Key+"]", role.Labels)
+	}
+	for _, set := range s.OptionSets {
+		for _, option := range set.Options {
+			check("option_sets["+set.Key+"].options["+option.Key+"]", option.Labels)
+		}
+	}
+	for _, group := range s.UnitGroups {
+		check("unit_groups["+group.Key+"]", group.Labels)
+	}
+	for _, attr := range s.Attributes {
+		checkAttribute("attributes["+attr.Key+"]", attr)
+	}
+	for _, gearType := range s.GearTypes {
+		check("gear_types["+gearType.Key+"]", gearType.Labels)
+		for _, slot := range gearType.Slots {
+			check("gear_types["+gearType.Key+"].slots["+slot.Key+"]", slot.Labels)
+		}
+	}
+	for _, componentType := range s.ComponentTypes {
+		check("component_types["+componentType.Key+"]", componentType.Labels)
+	}
+
+	if len(failures) > 0 {
+		t.Fatalf("gear schema contains known bad localized labels:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func generatedAttributeLabels(t *testing.T, key string) map[string]string {
+	t.Helper()
+	attr, ok := gearpkg.LookupAttribute(key)
+	if !ok {
+		t.Fatalf("generated attribute %q missing", key)
+	}
+	return attr.Labels
+}
+
+func generatedOptionLabels(t *testing.T, optionSetKey, optionKey string) map[string]string {
+	t.Helper()
+	optionSet, ok := gearpkg.LookupOptionSet(optionSetKey)
+	if !ok {
+		t.Fatalf("generated option_set %q missing", optionSetKey)
+	}
+	for _, opt := range optionSet.Options {
+		if opt.Key == optionKey {
+			return opt.Labels
+		}
+	}
+	t.Fatalf("generated option %q missing in option_set %q", optionKey, optionSetKey)
+	return nil
+}
+
+func generatedGearTypeLabels(t *testing.T, key string) map[string]string {
+	t.Helper()
+	gearType, ok := gearpkg.LookupGearType(key)
+	if !ok {
+		t.Fatalf("generated gear_type %q missing", key)
+	}
+	return gearType.Labels
+}
+
+func generatedComponentTypeLabels(t *testing.T, key string) map[string]string {
+	t.Helper()
+	componentType, ok := gearpkg.LookupComponentType(key)
+	if !ok {
+		t.Fatalf("generated component_type %q missing", key)
+	}
+	return componentType.Labels
+}
+
+func generatedSlotLabels(t *testing.T, gearTypeKey, slotKey string) map[string]string {
+	t.Helper()
+	gearType, ok := gearpkg.LookupGearType(gearTypeKey)
+	if !ok {
+		t.Fatalf("generated gear_type %q missing", gearTypeKey)
+	}
+	for _, slot := range gearType.Slots {
+		if slot.Key == slotKey {
+			return slot.Labels
+		}
+	}
+	t.Fatalf("generated slot %q missing in gear_type %q", slotKey, gearTypeKey)
+	return nil
+}
+
+func TestGeneratedSchemaIncludesRepresentativeLocalizedLabels(t *testing.T) {
+	if len(gearpkg.Schema.AssignmentRoles) == 0 {
+		t.Fatal("generated Schema.AssignmentRoles is empty")
+	}
+	assertFiveLocaleLabels(t, gearpkg.Schema.AssignmentRoles[0].Labels, map[string]string{
+		"de": "Hauptausrüstung",
+		"en": "Primary gear",
+		"fr": "Équipement principal",
+		"it": "Attrezzatura principale",
+		"es": "Equipamiento principal",
+	})
+
+	yesNo, ok := gearpkg.LookupOptionSet("yes_no")
+	if !ok || len(yesNo.Options) == 0 {
+		t.Fatal("generated option_set yes_no missing or empty")
+	}
+	assertFiveLocaleLabels(t, yesNo.Options[0].Labels, map[string]string{
+		"de": "Ja",
+		"en": "Yes",
+		"fr": "Oui",
+		"it": "Sì",
+		"es": "Sí",
+	})
+
+	bike, ok := gearpkg.LookupGearType("bike")
+	if !ok {
+		t.Fatal("generated gear_type bike missing")
+	}
+	assertFiveLocaleLabels(t, bike.Labels, map[string]string{
+		"de": "Fahrrad",
+		"en": "Bike",
+		"fr": "Vélo",
+		"it": "Bici",
+		"es": "Bicicleta",
+	})
+
+	frame, ok := gearpkg.LookupComponentType("bike.frame")
+	if !ok {
+		t.Fatal("generated component_type bike.frame missing")
+	}
+	assertFiveLocaleLabels(t, frame.Labels, map[string]string{
+		"de": "Rahmen",
+		"en": "Frame",
+		"fr": "Cadre",
+		"it": "Telaio",
+		"es": "Cuadro",
+	})
+}
+
+func TestGeneratedSchemaIncludesLocalizedLabelsForBikeRunServiceGaps(t *testing.T) {
+	assertFiveLocaleLabels(t, generatedAttributeLabels(t, "bike.wheel_size"), map[string]string{
+		"de": "Laufradgröße",
+		"en": "Wheel size",
+		"fr": "Taille de roue",
+		"it": "Misura ruota",
+		"es": "Tamaño de rueda",
+	})
+	assertFiveLocaleLabels(t, generatedAttributeLabels(t, "bike.cable_routing"), map[string]string{
+		"de": "Kabelführung",
+		"en": "Cable routing",
+		"fr": "Passage des câbles",
+		"it": "Passaggio cavi",
+		"es": "Guiado de cables",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.fender_presence", "both"), map[string]string{
+		"de": "Vorne und hinten",
+		"en": "Front and rear",
+		"fr": "Avant et arrière",
+		"it": "Anteriore e posteriore",
+		"es": "Delantero y trasero",
+	})
+	assertFiveLocaleLabels(t, generatedComponentTypeLabels(t, "bike.chain"), map[string]string{
+		"de": "Kette",
+		"en": "Chain",
+		"fr": "Chaîne",
+		"it": "Catena",
+		"es": "Cadena",
+	})
+	assertFiveLocaleLabels(t, generatedSlotLabels(t, "bike.mtb", "shock"), map[string]string{
+		"de": "Dämpfer",
+		"en": "Shock",
+		"fr": "Amortisseur",
+		"it": "Ammortizzatore",
+		"es": "Amortiguador",
+	})
+	assertFiveLocaleLabels(t, generatedGearTypeLabels(t, "shoes.running"), map[string]string{
+		"de": "Laufschuhe",
+		"en": "Running shoes",
+		"fr": "Chaussures de running",
+		"it": "Scarpe da running",
+		"es": "Zapatillas de running",
+	})
+	assertFiveLocaleLabels(t, generatedGearTypeLabels(t, "bike.consumable.chain_lube"), map[string]string{
+		"de": "Kettenschmiermittel",
+		"en": "Chain lubricant",
+		"fr": "Lubrifiant de chaîne",
+		"it": "Lubrificante catena",
+		"es": "Lubricante de cadena",
+	})
+}
+
+func TestGeneratedSchemaIncludesLocalizedLabelsForCommonGearDetailGaps(t *testing.T) {
+	assertFiveLocaleLabels(t, generatedAttributeLabels(t, "bike.rear_axle_standard"), map[string]string{
+		"de": "Hinterbau-Achsstandard",
+		"en": "Rear axle standard",
+		"fr": "Standard d'axe arrière",
+		"it": "Standard asse posteriore",
+		"es": "Estándar de eje trasero",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "material.component", "plastic"), map[string]string{
+		"de": "Kunststoff",
+		"en": "Plastic",
+		"fr": "Plastique",
+		"it": "Plastica",
+		"es": "Plástico",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.frame_type", "bike.city.dutch"), map[string]string{
+		"de": "Hollandrad",
+		"en": "Dutch bike",
+		"fr": "Vélo hollandais",
+		"it": "Bici olandese",
+		"es": "Bicicleta holandesa",
+	})
+	assertFiveLocaleLabels(t, generatedComponentTypeLabels(t, "bike.stem"), map[string]string{
+		"de": "Vorbau",
+		"en": "Stem",
+		"fr": "Potence",
+		"it": "Attacco manubrio",
+		"es": "Potencia",
+	})
+	assertFiveLocaleLabels(t, generatedSlotLabels(t, "bike.gravel", "handlebar"), map[string]string{
+		"de": "Lenker",
+		"en": "Handlebar",
+		"fr": "Cintre",
+		"it": "Manubrio",
+		"es": "Manillar",
+	})
+}
+
+func TestGeneratedSchemaIncludesLocalizedLabelsForTranslationTraps(t *testing.T) {
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.brake_type", "cantilever"), map[string]string{
+		"de": "Cantilever",
+		"en": "Cantilever brake",
+		"fr": "Frein cantilever",
+		"it": "Freno cantilever",
+		"es": "Freno cantilever",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.brake_type", "drum"), map[string]string{
+		"de": "Trommelbremse",
+		"en": "Drum brake",
+		"fr": "Frein à tambour",
+		"it": "Freno a tamburo",
+		"es": "Freno de tambor",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.handlebar_type", "drop"), map[string]string{
+		"de": "Dropbar",
+		"en": "Drop bar",
+		"fr": "Cintre route",
+		"it": "Manubrio drop",
+		"es": "Manillar drop",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.handlebar_type", "bullhorn"), map[string]string{
+		"de": "Bullhorn",
+		"en": "Bullhorn bar",
+		"fr": "Cintre bullhorn",
+		"it": "Manubrio bullhorn",
+		"es": "Manillar bullhorn",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.tire_setup", "solid"), map[string]string{
+		"de": "Vollgummi",
+		"en": "Solid tire",
+		"fr": "Pneu plein",
+		"it": "Pneumatico pieno",
+		"es": "Neumático macizo",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "bike.hub_type", "flip_flop"), map[string]string{
+		"de": "Flip-Flop",
+		"en": "Flip-flop hub",
+		"fr": "Moyeu flip-flop",
+		"it": "Mozzo flip-flop",
+		"es": "Buje flip-flop",
+	})
+	assertFiveLocaleLabels(t, generatedOptionLabels(t, "ebike.battery_role", "display"), map[string]string{
+		"de": "Display",
+		"en": "Display",
+		"fr": "Display",
+		"it": "Display",
+		"es": "Display",
+	})
+	assertFiveLocaleLabels(t, generatedGearTypeLabels(t, "bike.indoor.spinning"), map[string]string{
+		"de": "Spinning",
+		"en": "Spinning",
+		"fr": "Spinning",
+		"it": "Spinning",
+		"es": "Spinning",
+	})
+	assertFiveLocaleLabels(t, generatedGearTypeLabels(t, "shoes.trekking"), map[string]string{
+		"de": "Trekkingstiefel",
+		"en": "Trekking boots",
+		"fr": "Chaussures de trekking",
+		"it": "Scarponi da trekking",
+		"es": "Botas de trekking",
+	})
+	assertFiveLocaleLabels(t, generatedGearTypeLabels(t, "snowboard_boots"), map[string]string{
+		"de": "Snowboard-Boots",
+		"en": "Snowboard boots",
+		"fr": "Boots de snowboard",
+		"it": "Scarponi da snowboard",
+		"es": "Botas de snowboard",
+	})
+	assertFiveLocaleLabels(t, generatedComponentTypeLabels(t, "bike.display"), map[string]string{
+		"de": "Display",
+		"en": "Display",
+		"fr": "Display",
+		"it": "Display",
+		"es": "Display",
+	})
 }
 
 // TestBikeHierarchyComplete verifies the full bike hierarchy including

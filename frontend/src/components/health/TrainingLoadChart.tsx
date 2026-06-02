@@ -2,6 +2,7 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, VisualMapComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { useECharts } from '@/hooks/useECharts'
 import type { HealthTrainingLoad } from '@/api/health'
 
@@ -21,17 +22,20 @@ function acwrStatusColor(status: string | null): string {
   }
 }
 
-function acwrStatusLabel(status: string | null): string {
+function acwrStatusLabel(status: string | null, t: ReturnType<typeof useTranslation>['t']): string {
   switch (status) {
-    case 'BALANCED': return 'Ausgewogen'
-    case 'HIGH': return 'Hoch'
-    case 'OVERREACHING': return 'Übertraining'
-    case 'LOW': return 'Niedrig'
+    case 'BALANCED': return t('healthCharts.acwrStatus.BALANCED')
+    case 'HIGH': return t('healthCharts.acwrStatus.HIGH')
+    case 'OVERREACHING': return t('healthCharts.acwrStatus.OVERREACHING')
+    case 'LOW': return t('healthCharts.acwrStatus.LOW')
     default: return status ?? ''
   }
 }
 
 export default function TrainingLoadChart({ data }: Props) {
+  const { t } = useTranslation()
+  const atlLabel = t('healthCharts.atlShortTerm')
+  const ctlLabel = t('healthCharts.ctlLongTerm')
   const containerRef = useECharts(
     (theme) => {
       const sorted = [...data].sort((a, b) => a.calendar_date.localeCompare(b.calendar_date))
@@ -43,7 +47,7 @@ export default function TrainingLoadChart({ data }: Props) {
         backgroundColor: 'transparent',
         grid: { left: 50, right: 16, top: 40, bottom: 40 },
         legend: {
-          data: ['ATL (kurzfristig)', 'CTL (langfristig)'],
+          data: [atlLabel, ctlLabel],
           top: 8,
           textStyle: { fontSize: 10, color: theme.textColor },
           itemHeight: 8,
@@ -60,7 +64,7 @@ export default function TrainingLoadChart({ data }: Props) {
             let html = `<div style="font-size:12px;margin-bottom:4px"><strong>${items[0].axisValueLabel}</strong>`
             if (entry?.acwr_status) {
               const color = acwrStatusColor(entry.acwr_status)
-              html += ` <span style="color:${color};font-size:10px">${acwrStatusLabel(entry.acwr_status)}</span>`
+              html += ` <span style="color:${color};font-size:10px">${acwrStatusLabel(entry.acwr_status, t)}</span>`
             }
             html += `</div>`
             for (const p of items) {
@@ -87,7 +91,7 @@ export default function TrainingLoadChart({ data }: Props) {
         },
         series: [
           {
-            name: 'ATL (kurzfristig)',
+            name: atlLabel,
             type: 'line',
             data: atl,
             showSymbol: false,
@@ -96,7 +100,7 @@ export default function TrainingLoadChart({ data }: Props) {
             areaStyle: { color: 'rgba(249,115,22,0.08)' },
           },
           {
-            name: 'CTL (langfristig)',
+            name: ctlLabel,
             type: 'line',
             data: ctl,
             showSymbol: false,
@@ -106,13 +110,13 @@ export default function TrainingLoadChart({ data }: Props) {
         ],
       }
     },
-    [data],
+    [data, atlLabel, ctlLabel, t],
   )
 
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[220px] text-sm text-neutral-400">
-        Keine Trainingsbelastungs-Daten vorhanden
+        {t('healthCharts.noTrainingLoadData')}
       </div>
     )
   }

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { Attribute } from '@/lib/generatedGearSchema'
 import SearchableEnumInput from '@/components/gear/inputs/SearchableEnumInput'
 import UnitNumberInput from '@/components/gear/inputs/UnitNumberInput'
@@ -5,6 +6,8 @@ import MultiEnumInput from '@/components/gear/inputs/MultiEnumInput'
 import ConditionalField from '@/components/gear/inputs/ConditionalField'
 import type { OptionValue } from '@/lib/generatedGearSchema'
 import { isAttributeVisible, type EvalContext } from '@/lib/gearConditionEval'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { gearSchemaLabel } from '@/lib/gearSchemaHelpers'
 
 export interface RecursiveSubfieldRendererProps {
   subfields: Attribute[]
@@ -34,6 +37,9 @@ export default function RecursiveSubfieldRenderer({
   resolveOptions,
   evalCtx,
 }: RecursiveSubfieldRendererProps) {
+  const { i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+
   if (depth > 5) return null
 
   return (
@@ -59,7 +65,7 @@ export default function RecursiveSubfieldRenderer({
             {sf.subfields && sf.subfields.length > 0 ? (
               <fieldset className="border border-neutral-200 dark:border-neutral-700 rounded p-3 space-y-2">
                 <legend className="text-xs font-medium text-neutral-600 dark:text-neutral-400 px-1">
-                  {sf.labelDe}
+                  {gearSchemaLabel(sf, language)}
                 </legend>
                 <RecursiveSubfieldRenderer
                   subfields={sf.subfields}
@@ -87,7 +93,7 @@ export default function RecursiveSubfieldRenderer({
                   htmlFor={inputId}
                   className="text-xs font-medium text-neutral-600 dark:text-neutral-400"
                 >
-                  {sf.labelDe}
+                  {gearSchemaLabel(sf, language)}
                   {sf.required && (
                     <span className="ml-1 text-rose-500" aria-hidden="true">*</span>
                   )}

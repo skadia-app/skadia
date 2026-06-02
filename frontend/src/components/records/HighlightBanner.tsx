@@ -1,16 +1,22 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { formatBestEffortValue } from '@/lib/bestEffortLabels'
+import { useTranslation } from 'react-i18next'
+import { categoryLabel, formatBestEffortValue } from '@/lib/bestEffortLabels'
 import { fmtDateMedium } from '@/lib/format'
-import { SPORT_GROUP_LABELS } from '@/lib/recordsConstants'
+import { getSportGroupLabel } from '@/lib/recordsConstants'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import type { BestEffortRanked } from '@/api/bestEfforts'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface HighlightBannerProps {
   records: BestEffortRanked[]
+  language?: SupportedLanguage
 }
 
-export function HighlightBanner({ records }: HighlightBannerProps) {
+export function HighlightBanner({ records, language }: HighlightBannerProps) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const cards = useMemo(() => {
     const rank1 = pickBestPerCategory(records)
     const result: { label: string; value: string; sub: string; activityId: string; gradient: string }[] = []
@@ -22,9 +28,9 @@ export function HighlightBanner({ records }: HighlightBannerProps) {
     }, null)
     if (newest) {
       result.push({
-        label: 'Aktueller PR',
-        value: formatBestEffortValue(newest.category, newest.elapsed_time_s, newest.value_numeric),
-        sub: `${SPORT_GROUP_LABELS[newest.sport_group] ?? newest.sport_group} · ${fmtDateMedium(newest.achieved_at)}`,
+        label: t('records.highlights.currentPr'),
+        value: formatBestEffortValue(newest.category, newest.elapsed_time_s, newest.value_numeric, unitFormatters.options),
+        sub: `${getSportGroupLabel(newest.sport_group, language)} · ${fmtDateMedium(newest.achieved_at)}`,
         activityId: newest.activity_id,
         gradient: 'from-yellow-500/10 to-yellow-600/5 border-yellow-500/20',
       })
@@ -35,9 +41,9 @@ export function HighlightBanner({ records }: HighlightBannerProps) {
       .sort((a, b) => (b.value_numeric ?? 0) - (a.value_numeric ?? 0))[0]
     if (longestDist) {
       result.push({
-        label: 'Längste Distanz',
-        value: formatBestEffortValue(longestDist.category, longestDist.elapsed_time_s, longestDist.value_numeric),
-        sub: `${SPORT_GROUP_LABELS[longestDist.sport_group] ?? ''} · ${fmtDateMedium(longestDist.achieved_at)}`,
+        label: categoryLabel('sup_longest_distance', language),
+        value: formatBestEffortValue(longestDist.category, longestDist.elapsed_time_s, longestDist.value_numeric, unitFormatters.options),
+        sub: `${getSportGroupLabel(longestDist.sport_group, language)} · ${fmtDateMedium(longestDist.achieved_at)}`,
         activityId: longestDist.activity_id,
         gradient: 'from-purple-500/10 to-purple-600/5 border-purple-500/20',
       })
@@ -48,9 +54,9 @@ export function HighlightBanner({ records }: HighlightBannerProps) {
       .sort((a, b) => (b.value_numeric ?? 0) - (a.value_numeric ?? 0))[0]
     if (mostElev) {
       result.push({
-        label: 'Meiste Höhenmeter',
-        value: formatBestEffortValue(mostElev.category, mostElev.elapsed_time_s, mostElev.value_numeric),
-        sub: `${SPORT_GROUP_LABELS[mostElev.sport_group] ?? ''} · ${fmtDateMedium(mostElev.achieved_at)}`,
+        label: categoryLabel('sup_most_elevation', language),
+        value: formatBestEffortValue(mostElev.category, mostElev.elapsed_time_s, mostElev.value_numeric, unitFormatters.options),
+        sub: `${getSportGroupLabel(mostElev.sport_group, language)} · ${fmtDateMedium(mostElev.achieved_at)}`,
         activityId: mostElev.activity_id,
         gradient: 'from-green-500/10 to-green-600/5 border-green-500/20',
       })
@@ -61,16 +67,16 @@ export function HighlightBanner({ records }: HighlightBannerProps) {
       .sort((a, b) => (b.value_numeric ?? 0) - (a.value_numeric ?? 0))[0]
     if (bestPower) {
       result.push({
-        label: 'Beste Leistung (20 Min)',
-        value: formatBestEffortValue(bestPower.category, bestPower.elapsed_time_s, bestPower.value_numeric),
-        sub: `${SPORT_GROUP_LABELS[bestPower.sport_group] ?? ''} · ${fmtDateMedium(bestPower.achieved_at)}`,
+        label: categoryLabel('power_20min', language),
+        value: formatBestEffortValue(bestPower.category, bestPower.elapsed_time_s, bestPower.value_numeric, unitFormatters.options),
+        sub: `${getSportGroupLabel(bestPower.sport_group, language)} · ${fmtDateMedium(bestPower.achieved_at)}`,
         activityId: bestPower.activity_id,
         gradient: 'from-orange-500/10 to-orange-600/5 border-orange-500/20',
       })
     }
 
     return result
-  }, [records])
+  }, [records, language, t, unitFormatters.options])
 
   if (cards.length === 0) return null
 

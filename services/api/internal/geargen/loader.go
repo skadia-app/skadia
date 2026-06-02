@@ -35,15 +35,19 @@ func init() {
 
 // AssignmentRole describes a role a gear item can play relative to an activity.
 type AssignmentRole struct {
-	Key               string `yaml:"key"`
-	LabelDE           string `yaml:"label_de"`
-	UniquePerActivity bool   `yaml:"unique_per_activity"`
+	Key               string    `yaml:"key"`
+	LabelDE           string    `yaml:"label_de"`
+	Labels            LocaleMap `yaml:"labels"`
+	UniquePerActivity bool      `yaml:"unique_per_activity"`
 }
+
+type LocaleMap map[string]string
 
 // OptionValue is a single selectable value within an OptionSet.
 type OptionValue struct {
-	Key     string `yaml:"key"`
-	LabelDE string `yaml:"label_de"`
+	Key     string    `yaml:"key"`
+	LabelDE string    `yaml:"label_de"`
+	Labels  LocaleMap `yaml:"labels"`
 }
 
 // OptionSet is a named list of enumerable option values referenced by attributes.
@@ -56,10 +60,11 @@ type OptionSet struct {
 // Attributes referencing this group via `unit_group:` may only declare
 // `allowed_units` that are a subset of AllowedUnits here.
 type UnitGroup struct {
-	Key           string   `yaml:"key"`
-	LabelDE       string   `yaml:"label_de"`
-	AllowedUnits  []string `yaml:"allowed_units"`
-	CanonicalUnit string   `yaml:"canonical_unit,omitempty"`
+	Key           string    `yaml:"key"`
+	LabelDE       string    `yaml:"label_de"`
+	Labels        LocaleMap `yaml:"labels"`
+	AllowedUnits  []string  `yaml:"allowed_units"`
+	CanonicalUnit string    `yaml:"canonical_unit,omitempty"`
 }
 
 // ShowWhenSpec describes the condition under which a field is visible and validated.
@@ -103,6 +108,7 @@ type Condition struct {
 type Attribute struct {
 	Key               string        `yaml:"key"`
 	LabelDE           string        `yaml:"label_de"`
+	Labels            LocaleMap     `yaml:"labels"`
 	ValueType         string        `yaml:"value_type"`
 	OptionSetKey      string        `yaml:"option_set_key,omitempty"`
 	Subfields         []Attribute   `yaml:"subfields,omitempty"`
@@ -123,10 +129,11 @@ type Predicate struct {
 
 // GearTypeSlot is a pre-defined component slot on a gear type.
 type GearTypeSlot struct {
-	Key           string `yaml:"key"`
-	LabelDE       string `yaml:"label_de"`
-	ComponentType string `yaml:"component_type"`
-	Optional      bool   `yaml:"optional,omitempty"`
+	Key           string    `yaml:"key"`
+	LabelDE       string    `yaml:"label_de"`
+	Labels        LocaleMap `yaml:"labels"`
+	ComponentType string    `yaml:"component_type"`
+	Optional      bool      `yaml:"optional,omitempty"`
 }
 
 // RecommendedAttribute lists discrete soft-default values for one attribute
@@ -150,6 +157,7 @@ type RecommendedConstraints struct {
 type GearType struct {
 	Key                      string                  `yaml:"key"`
 	LabelDE                  string                  `yaml:"label_de"`
+	Labels                   LocaleMap               `yaml:"labels"`
 	Scope                    string                  `yaml:"scope"`
 	ParentKey                string                  `yaml:"parent_key,omitempty"`
 	DefaultAssignmentRoleKey string                  `yaml:"default_assignment_role_key"`
@@ -163,11 +171,12 @@ type GearType struct {
 // ComponentType describes a reusable component kind (e.g. bike fork, shock)
 // with optional subtypes and associated attribute keys.
 type ComponentType struct {
-	Key           string   `yaml:"key"`
-	LabelDE       string   `yaml:"label_de"`
-	ParentKey     string   `yaml:"parent_key,omitempty"`
-	SubtypeKeys   []string `yaml:"subtype_keys,omitempty"`
-	AttributeKeys []string `yaml:"attribute_keys,omitempty"`
+	Key           string    `yaml:"key"`
+	LabelDE       string    `yaml:"label_de"`
+	Labels        LocaleMap `yaml:"labels"`
+	ParentKey     string    `yaml:"parent_key,omitempty"`
+	SubtypeKeys   []string  `yaml:"subtype_keys,omitempty"`
+	AttributeKeys []string  `yaml:"attribute_keys,omitempty"`
 }
 
 // Schema is the parsed, validated representation of a gear-schema.yaml file.

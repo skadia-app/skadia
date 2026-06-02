@@ -3,8 +3,11 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { useECharts } from '@/hooks/useECharts'
 import type { HealthWeightEntry } from '@/api/health'
+import { formatWeight } from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -13,6 +16,8 @@ interface Props {
 }
 
 export default function WeightChart({ data }: Props) {
+  const { t } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const sorted = useMemo(() =>
     [...data].sort((a, b) => a.measured_at_utc.localeCompare(b.measured_at_utc)),
     [data]
@@ -21,7 +26,7 @@ export default function WeightChart({ data }: Props) {
   const containerRef = useECharts(
     (theme) => {
       const dates = sorted.map(d => d.measured_at_utc.split('T')[0])
-      const weights = sorted.map(d => Math.round((d.weight_g / 1000) * 10) / 10)
+      const weights = sorted.map(d => d.weight_g / 1000)
 
       return {
         backgroundColor: 'transparent',
@@ -35,9 +40,9 @@ export default function WeightChart({ data }: Props) {
             const p = items[0]
             const entry = sorted[p.dataIndex]
             let html = `<div style="font-size:12px;margin-bottom:4px"><strong>${p.axisValueLabel}</strong></div>`
-            html += `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:6px"></span>Gewicht: <strong>${p.value} kg</strong></div>`
+            html += `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:6px"></span>${t('healthCharts.weight')}: <strong>${formatWeight(p.value, unitOptions)}</strong></div>`
             if (entry?.bmi != null) html += `<div style="margin-left:14px">BMI: ${entry.bmi.toFixed(1)}</div>`
-            if (entry?.body_fat_pct != null) html += `<div style="margin-left:14px">Körperfett: ${entry.body_fat_pct.toFixed(1)}%</div>`
+            if (entry?.body_fat_pct != null) html += `<div style="margin-left:14px">${t('healthCharts.bodyFat')}: ${entry.body_fat_pct.toFixed(1)}%</div>`
             return html
           },
         },
@@ -52,7 +57,7 @@ export default function WeightChart({ data }: Props) {
           axisLabel: {
             fontSize: 10,
             color: theme.textColor,
-            formatter: (v: number) => `${v} kg`,
+            formatter: (v: number) => formatWeight(v, unitOptions),
           },
           splitLine: { lineStyle: { color: theme.gridLineColor, type: 'dashed' } },
           scale: true,
@@ -71,13 +76,13 @@ export default function WeightChart({ data }: Props) {
         ],
       }
     },
-    [sorted],
+    [sorted, t, unitOptions],
   )
 
   if (sorted.length === 0) {
     return (
       <div className="flex items-center justify-center h-[220px] text-sm text-neutral-400">
-        Keine Gewichtsdaten vorhanden
+        {t('healthCharts.noWeightData')}
       </div>
     )
   }

@@ -1,29 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { GearSchema, ComponentType, GearTypeSlot, GearType, Attribute } from '@/lib/generatedGearSchema'
 import type { GearComponent } from '@/api/types'
-import { optionSetOptions } from '@/lib/gearSchemaHelpers'
+import { gearSchemaLabel, optionSetOptions } from '@/lib/gearSchemaHelpers'
 import RecursiveSubfieldRenderer from '@/components/gear/RecursiveSubfieldRenderer'
 import { deepEqual } from '@/lib/deepEqual'
-import { GEAR_ACTION_STRINGS } from '@/lib/gearComponentStrings'
 import { isAttributeVisible, type EvalContext } from '@/lib/gearConditionEval'
-
-// i18n-strings — component-specific; action strings (save/cancel) come from GEAR_ACTION_STRINGS
-const STRINGS = {
-  componentType: 'Bauteiltyp',
-  noAttributes: 'Keine Attribute für diesen Bauteiltyp definiert.',
-  selectType: 'Typ wählen…',
-  presetGearType: 'Geartyp-Voreinstellung',
-  presetGearTypeNone: 'Keine Voreinstellung',
-  presetGearTypeHelp: 'Bindet die Komponente an einen Geartyp. Übertragung nur an passende Gears möglich.',
-  unsavedChangesConfirm: 'Änderungen verwerfen? Nicht gespeicherte Eingaben gehen verloren.',
-  customFieldsHeader: 'Eigene Felder',
-  customFieldsHint: 'Custom-Felder werden separat vom Schema gespeichert.',
-  addCustomField: '+ Feld hinzufügen',
-  customFieldName: 'Feldname',
-  customFieldValue: 'Wert',
-  customFieldSave: 'Hinzufügen',
-  customFieldCancel: 'Abbrechen',
-} as const
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { useTranslation } from 'react-i18next'
 
 export interface ComponentDetailModalProps {
   /** The slot this component belongs to, or null for free components */
@@ -81,6 +64,29 @@ export default function ComponentDetailModal({
   onSave,
   onCancel,
 }: ComponentDetailModalProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const strings = {
+    componentType: t('gearZones.componentDetail.componentType'),
+    noAttributes: t('gearZones.componentDetail.noAttributes'),
+    selectType: t('gearZones.componentDetail.selectType'),
+    presetGearType: t('gearZones.componentDetail.presetGearType'),
+    presetGearTypeNone: t('gearZones.componentDetail.presetGearTypeNone'),
+    presetGearTypeHelp: t('gearZones.componentDetail.presetGearTypeHelp'),
+    unsavedChangesConfirm: t('gearZones.componentDetail.unsavedChangesConfirm'),
+    customFieldsHeader: t('gearZones.componentDetail.customFieldsHeader'),
+    customFieldsHint: t('gearZones.componentDetail.customFieldsHint'),
+    addCustomField: t('gearZones.componentDetail.addCustomField'),
+    customFieldName: t('gearZones.componentDetail.customFieldName'),
+    customFieldValue: t('gearZones.componentDetail.customFieldValue'),
+    customFieldSave: t('gearZones.componentDetail.customFieldSave'),
+    customFieldCancel: t('gearZones.componentDetail.customFieldCancel'),
+    deleteCustomField: (field: string) => t('gearZones.componentDetail.deleteCustomField', { field }),
+    defaultComponentTitle: t('gearZones.componentDetail.defaultComponentTitle'),
+    close: t('gearZones.componentDetail.close'),
+    save: t('gearZones.componentDetail.save'),
+    cancel: t('gearZones.componentDetail.cancel'),
+  }
   const [componentTypeKey, setComponentTypeKey] = useState(
     component?.type ?? slot?.componentType ?? '',
   )
@@ -118,10 +124,10 @@ export default function ComponentDetailModal({
 
   // Prompts the user if there are unsaved changes, then calls onCancel if confirmed.
   const confirmCloseIfDirty = useCallback(() => {
-    if (isDirty() && !window.confirm(STRINGS.unsavedChangesConfirm)) return
+    if (isDirty() && !window.confirm(strings.unsavedChangesConfirm)) return
     onCancel()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onCancel, componentTypeKey, attributes, presetGearTypeKey])
+  }, [onCancel, componentTypeKey, attributes, presetGearTypeKey, strings])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -217,7 +223,9 @@ export default function ComponentDetailModal({
     })
   }
 
-  const title = slot ? slot.labelDe : (component?.name ?? 'Komponente')
+  const title = slot
+    ? gearSchemaLabel(slot, language)
+    : (component?.name ?? strings.defaultComponentTitle)
 
   return (
     <div
@@ -236,7 +244,7 @@ export default function ComponentDetailModal({
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
           <button
             type="button"
-            aria-label="Schließen"
+            aria-label={strings.close}
             onClick={confirmCloseIfDirty}
             className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
           >
@@ -253,7 +261,7 @@ export default function ComponentDetailModal({
                 htmlFor="component-type-select"
                 className="text-sm font-medium text-neutral-700 dark:text-neutral-300"
               >
-                {STRINGS.componentType}
+                {strings.componentType}
               </label>
               <select
                 id="component-type-select"
@@ -264,9 +272,11 @@ export default function ComponentDetailModal({
                 }}
                 className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
               >
-                <option value="">{STRINGS.selectType}</option>
+                <option value="">{strings.selectType}</option>
                 {componentTypes.map((ct) => (
-                  <option key={ct.key} value={ct.key}>{ct.labelDe}</option>
+                  <option key={ct.key} value={ct.key}>
+                    {gearSchemaLabel(ct, language)}
+                  </option>
                 ))}
               </select>
             </div>
@@ -281,7 +291,7 @@ export default function ComponentDetailModal({
                 htmlFor="component-preset-gear-type-select"
                 className="text-sm font-medium text-neutral-700 dark:text-neutral-300"
               >
-                {STRINGS.presetGearType}
+                {strings.presetGearType}
               </label>
               <select
                 id="component-preset-gear-type-select"
@@ -289,13 +299,15 @@ export default function ComponentDetailModal({
                 onChange={(e) => setPresetGearTypeKey(e.target.value)}
                 className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
               >
-                <option value="">{STRINGS.presetGearTypeNone}</option>
+                <option value="">{strings.presetGearTypeNone}</option>
                 {presetOptions.map((g) => (
-                  <option key={g.key} value={g.key}>{g.labelDe}</option>
+                  <option key={g.key} value={g.key}>
+                    {gearSchemaLabel(g, language)}
+                  </option>
                 ))}
               </select>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                {STRINGS.presetGearTypeHelp}
+                {strings.presetGearTypeHelp}
               </p>
             </div>
           )}
@@ -312,7 +324,7 @@ export default function ComponentDetailModal({
             />
           ) : componentTypeKey ? (
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {STRINGS.noAttributes}
+              {strings.noAttributes}
             </p>
           ) : null}
 
@@ -321,12 +333,12 @@ export default function ComponentDetailModal({
             <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-neutral-800">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                  {STRINGS.customFieldsHeader}
+                  {strings.customFieldsHeader}
                 </p>
               </div>
               {customFields.length > 0 && (
                 <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 p-3 space-y-2">
-                  <p className="text-xs text-neutral-400 dark:text-neutral-500">{STRINGS.customFieldsHint}</p>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">{strings.customFieldsHint}</p>
                   {customFields.map(([key, val]) => (
                     <div key={key} className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
@@ -340,7 +352,7 @@ export default function ComponentDetailModal({
                       </div>
                       <button
                         type="button"
-                        aria-label={`${key} löschen`}
+                        aria-label={strings.deleteCustomField(key)}
                         onClick={() => handleCustomFieldDelete(key)}
                         className="mt-4 text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 cursor-pointer text-sm leading-none"
                       >
@@ -356,14 +368,14 @@ export default function ComponentDetailModal({
                     type="text"
                     value={customFieldName}
                     onChange={(e) => setCustomFieldName(e.target.value)}
-                    placeholder={STRINGS.customFieldName}
+                    placeholder={strings.customFieldName}
                     className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
                   />
                   <input
                     type="text"
                     value={customFieldValue}
                     onChange={(e) => setCustomFieldValue(e.target.value)}
-                    placeholder={STRINGS.customFieldValue}
+                    placeholder={strings.customFieldValue}
                     className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
                   />
                   <div className="flex gap-2">
@@ -373,7 +385,7 @@ export default function ComponentDetailModal({
                       disabled={!customFieldName.trim()}
                       className="px-3 py-1.5 text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed rounded cursor-pointer"
                     >
-                      {STRINGS.customFieldSave}
+                      {strings.customFieldSave}
                     </button>
                     <button
                       type="button"
@@ -384,7 +396,7 @@ export default function ComponentDetailModal({
                       }}
                       className="px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 cursor-pointer"
                     >
-                      {STRINGS.customFieldCancel}
+                      {strings.customFieldCancel}
                     </button>
                   </div>
                 </div>
@@ -394,7 +406,7 @@ export default function ComponentDetailModal({
                   onClick={() => setShowCustomFieldForm(true)}
                   className="text-sm font-medium text-accent-600 dark:text-orange-400 hover:underline cursor-pointer"
                 >
-                  {STRINGS.addCustomField}
+                  {strings.addCustomField}
                 </button>
               )}
             </div>
@@ -408,7 +420,7 @@ export default function ComponentDetailModal({
             onClick={confirmCloseIfDirty}
             className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
           >
-            {GEAR_ACTION_STRINGS.cancel}
+            {strings.cancel}
           </button>
           <button
             type="button"
@@ -416,7 +428,7 @@ export default function ComponentDetailModal({
             onClick={handleSave}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            {GEAR_ACTION_STRINGS.save}
+            {strings.save}
           </button>
         </div>
       </div>

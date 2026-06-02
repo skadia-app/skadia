@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
 import ImportHub from '@/components/ImportHub'
@@ -8,21 +9,22 @@ import { EmailVerifiedBanner } from '@/components/EmailVerifiedBanner'
 import UserMenu from '@/components/UserMenu'
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/photos', label: 'Fotos' },
-  { to: '/activities', label: 'Aktivitäten' },
-  { to: '/map', label: 'Karte' },
-  { to: '/calendar', label: 'Kalender' },
-  { to: '/analytics', label: 'Analyse' },
-  { to: '/chat', label: 'Assistent' },
-  { to: '/routes', label: 'Routen' },
-  { to: '/segments', label: 'Segmente' },
-  { to: '/imports', label: 'Imports' },
-  { to: '/workshop', label: 'Werkstatt' },
-  { to: '/settings', label: 'Einstellungen' },
+  { to: '/dashboard', key: 'dashboard' },
+  { to: '/photos', key: 'photos' },
+  { to: '/activities', key: 'activities' },
+  { to: '/map', key: 'map' },
+  { to: '/calendar', key: 'calendar' },
+  { to: '/analytics', key: 'analytics' },
+  { to: '/chat', key: 'assistant' },
+  { to: '/routes', key: 'routes' },
+  { to: '/segments', key: 'segments' },
+  { to: '/imports', key: 'imports' },
+  { to: '/workshop', key: 'workshop' },
+  { to: '/settings', key: 'settings' },
 ]
 
 export default function Layout() {
+  const { t } = useTranslation()
   const { theme, toggle } = useTheme()
 
   return (
@@ -31,7 +33,7 @@ export default function Layout() {
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-6">
           <span className="font-bold text-lg text-accent-DEFAULT tracking-tight">skadia</span>
           <nav className="flex gap-1 flex-1">
-            {navItems.map(({ to, label }) => (
+            {navItems.map(({ to, key }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -44,7 +46,7 @@ export default function Layout() {
                   )
                 }
               >
-                {label}
+                {t(`navigation.${key}`)}
               </NavLink>
             ))}
           </nav>
@@ -57,7 +59,7 @@ export default function Layout() {
 
           <button
             onClick={toggle}
-            aria-label="Farbschema umschalten"
+            aria-label={t('navigation.toggleColorScheme')}
             className="cursor-pointer p-2 rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           >
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}

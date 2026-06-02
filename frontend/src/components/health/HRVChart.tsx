@@ -3,6 +3,7 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { useECharts } from '@/hooks/useECharts'
 import type { HealthHRVSnapshot } from '@/api/health'
 
@@ -19,6 +20,7 @@ function compute7DayAvg(values: (number | null)[], index: number): number | null
 }
 
 export default function HRVChart({ data }: Props) {
+  const { t } = useTranslation()
   const sorted = useMemo(() =>
     [...data].sort((a, b) => a.measured_at_utc.localeCompare(b.measured_at_utc)),
     [data]
@@ -37,7 +39,7 @@ export default function HRVChart({ data }: Props) {
         backgroundColor: 'transparent',
         grid: { left: 50, right: 16, top: 40, bottom: 40 },
         legend: {
-          data: ['RMSSD', '7-Tage Ø'],
+          data: ['RMSSD', t('healthCharts.sevenDayAverage')],
           top: 8,
           textStyle: { fontSize: 10, color: theme.textColor },
           itemHeight: 8,
@@ -85,7 +87,7 @@ export default function HRVChart({ data }: Props) {
             areaStyle: { color: 'rgba(99,102,241,0.08)' },
           },
           {
-            name: '7-Tage Ø',
+            name: t('healthCharts.sevenDayAverage'),
             type: 'line',
             data: avg7,
             showSymbol: false,
@@ -95,13 +97,13 @@ export default function HRVChart({ data }: Props) {
         ],
       }
     },
-    [sorted],
+    [sorted, t],
   )
 
   if (sorted.length === 0) {
     return (
       <div className="flex items-center justify-center h-[220px] text-sm text-neutral-400">
-        Keine HRV-Daten vorhanden
+        {t('healthCharts.noHrvData')}
       </div>
     )
   }

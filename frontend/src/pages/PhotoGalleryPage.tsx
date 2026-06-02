@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   listPhotoFeed, searchPhotos,
   type PhotoFeedGroup, type PhotoSearchResult, type PhotoSortMode, type PhotoFeedPage
@@ -12,6 +13,7 @@ import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { cn } from '@/lib/utils'
 import { useDebounce } from '@/lib/useDebounce'
+import { localeForLanguage, isSupportedLanguage } from '@/i18n/languages'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,7 @@ interface LightboxState {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PhotoGalleryPage() {
+  const { t } = useTranslation()
   const [sortMode, setSortMode] = useState<PhotoSortMode>('date')
   const [searchQuery, setSearchQuery] = useState('')
   const [lightbox, setLightbox] = useState<LightboxState | null>(null)
@@ -73,14 +76,14 @@ export default function PhotoGalleryPage() {
               type="text"
               value={searchQuery}
               onChange={() => setSearchQuery(searchInputRef.current?.value ?? '')}
-              placeholder="Fotos durchsuchen (Stichwort oder Bildinhalt)…"
+              placeholder={t('photoGallery.searchPlaceholder')}
               className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
                 className="cursor-pointer absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-lg leading-none"
-                aria-label="Suche löschen"
+                aria-label={t('photoGallery.clearSearch')}
               >
                 ×
               </button>
@@ -101,7 +104,7 @@ export default function PhotoGalleryPage() {
                     : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 bg-white dark:bg-neutral-900',
                 )}
               >
-                {mode === 'date' ? 'Datum' : 'Hinzugefügt'}
+                {mode === 'date' ? t('photoGallery.sortByDate') : t('photoGallery.sortByAdded')}
               </button>
             ))}
           </div>
@@ -152,14 +155,15 @@ function FeedView({
   onFetchNextPage: () => void
   onOpen: (photos: ActivityPhoto[], index: number) => void
 }) {
+  const { t } = useTranslation()
   if (isLoading) return <FeedSkeleton />
 
   if (groups.length === 0) {
     return (
       <div className="text-center py-16 text-neutral-400 dark:text-neutral-500">
         <CameraIcon className="w-12 h-12 mx-auto mb-3 opacity-40" />
-        <p className="font-medium">Noch keine Fotos vorhanden</p>
-        <p className="text-sm mt-1">Fotos können beim Bearbeiten einer Aktivität hochgeladen werden.</p>
+        <p className="font-medium">{t('photoGallery.emptyTitle')}</p>
+        <p className="text-sm mt-1">{t('photoGallery.emptyDescription')}</p>
       </div>
     )
   }
@@ -182,7 +186,7 @@ function FeedView({
             disabled={isFetchingNextPage}
             className="px-4 py-2 text-sm rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            {isFetchingNextPage ? 'Lädt…' : 'Mehr laden'}
+            {isFetchingNextPage ? t('photoGallery.loading') : t('photoGallery.loadMore')}
           </button>
         </div>
       )}
@@ -199,13 +203,16 @@ function PhotoFeedGroupView({
   sortMode: PhotoSortMode
   onOpen: (photos: ActivityPhoto[], index: number) => void
 }) {
+  const { t, i18n } = useTranslation()
   const isActivityGroup = sortMode === 'date' && group.group_type === 'activity' && group.activity
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
+  const locale = localeForLanguage(language)
 
   if (!isActivityGroup) {
     // Day-grouped view (sort=added or photos without activity)
     return (
       <div className="flex flex-col gap-3">
-        <DaySeparator label={formatDayLabel(group.group_key)} />
+        <DaySeparator label={formatDayLabel(group.group_key, locale, t('photoGallery.today'), t('photoGallery.yesterday'))} />
         <PhotoGrid photos={group.photos} onOpen={onOpen} />
       </div>
     )
@@ -320,15 +327,15 @@ function SearchResultsGrid({
   onOpen: (photos: ActivityPhoto[], index: number) => void
   query: string
 }) {
+  const { t } = useTranslation()
   if (isLoading) return <FeedSkeleton />
 
   if (results.length === 0) {
     return (
       <div className="text-center py-12 text-neutral-400 dark:text-neutral-500">
-        <p className="font-medium">Keine Fotos gefunden für „{query}"</p>
+        <p className="font-medium">{t('photoGallery.noSearchResults', { query })}</p>
         <p className="text-xs mt-1 max-w-xs mx-auto">
-          Tipp: Beschreibe den Bildinhalt auf Deutsch oder Englisch (z.B. „Bergpanorama", „Gruppe am Gipfel").
-          Suche funktioniert auch als Titelsuche.
+          {t('photoGallery.searchTip')}
         </p>
       </div>
     )
@@ -339,7 +346,7 @@ function SearchResultsGrid({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        {results.length} Ergebnis{results.length !== 1 ? 'se' : ''} für „{query}"
+        {t('photoGallery.resultCount', { count: results.length, query })}
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
         {results.map((result, idx) => (
@@ -366,6 +373,7 @@ function GalleryLightbox({
   initialIndex: number
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const [index, setIndex] = useState(initialIndex)
   const photo = photos[index]
 
@@ -406,7 +414,7 @@ function GalleryLightbox({
           <button
             onClick={() => setIndex(i => i - 1)}
             className="cursor-pointer absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
-            aria-label="Vorheriges Foto"
+            aria-label={t('photoGallery.previousPhoto')}
           >
             <ChevronLeftIcon className="w-5 h-5" />
           </button>
@@ -415,7 +423,7 @@ function GalleryLightbox({
           <button
             onClick={() => setIndex(i => i + 1)}
             className="cursor-pointer absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
-            aria-label="Nächstes Foto"
+            aria-label={t('photoGallery.nextPhoto')}
           >
             <ChevronRightIcon className="w-5 h-5" />
           </button>
@@ -424,7 +432,7 @@ function GalleryLightbox({
         <button
           onClick={onClose}
           className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 cursor-pointer transition-colors"
-          aria-label="Schließen"
+          aria-label={t('photoGallery.close')}
         >
           <XIcon className="w-4 h-4" />
         </button>
@@ -461,14 +469,14 @@ function FeedSkeleton() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDayLabel(dateStr: string): string {
+function formatDayLabel(dateStr: string, locale: string, todayLabel: string, yesterdayLabel: string): string {
   const d = new Date(dateStr)
   const today = new Date()
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
-  if (d.toDateString() === today.toDateString()) return 'Heute'
-  if (d.toDateString() === yesterday.toDateString()) return 'Gestern'
-  return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })
+  if (d.toDateString() === today.toDateString()) return todayLabel
+  if (d.toDateString() === yesterday.toDateString()) return yesterdayLabel
+  return d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 function formatVideoDuration(s: number): string {

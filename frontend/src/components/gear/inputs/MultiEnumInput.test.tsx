@@ -1,9 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MultiEnumInput from '@/components/gear/inputs/MultiEnumInput'
 import type { OptionValue } from '@/lib/generatedGearSchema'
+import { i18n } from '@/i18n/i18n'
 
 const OPTIONS: OptionValue[] = [
   { key: 'positive', labelDe: 'Positiv' },
@@ -13,6 +14,59 @@ const OPTIONS: OptionValue[] = [
 ]
 
 describe('MultiEnumInput', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
+  it('uses a derived display label before schema labels', async () => {
+    await i18n.changeLanguage('en')
+    const options: (OptionValue & { displayLabel: string })[] = [
+      {
+        key: 'positive',
+        labelDe: 'Positiv',
+        labels: { de: 'Positiv', en: 'Positive' },
+        displayLabel: 'Recommended: Positive',
+      },
+    ]
+
+    render(
+      <MultiEnumInput
+        id="test"
+        value={[]}
+        options={options}
+        onChange={vi.fn()}
+      />,
+    )
+    fireEvent.focus(screen.getByRole('combobox'))
+
+    expect(screen.getByText('Recommended: Positive')).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Positive' })).not.toBeInTheDocument()
+  })
+
+  it('uses the schema label for selected chips when a display label exists', async () => {
+    await i18n.changeLanguage('en')
+    const options: (OptionValue & { displayLabel: string })[] = [
+      {
+        key: 'positive',
+        labelDe: 'Positiv',
+        labels: { de: 'Positiv', en: 'Positive' },
+        displayLabel: 'Recommended: Positive',
+      },
+    ]
+
+    render(
+      <MultiEnumInput
+        id="test"
+        value={['positive']}
+        options={options}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Positive')).toBeInTheDocument()
+    expect(screen.queryByText('Recommended: Positive')).not.toBeInTheDocument()
+  })
+
   it('TestRendersChipsForSelected', () => {
     render(
       <MultiEnumInput

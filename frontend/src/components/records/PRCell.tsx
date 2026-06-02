@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { formatBestEffortDisplay, categoryLabel } from '@/lib/bestEffortLabels'
 import { fmtDateMedium } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { RECORD_GROUP_BADGES } from '@/lib/recordsConstants'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface PRCellProps {
   record: BestEffortRanked
@@ -11,6 +14,7 @@ interface PRCellProps {
   showGroupBadge?: boolean
   colorHint?: 'blue' | 'orange' | 'green'
   onClick?: () => void
+  language?: SupportedLanguage
 }
 
 function groupBadge(sportGroup: string): string | null {
@@ -22,14 +26,17 @@ const VALUE_COLOR: Record<string, string> = {
   green:  'text-green-600 dark:text-green-300',
 }
 
-export function PRCell({ record, sportGroup, showGroupBadge, colorHint, onClick }: PRCellProps) {
+export function PRCell({ record, sportGroup, showGroupBadge, colorHint, onClick, language }: PRCellProps) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const display = formatBestEffortDisplay(
     record.category,
     record.elapsed_time_s,
     record.value_numeric,
     sportGroup ?? record.sport_group,
+    unitFormatters.options,
   )
-  const label = categoryLabel(record.category)
+  const label = categoryLabel(record.category, language)
   const badge = showGroupBadge ? groupBadge(record.sport_group) : null
   const valueColor = colorHint ? (VALUE_COLOR[colorHint] ?? '') : ''
 
@@ -54,7 +61,7 @@ export function PRCell({ record, sportGroup, showGroupBadge, colorHint, onClick 
       {record.suspicious && (
         <div
           className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center"
-          title="Möglicherweise fehlerhafter Sensor-Wert (Stuck Value)"
+          title={t('records.suspiciousSensorValueTitle')}
         >
           <span className="text-[8px] text-amber-600 dark:text-amber-400 font-bold">!</span>
         </div>

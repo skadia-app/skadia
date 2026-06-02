@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getGearDuplicateCandidates, mergeGear } from '@/api/importWizard'
 import { fetchGear } from '@/api/gear'
 import type { Gear } from '@/api/types'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 export default function GearMergePanel({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
   const queryClient = useQueryClient()
   const [ignored, setIgnored] = useState<Set<string>>(new Set())
 
@@ -30,15 +34,15 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
   const visiblePairs = pairs.filter(([a, b]) => !ignored.has(`${a}:${b}`))
 
   if (pairsLoading) {
-    return <div className="text-center py-8 text-neutral-400 text-sm">Suche nach Duplikaten…</div>
+    return <div className="text-center py-8 text-neutral-400 text-sm">{t('gearPages.merge.searching')}</div>
   }
 
   if (visiblePairs.length === 0) {
     return (
       <div className="text-center py-8">
-        <p className="text-neutral-500 dark:text-neutral-400 text-sm">Keine möglichen Duplikate gefunden.</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('gearPages.merge.noneFound')}</p>
         <button onClick={onClose} className="cursor-pointer mt-4 text-sm text-accent-DEFAULT hover:text-accent-600 font-medium transition-colors">
-          Schließen
+          {t('common.close')}
         </button>
       </div>
     )
@@ -47,7 +51,7 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        {visiblePairs.length} mögliche Duplikate gefunden. Wähle welches als primär behalten werden soll.
+        {t('gearPages.merge.found', { count: visiblePairs.length })}
       </p>
       {visiblePairs.map(([idA, idB]) => {
         const gA = allGear.find((g) => g.id === idA)
@@ -66,7 +70,7 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
                     <div className="text-xs text-neutral-500">{[g.brand, g.model].filter(Boolean).join(' ')}</div>
                   )}
                   <div className="text-xs text-neutral-400">
-                    {((g.total_distance_m ?? 0) / 1000).toFixed(0)} km
+                    {formatDistanceCompact(g.total_distance_m ?? 0)}
                   </div>
                 </div>
               ))}
@@ -77,20 +81,20 @@ export default function GearMergePanel({ onClose }: { onClose: () => void }) {
                 disabled={isPending}
                 className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-white transition-colors"
               >
-                {gA.name} behalten
+                {t('gearPages.merge.keepName', { name: gA.name })}
               </button>
               <button
                 onClick={() => mergeMut.mutate({ primary: idB, from: idA })}
                 disabled={isPending}
                 className="flex-1 text-xs py-1.5 rounded-lg bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-white transition-colors"
               >
-                {gB.name} behalten
+                {t('gearPages.merge.keepName', { name: gB.name })}
               </button>
               <button
                 onClick={() => setIgnored(s => new Set([...s, key]))}
                 className="px-3 text-xs py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors"
               >
-                Ignorieren
+                {t('gearPages.merge.ignore')}
               </button>
             </div>
           </div>

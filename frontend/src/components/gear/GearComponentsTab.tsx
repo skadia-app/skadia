@@ -1,4 +1,6 @@
 import type { GearComponent } from '@/api/types'
+import { useTranslation } from 'react-i18next'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface GearComponentsTabProps {
   components: GearComponent[]
@@ -45,10 +47,6 @@ function buildTree(components: GearComponent[]): TreeNode[] {
   return result
 }
 
-function formatComponentDistance(meters: number): string {
-  return `${Math.round(Math.max(0, meters) / 1000)} km`
-}
-
 function formatComponentDuration(seconds: number): string {
   const minutes = Math.round(Math.max(0, seconds) / 60)
   if (minutes < 60) return `${minutes} min`
@@ -56,10 +54,16 @@ function formatComponentDuration(seconds: number): string {
 }
 
 export default function GearComponentsTab({ components }: GearComponentsTabProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
+  const strings = {
+    empty: t('gearZones.componentsTab.empty'),
+  }
+
   if (components.length === 0) {
     return (
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        Keine Komponenten vorhanden.
+        {strings.empty}
       </p>
     )
   }
@@ -88,7 +92,7 @@ export default function GearComponentsTab({ components }: GearComponentsTabProps
               )}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 shrink-0 text-right">
-              <div>{formatComponentDistance(comp.total_distance_m)}</div>
+              <div>{formatDistanceCompact(Math.max(0, comp.total_distance_m))}</div>
               <div>{formatComponentDuration(comp.total_time_s)}</div>
             </div>
           </div>

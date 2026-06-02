@@ -8,6 +8,7 @@ import {
   MarkLineComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchActivityGlucose } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
@@ -23,16 +24,7 @@ echarts.use([
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
-const LABELS = {
-  title: 'Blutzucker (pro Aktivität)',
-  unit: 'mg/dL',
-  loading: 'Lade Blutzucker-Daten…',
-  error: 'Fehler beim Laden der Blutzucker-Daten',
-  noData: 'Keine Blutzucker-Aktivitätsdaten vorhanden',
-  zoneNormal: 'Normal',
-  zoneElevated: 'Erhöht',
-  zoneHigh: 'Hoch',
-}
+const GLUCOSE_UNIT = 'mg/dL'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +37,11 @@ function glucoseColor(val: number): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function GlucoseChart() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const zoneNormal = t('analyticsHealthInsights.glucose.zones.normal')
+  const zoneElevated = t('analyticsHealthInsights.glucose.zones.elevated')
+  const zoneHigh = t('analyticsHealthInsights.glucose.zones.high')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'activity-glucose', from, to],
@@ -76,12 +72,12 @@ export default function GlucoseChart() {
             const p = param as { value: [string, number] }
             const val = p.value[1]
             const date = p.value[0]
-            let zone = LABELS.zoneNormal
+            let zone = zoneNormal
             let zoneColor = '#22c55e'
-            if (val >= 125) { zone = LABELS.zoneHigh; zoneColor = '#ef4444' }
-            else if (val >= 100) { zone = LABELS.zoneElevated; zoneColor = '#f59e0b' }
+            if (val >= 125) { zone = zoneHigh; zoneColor = '#ef4444' }
+            else if (val >= 100) { zone = zoneElevated; zoneColor = '#f59e0b' }
             return `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${date}</div>
-              <div><strong style="color:#f9fafb">${val} mg/dL</strong> <span style="color:${zoneColor};font-size:10px">${zone}</span></div>`
+              <div><strong style="color:#f9fafb">${val} ${GLUCOSE_UNIT}</strong> <span style="color:${zoneColor};font-size:10px">${zone}</span></div>`
           },
         },
         xAxis: {
@@ -100,7 +96,7 @@ export default function GlucoseChart() {
             formatter: (v: number) => `${v}`,
           },
           splitLine: { lineStyle: { color: theme.gridLineColor, type: 'dashed' } },
-          name: LABELS.unit,
+          name: GLUCOSE_UNIT,
           nameTextStyle: { color: theme.textColor, fontSize: 10 },
         },
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
@@ -116,12 +112,12 @@ export default function GlucoseChart() {
                 {
                   yAxis: 100,
                   lineStyle: { color: '#f59e0b', type: 'dashed', width: 1.5, opacity: 0.7 },
-                  label: { show: true, position: 'insideEndTop', formatter: '100 mg/dL', fontSize: 9, color: '#f59e0b' },
+                  label: { show: true, position: 'insideEndTop', formatter: `100 ${GLUCOSE_UNIT}`, fontSize: 9, color: '#f59e0b' },
                 },
                 {
                   yAxis: 125,
                   lineStyle: { color: '#ef4444', type: 'dashed', width: 1.5, opacity: 0.7 },
-                  label: { show: true, position: 'insideEndTop', formatter: '125 mg/dL', fontSize: 9, color: '#ef4444' },
+                  label: { show: true, position: 'insideEndTop', formatter: `125 ${GLUCOSE_UNIT}`, fontSize: 9, color: '#ef4444' },
                 },
               ],
             },
@@ -129,7 +125,7 @@ export default function GlucoseChart() {
         ],
       }
     },
-    [data],
+    [data, zoneNormal, zoneElevated, zoneHigh],
   )
 
   // Do not render if there is no data at all (user has no glucose-enabled activities)
@@ -139,18 +135,18 @@ export default function GlucoseChart() {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          {LABELS.title}
+          {t('analyticsHealthInsights.glucose.title')}
         </h2>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            {LABELS.loading}
+            {t('analyticsHealthInsights.glucose.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            {LABELS.error}
+            {t('analyticsHealthInsights.glucose.loadFailed')}
           </div>
         ) : (
           <div ref={containerRef} className="h-[280px] w-full" />
@@ -160,15 +156,15 @@ export default function GlucoseChart() {
       <div className="flex gap-4 text-xs text-neutral-500 dark:text-neutral-400">
         <span className="flex items-center gap-1">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-500" />
-          {LABELS.zoneNormal} (&lt;100)
+          {zoneNormal} (&lt;100)
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" />
-          {LABELS.zoneElevated} (100–125)
+          {zoneElevated} (100–125)
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
-          {LABELS.zoneHigh} (&ge;125)
+          {zoneHigh} (&ge;125)
         </span>
       </div>
     </div>

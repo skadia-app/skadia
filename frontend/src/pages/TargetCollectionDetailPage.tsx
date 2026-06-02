@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getMe } from '@/api/auth'
 import {
   addTargetCollectionMember,
@@ -14,32 +15,12 @@ import {
 } from '@/api/targetObjects'
 import CollectionMemberPicker from '@/components/target-objects/CollectionMemberPicker'
 import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
+import { memberKindLabel, targetVisibilityLabel } from '@/components/target-objects/targetLabels'
 import TargetOverlayTabs from '@/components/target-overlays/TargetOverlayTabs'
 import { useToast } from '@/lib/toast'
 
-const COLLECTION_KIND_LABELS: Record<string, string> = {
-  private_map: 'Private Karte',
-  public_pool: 'Öffentlicher Pool',
-  venue_pool: 'Gelände-Pool',
-  route_set: 'Routen-Set',
-  course_set: 'Kurs-Set',
-  rule_set: 'Regel-Set',
-  privacy_set: 'Privacy-Set',
-  custom: 'Eigene Sammlung',
-}
-
-const MEMBER_KIND_LABELS: Record<string, string> = {
-  course: 'Segment/Kurs',
-  route_publication: 'Veröffentlichter Kurs',
-  place: 'Ort',
-  region: 'Bereich',
-  collection: 'Sammlung',
-  privacy_zone: 'Privacy-Zone',
-  tag_zone: 'Tag-Zone',
-  external_ref: 'Externe Referenz',
-}
-
 export default function TargetCollectionDetailPage() {
+  const { t } = useTranslation()
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -58,25 +39,25 @@ export default function TargetCollectionDetailPage() {
     mutationFn: (member: Parameters<typeof addTargetCollectionMember>[1]) => addTargetCollectionMember(id, member),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['target-collection', id] })
-      addToast({ type: 'success', title: 'Eintrag hinzugefügt' })
+      addToast({ type: 'success', title: t('targetCollectionDetail.memberAdded') })
     },
-    onError: error => addToast({ type: 'error', title: 'Eintrag konnte nicht hinzugefügt werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollectionDetail.memberAddFailed'), message: errorMessage(error, t), duration: 0 }),
   })
   const removeMemberMutation = useMutation({
     mutationFn: (memberID: string) => removeTargetCollectionMember(id, memberID),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['target-collection', id] })
-      addToast({ type: 'success', title: 'Eintrag entfernt' })
+      addToast({ type: 'success', title: t('targetCollectionDetail.memberRemoved') })
     },
-    onError: error => addToast({ type: 'error', title: 'Eintrag konnte nicht entfernt werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollectionDetail.memberRemoveFailed'), message: errorMessage(error, t), duration: 0 }),
   })
   const updateMemberMutation = useMutation({
     mutationFn: ({ memberID, role }: { memberID: string; role: string }) => updateTargetCollectionMember(id, memberID, { role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['target-collection', id] })
-      addToast({ type: 'success', title: 'Eintrag aktualisiert' })
+      addToast({ type: 'success', title: t('targetCollectionDetail.memberUpdated') })
     },
-    onError: error => addToast({ type: 'error', title: 'Eintrag konnte nicht aktualisiert werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollectionDetail.memberUpdateFailed'), message: errorMessage(error, t), duration: 0 }),
   })
   const updateCollectionMutation = useMutation({
     mutationFn: (request: { name: string; collection_kind: TargetCollectionKind; visibility: TargetVisibility; access_scope_id?: string | null }) => {
@@ -92,24 +73,24 @@ export default function TargetCollectionDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['target-collection', id] })
       queryClient.invalidateQueries({ queryKey: ['target-collections'] })
       setEditing(false)
-      addToast({ type: 'success', title: 'Sammlung gespeichert' })
+      addToast({ type: 'success', title: t('targetCollectionDetail.saved') })
     },
-    onError: error => addToast({ type: 'error', title: 'Sammlung konnte nicht gespeichert werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollectionDetail.saveFailed'), message: errorMessage(error, t), duration: 0 }),
   })
   const archiveCollectionMutation = useMutation({
     mutationFn: () => deleteTargetCollection(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['target-collection', id] })
       queryClient.invalidateQueries({ queryKey: ['target-collections'] })
-      addToast({ type: 'success', title: 'Sammlung archiviert' })
+      addToast({ type: 'success', title: t('targetCollectionDetail.archived') })
     },
-    onError: error => addToast({ type: 'error', title: 'Sammlung konnte nicht archiviert werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollectionDetail.archiveFailed'), message: errorMessage(error, t), duration: 0 }),
   })
 
   const collection = detail.data?.collection
 
-  if (detail.isLoading) return <p className="text-sm text-neutral-500">Lädt...</p>
-  if (!collection) return <p className="text-sm text-neutral-500">Sammlung nicht gefunden.</p>
+  if (detail.isLoading) return <p className="text-sm text-neutral-500">{t('targetCollectionDetail.loading')}</p>
+  if (!collection) return <p className="text-sm text-neutral-500">{t('targetCollectionDetail.notFound')}</p>
   const effectivePermissions = new Set(collection.effective_permissions ?? [])
   const ownerEdit = Boolean(me?.is_admin || me?.user_id === collection.owner_user_id)
   const canManageMembers = Boolean(
@@ -130,10 +111,15 @@ export default function TargetCollectionDetailPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">{collection.name}</h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{collection.visibility} · {collection.owner_member_count ?? collection.members?.length ?? 0} Einträge</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            {targetVisibilityLabel(collection.visibility, t)} · {t('targetCollections.entryCount', { count: collection.owner_member_count ?? collection.members?.length ?? 0 })}
+          </p>
           {collection.overlay_summary && (
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              {collection.overlay_summary.public_open_report_count} offene Meldungen · {collection.overlay_summary.public_comment_count} Kommentare
+              {t('targetCollectionDetail.overlaySummary', {
+                reports: collection.overlay_summary.public_open_report_count,
+                comments: collection.overlay_summary.public_comment_count,
+              })}
             </p>
           )}
         </div>
@@ -146,7 +132,7 @@ export default function TargetCollectionDetailPage() {
                 disabled={updateCollectionMutation.isPending}
                 className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
               >
-                {editing ? 'Bearbeiten schließen' : 'Bearbeiten'}
+                {editing ? t('targetCollectionDetail.closeEdit') : t('targetCollectionDetail.edit')}
               </button>
             )}
             {canArchiveCollection && !collection.archived_at && (
@@ -156,7 +142,7 @@ export default function TargetCollectionDetailPage() {
                 disabled={archiveCollectionMutation.isPending}
                 className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
               >
-                {archiveCollectionMutation.isPending ? 'Archiviert...' : 'Archivieren'}
+                {archiveCollectionMutation.isPending ? t('targetCollectionDetail.archiving') : t('targetCollectionDetail.archive')}
               </button>
             )}
           </div>
@@ -179,14 +165,14 @@ export default function TargetCollectionDetailPage() {
       )}
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Einträge</h2>
+        <h2 className="text-lg font-semibold">{t('targetCollectionDetail.entries')}</h2>
         <div className="divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
           {(collection.members ?? []).map(member => (
             <div key={member.id} className="flex items-center justify-between gap-3 p-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{member.display_name_override || member.member_id || member.member_ref}</p>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {MEMBER_KIND_LABELS[member.member_kind] ?? member.member_kind} · {member.role}
+                  {memberKindLabel(member.member_kind, t)} · {member.role}
                 </p>
               </div>
               {canManageMembers && (
@@ -202,13 +188,13 @@ export default function TargetCollectionDetailPage() {
                     disabled={removeMemberMutation.isPending}
                     className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
                   >
-                    {removeMemberMutation.isPending ? 'Entfernt...' : 'Entfernen'}
+                    {removeMemberMutation.isPending ? t('targetCollectionDetail.removing') : t('targetCollectionDetail.remove')}
                   </button>
                 </div>
               )}
             </div>
           ))}
-          {(collection.members ?? []).length === 0 && <p className="p-3 text-sm text-neutral-500">Keine Einträge.</p>}
+          {(collection.members ?? []).length === 0 && <p className="p-3 text-sm text-neutral-500">{t('targetCollectionDetail.noEntries')}</p>}
         </div>
       </section>
 
@@ -228,6 +214,7 @@ function CollectionEditForm({ collection, busy, showVisibility, onSave }: {
   showVisibility: boolean
   onSave: (request: { name: string; collection_kind: TargetCollectionKind; visibility: TargetVisibility; access_scope_id?: string | null }) => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(collection.name)
   const [kind, setKind] = useState<TargetCollectionKind>(collection.collection_kind)
   const [visibility, setVisibility] = useState<TargetVisibility>(collection.visibility)
@@ -243,7 +230,7 @@ function CollectionEditForm({ collection, busy, showVisibility, onSave }: {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
-          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Name</span>
+          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetCollections.name')}</span>
           <input
             value={name}
             onChange={event => setName(event.target.value)}
@@ -252,13 +239,13 @@ function CollectionEditForm({ collection, busy, showVisibility, onSave }: {
           />
         </label>
         <label>
-          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Typ</span>
+          <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetCollections.type')}</span>
           <select
             value={kind}
             onChange={event => setKind(event.target.value as TargetCollectionKind)}
             className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
           >
-            {Object.entries(COLLECTION_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {collectionKindValues.map(value => <option key={value} value={value}>{t(`targetCollections.kinds.${value}`)}</option>)}
           </select>
         </label>
       </div>
@@ -277,13 +264,14 @@ function CollectionEditForm({ collection, busy, showVisibility, onSave }: {
         disabled={busy || !name.trim() || (showVisibility && visibility === 'shared' && !accessScopeID)}
         className="rounded-md bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {busy ? 'Speichert...' : 'Sammlung speichern'}
+        {busy ? t('targetCollectionDetail.saving') : t('targetCollectionDetail.save')}
       </button>
     </form>
   )
 }
 
 function MemberRoleEditor({ memberID, role, busy, onSave }: { memberID: string; role: string; busy: boolean; onSave: (memberID: string, role: string) => void }) {
+  const { t } = useTranslation()
   const [nextRole, setNextRole] = useState(role)
   return (
     <form
@@ -294,7 +282,7 @@ function MemberRoleEditor({ memberID, role, busy, onSave }: { memberID: string; 
       }}
     >
       <input
-        aria-label="Rolle"
+        aria-label={t('targetCollectionDetail.role')}
         value={nextRole}
         onChange={event => setNextRole(event.target.value)}
         className="w-28 rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
@@ -304,32 +292,44 @@ function MemberRoleEditor({ memberID, role, busy, onSave }: { memberID: string; 
         disabled={busy || !nextRole.trim() || nextRole === role}
         className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
       >
-        Speichern
+        {t('targetCollectionDetail.saveRole')}
       </button>
     </form>
   )
 }
 
 function PermissionAudit({ permissions, isOwner, isAdmin }: { permissions: string[]; isOwner: boolean; isAdmin: boolean }) {
+  const { t } = useTranslation()
   return (
     <section className="space-y-2 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-      <h2 className="text-lg font-semibold">Berechtigungsstatus</h2>
+      <h2 className="text-lg font-semibold">{t('targetCollectionDetail.permissionStatus')}</h2>
       <p className="text-sm text-neutral-600 dark:text-neutral-300">
         {isAdmin
-          ? 'Admin-Zugriff'
+          ? t('targetCollectionDetail.adminAccess')
           : isOwner
-            ? 'Eigene Sammlung'
+            ? t('targetCollectionDetail.ownCollection')
             : permissions.length > 0
               ? permissions.join(', ')
-              : 'Keine delegierten Rechte in der Detailantwort'}
+              : t('targetCollectionDetail.noDelegatedPermissions')}
       </p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        Governance-Verwaltung ist hier noch nicht vollständig verfügbar; angezeigt werden nur die effektiven Rechte aus der Detailantwort.
+        {t('targetCollectionDetail.permissionNote')}
       </p>
     </section>
   )
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Bitte versuche es erneut.'
+const collectionKindValues: TargetCollectionKind[] = [
+  'private_map',
+  'public_pool',
+  'venue_pool',
+  'route_set',
+  'course_set',
+  'rule_set',
+  'privacy_set',
+  'custom',
+]
+
+function errorMessage(error: unknown, t: ReturnType<typeof useTranslation>['t']): string {
+  return error instanceof Error ? error.message : t('targetCollectionDetail.tryAgain')
 }

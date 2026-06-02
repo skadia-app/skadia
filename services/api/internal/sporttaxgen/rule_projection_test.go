@@ -175,6 +175,68 @@ func TestExpandRuleProjectionUsesSelectableTuplesAndModifierApplicability(t *tes
 	}
 }
 
+func TestExpandRuleProjectionKeepsSourceLocaleMaps(t *testing.T) {
+	taxonomy := minimalRuleProjectionTaxonomy(t)
+	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), taxonomy, modifierRegistryForTest())
+	if err != nil {
+		t.Fatalf("LoadRuleProjection: %v", err)
+	}
+	expanded, err := ExpandRuleProjection(taxonomy, projection, modifierRegistryForTest())
+	if err != nil {
+		t.Fatalf("ExpandRuleProjection: %v", err)
+	}
+
+	var running, trail *ExpandedRuleTupleOption
+	for i := range expanded.TupleOptions {
+		option := &expanded.TupleOptions[i]
+		if option.SportType == "running" && option.SubType == "" {
+			running = option
+		}
+		if option.SportType == "running" && option.SubType == "trail" {
+			trail = option
+		}
+	}
+	if running == nil || running.Label["en"] != "Running" {
+		t.Fatalf("running tuple labels = %#v, want English source label", running)
+	}
+	if trail == nil || trail.Label["en"] != "Trail running" {
+		t.Fatalf("running/trail tuple labels = %#v, want English source label", trail)
+	}
+
+	controls := expanded.TupleOptions[0].Modifiers
+	if len(controls) == 0 || controls[0].Label["en"] == "" {
+		t.Fatalf("rule modifier labels did not keep locale map: %#v", controls)
+	}
+}
+
+func TestRenderTSRuleProjectionEmitsSourceLocaleMaps(t *testing.T) {
+	taxonomy := minimalRuleProjectionTaxonomy(t)
+	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), taxonomy, modifierRegistryForTest())
+	if err != nil {
+		t.Fatalf("LoadRuleProjection: %v", err)
+	}
+	expanded, err := ExpandRuleProjection(taxonomy, projection, modifierRegistryForTest())
+	if err != nil {
+		t.Fatalf("ExpandRuleProjection: %v", err)
+	}
+	got, err := RenderTSRuleProjection(expanded)
+	if err != nil {
+		t.Fatalf("RenderTSRuleProjection: %v", err)
+	}
+	text := string(got)
+	for _, want := range []string{
+		"{ sportType: 'running', label: 'Laufen', labels: { de: 'Laufen', en: 'Running' } }",
+		"{ sportType: 'running', subType: 'trail', label: 'Trail', labels: { de: 'Trail', en: 'Trail running' } }",
+		"{ key: 'is_electric', label: 'E-Antrieb', labels: { de: 'E-Antrieb', en: 'Electric assist'",
+		"labels: { de: 'Umgebung' }",
+		"{ value: 'water', label: 'Wasser', labels: { de: 'Wasser' } }",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated TS rule projection missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 	t.Helper()
 	boolPtr := func(v bool) *bool { return &v }
@@ -189,13 +251,13 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 			{
 				SportType:             "running",
 				CategoryKey:           "run",
-				Labels:                LocaleMap{"de": "Laufen"},
+				Labels:                LocaleMap{"de": "Laufen", "en": "Running"},
 				AutoTitles:            LocaleMap{"de": "Lauf"},
 				SegmentGroup:          "foot",
 				Selectable:            boolPtr(true),
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
-				SubTypes:              []SubType{{SubType: "trail", Labels: LocaleMap{"de": "Trail"}, Details: LocaleMap{"de": "Trail"}, AutoTitles: LocaleMap{"de": "Trail"}, Selectable: boolPtr(true)}},
+				SubTypes:              []SubType{{SubType: "trail", Labels: LocaleMap{"de": "Trail", "en": "Trail running"}, Details: LocaleMap{"de": "Trail"}, AutoTitles: LocaleMap{"de": "Trail"}, Selectable: boolPtr(true)}},
 				ModifierApplicability: modifierApplicability(false, true, true, true),
 			},
 			{

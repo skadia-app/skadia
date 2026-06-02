@@ -1,8 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { SymbolListPopover } from '../SymbolListPopover'
 import type { SummaryItem } from '../StatsRow'
+import { i18n } from '@/i18n/i18n'
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'en', units: 'imperial' }),
+}))
 
 const SUMMITS: SummaryItem[] = [
   { osm_id: 1, name: 'Großglockner', track_pos: 5, ele_m: 3798 },
@@ -25,6 +30,10 @@ function summit(label = '2 Gipfel') {
 }
 
 describe('SymbolListPopover', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
   it('renders the trigger button with the label', () => {
     summit()
     expect(screen.getByRole('button', { name: /gipfelliste öffnen/i })).toBeInTheDocument()
@@ -38,11 +47,11 @@ describe('SymbolListPopover', () => {
     expect(screen.getByText('Watzmann')).toBeInTheDocument()
   })
 
-  it('shows ele_m formatted with German locale', () => {
+  it('shows ele_m formatted with selected user units', () => {
     summit()
     fireEvent.mouseEnter(screen.getByRole('button'))
-    // German locale: 3.798 m or 3798 m depending on locale support in jsdom
-    expect(screen.getByText(/3.*798.*m/)).toBeInTheDocument()
+    expect(screen.getByText('12,461 ft')).toBeInTheDocument()
+    expect(screen.queryByText(/3.*798.*m/)).not.toBeInTheDocument()
   })
 
   it('mouseLeave closes the popover (relatedTarget outside sentinel)', () => {

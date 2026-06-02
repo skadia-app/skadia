@@ -100,18 +100,20 @@ func RenderTSActivityFilterProjections(presets []ExpandedActivityFilterPreset) (
 		buf.WriteString("  {\n")
 		fmt.Fprintf(&buf, "    key: %s,\n", tsString(preset.Key))
 		fmt.Fprintf(&buf, "    label: %s,\n", tsString(preset.Label["de"]))
+		fmt.Fprintf(&buf, "    labels: %s,\n", tsLocaleMap(preset.Label))
 		buf.WriteString("    groups: [\n")
 		for _, group := range preset.Groups {
 			buf.WriteString("      {\n")
 			fmt.Fprintf(&buf, "        key: %s,\n", tsString(group.Key))
 			fmt.Fprintf(&buf, "        label: %s,\n", tsString(group.Label["de"]))
+			fmt.Fprintf(&buf, "        labels: %s,\n", tsLocaleMap(group.Label))
 			buf.WriteString("        leaves: [\n")
 			for _, leaf := range group.Leaves {
 				if leaf.SubType == "" {
-					fmt.Fprintf(&buf, "          { sportType: %s, label: %s },\n", tsString(leaf.SportType), tsString(leaf.Label["de"]))
+					fmt.Fprintf(&buf, "          { sportType: %s, label: %s, labels: %s },\n", tsString(leaf.SportType), tsString(leaf.Label["de"]), tsLocaleMap(leaf.Label))
 					continue
 				}
-				fmt.Fprintf(&buf, "          { sportType: %s, subType: %s, label: %s },\n", tsString(leaf.SportType), tsString(leaf.SubType), tsString(leaf.Label["de"]))
+				fmt.Fprintf(&buf, "          { sportType: %s, subType: %s, label: %s, labels: %s },\n", tsString(leaf.SportType), tsString(leaf.SubType), tsString(leaf.Label["de"]), tsLocaleMap(leaf.Label))
 			}
 			buf.WriteString("        ],\n")
 			buf.WriteString("      },\n")
@@ -129,17 +131,17 @@ func RenderTSRuleProjection(projection ExpandedRuleProjection) ([]byte, error) {
 	buf.WriteString("export const GENERATED_RULE_TUPLE_OPTIONS = [\n")
 	for _, option := range projection.TupleOptions {
 		if option.SubType == "" {
-			fmt.Fprintf(&buf, "  { sportType: %s, label: %s },\n", tsString(option.SportType), tsString(option.Label["de"]))
+			fmt.Fprintf(&buf, "  { sportType: %s, label: %s, labels: %s },\n", tsString(option.SportType), tsString(option.Label["de"]), tsLocaleMap(option.Label))
 			continue
 		}
-		fmt.Fprintf(&buf, "  { sportType: %s, subType: %s, label: %s },\n", tsString(option.SportType), tsString(option.SubType), tsString(option.Label["de"]))
+		fmt.Fprintf(&buf, "  { sportType: %s, subType: %s, label: %s, labels: %s },\n", tsString(option.SportType), tsString(option.SubType), tsString(option.Label["de"]), tsLocaleMap(option.Label))
 	}
 	buf.WriteString("] as const\n\n")
 	buf.WriteString("export const GENERATED_RULE_MODIFIER_PROJECTIONS = {\n")
 	for _, option := range projection.TupleOptions {
 		fmt.Fprintf(&buf, "  %s: [\n", tsString(projectionTupleKey(option.SportType, option.SubType)))
 		for _, modifier := range option.Modifiers {
-			fmt.Fprintf(&buf, "    { key: %s, label: %s, conditionApplicable: %t, actionApplicable: %t, renderExisting: %t },\n", tsString(modifier.Key), tsString(modifier.Label["de"]), modifier.ConditionApplicable, modifier.ActionApplicable, modifier.RenderExisting)
+			fmt.Fprintf(&buf, "    { key: %s, label: %s, labels: %s, conditionApplicable: %t, actionApplicable: %t, renderExisting: %t },\n", tsString(modifier.Key), tsString(modifier.Label["de"]), tsLocaleMap(modifier.Label), modifier.ConditionApplicable, modifier.ActionApplicable, modifier.RenderExisting)
 		}
 		buf.WriteString("  ],\n")
 	}
@@ -150,6 +152,7 @@ func RenderTSRuleProjection(projection ExpandedRuleProjection) ([]byte, error) {
 		fmt.Fprintf(&buf, "    key: %s,\n", tsString(condition.Key))
 		fmt.Fprintf(&buf, "    field: %s,\n", tsString(condition.Field))
 		fmt.Fprintf(&buf, "    label: %s,\n", tsString(condition.Label["de"]))
+		fmt.Fprintf(&buf, "    labels: %s,\n", tsLocaleMap(condition.Label))
 		buf.WriteString("    operators: [")
 		for i, op := range condition.Operators {
 			if i > 0 {
@@ -160,7 +163,7 @@ func RenderTSRuleProjection(projection ExpandedRuleProjection) ([]byte, error) {
 		buf.WriteString("],\n")
 		buf.WriteString("    options: [\n")
 		for _, option := range condition.Options {
-			fmt.Fprintf(&buf, "      { value: %s, label: %s },\n", tsString(option.Key), tsString(option.Label["de"]))
+			fmt.Fprintf(&buf, "      { value: %s, label: %s, labels: %s },\n", tsString(option.Key), tsString(option.Label["de"]), tsLocaleMap(option.Label))
 		}
 		buf.WriteString("    ],\n")
 		buf.WriteString("  },\n")
@@ -175,12 +178,12 @@ func RenderTSSegmentProjection(projection ExpandedSegmentProjection) ([]byte, er
 	buf.WriteString("export const GENERATED_SEGMENT_PROJECTION = {\n")
 	buf.WriteString("  domains: [\n")
 	for _, domain := range projection.Domains {
-		fmt.Fprintf(&buf, "    { key: %s, label: %s, status: %s },\n", tsString(domain.Key), tsString(domain.Label["de"]), tsString(domain.Status))
+		fmt.Fprintf(&buf, "    { key: %s, label: %s, labels: %s, status: %s },\n", tsString(domain.Key), tsString(domain.Label["de"]), tsLocaleMap(domain.Label), tsString(domain.Status))
 	}
 	buf.WriteString("  ],\n")
 	buf.WriteString("  segmentTypes: [\n")
 	for _, segmentType := range projection.SegmentTypes {
-		fmt.Fprintf(&buf, "    { key: %s, label: %s, activeDomains: %s, compatibilityRole: %s },\n", tsString(segmentType.Key), tsString(segmentType.Label["de"]), tsStringArray(segmentType.ActiveDomains), tsString(segmentType.CompatibilityRole))
+		fmt.Fprintf(&buf, "    { key: %s, label: %s, labels: %s, activeDomains: %s, compatibilityRole: %s },\n", tsString(segmentType.Key), tsString(segmentType.Label["de"]), tsLocaleMap(segmentType.Label), tsStringArray(segmentType.ActiveDomains), tsString(segmentType.CompatibilityRole))
 	}
 	buf.WriteString("  ],\n")
 	buf.WriteString("  routeOptions: [\n")

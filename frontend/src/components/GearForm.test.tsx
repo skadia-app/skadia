@@ -15,9 +15,9 @@ describe('GearForm', () => {
       />,
     )
 
-    expect(screen.getByPlaceholderText('z.B. Atemregler Set')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('z. B. Tauchcomputer')).toBeInTheDocument()
     expect(screen.queryByLabelText('Untertyp')).not.toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('z.B. MTB, Rennrad, Trail')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('z. B. Regler, Anzug, Computer')).not.toBeInTheDocument()
   })
 
   it('submits a manually entered type under the current scope', () => {
@@ -34,7 +34,7 @@ describe('GearForm', () => {
     const typeInput = screen.getByRole('combobox', { name: 'Typ' })
     fireEvent.focus(typeInput)
     fireEvent.change(typeInput, { target: { value: 'dos' } })
-    expect(screen.getByText('Eigenen Typ verwenden: dos')).toBeInTheDocument()
+    expect(screen.getByText('"dos" verwenden')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
@@ -88,12 +88,12 @@ describe('GearForm', () => {
       />,
     )
 
-    expect(screen.getByLabelText('Standard 1 Sportart')).toHaveValue('cycling:mountain')
-    expect(screen.getByLabelText('Standard 1 E-Antrieb')).toHaveValue('true')
+    expect(screen.getByLabelText('Standard-Sportart 1')).toHaveValue('cycling:mountain')
+    expect(screen.getByLabelText('Standard-Filter 1: E-Antrieb')).toHaveValue('true')
 
-    fireEvent.change(screen.getByLabelText('Standard 1 Sportart'), { target: { value: 'diving:ccr_diving' } })
-    fireEvent.change(screen.getByLabelText('Standard 1 E-Antrieb'), { target: { value: 'any' } })
-    fireEvent.change(screen.getByLabelText('Standard 1 Indoor'), { target: { value: 'false' } })
+    fireEvent.change(screen.getByLabelText('Standard-Sportart 1'), { target: { value: 'diving:ccr_diving' } })
+    fireEvent.change(screen.getByLabelText('Standard-Filter 1: E-Antrieb'), { target: { value: 'any' } })
+    fireEvent.change(screen.getByLabelText('Standard-Filter 1: Indoor'), { target: { value: 'false' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
@@ -118,7 +118,7 @@ describe('GearForm', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Standard 1 entfernen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Standard-Sportart 1 entfernen' }))
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(onSave.mock.calls[0][0].applicable_sport_predicates).toEqual([])
@@ -158,7 +158,7 @@ describe('GearForm', () => {
       />,
     )
 
-    expect(screen.getAllByText('Doppelter Standard: gleiche Sportart und Modifier bereits vorhanden.')).toHaveLength(2)
+    expect(screen.getAllByText('Diese Standard-Sportart ist doppelt vorhanden.')).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(onSave).not.toHaveBeenCalled()
@@ -173,11 +173,11 @@ describe('GearForm', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '+ Standard hinzufügen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Standard-Sportart hinzufügen' }))
 
-    const sportSelect = screen.getByLabelText('Standard 1 Sportart')
+    const sportSelect = screen.getByLabelText('Standard-Sportart 1')
 
-    expect(screen.getByRole('option', { name: 'Radfahren (alle)' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Alle Radfahren-Varianten' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Fliegen (Gleitschirm)' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Fliegen (Fallschirm)' })).toBeInTheDocument()
     expect(sportSelect.querySelector('option[value="hang_gliding"]')).not.toBeInTheDocument()

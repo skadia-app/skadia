@@ -10,13 +10,14 @@ import (
 func TestRenderTSEmitsNewAttributeFields(t *testing.T) {
 	schema := &geargen.Schema{
 		AssignmentRoles: []geargen.AssignmentRole{
-			{Key: "primary", LabelDE: "Hauptausrüstung"},
+			{Key: "primary", LabelDE: "Hauptausrüstung", Labels: geargen.LocaleMap{"de": "Hauptausrüstung", "en": "Primary gear"}},
 		},
 		OptionSets: []geargen.OptionSet{},
 		Attributes: []geargen.Attribute{
 			{
 				Key:          "bike.travel",
 				LabelDE:      "Federweg",
+				Labels:       geargen.LocaleMap{"de": "Federweg", "en": "Travel"},
 				ValueType:    "unit_number",
 				UnitGroup:    "length",
 				AllowedUnits: []string{"mm"},
@@ -27,6 +28,7 @@ func TestRenderTSEmitsNewAttributeFields(t *testing.T) {
 			{
 				Key:                      "bike",
 				LabelDE:                  "Fahrrad",
+				Labels:                   geargen.LocaleMap{"de": "Fahrrad", "en": "Bike"},
 				Scope:                    "bike",
 				DefaultAssignmentRoleKey: "primary",
 			},
@@ -43,6 +45,8 @@ func TestRenderTSEmitsNewAttributeFields(t *testing.T) {
 		`"unitGroup": "length"`,
 		`"allowedUnits"`,
 		`"required": true`,
+		`"labels":`,
+		`"en": "Travel"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("RenderTS() output missing %q\n--- output ---\n%s", want, out)

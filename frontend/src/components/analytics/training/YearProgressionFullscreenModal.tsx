@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import {
@@ -18,6 +19,13 @@ import type { MetricKey, YearProgressionMode } from '@/hooks/useYearProgression'
 import YearComparisonTable from './YearComparisonTable'
 import SportHierarchyPicker from './SportHierarchyPicker'
 import { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+} from '@/lib/units'
 import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, BrushComponent, CanvasRenderer])
@@ -28,20 +36,77 @@ const YEAR_COLORS = [
   '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
 ]
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTH_LABEL_KEYS = [
+  'analyticsTrainingStats.months.short.jan',
+  'analyticsTrainingStats.months.short.feb',
+  'analyticsTrainingStats.months.short.mar',
+  'analyticsTrainingStats.months.short.apr',
+  'analyticsTrainingStats.months.short.may',
+  'analyticsTrainingStats.months.short.jun',
+  'analyticsTrainingStats.months.short.jul',
+  'analyticsTrainingStats.months.short.aug',
+  'analyticsTrainingStats.months.short.sep',
+  'analyticsTrainingStats.months.short.oct',
+  'analyticsTrainingStats.months.short.nov',
+  'analyticsTrainingStats.months.short.dec',
+]
 
-// Metric display metadata
-const METRIC_META: Record<MetricKey, { label: string; unit: string; factor: number; decimals: number }> = {
-  distance_m:       { label: 'Distanz',       unit: 'km',   factor: 0.001,   decimals: 1 },
-  elevation_gain_m: { label: 'Höhenmeter',    unit: 'm',    factor: 1,       decimals: 0 },
-  elevation_loss_m: { label: 'Tiefenmeter',   unit: 'm',    factor: 1,       decimals: 0 },
-  moving_time_s:    { label: 'Bewegungszeit', unit: 'h',    factor: 1/3600,  decimals: 1 },
-  tss:              { label: 'TSS',           unit: 'TSS',  factor: 1,       decimals: 0 },
-  total_calories:   { label: 'Kalorien',      unit: 'kcal', factor: 1,       decimals: 0 },
+const METRIC_LABEL_KEYS: Record<MetricKey, string> = {
+  distance_m:       'analyticsTrainingStats.metrics.distance',
+  elevation_gain_m: 'analyticsTrainingStats.metrics.elevationGain',
+  elevation_loss_m: 'analyticsTrainingStats.metrics.elevationLoss',
+  moving_time_s:    'analyticsTrainingStats.metrics.movingTime',
+  tss:              'analyticsTrainingStats.metrics.tss',
+  total_calories:   'analyticsTrainingStats.metrics.calories',
 }
 
 // Metrics shown as active toggles in the modal header (TSS and Kalorien are disabled/hidden).
 const METRIC_TOGGLE_KEYS: MetricKey[] = ['distance_m', 'elevation_gain_m', 'elevation_loss_m', 'moving_time_s']
+
+type MetricDisplay = {
+  unit: string
+  displayValue: (raw: number) => number
+  formatLabel: (raw: number) => string
+}
+
+function formatDisplayNumber(value: number, locale: string, decimals: number): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value)
+}
+
+function getMetricDisplay(metric: MetricKey, formatters: ReturnType<typeof useUnitFormatters>): MetricDisplay {
+  switch (metric) {
+    case 'distance_m':
+      return {
+        unit: distanceInputUnit(formatters.options.units),
+        displayValue: raw => distanceToDisplayValue(raw, formatters.options.units),
+        formatLabel: formatters.formatDistance,
+      }
+    case 'elevation_gain_m':
+    case 'elevation_loss_m':
+      return {
+        unit: elevationInputUnit(formatters.options.units),
+        displayValue: raw => elevationToDisplayValue(raw, formatters.options.units),
+        formatLabel: formatters.formatElevation,
+      }
+    case 'moving_time_s':
+      return fixedMetricDisplay('h', 1, 1 / 3600, formatters.options.locale)
+    case 'tss':
+      return fixedMetricDisplay('TSS', 0, 1, formatters.options.locale)
+    case 'total_calories':
+      return fixedMetricDisplay('kcal', 0, 1, formatters.options.locale)
+  }
+}
+
+function fixedMetricDisplay(unit: string, decimals: number, factor: number, locale: string): MetricDisplay {
+  return {
+    unit,
+    displayValue: raw => raw * factor,
+    formatLabel: raw => `${formatDisplayNumber(raw * factor, locale, decimals)} ${unit}`,
+  }
+}
 
 // Inline hint icon — CSS-only hover tooltip with 500ms delay.
 // Cleaner look than a JS popover, no click-pin (hover only).
@@ -112,6 +177,8 @@ function ModalStateContainer({
   initialYears,
   initialMetric,
 }: Omit<YearProgressionFullscreenModalProps, 'open'>) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   // ── Core state ──────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<YearProgressionMode>('progress')
   const [metric, setMetric] = useState<MetricKey>(initialMetric ?? 'distance_m')
@@ -220,7 +287,8 @@ function ModalStateContainer({
     return map
   }, [progressResult.data?.years])
 
-  const meta = METRIC_META[metric]
+  const metricDisplay = useMemo(() => getMetricDisplay(metric, unitFormatters), [metric, unitFormatters])
+  const monthLabels = useMemo(() => MONTH_LABEL_KEYS.map(key => t(key)), [t])
 
   // ── Progress-mode chart option ────────────────────────────────────────────────
   const progressChartOption = useMemo(() => {
@@ -231,11 +299,10 @@ function ModalStateContainer({
       let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
       for (const p of items) {
         if (p.value == null) continue
-        const v = (p.value * meta.factor).toFixed(meta.decimals)
         html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
           <span style="color:#d1d5db">${p.seriesName}:</span>
-          <strong style="color:#f9fafb">${v} ${meta.unit}</strong>
+          <strong style="color:#f9fafb">${metricDisplay.formatLabel(p.value)}</strong>
         </div>`
       }
       return html
@@ -262,9 +329,9 @@ function ModalStateContainer({
       toolbox: {
         right: 8, top: 2,
         feature: {
-          brush: lineXBrushToolboxFeature,
-          restore: { title: 'Zurücksetzen' },
-          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          brush: lineXBrushToolboxFeature(t),
+          restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+          saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
         },
         iconStyle: { borderColor: '#6b7280' },
         emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -285,7 +352,7 @@ function ModalStateContainer({
       },
       xAxis: {
         type: 'category',
-        data: MONTH_LABELS,
+        data: monthLabels,
         axisLabel: { fontSize: 10, color: '#6b7280' },
         axisLine: { lineStyle: { color: '#374151' } },
         splitLine: { show: false },
@@ -296,7 +363,7 @@ function ModalStateContainer({
           fontSize: 10,
           color: '#6b7280',
           formatter: (v: number) => {
-            const converted = v * meta.factor
+            const converted = metricDisplay.displayValue(v)
             return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
           },
         },
@@ -305,7 +372,7 @@ function ModalStateContainer({
       dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
       series,
     }
-  }, [displayProgressYears, yearColorIndex, meta])
+  }, [displayProgressYears, yearColorIndex, metricDisplay, monthLabels, t])
 
   // ── Rolling-mode chart option ─────────────────────────────────────────────────
   const rollingChartOption = useMemo(() => {
@@ -319,14 +386,13 @@ function ModalStateContainer({
     const tooltipFormatter = (params: unknown) => {
       const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
       if (!Array.isArray(items) || items.length === 0) return ''
-      let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">Tag ${items[0].axisValueLabel}</div>`
+      let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${t('analyticsTrainingStats.yearProgression.dayOfYearTooltip', { day: items[0].axisValueLabel })}</div>`
       for (const p of items) {
         if (p.value == null) continue
-        const v = (p.value * meta.factor).toFixed(meta.decimals)
         html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
           <span style="color:#d1d5db">${p.seriesName}:</span>
-          <strong style="color:#f9fafb">${v} ${meta.unit}</strong>
+          <strong style="color:#f9fafb">${metricDisplay.formatLabel(p.value)}</strong>
         </div>`
       }
       return html
@@ -357,9 +423,9 @@ function ModalStateContainer({
       toolbox: {
         right: 8, top: 2,
         feature: {
-          brush: lineXBrushToolboxFeature,
-          restore: { title: 'Zurücksetzen' },
-          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          brush: lineXBrushToolboxFeature(t),
+          restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+          saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
         },
         iconStyle: { borderColor: '#6b7280' },
         emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -389,7 +455,7 @@ function ModalStateContainer({
         },
         axisLine: { lineStyle: { color: '#374151' } },
         splitLine: { show: false },
-        name: 'Tag des Jahres',
+        name: t('analyticsTrainingStats.yearProgression.dayOfYearAxis'),
         nameTextStyle: { fontSize: 9, color: '#6b7280' },
       },
       yAxis: {
@@ -398,7 +464,7 @@ function ModalStateContainer({
           fontSize: 10,
           color: '#6b7280',
           formatter: (v: number) => {
-            const converted = v * meta.factor
+            const converted = metricDisplay.displayValue(v)
             return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
           },
         },
@@ -407,7 +473,7 @@ function ModalStateContainer({
       dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
       series,
     }
-  }, [rollingResult.data?.years, selectedYears, yearColorIndex, meta])
+  }, [rollingResult.data?.years, selectedYears, yearColorIndex, metricDisplay, t])
 
   const activeOption = mode === 'progress' ? progressChartOption : rollingChartOption
 
@@ -438,7 +504,7 @@ function ModalStateContainer({
       onChart: (chart) => {
         const cleanupClick = handleProgressChartClick(chart)
         const maxValue = mode === 'progress'
-          ? MONTH_LABELS.length - 1
+          ? monthLabels.length - 1
           : Math.max(
               0,
               ...((rollingResult.data?.years ?? [])
@@ -465,9 +531,9 @@ function ModalStateContainer({
 
   // ── Render ────────────────────────────────────────────────────────────────────
   const PERIOD_UNIT_LABELS: { value: PeriodUnit; label: string }[] = [
-    { value: 'day',   label: 'Tag' },
-    { value: 'week',  label: 'Woche' },
-    { value: 'month', label: 'Monat' },
+    { value: 'day', label: t('analyticsTrainingStats.units.day', { count: 1 }) },
+    { value: 'week', label: t('analyticsTrainingStats.units.week', { count: 1 }) },
+    { value: 'month', label: t('analyticsTrainingStats.units.month', { count: 1 }) },
   ]
 
   return (
@@ -477,13 +543,13 @@ function ModalStateContainer({
         {/* Left: title + mode toggle */}
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Jahresvergleich
+            {t('analyticsTrainingStats.yearProgression.title')}
           </h2>
           {/* Mode toggle: Progress | Rolling */}
           <div
             className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs"
             role="group"
-            aria-label="Ansichtsmodus"
+            aria-label={t('analyticsTrainingStats.yearProgression.viewModeAria')}
           >
             {(['progress', 'rolling'] as const).map(m => (
               <button
@@ -497,7 +563,7 @@ function ModalStateContainer({
                     : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
                   }`}
               >
-                {m === 'progress' ? 'Verlauf' : 'Gleitend'}
+                {m === 'progress' ? t('analyticsTrainingStats.yearProgression.modeProgress') : t('analyticsTrainingStats.yearProgression.modeRolling')}
               </button>
             ))}
           </div>
@@ -506,7 +572,6 @@ function ModalStateContainer({
         {/* Right: metric toggle pills */}
         <div className="flex items-center gap-1 flex-wrap">
           {METRIC_TOGGLE_KEYS.map(key => {
-            const m = METRIC_META[key]
             return (
               <button
                 key={key}
@@ -519,7 +584,7 @@ function ModalStateContainer({
                     : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
                   }`}
               >
-                {m.label}
+                {t(METRIC_LABEL_KEYS[key])}
               </button>
             )
           })}
@@ -533,8 +598,8 @@ function ModalStateContainer({
           data-testid="period-selector"
         >
           <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 font-medium">
-            Zeitfenster
-            <HelpHint text="Größe des gleitenden Fensters — jeder Punkt im Diagramm zeigt die Summe der letzten N Tage. Beispiel: 30 Tage = wie viel Distanz hast du in den jeweils letzten 30 Tagen geschafft." />
+            {t('analyticsTrainingStats.yearProgression.timeWindow')}
+            <HelpHint text={t('analyticsTrainingStats.yearProgression.timeWindowHelp')} />
             :
           </span>
           <input
@@ -546,7 +611,7 @@ function ModalStateContainer({
               const v = Math.max(1, Math.min(12, Number(e.target.value)))
               setPeriodMultiplier(v)
             }}
-            aria-label="Zeitfenster-Anzahl"
+            aria-label={t('analyticsTrainingStats.yearProgression.timeWindowCountAria')}
             className="w-14 border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-xs
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
@@ -555,7 +620,7 @@ function ModalStateContainer({
           <div
             className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700"
             role="group"
-            aria-label="Zeiteinheit"
+            aria-label={t('analyticsTrainingStats.yearProgression.timeUnitAria')}
           >
             {PERIOD_UNIT_LABELS.map(({ value, label }) => (
               <button
@@ -575,7 +640,7 @@ function ModalStateContainer({
           </div>
           <span className="text-neutral-400 dark:text-neutral-600 italic">
             {/* Show computed period in days as a hint */}
-            ≈ {periodDays} {periodDays === 1 ? 'Tag' : 'Tage'}
+            {t('analyticsTrainingStats.yearProgression.daysApprox', { count: periodDays })}
           </span>
         </div>
       )}
@@ -617,22 +682,22 @@ function ModalStateContainer({
           <div className="flex-1 min-h-0 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden relative">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-                Lade Jahresvergleich…
+                {t('analyticsTrainingStats.yearProgression.loading')}
               </div>
             )}
             {isError && !isLoading && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-                Fehler beim Laden
+                {t('analyticsTrainingStats.states.loadError')}
               </div>
             )}
             {!isLoading && !isError && sportsExplicitlyEmpty && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-                Bitte mindestens eine Sportart auswählen
+                {t('analyticsTrainingStats.yearProgression.selectSport')}
               </div>
             )}
             {!isLoading && !isError && !sportsExplicitlyEmpty && !activeOption && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-                Keine Daten vorhanden
+                {t('analyticsTrainingStats.states.noData')}
               </div>
             )}
             <div
@@ -648,7 +713,7 @@ function ModalStateContainer({
           {/* Sport picker */}
           <div>
             <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">
-              Sportarten
+              {t('analyticsTrainingStats.yearProgression.sports')}
             </p>
             <SportHierarchyPicker
               value={selectedSports}
@@ -673,10 +738,9 @@ function ModalStateContainer({
           {/* Rolling-mode description */}
           {mode === 'rolling' && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 text-xs text-neutral-500 dark:text-neutral-400">
-              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gleitendes Fenster</p>
+              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('analyticsTrainingStats.yearProgression.rollingWindow')}</p>
               <p>
-                Jeder Punkt zeigt die Summe {periodDays === 1 ? 'des letzten Tages' : `der letzten ${periodDays} Tage`}.
-                Die Kurven aller Jahre starten bei Tag&nbsp;1 (1.&nbsp;Januar).
+                {t('analyticsTrainingStats.yearProgression.rollingDescription', { count: periodDays })}
               </p>
             </div>
           )}

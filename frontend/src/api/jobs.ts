@@ -4,7 +4,7 @@ export interface ActiveJob {
   id: string
   job_type:
     // Activity recompute
-	    | 'segment_recompute' | 'segment_recalculation' | 'activity_recompute_all' | 'activity_recompute' | 'recompute_multisport'
+    | 'segment_recompute' | 'segment_recalculation' | 'lift_recompute' | 'activity_recompute_all' | 'activity_recompute' | 'recompute_multisport'
     // OSM pipeline
     | 'osm_import' | 'osm_enrichment' | 'osm_update' | 'osm_update_all'
     // Routing & coverage
@@ -46,8 +46,11 @@ export interface ActiveJob {
     | 'overview' | 'vacuum'
     // TimescaleDB compression phases (source: handler/admin_settings.go)
     | 'enabling compression' | 'removing compression policy' | 'decompressing chunks'
-    // Multisport recompute phases — German free-text (source: handler/recompute.go)
+    // Multisport recompute phases (source: handler/recompute.go)
     | 'Zusammenfassen'
+    // GDPR data import phases (source: handler_data_import.go)
+    | 'data_import_files' | 'data_import_profile' | 'data_import_activities' | 'data_import_health'
+    | `data_import_phase_${number}`
     // Dynamic: BRouter preprocessing steps e.g. brouter_OsmFastCutter (source: osm/brouter.go)
     | `brouter_${string}`
     // Dynamic: per-region import progress e.g. region_1_europe (source: handler/osm_import.go)
@@ -58,6 +61,10 @@ export interface ActiveJob {
   progress_total: number
   started_at: string
   finished_at?: string
+  message_code?: string
+  status_code?: string
+  entity_key?: string
+  params?: Record<string, unknown>
 }
 
 export interface ActiveJobsResponse {

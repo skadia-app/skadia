@@ -1,8 +1,6 @@
-// Centralised UI labels for routing profiles. i18n-Vorbereitung:
-// zentral, keine Streuung, keine Default-Werte.
 export interface ProfileLabel {
-  label: string
-  description: string
+  labelKey: `routePlanner.profileEditor.profiles.${string}.label`
+  descriptionKey: `routePlanner.profileEditor.profiles.${string}.description`
 }
 
 // Explicit ordering — Object.entries preserves insertion order per ES2015
@@ -13,9 +11,24 @@ export const PROFILE_ORDER = ['hiking', 'mtb', 'gravel', 'trekking', 'road'] as 
 export type ProfileKey = typeof PROFILE_ORDER[number]
 
 export const PROFILE_LABELS: Record<ProfileKey, ProfileLabel> = {
-  hiking:   { label: 'Wandern',  description: 'Alpines Wandern, SAC T1–T4' },
-  mtb:      { label: 'MTB',      description: 'Mountainbike, technische Trails' },
-  gravel:   { label: 'Gravel',   description: 'Gravel-Bike, Schotter & Forstwege' },
-  trekking: { label: 'Trekking', description: 'Trekking-Rad, gemischte Untergründe' },
-  road:     { label: 'Rennrad',  description: 'Rennrad, asphaltierte Strassen' },
+  hiking: {
+    labelKey: 'routePlanner.profileEditor.profiles.hiking.label',
+    descriptionKey: 'routePlanner.profileEditor.profiles.hiking.description',
+  },
+  mtb: {
+    labelKey: 'routePlanner.profileEditor.profiles.mtb.label',
+    descriptionKey: 'routePlanner.profileEditor.profiles.mtb.description',
+  },
+  gravel: {
+    labelKey: 'routePlanner.profileEditor.profiles.gravel.label',
+    descriptionKey: 'routePlanner.profileEditor.profiles.gravel.description',
+  },
+  trekking: {
+    labelKey: 'routePlanner.profileEditor.profiles.trekking.label',
+    descriptionKey: 'routePlanner.profileEditor.profiles.trekking.description',
+  },
+  road: {
+    labelKey: 'routePlanner.profileEditor.profiles.road.label',
+    descriptionKey: 'routePlanner.profileEditor.profiles.road.description',
+  },
 }

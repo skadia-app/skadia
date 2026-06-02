@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { SwimLength } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
 import { fieldLabel, swimStrokeLabel } from '@/lib/sportFieldLabels'
@@ -17,31 +18,32 @@ function strokeColor(stroke?: string): string {
   }
 }
 
-function lengthTypeLabel(type: string): string {
-  return type === 'active' ? 'Aktiv' : type === 'idle' ? 'Pause' : type
+function lengthTypeLabel(type: string, t: (key: string) => string): string {
+  return type === 'active' ? t('activities.laps.lengthTypes.active') : type === 'idle' ? t('activities.laps.lengthTypes.idle') : type
 }
 
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
 export default function SwimLengthTable({ lengths }: Props) {
+  const { t } = useTranslation()
   const showCadence = lengths.some(l => l.avg_swimming_cadence != null)
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Bahnen</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('activities.laps.swimLengthsTitle')}</h2>
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
               <th className={thClass}>#</th>
-              <th className={thClass}>Typ</th>
-              <th className={thClass}>Stil</th>
-              <th className={thClass}>Dauer</th>
-              <th className={thClass}>Züge</th>
+              <th className={thClass}>{t('activities.laps.headers.type')}</th>
+              <th className={thClass}>{t('activities.laps.headers.style')}</th>
+              <th className={thClass}>{t('activities.laps.headers.duration')}</th>
+              <th className={thClass}>{t('activities.laps.headers.strokes')}</th>
               <th className={thClass}>SWOLF</th>
               {showCadence && <th className={thClass}>{fieldLabel('cadence', 'swimming')}</th>}
-              <th className={thClass}>kcal</th>
+              <th className={thClass}>{t('activityStats.calories')} (kcal)</th>
             </tr>
           </thead>
           <tbody>
@@ -58,7 +60,7 @@ export default function SwimLengthTable({ lengths }: Props) {
                   <td className={tdClass}>{len.length_index + 1}</td>
                   <td className={tdClass}>
                     <span className={`text-xs px-1.5 py-0.5 rounded ${len.length_type === 'idle' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400' : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'}`}>
-                      {lengthTypeLabel(len.length_type)}
+                      {lengthTypeLabel(len.length_type, t)}
                     </span>
                   </td>
                   <td className={tdClass}>

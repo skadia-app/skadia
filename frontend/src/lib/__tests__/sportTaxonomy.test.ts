@@ -138,8 +138,11 @@ describe('sport taxonomy aliases', () => {
 
   it('uses canonical subtype labels', () => {
     expect(sportLabel('cycling', 'mountain')).toBe('MTB')
+    expect(sportLabel('cycling', 'mountain', { language: 'en' })).toBe('Mountainbike')
     expect(sportLabel('running', 'indoor_running')).toBe('Indoor')
+    expect(sportLabel('running', 'indoor_running', { language: 'en' })).toBe('Indoor')
     expect(sportLabel('running', 'indoor_running', { mode: 'withParent' })).toBe('Laufen (Indoor)')
+    expect(sportLabel('running', 'indoor_running', { mode: 'withParent', language: 'en' })).toBe('Running (Indoor)')
     expect(sportLabel('paddling')).toBe('Paddeln (allgemein)')
     expect(sportLabel('skiing')).toBe('Skifahren')
     expect(sportLabel('training')).toBe('Training')
@@ -201,6 +204,7 @@ describe('sport taxonomy aliases', () => {
 
   it('marks legacy input values as invalid at runtime display boundaries', () => {
     expect(sportLabel('mountain_biking')).toContain('Veraltete Sportart')
+    expect(sportLabel('mountain_biking', undefined, { language: 'en' })).toContain('Legacy sport')
     expect(sportLabel('trail_running')).toContain('Veraltete Sportart')
     expect(sportLabel('gravel_cycling')).toContain('Veraltete Sportart')
     expect(sportLabel('indoor_cycling')).toContain('Veraltete Sportart')
@@ -236,6 +240,16 @@ describe('sport taxonomy aliases', () => {
     expect(bySport.get('fitness_equipment')?.lifecycle).toBe('broad_fallback')
     expect(bySport.get('paddling')?.lifecycle).toBe('broad_fallback')
     expect(bySport.get('canoeing')?.lifecycle).toBe('canonical')
+  })
+
+  it('keeps the unknown sport category localized across supported UI languages', () => {
+    expect(categoryForSport('unknown_vendor_sport').labels).toEqual({
+      de: 'Sonstiges',
+      en: 'Other',
+      fr: 'Autre',
+      it: 'Altro',
+      es: 'Otros',
+    })
   })
 
   it('exposes generated sport trait metadata', () => {

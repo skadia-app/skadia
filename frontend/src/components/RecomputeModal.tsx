@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { reprocessAllActivities } from '@/api/activities'
 import { ModalShell } from '@/components/ui/ModalShell'
 import {
@@ -21,6 +22,7 @@ interface Props {
 type Mode = 'all' | 'scoped'
 
 export default function RecomputeModal({ activityIds, onClose, onSuccess }: Props) {
+  const { t } = useTranslation()
   const [mode, setMode] = useState<Mode>('all')
   const [selected, setSelected] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -60,13 +62,13 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
   }
 
   const count = activityIds.length
-  const label = count === 1 ? '1 Aktivität' : `${count} Aktivitäten`
+  const label = t('reprocessModal.activityCount', { count })
   const reprocessesTags = mode === 'all' || selected.has('tags')
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm" className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-5">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Neu berechnen — {label}
+          {t('reprocessModal.recomputeTitle', { label })}
         </h2>
 
         {/* Mode selector */}
@@ -79,7 +81,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
               className="accent-accent-DEFAULT"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
-              Alles neu berechnen
+              {t('activityActions.recomputeAll')}
             </span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer group">
@@ -90,7 +92,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
               className="accent-accent-DEFAULT"
             />
             <span className="text-sm text-neutral-700 dark:text-neutral-300">
-              Details wählen
+              {t('activityActions.selectDetails')}
             </span>
           </label>
         </div>
@@ -103,18 +105,18 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
         )}
 
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten.
+          {t('reprocessModal.preservation')}
           {reprocessesTags
-            ? ' Tags werden durch Regeln und Systemlogik neu ausgewertet.'
-            : ' Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
+            ? t('reprocessModal.tagsReprocessed')
+            : t('reprocessModal.tagsPreserved')}
         </p>
 
         {/* State feedback */}
         {state === 'error' && (
-          <p className="text-sm text-red-500">Fehler beim Neuberechnen. Bitte erneut versuchen.</p>
+          <p className="text-sm text-red-500">{t('reprocessModal.recomputeError')}</p>
         )}
         {state === 'success' && (
-          <p className="text-sm text-green-600 dark:text-green-400">Gestartet ✓</p>
+          <p className="text-sm text-green-600 dark:text-green-400">{t('reprocessModal.started')}</p>
         )}
 
         {/* Buttons */}
@@ -124,14 +126,14 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
             disabled={state === 'loading'}
             className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             onClick={() => mutation.mutate()}
             disabled={state === 'loading' || (mode === 'scoped' && selected.size === 0)}
             className="px-4 py-2 text-sm rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            {state === 'loading' ? 'Läuft…' : 'Berechnen'}
+            {state === 'loading' ? t('reprocessModal.running') : t('reprocessModal.recompute')}
           </button>
         </div>
     </ModalShell>

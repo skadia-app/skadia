@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -28,9 +29,9 @@ interface FusionGroupContextDialogProps {
  *
  * Two main cases:
  *  - Single group: one activity in a group, the other is external.
- *    Offers "Nur diese beiden" (pair-only) OR "Ganze Gruppe + {other}" (group-mode).
+ *    Offers pair-only OR group-mode fusion with the external activity.
  *  - Cross-group: both activities in different groups.
- *    Only "Nur diese beiden" is offered, with an explanatory info text.
+ *    Only pair-only fusion is offered, with an explanatory info text.
  */
 export default function FusionGroupContextDialog({
   activityIdA,
@@ -43,6 +44,7 @@ export default function FusionGroupContextDialog({
 }: FusionGroupContextDialogProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const [isAdding, setIsAdding] = useState(false)
 
@@ -74,12 +76,12 @@ export default function FusionGroupContextDialog({
 
   const otherMemberCount = groupData ? groupData.members.length - 1 : null
 
-  // "Nur diese beiden" → navigate to pair-mode fusion
+  // Pair-only mode: navigate without changing group membership.
   function handlePairOnly() {
     navigate(`/fusion?ids=${activityIdA},${activityIdB}`)
   }
 
-  // "Ganze Gruppe + {other}" → add external to group, then navigate to group-mode fusion
+  // Group mode: add the external activity, then navigate to group fusion.
   async function handleGroupMode() {
     if (!groupId || !externalActivityId) return
     setIsAdding(true)
@@ -96,15 +98,15 @@ export default function FusionGroupContextDialog({
       if (status === 409) {
         addToast({
           type: 'error',
-          title: 'Aktivität bereits in anderer Gruppe',
-          message: 'Diese Aktivität gehört bereits einer anderen Aufnahmegruppe an. Du kannst sie einzeln fusionieren.',
+          title: t('fusionGroupContext.toasts.alreadyInOtherGroupTitle'),
+          message: t('fusionGroupContext.toasts.alreadyInOtherGroupMessage'),
           duration: 0,
         })
       } else {
         addToast({
           type: 'error',
-          title: 'Gruppe konnte nicht erweitert werden',
-          message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+          title: t('fusionGroupContext.toasts.extendGroupFailedTitle'),
+          message: err instanceof Error ? err.message : t('common.unknownError'),
           duration: 0,
         })
       }
@@ -118,7 +120,7 @@ export default function FusionGroupContextDialog({
       <div className="space-y-4">
         {/* Title */}
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Mit Gruppe verknüpft
+          {t('fusionGroupContext.title')}
         </h2>
 
         {isCrossGroup ? (
@@ -126,18 +128,23 @@ export default function FusionGroupContextDialog({
           <>
             <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
               <p className="text-sm text-amber-800 dark:text-amber-200">
-                Beide Aktivitäten sind bereits Teil <em>unterschiedlicher</em> Aufnahmegruppen.
-                Eine Fusion lässt sie aus ihren jeweiligen Gruppen verschwinden.
+                <Trans i18nKey="fusionGroupContext.crossGroupWarning" components={{ em: <em /> }} />
               </p>
             </div>
             <div className="text-sm text-neutral-600 dark:text-neutral-400 space-y-1">
               <p>
-                <span className="font-medium text-neutral-800 dark:text-neutral-200">{titleA || 'Ohne Titel'}</span>
-                {' '}→ eigene Gruppe
+                <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                  {titleA || t('common.untitled')}
+                </span>
+                {' '}
+                {t('fusionGroupContext.ownGroupArrow')}
               </p>
               <p>
-                <span className="font-medium text-neutral-800 dark:text-neutral-200">{titleB || 'Ohne Titel'}</span>
-                {' '}→ eigene Gruppe
+                <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                  {titleB || t('common.untitled')}
+                </span>
+                {' '}
+                {t('fusionGroupContext.ownGroupArrow')}
               </p>
             </div>
           </>
@@ -146,13 +153,13 @@ export default function FusionGroupContextDialog({
           <>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
               <span className="font-medium text-neutral-800 dark:text-neutral-200">
-                {inGroupActivityTitle || 'Ohne Titel'}
+                {inGroupActivityTitle || t('common.untitled')}
               </span>{' '}
-              ist Teil einer Aufnahmegruppe
+              {t('fusionGroupContext.isPartOfGroup')}
               {otherMemberCount !== null && otherMemberCount > 0 && (
-                <> mit {otherMemberCount === 1 ? '1 weiteren Aufnahme' : `${otherMemberCount} weiteren Aufnahmen`}</>
+                <> {t('fusionGroupContext.withOtherRecordings', { count: otherMemberCount })}</>
               )}
-              . Wie möchtest du fusionieren?
+              {t('fusionGroupContext.fusionQuestionSuffix')}
             </p>
           </>
         )}
@@ -165,7 +172,7 @@ export default function FusionGroupContextDialog({
             disabled={isAdding}
             className="cursor-pointer mr-auto px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
 
           {/* Pair-only (always shown) */}
@@ -174,7 +181,7 @@ export default function FusionGroupContextDialog({
             disabled={isAdding}
             className="cursor-pointer px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Nur diese beiden
+            {t('fusionGroupContext.pairOnly')}
           </button>
 
           {/* Group-mode (only in single-group case) */}
@@ -190,7 +197,9 @@ export default function FusionGroupContextDialog({
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
-              Ganze Gruppe + {(groupIdANormalized ? titleB : titleA) || 'andere Aktivität'}
+              {t('fusionGroupContext.wholeGroupPlus', {
+                activity: (groupIdANormalized ? titleB : titleA) || t('fusionGroupContext.otherActivity'),
+              })}
             </button>
           )}
         </div>

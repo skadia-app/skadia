@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Search } from 'lucide-react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 
 interface SportTuplePickerProps {
   sportType: string
@@ -9,7 +11,14 @@ interface SportTuplePickerProps {
   onChange: (sportType: string, subType: string) => void
 }
 
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
+}
+
 export default function SportTuplePicker({ sportType, subType, onChange }: SportTuplePickerProps) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -20,14 +29,14 @@ export default function SportTuplePicker({ sportType, subType, onChange }: Sport
     const q = search.trim().toLowerCase()
     if (!q) return options
     return options.filter(option => {
-      const label = sportDetailLabel(option.value, option.subType ?? null)
+      const label = sportDetailLabel(option.value, option.subType ?? null, language)
       return label.toLowerCase().includes(q) ||
         option.value.toLowerCase().includes(q) ||
         (option.subType ?? '').toLowerCase().includes(q)
     })
-  }, [options, search])
+  }, [language, options, search])
 
-  const currentLabel = sportDetailLabel(sportType, subType || null)
+  const currentLabel = sportDetailLabel(sportType, subType || null, language)
 
   return (
     <div ref={ref} className="relative">
@@ -45,7 +54,7 @@ export default function SportTuplePicker({ sportType, subType, onChange }: Sport
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Sportart suchen..."
+              placeholder={t('activityDetail.sportTuplePicker.searchPlaceholder')}
               className="w-full rounded border border-neutral-200 dark:border-neutral-700 bg-transparent py-1.5 pl-8 pr-2 text-sm text-neutral-900 outline-none focus:border-accent-400 dark:text-neutral-100"
             />
           </div>
@@ -67,12 +76,12 @@ export default function SportTuplePicker({ sportType, subType, onChange }: Sport
                     : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
                   }`}
                 >
-                  {sportDetailLabel(option.value, optionSubType || null)}
+                  {sportDetailLabel(option.value, optionSubType || null, language)}
                 </button>
               )
             })}
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-sm text-neutral-400">Keine Sportart gefunden</div>
+              <div className="px-3 py-2 text-sm text-neutral-400">{t('activityDetail.sportTuplePicker.noSportFound')}</div>
             )}
           </div>
         </div>

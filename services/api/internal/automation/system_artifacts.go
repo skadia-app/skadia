@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
 // SystemTagSpec describes a system tag that should exist for every user.
@@ -31,10 +31,13 @@ import (
 // is_auto=false. is_auto=false is intentional: tags are managed by automation
 // rules (or DB triggers for the *_sync rules), not by the legacy autotag engine.
 type SystemTagSpec struct {
-	Name        string
-	Color       string
-	TextColor   string
-	Description string
+	Name           string
+	Code           string
+	Color          string
+	TextColor      string
+	Description    string
+	DisplayKey     string
+	DescriptionKey string
 }
 
 // SystemRuleSpec describes the automation rule that pairs with a SystemTagSpec.
@@ -43,12 +46,14 @@ type SystemTagSpec struct {
 // Action params support a single template token "{{TAG_ID}}" which is resolved
 // to the per-user tag UUID at insert time (see EnsureSystemArtifacts).
 type SystemRuleSpec struct {
-	TagName      string           // matches a SystemTagSpec.Name
-	SystemType   string           // unique per (user_id, is_system=true)
-	Priority     int              // negative = system priority band
-	Conditions   string           // JSON array, may be "[]"
-	Actions      []map[string]any // serialised at insert time; tag_id resolved per user
-	TriggerEvent string           // MUST be one of the chk_trigger_event whitelist:
+	TagName        string // matches a SystemTagSpec.Name
+	SystemType     string // unique per (user_id, is_system=true)
+	LabelKey       string
+	DescriptionKey string
+	Priority       int              // negative = system priority band
+	Conditions     string           // JSON array, may be "[]"
+	Actions        []map[string]any // serialised at insert time; tag_id resolved per user
+	TriggerEvent   string           // MUST be one of the chk_trigger_event whitelist:
 	// "on_import", "on_enrichment_complete", "on_manual_apply"
 	// (CHECK enforced by migration 000267).
 }
@@ -59,25 +64,33 @@ type SystemRuleSpec struct {
 // Order matches the historical order from tags_db.SeedSystemDefaults so the
 // behavioural diff in Phase 4b.A is zero (verified by tags_db_test.go).
 var SystemTags = []SystemTagSpec{
-	{Name: "Rundtour", Color: "#10B981", TextColor: "#1a1a1a",
-		Description: "Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)"},
-	{Name: "E-Bike", Color: "#16A34A", TextColor: "#FFFFFF",
-		Description: "Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)"},
-	{Name: "Pendeln", Color: "#6B7280", TextColor: "#FFFFFF",
-		Description: "Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)"},
-	{Name: "Indoor", Color: "#3B82F6", TextColor: "#FFFFFF",
-		Description: "Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)"},
-	{Name: "virtuell", Color: "#8B5CF6", TextColor: "#FFFFFF",
-		Description: "Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)"},
-	{Name: "Frost", Color: "#38BDF8", TextColor: "#0C4A6E",
-		Description: "Automatisch bei Temperaturen unter 0 Grad C"},
-	{Name: "Nacht", Color: "#1E293B", TextColor: "#E2E8F0",
-		Description: "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"},
+	{Name: "Rundtour", Code: "round_trip", Color: "#10B981", TextColor: "#1a1a1a",
+		Description: "Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)",
+		DisplayKey:  "tags.system.round_trip.label", DescriptionKey: "tags.system.round_trip.description"},
+	{Name: "E-Bike", Code: "is_electric", Color: "#16A34A", TextColor: "#FFFFFF",
+		Description: "Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)",
+		DisplayKey:  "tags.system.is_electric.label", DescriptionKey: "tags.system.is_electric.description"},
+	{Name: "Pendeln", Code: "is_commute", Color: "#6B7280", TextColor: "#FFFFFF",
+		Description: "Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)",
+		DisplayKey:  "tags.system.is_commute.label", DescriptionKey: "tags.system.is_commute.description"},
+	{Name: "Indoor", Code: "is_indoor", Color: "#3B82F6", TextColor: "#FFFFFF",
+		Description: "Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)",
+		DisplayKey:  "tags.system.is_indoor.label", DescriptionKey: "tags.system.is_indoor.description"},
+	{Name: "virtuell", Code: "is_virtual", Color: "#8B5CF6", TextColor: "#FFFFFF",
+		Description: "Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)",
+		DisplayKey:  "tags.system.is_virtual.label", DescriptionKey: "tags.system.is_virtual.description"},
+	{Name: "Frost", Code: "frost", Color: "#38BDF8", TextColor: "#0C4A6E",
+		Description: "Automatisch bei Temperaturen unter 0 Grad C",
+		DisplayKey:  "tags.system.frost.label", DescriptionKey: "tags.system.frost.description"},
+	{Name: "Nacht", Code: "nacht", Color: "#1E293B", TextColor: "#E2E8F0",
+		Description: "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen",
+		DisplayKey:  "tags.system.nacht.label", DescriptionKey: "tags.system.nacht.description"},
 	// Phase 4b.B.1 — Lift tag for activities with detected lift rides
 	// (Method A: OSM-matched, auto-confirmed; Method B: heuristic, gated
 	// by user confirm via the lift-candidate UI).
-	{Name: "Lift", Color: "#6366F1", TextColor: "#FFFFFF",
-		Description: "Automatisch bei Aktivitäten mit erkannten Liftfahrten"},
+	{Name: "Lift", Code: "lift", Color: "#6366F1", TextColor: "#FFFFFF",
+		Description: "Automatisch bei Aktivitäten mit erkannten Liftfahrten",
+		DisplayKey:  "tags.system.lift.label", DescriptionKey: "tags.system.lift.description"},
 }
 
 // SystemRules is the matching automation-rule list. Empty conditions/actions =
@@ -109,26 +122,26 @@ var SystemTags = []SystemTagSpec{
 // here. The Lift rule in 4b.B uses "on_enrichment_complete" because lift_count
 // is populated during enrichment, not at import time.
 var SystemRules = []SystemRuleSpec{
-	{TagName: "Rundtour", SystemType: "round_trip", Priority: -99,
+	{TagName: "Rundtour", SystemType: "round_trip", LabelKey: "automation.system_rules.round_trip.label", DescriptionKey: "automation.system_rules.round_trip.description", Priority: -99,
 		Conditions: `[{"field":"start_end_distance_m","op":"lte","value":200}]`,
 		Actions: []map[string]any{
 			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
 			{"action": "set_field", "params": map[string]any{"field": "is_round_trip", "value": true}},
 		},
 		TriggerEvent: "on_import"},
-	{TagName: "E-Bike", SystemType: "electric_sync", Priority: -100,
+	{TagName: "E-Bike", SystemType: "electric_sync", LabelKey: "automation.system_rules.electric_sync.label", DescriptionKey: "automation.system_rules.electric_sync.description", Priority: -100,
 		Conditions: `[]`, Actions: []map[string]any{}, TriggerEvent: "on_import"},
-	{TagName: "Indoor", SystemType: "indoor_sync", Priority: -100,
+	{TagName: "Indoor", SystemType: "indoor_sync", LabelKey: "automation.system_rules.indoor_sync.label", DescriptionKey: "automation.system_rules.indoor_sync.description", Priority: -100,
 		Conditions: `[]`, Actions: []map[string]any{}, TriggerEvent: "on_import"},
-	{TagName: "virtuell", SystemType: "virtual_sync", Priority: -100,
+	{TagName: "virtuell", SystemType: "virtual_sync", LabelKey: "automation.system_rules.virtual_sync.label", DescriptionKey: "automation.system_rules.virtual_sync.description", Priority: -100,
 		Conditions: `[]`, Actions: []map[string]any{}, TriggerEvent: "on_import"},
-	{TagName: "Frost", SystemType: "frost", Priority: -98,
+	{TagName: "Frost", SystemType: "frost", LabelKey: "automation.system_rules.frost.label", DescriptionKey: "automation.system_rules.frost.description", Priority: -98,
 		Conditions: `[{"field":"min_temperature_c","op":"lte","value":0}]`,
 		Actions: []map[string]any{
 			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
 		},
 		TriggerEvent: "on_import"},
-	{TagName: "Nacht", SystemType: "nacht", Priority: -97,
+	{TagName: "Nacht", SystemType: "nacht", LabelKey: "automation.system_rules.nacht.label", DescriptionKey: "automation.system_rules.nacht.description", Priority: -97,
 		Conditions: `[{"field":"sun_elevation","op":"lte","value":-6}]`,
 		Actions: []map[string]any{
 			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
@@ -138,7 +151,7 @@ var SystemRules = []SystemRuleSpec{
 	// lift_count is populated during enrichment, not at import. Re-fired by
 	// handler/lift_candidates.go after recomputeLiftStats so heuristic
 	// (Method B) confirms also reach the rule (Phase 4b.B.4).
-	{TagName: "Lift", SystemType: "lift_detected", Priority: -96,
+	{TagName: "Lift", SystemType: "lift_detected", LabelKey: "automation.system_rules.lift_detected.label", DescriptionKey: "automation.system_rules.lift_detected.description", Priority: -96,
 		Conditions: `[{"field":"has_lift","op":"eq","value":true}]`,
 		Actions: []map[string]any{
 			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
@@ -210,6 +223,22 @@ func IsValidSystemType(s string) bool {
 // makes the "default-seeded vs on-demand" distinction explicit instead of
 // implicit.
 var OnDemandSystemTypes = []string{"commute_auto"}
+
+func SystemRuleDisplayKeysBySystemType(systemType string) (labelKey, descriptionKey string, ok bool) {
+	for _, r := range SystemRules {
+		if r.SystemType == systemType {
+			return r.LabelKey, r.DescriptionKey, true
+		}
+	}
+	for _, t := range OnDemandSystemTypes {
+		if t == systemType {
+			return "automation.system_rules." + systemType + ".label",
+				"automation.system_rules." + systemType + ".description",
+				true
+		}
+	}
+	return "", "", false
+}
 
 // EnsureSystemArtifacts is idempotent. Safe to call multiple times per user.
 // Respects user deactivation: never sets is_active back to true on existing

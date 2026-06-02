@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildChartData } from '../MapFullscreen'
+import { buildAllStreams, buildChartData } from '../MapFullscreen'
 import type { StreamPoint } from '@/api/types'
+import type { MotionProfile } from '@/lib/colorScaleRanges'
 
 function sp(
   time: string,
@@ -88,5 +89,29 @@ describe('buildChartData — dedup and maxDist semantics', () => {
     const result = buildChartData(streams)
     expect(result.maxDist).toBe(0)
     expect(result.maxElapsed).toBeGreaterThan(0) // time axis is valid
+  })
+})
+
+describe('buildAllStreams', () => {
+  it('uses caller-provided display units for user-facing chart metrics', () => {
+    const labels = {
+      cadenceFoot: 'Steps',
+      cadencePaddle: 'Strokes',
+      cadenceDefault: 'Cadence',
+      altitude: 'Altitude',
+      heartRate: 'Heart rate',
+      power: 'Power',
+      speed: 'Speed',
+      temperature: 'Temperature',
+    }
+    const streams = buildAllStreams(
+      { speed: 'running', cadence: 'foot_running' } satisfies MotionProfile,
+      labels,
+      { elevation: 'ft', speed: 'mph', temperature: '°F' },
+    )
+
+    expect(streams.find(stream => stream.key === 'altitude')?.unit).toBe('ft')
+    expect(streams.find(stream => stream.key === 'speed')?.unit).toBe('mph')
+    expect(streams.find(stream => stream.key === 'temperature')?.unit).toBe('°F')
   })
 })

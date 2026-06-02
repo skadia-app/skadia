@@ -31,6 +31,27 @@ func TestRenderSystemTagsEmitsCanonicalForm(t *testing.T) {
 	}
 }
 
+func TestRenderSystemTagsEmitsLocalizedTSDescriptions(t *testing.T) {
+	repoRoot := repoRootFromTestPath(t)
+	yamlPath := filepath.Join(repoRoot, "config", "tags", "system_tags.yaml")
+	schemaPath := filepath.Join(repoRoot, "config", "tags", "schema", "system_tags.schema.json")
+	output, err := generateTSBytes(yamlPath, schemaPath)
+	if err != nil {
+		t.Fatalf("generateTSBytes: %v", err)
+	}
+	for _, needle := range []string{
+		`import { i18n } from '@/i18n/i18n'`,
+		`get description() { return i18n.t('systemTags.descriptions.is_electric') }`,
+		`get description() { return i18n.t('systemTags.descriptions.is_indoor') }`,
+		`get description() { return i18n.t('systemTags.descriptions.is_virtual') }`,
+		`get description() { return i18n.t('systemTags.descriptions.is_commute') }`,
+	} {
+		if !strings.Contains(string(output), needle) {
+			t.Fatalf("generated TS missing %q\ngot:\n%s", needle, output)
+		}
+	}
+}
+
 func TestRenderSystemTagsRejectsUnknownModifierKey(t *testing.T) {
 	schemaPath := filepath.Join(repoRootFromTestPath(t), "config", "tags", "schema", "system_tags.schema.json")
 	tmp := filepath.Join(t.TempDir(), "fixture.yaml")

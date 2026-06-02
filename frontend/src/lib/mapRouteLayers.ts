@@ -1,21 +1,20 @@
-// Perf (Wave 3, Fix 5): Z-Order Re-Enforce für Route-Layer.
+// Perf (Wave 3, Fix 5): re-enforce route-layer z-order.
 //
-// Overlays (waters/forests/summits/visited-pois/pois/segments) rufen `addLayer`
-// ohne `beforeId` und landen damit oben im MapLibre-Stack — über der Route
-// sowie den A/B-Wegpunkten. Diese Helper-Funktion zieht alle Route-relevanten
-// Layer (in Bottom→Top-Order) wieder ans Stack-Ende. Idempotent + tolerant
-// gegen fehlende Layer (race auf erstem Mount).
+// Overlays (waters/forests/summits/visited-pois/pois/segments) call `addLayer`
+// without `beforeId`, which puts them at the top of the MapLibre stack above
+// the route and the A/B waypoints. This helper moves every route-related layer
+// back to the top in bottom-to-top order. It is idempotent and tolerant of
+// missing layers during first-mount races.
 //
-// Reihenfolge bewusst gewählt:
+// Deliberate order:
 //   Casing < Routed < Offroad < Approach < Hit-Area < Calculating-Glow <
 //   Calculating < CP-Circle < VF-Unknown < Scale-Base < Range-Highlight <
 //   Summit-Markers < Highlight-Overlay (yellow) < WP-Circle < WP-Label
-// → Wegpunkt-Marker + Labels stehen ganz oben (Symbol-Layer A/B), unter ihnen
-//   die Linien/Polygonal-Overlays. Die IDs sind doppelte Wahrheiten zu
-//   useRouteEditor.ts + MapPage.tsx (dortige const-Anker), aber bewusst hier
-//   inline statt aus useRouteEditor zu importieren — die Strings sind stabil
-//   und ein Re-Export würde nur den Cycle-Import zwischen MapPage / useRouteEditor
-//   und einem geteilten Lib provozieren.
+// Waypoint markers and labels stay at the very top (symbol layers A/B), with
+// lines and polygon overlays below them. These IDs duplicate constants from
+// useRouteEditor.ts and MapPage.tsx intentionally: the strings are stable, and
+// importing them here would introduce a cycle between MapPage/useRouteEditor
+// and this shared helper.
 import type maplibregl from 'maplibre-gl'
 
 const ROUTE_LAYERS_BOTTOM_TO_TOP = [

@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import maplibregl from 'maplibre-gl'
+import { useTranslation } from 'react-i18next'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
 import { nearestPointOnPolyline } from '@/lib/catmull-rom'
@@ -40,12 +41,6 @@ const LAYER_CALCULATING_GLOW = 'route-planner-calculating-glow'
 
 // Pixel radius for "close enough to waypoint" snap on click
 const CLICK_SNAP_PX = 20
-
-// ── Segment context menu labels ──────────────────────────────────────────────
-const SEGMENT_MENU_LABELS = {
-  drawOffroad: 'Offroad zeichnen',
-  routeOnRoads: 'Auf Wegen routen',
-} as const
 
 // ── Minimal planner interface required by this hook ─────────────────────────
 // Mirrors what useRoutePlanner will expose (Task 27).
@@ -247,6 +242,7 @@ export function useRouteEditor(
   styleVersion: number,
   options: UseRouteEditorOptions = {},
 ) {
+  const { t } = useTranslation()
   // Keep a stable ref to planner so event handlers don't need to re-register.
   const plannerRef = useRef(planner)
   plannerRef.current = planner
@@ -889,7 +885,7 @@ export function useRouteEditor(
       // Close any existing popup
       segmentPopupRef.current?.remove()
 
-      const label = mode === 'routed' ? SEGMENT_MENU_LABELS.drawOffroad : SEGMENT_MENU_LABELS.routeOnRoads
+      const label = mode === 'routed' ? t('mapEditor.routeEditor.drawOffroad') : t('mapEditor.routeEditor.routeOnRoads')
 
       const container = document.createElement('div')
       container.className = 'flex flex-col gap-1 p-1'
@@ -1087,5 +1083,5 @@ export function useRouteEditor(
       removeLayers(map)
       map.getCanvas().style.cursor = ''
     }
-  }, [active, mapRef, addLayers, removeLayers])
+  }, [active, mapRef, addLayers, removeLayers, t])
 }

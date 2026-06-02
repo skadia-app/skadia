@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
@@ -47,6 +48,7 @@ interface SummitMapProps {
 }
 
 export default function SummitMap({ summits, selectedSummit, onSelectSummit, onMaximize }: SummitMapProps) {
+  const { t } = useTranslation()
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<SummitMarker[]>([])
@@ -153,7 +155,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
         onClick={onMaximize}
         className="cursor-pointer absolute top-3 left-3 z-10 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm
                    rounded-lg p-1.5 shadow-sm hover:bg-white dark:hover:bg-neutral-700 transition-colors"
-        title="Karte maximieren"
+        title={t('summitCollection.map.maximize')}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-neutral-600 dark:text-neutral-300">
           <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />

@@ -1,13 +1,15 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { SegmentSidebar, type SegmentMetadata } from './SegmentSidebar'
-import { fmtDist, fmtElevation } from '@/lib/format'
+import { SegmentSidebar, type LiveInfo, type SegmentMetadata } from './SegmentSidebar'
 
 vi.mock('@/api/accessScopes', () => ({
   listObjectAccessScopes: vi.fn().mockResolvedValue({ scopes: [] }),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'en', units: 'imperial' }),
 }))
 
 const baseMeta: SegmentMetadata = {
@@ -26,10 +28,7 @@ const baseMeta: SegmentMetadata = {
   climbType: 'standard',
 }
 
-function renderSidebar(
-  mode: 'track' | 'draw' | 'lap' | 'checkpoint',
-  info: ComponentProps<typeof SegmentSidebar>['info'] = null,
-) {
+function renderSidebar(mode: 'track' | 'draw' | 'lap' | 'checkpoint', info: LiveInfo | null = null) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -64,19 +63,21 @@ describe('SegmentSidebar checkpoint mode', () => {
   })
 })
 
-describe('SegmentSidebar live metrics', () => {
-  it('formats distance and elevation metrics through the central unit formatters', () => {
+describe('SegmentSidebar metric summary', () => {
+  it('formats distance and elevation with the active unit preference', () => {
     renderSidebar('track', {
-      distanceKm: 1.234,
-      gainM: 235.4,
-      lossM: 56.2,
-      elevationMaxM: 2001.8,
+      distanceKm: 5,
+      gainM: 100,
+      lossM: 25,
+      elevationMaxM: 1234,
     })
 
-    expect(screen.getByText(fmtDist(1234))).toBeInTheDocument()
-    expect(screen.getByText(`+${fmtElevation(235.4)}`)).toBeInTheDocument()
-    expect(screen.getByText(`−${fmtElevation(56.2)}`)).toBeInTheDocument()
-    expect(screen.getByText(fmtElevation(2001.8))).toBeInTheDocument()
+    expect(screen.getByText('3.1 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft')).toBeInTheDocument()
+    expect(screen.getByText('−82 ft')).toBeInTheDocument()
+    expect(screen.getByText('4,049 ft')).toBeInTheDocument()
+    expect(screen.queryByText('5.0 km')).not.toBeInTheDocument()
+    expect(screen.queryByText('+100 m')).not.toBeInTheDocument()
   })
 
   it('does not prefix empty zero-elevation values with a sign', () => {

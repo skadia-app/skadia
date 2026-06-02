@@ -1,4 +1,7 @@
+import { useTranslation } from 'react-i18next'
 import type { HealthOverview } from '@/api/health'
+import { formatWeight } from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   data: HealthOverview
@@ -26,17 +29,17 @@ function readinessBg(score: number): string {
   return 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40'
 }
 
-function readinessLabel(level: string | null): string {
+function readinessLabel(level: string | null, t: ReturnType<typeof useTranslation>['t']): string {
   if (!level) return ''
-  const labels: Record<string, string> = {
-    LOW: 'Niedrig',
-    MODERATE: 'Moderat',
-    HIGH: 'Hoch',
+  if (level === 'LOW' || level === 'MODERATE' || level === 'HIGH') {
+    return t(`healthReadiness.levels.${level}`)
   }
-  return labels[level] ?? level
+  return t('healthReadiness.levels.unknown')
 }
 
 export default function HealthOverviewCards({ data }: Props) {
+  const { t, i18n } = useTranslation()
+  const { options: unitOptions } = useUnitFormatters()
   const { daily_summary, sleep, hrv, weight, readiness } = data
 
   // Steps
@@ -65,12 +68,12 @@ export default function HealthOverviewCards({ data }: Props) {
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {/* Steps */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Schritte heute</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('healthOverview.stepsToday')}</div>
         <div className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-          {steps != null ? steps.toLocaleString('de-DE') : '—'}
+          {steps != null ? steps.toLocaleString(i18n.language) : '—'}
         </div>
         {stepGoal != null && (
-          <div className="text-xs text-neutral-400 mt-0.5">Ziel: {stepGoal.toLocaleString('de-DE')}</div>
+          <div className="text-xs text-neutral-400 mt-0.5">{t('healthOverview.goal', { value: stepGoal.toLocaleString(i18n.language) })}</div>
         )}
         {stepProgress != null && (
           <div className="mt-2 h-1.5 w-full rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
@@ -84,12 +87,12 @@ export default function HealthOverviewCards({ data }: Props) {
 
       {/* Sleep */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Schlaf letzte Nacht</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('healthOverview.sleepLastNight')}</div>
         <div className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
           {sleepTotal != null ? formatSleepDuration(sleepTotal) : '—'}
         </div>
         {sleepScore != null && (
-          <div className="text-xs text-neutral-400 mt-0.5">Score: {sleepScore}</div>
+          <div className="text-xs text-neutral-400 mt-0.5">{t('healthOverview.score', { value: sleepScore })}</div>
         )}
       </div>
 
@@ -103,15 +106,15 @@ export default function HealthOverviewCards({ data }: Props) {
           <div className="text-xs text-neutral-400 mt-0.5">RMSSD · {hrv.time_of_day}</div>
         )}
         {rmssd == null && (
-          <div className="text-xs text-neutral-400 mt-0.5">Keine Messung</div>
+          <div className="text-xs text-neutral-400 mt-0.5">{t('healthOverview.noMeasurement')}</div>
         )}
       </div>
 
       {/* Weight */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gewicht</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('healthOverview.weight')}</div>
         <div className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-          {weightKg != null ? `${weightKg.toFixed(1)} kg` : '—'}
+          {weightKg != null ? formatWeight(weightKg, unitOptions) : '—'}
         </div>
         {bmi != null && (
           <div className="text-xs text-neutral-400 mt-0.5">BMI: {bmi.toFixed(1)}</div>
@@ -120,13 +123,13 @@ export default function HealthOverviewCards({ data }: Props) {
 
       {/* Readiness */}
       <div className={`rounded-lg border p-3 ${readinessScore != null ? readinessBg(readinessScore) : 'border-neutral-200 dark:border-neutral-800'}`}>
-        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Bereitschaft</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('healthOverview.readiness')}</div>
         <div className={`text-xl font-semibold tabular-nums ${readinessScore != null ? readinessColor(readinessScore) : 'text-neutral-900 dark:text-neutral-100'}`}>
           {readinessScore != null ? readinessScore : '—'}
         </div>
         {readinessLevel != null && (
           <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {readinessLabel(readinessLevel)}
+            {readinessLabel(readinessLevel, t)}
           </div>
         )}
       </div>

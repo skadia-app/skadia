@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { StreamPoint } from '@/api/types'
 import { sportColor } from '@/lib/sportTaxonomy'
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function PiPMap({ streams, sportType, hoverIndex, visible, onClickScrollToMap }: Props) {
+  const { t } = useTranslation()
   const [dismissed, setDismissed] = useState(false)
 
   const coords = useMemo(() => {
@@ -79,13 +81,13 @@ export function PiPMap({ streams, sportType, hoverIndex, visible, onClickScrollT
       style={{ opacity: visible ? 1 : 0, transform: visible ? 'scale(1)' : 'scale(0.9)' }}
       onClick={onClickScrollToMap}
       role="button"
-      aria-label="Kartenvorschau — klicken zum Scrollen zur Karte"
+      aria-label={t('activityDetail.pipMap.previewAria')}
       aria-hidden={!visible}
     >
       <button
         onClick={e => { e.stopPropagation(); setDismissed(true) }}
         className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-neutral-800/60 text-white text-xs flex items-center justify-center hover:bg-neutral-800/80 cursor-pointer"
-        aria-label="Kartenvorschau schließen"
+        aria-label={t('activityDetail.pipMap.closeAria')}
       >
         ×
       </button>

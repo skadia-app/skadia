@@ -3,10 +3,16 @@ import {
   GENERATED_RECORD_MAIN_CATEGORIES,
   GENERATED_RECORD_MATCH_RULES,
 } from './generatedRecordProjections'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { modifierDefaultsForTuple } from './sportTaxonomy'
 
 export const SPORT_GROUP_LABELS: Record<string, string> = Object.fromEntries(
   GENERATED_RECORD_GROUPS.map(group => [group.key, group.label]),
+)
+
+const SPORT_GROUP_LABEL_MAPS: Record<string, LocalizedString> = Object.fromEntries(
+  GENERATED_RECORD_GROUPS.map(group => [group.key, group.labels]),
 )
 
 export const RECORD_GROUP_BADGES: Record<string, string> = Object.fromEntries(
@@ -27,19 +33,30 @@ export const MAIN_CATEGORY_LABELS: Record<MainCategory, string> = Object.fromEnt
   GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, category.label]),
 ) as Record<MainCategory, string>
 
+const MAIN_CATEGORY_LABEL_MAPS: Record<MainCategory, LocalizedString> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, category.labels]),
+) as Record<MainCategory, LocalizedString>
+
 export const MAIN_CATEGORY_COLORS: Record<MainCategory, string> = Object.fromEntries(
   GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, category.color]),
 ) as Record<MainCategory, string>
 
 export interface SubFilter {
+  key: string
   label: string
+  labels: LocalizedString
   sportGroups: string[]
 }
 
 export const SUB_FILTERS: Record<MainCategory, SubFilter[]> = Object.fromEntries(
   GENERATED_RECORD_MAIN_CATEGORIES.map(category => [
     category.key,
-    category.subFilters.map(filter => ({ label: filter.label, sportGroups: [...filter.recordGroups] })),
+    category.subFilters.map(filter => ({
+      key: filter.key,
+      label: filter.label,
+      labels: filter.labels,
+      sportGroups: [...filter.recordGroups],
+    })),
   ]),
 ) as Record<MainCategory, SubFilter[]>
 
@@ -51,6 +68,34 @@ export const SPORT_GROUP_BADGE_LABELS: Record<string, string> = Object.fromEntri
     }),
   ),
 )
+
+const SPORT_GROUP_BADGE_LABEL_MAPS: Record<string, LocalizedString> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.flatMap(category =>
+    category.subFilters.flatMap(filter => {
+      if (filter.label === 'Alle') return []
+      return filter.recordGroups.map(group => [group, filter.labels] as const)
+    }),
+  ),
+)
+
+export function getSportGroupLabel(sportGroup: string, language?: SupportedLanguage): string {
+  return localizeString(SPORT_GROUP_LABEL_MAPS[sportGroup], language) || sportGroup
+}
+
+export function getSportGroupBadgeLabel(sportGroup: string, language?: SupportedLanguage): string {
+  return localizeString(SPORT_GROUP_BADGE_LABEL_MAPS[sportGroup], language) || getSportGroupLabel(sportGroup, language)
+}
+
+export function getMainCategoryLabel(category: MainCategory, language?: SupportedLanguage): string {
+  return localizeString(MAIN_CATEGORY_LABEL_MAPS[category], language) || category
+}
+
+export function getSubFilters(category: MainCategory, language?: SupportedLanguage): SubFilter[] {
+  return SUB_FILTERS[category].map(filter => ({
+    ...filter,
+    label: localizeString(filter.labels, language),
+  }))
+}
 
 export const POWER_CURVE_GROUPS: Partial<Record<MainCategory, string[]>> = Object.fromEntries(
   GENERATED_RECORD_MAIN_CATEGORIES

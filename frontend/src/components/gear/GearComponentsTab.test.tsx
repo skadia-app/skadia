@@ -1,9 +1,14 @@
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import '@/i18n/i18n'
 
 import GearComponentsTab from './GearComponentsTab'
 import type { GearComponent } from '@/api/types'
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'en', units: 'metric' }),
+}))
 
 function makeComponent(overrides: Partial<GearComponent> = {}): GearComponent {
   return {
@@ -62,9 +67,9 @@ describe('GearComponentsTab', () => {
       }),
     ]} />)
 
-    expect(screen.getByTestId('component-c1')).toHaveTextContent('12 km')
+    expect(screen.getByTestId('component-c1')).toHaveTextContent('12.5 km')
     expect(screen.getByTestId('component-c1')).toHaveTextContent('2 h')
-    expect(screen.getByTestId('component-c2')).toHaveTextContent('0 km')
+    expect(screen.getByTestId('component-c2')).toHaveTextContent('490 m')
     expect(screen.getByTestId('component-c2')).toHaveTextContent('45 min')
   })
 })

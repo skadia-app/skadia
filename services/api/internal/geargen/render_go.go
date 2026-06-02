@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"sort"
 )
 
 // RenderGo generates a Go source file for the gear package containing typed
@@ -21,17 +22,21 @@ type ShowWhenSpec struct {
 	Value string ` + "`" + `json:"value"` + "`" + `
 }
 
+type LocalizedString map[string]string
+
 // AssignmentRole describes the role a gear item plays relative to an activity.
 type AssignmentRole struct {
-	Key               string ` + "`" + `json:"key"` + "`" + `
-	LabelDE           string ` + "`" + `json:"labelDe"` + "`" + `
-	UniquePerActivity bool   ` + "`" + `json:"uniquePerActivity"` + "`" + `
+	Key               string          ` + "`" + `json:"key"` + "`" + `
+	LabelDE           string          ` + "`" + `json:"labelDe"` + "`" + `
+	Labels            LocalizedString ` + "`" + `json:"labels"` + "`" + `
+	UniquePerActivity bool            ` + "`" + `json:"uniquePerActivity"` + "`" + `
 }
 
 // OptionValue is a single selectable value within an OptionSet.
 type OptionValue struct {
-	Key     string ` + "`" + `json:"key"` + "`" + `
-	LabelDE string ` + "`" + `json:"labelDe"` + "`" + `
+	Key     string          ` + "`" + `json:"key"` + "`" + `
+	LabelDE string          ` + "`" + `json:"labelDe"` + "`" + `
+	Labels  LocalizedString ` + "`" + `json:"labels"` + "`" + `
 }
 
 // OptionSet is a named list of option values for enum attributes.
@@ -44,10 +49,11 @@ type OptionSet struct {
 // referencing this group via UnitGroup may only declare AllowedUnits that are
 // a subset of AllowedUnits here.
 type UnitGroup struct {
-	Key           string   ` + "`" + `json:"key"` + "`" + `
-	LabelDE       string   ` + "`" + `json:"labelDe"` + "`" + `
-	AllowedUnits  []string ` + "`" + `json:"allowedUnits"` + "`" + `
-	CanonicalUnit string   ` + "`" + `json:"canonicalUnit,omitempty"` + "`" + `
+	Key           string          ` + "`" + `json:"key"` + "`" + `
+	LabelDE       string          ` + "`" + `json:"labelDe"` + "`" + `
+	Labels        LocalizedString ` + "`" + `json:"labels"` + "`" + `
+	AllowedUnits  []string        ` + "`" + `json:"allowedUnits"` + "`" + `
+	CanonicalUnit string          ` + "`" + `json:"canonicalUnit,omitempty"` + "`" + `
 }
 
 // Condition is a single soft-UX visibility predicate. Multiple conditions in
@@ -71,6 +77,7 @@ type Condition struct {
 type Attribute struct {
 	Key               string        ` + "`" + `json:"key"` + "`" + `
 	LabelDE           string        ` + "`" + `json:"labelDe"` + "`" + `
+	Labels            LocalizedString ` + "`" + `json:"labels"` + "`" + `
 	ValueType         string        ` + "`" + `json:"valueType"` + "`" + `
 	OptionSetKey      string        ` + "`" + `json:"optionSetKey,omitempty"` + "`" + `
 	Subfields         []Attribute   ` + "`" + `json:"subfields,omitempty"` + "`" + `
@@ -85,10 +92,11 @@ type Attribute struct {
 
 // GearTypeSlot is a pre-defined component slot on a gear type.
 type GearTypeSlot struct {
-	Key           string ` + "`" + `json:"key"` + "`" + `
-	LabelDE       string ` + "`" + `json:"labelDe"` + "`" + `
-	ComponentType string ` + "`" + `json:"componentType"` + "`" + `
-	Optional      bool   ` + "`" + `json:"optional,omitempty"` + "`" + `
+	Key           string          ` + "`" + `json:"key"` + "`" + `
+	LabelDE       string          ` + "`" + `json:"labelDe"` + "`" + `
+	Labels        LocalizedString ` + "`" + `json:"labels"` + "`" + `
+	ComponentType string          ` + "`" + `json:"componentType"` + "`" + `
+	Optional      bool            ` + "`" + `json:"optional,omitempty"` + "`" + `
 }
 
 // RecommendedAttribute carries the soft-default value set for one attribute
@@ -109,6 +117,7 @@ type RecommendedConstraints struct {
 type GearType struct {
 	Key                      string                  ` + "`" + `json:"key"` + "`" + `
 	LabelDE                  string                  ` + "`" + `json:"labelDe"` + "`" + `
+	Labels                   LocalizedString         ` + "`" + `json:"labels"` + "`" + `
 	Scope                    string                  ` + "`" + `json:"scope"` + "`" + `
 	ParentKey                string                  ` + "`" + `json:"parentKey,omitempty"` + "`" + `
 	DefaultAssignmentRoleKey string                  ` + "`" + `json:"defaultAssignmentRoleKey"` + "`" + `
@@ -120,11 +129,12 @@ type GearType struct {
 
 // ComponentType describes a reusable component kind with optional subtypes and attributes.
 type ComponentType struct {
-	Key           string   ` + "`" + `json:"key"` + "`" + `
-	LabelDE       string   ` + "`" + `json:"labelDe"` + "`" + `
-	ParentKey     string   ` + "`" + `json:"parentKey,omitempty"` + "`" + `
-	SubtypeKeys   []string ` + "`" + `json:"subtypeKeys,omitempty"` + "`" + `
-	AttributeKeys []string ` + "`" + `json:"attributeKeys,omitempty"` + "`" + `
+	Key           string          ` + "`" + `json:"key"` + "`" + `
+	LabelDE       string          ` + "`" + `json:"labelDe"` + "`" + `
+	Labels        LocalizedString ` + "`" + `json:"labels"` + "`" + `
+	ParentKey     string          ` + "`" + `json:"parentKey,omitempty"` + "`" + `
+	SubtypeKeys   []string        ` + "`" + `json:"subtypeKeys,omitempty"` + "`" + `
+	AttributeKeys []string        ` + "`" + `json:"attributeKeys,omitempty"` + "`" + `
 }
 
 // GearSchema holds all gear schema definitions.
@@ -146,8 +156,8 @@ type GearSchema struct {
 	// AssignmentRoles
 	buf.WriteString("\tAssignmentRoles: []AssignmentRole{\n")
 	for _, r := range schema.AssignmentRoles {
-		fmt.Fprintf(&buf, "\t\t{Key: %q, LabelDE: %q, UniquePerActivity: %t},\n",
-			r.Key, r.LabelDE, r.UniquePerActivity)
+		fmt.Fprintf(&buf, "\t\t{Key: %q, LabelDE: %q, Labels: localizedLabels(%q, %s), UniquePerActivity: %t},\n",
+			r.Key, r.LabelDE, r.LabelDE, goStringMap(r.Labels), r.UniquePerActivity)
 	}
 	buf.WriteString("\t},\n")
 
@@ -156,7 +166,8 @@ type GearSchema struct {
 	for _, os := range schema.OptionSets {
 		fmt.Fprintf(&buf, "\t\t{Key: %q, Options: []OptionValue{\n", os.Key)
 		for _, opt := range os.Options {
-			fmt.Fprintf(&buf, "\t\t\t{Key: %q, LabelDE: %q},\n", opt.Key, opt.LabelDE)
+			fmt.Fprintf(&buf, "\t\t\t{Key: %q, LabelDE: %q, Labels: localizedLabels(%q, %s)},\n",
+				opt.Key, opt.LabelDE, opt.LabelDE, goStringMap(opt.Labels))
 		}
 		buf.WriteString("\t\t}},\n")
 	}
@@ -166,8 +177,8 @@ type GearSchema struct {
 	if len(schema.UnitGroups) > 0 {
 		buf.WriteString("\tUnitGroups: []UnitGroup{\n")
 		for _, ug := range schema.UnitGroups {
-			fmt.Fprintf(&buf, "\t\t{Key: %q, LabelDE: %q, AllowedUnits: %s",
-				ug.Key, ug.LabelDE, goStringSlice(ug.AllowedUnits))
+			fmt.Fprintf(&buf, "\t\t{Key: %q, LabelDE: %q, Labels: localizedLabels(%q, %s), AllowedUnits: %s",
+				ug.Key, ug.LabelDE, ug.LabelDE, goStringMap(ug.Labels), goStringSlice(ug.AllowedUnits))
 			if ug.CanonicalUnit != "" {
 				fmt.Fprintf(&buf, ", CanonicalUnit: %q", ug.CanonicalUnit)
 			}
@@ -187,6 +198,7 @@ type GearSchema struct {
 		buf.WriteString("\t\t{\n")
 		fmt.Fprintf(&buf, "\t\t\tKey: %q,\n", gt.Key)
 		fmt.Fprintf(&buf, "\t\t\tLabelDE: %q,\n", gt.LabelDE)
+		fmt.Fprintf(&buf, "\t\t\tLabels: localizedLabels(%q, %s),\n", gt.LabelDE, goStringMap(gt.Labels))
 		fmt.Fprintf(&buf, "\t\t\tScope: %q,\n", gt.Scope)
 		if gt.ParentKey != "" {
 			fmt.Fprintf(&buf, "\t\t\tParentKey: %q,\n", gt.ParentKey)
@@ -198,8 +210,8 @@ type GearSchema struct {
 		if len(gt.Slots) > 0 {
 			buf.WriteString("\t\t\tSlots: []GearTypeSlot{\n")
 			for _, s := range gt.Slots {
-				fmt.Fprintf(&buf, "\t\t\t\t{Key: %q, LabelDE: %q, ComponentType: %q, Optional: %t},\n",
-					s.Key, s.LabelDE, s.ComponentType, s.Optional)
+				fmt.Fprintf(&buf, "\t\t\t\t{Key: %q, LabelDE: %q, Labels: localizedLabels(%q, %s), ComponentType: %q, Optional: %t},\n",
+					s.Key, s.LabelDE, s.LabelDE, goStringMap(s.Labels), s.ComponentType, s.Optional)
 			}
 			buf.WriteString("\t\t\t},\n")
 		}
@@ -217,6 +229,7 @@ type GearSchema struct {
 			buf.WriteString("\t\t{\n")
 			fmt.Fprintf(&buf, "\t\t\tKey: %q,\n", ct.Key)
 			fmt.Fprintf(&buf, "\t\t\tLabelDE: %q,\n", ct.LabelDE)
+			fmt.Fprintf(&buf, "\t\t\tLabels: localizedLabels(%q, %s),\n", ct.LabelDE, goStringMap(ct.Labels))
 			if ct.ParentKey != "" {
 				fmt.Fprintf(&buf, "\t\t\tParentKey: %q,\n", ct.ParentKey)
 			}
@@ -234,6 +247,20 @@ type GearSchema struct {
 	buf.WriteString("}\n\n")
 
 	// Lookup helpers.
+	buf.WriteString(`func localizedLabels(labelDE string, labels map[string]string) LocalizedString {
+	out := make(LocalizedString, len(labels)+1)
+	for key, value := range labels {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if out["de"] == "" {
+		out["de"] = labelDE
+	}
+	return out
+}
+
+`)
 	buf.WriteString(`// LookupAttribute returns the Attribute with the given key, or false if not found.
 func LookupAttribute(key string) (Attribute, bool) {
 	return lookupAttribute(Schema.Attributes, key)
@@ -312,6 +339,7 @@ func writeGoAttributes(buf *bytes.Buffer, attrs []Attribute, depth int) {
 	for _, a := range attrs {
 		fmt.Fprintf(buf, "%s\t{\n", t)
 		fmt.Fprintf(buf, "%s\t\tKey: %q, LabelDE: %q, ValueType: %q,\n", t, a.Key, a.LabelDE, a.ValueType)
+		fmt.Fprintf(buf, "%s\t\tLabels: localizedLabels(%q, %s),\n", t, a.LabelDE, goStringMap(a.Labels))
 		if a.OptionSetKey != "" {
 			fmt.Fprintf(buf, "%s\t\tOptionSetKey: %q,\n", t, a.OptionSetKey)
 		}
@@ -434,6 +462,26 @@ func goStringSlice(values []string) string {
 			buf.WriteString(", ")
 		}
 		fmt.Fprintf(&buf, "%q", v)
+	}
+	buf.WriteString("}")
+	return buf.String()
+}
+
+func goStringMap(values LocaleMap) string {
+	var buf bytes.Buffer
+	buf.WriteString("map[string]string{")
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		if value != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for i, key := range keys {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(&buf, "%q: %q", key, values[key])
 	}
 	buf.WriteString("}")
 	return buf.String()

@@ -4,14 +4,14 @@ category_sets:
       - {key: dist_400m, type: time_lower, distance_m: 400, labels: {de: 400 m}}
       - {key: dist_800m, type: time_lower, distance_m: 800, labels: {de: 800 m}}
       - {key: dist_1km, type: time_lower, distance_m: 1000, labels: {de: 1 km}}
-      - {key: dist_1mi, type: time_lower, distance_m: 1609.34, labels: {de: 1 Meile}}
-      - {key: dist_2mi, type: time_lower, distance_m: 3218.69, labels: {de: 2 Meilen}}
+      - {key: dist_1mi, type: time_lower, distance_m: 1609.34, labels: {de: 1 Meile, en: 1 mile, fr: 1 mile, it: 1 miglio, es: 1 milla}}
+      - {key: dist_2mi, type: time_lower, distance_m: 3218.69, labels: {de: 2 Meilen, en: 2 miles, fr: 2 miles, it: 2 miglia, es: 2 millas}}
       - {key: dist_5km, type: time_lower, distance_m: 5000, labels: {de: 5 km}}
       - {key: dist_10km, type: time_lower, distance_m: 10000, labels: {de: 10 km}}
       - {key: dist_15km, type: time_lower, distance_m: 15000, labels: {de: 15 km}}
-      - {key: dist_10mi, type: time_lower, distance_m: 16093.4, labels: {de: 10 Meilen}}
+      - {key: dist_10mi, type: time_lower, distance_m: 16093.4, labels: {de: 10 Meilen, en: 10 miles, fr: 10 miles, it: 10 miglia, es: 10 millas}}
       - {key: dist_20km, type: time_lower, distance_m: 20000, labels: {de: 20 km}}
-      - {key: dist_hm, type: time_lower, distance_m: 21097.5, labels: {de: Halbmarathon}}
+      - {key: dist_hm, type: time_lower, distance_m: 21097.5, labels: {de: Halbmarathon, en: Half marathon, fr: Semi-marathon, it: Mezza maratona, es: Media maratón}}
       - {key: dist_30km, type: time_lower, distance_m: 30000, labels: {de: 30 km}}
       - {key: dist_marathon, type: time_lower, distance_m: 42195, labels: {de: Marathon}}
       - {key: dist_50km, type: time_lower, distance_m: 50000, labels: {de: 50 km}}
@@ -21,12 +21,12 @@ category_sets:
     categories:
       - {key: dist_10km, type: time_lower, distance_m: 10000, labels: {de: 10 km}}
       - {key: dist_20km, type: time_lower, distance_m: 20000, labels: {de: 20 km}}
-      - {key: dist_25mi, type: time_lower, distance_m: 40233.6, labels: {de: 25 Meilen}}
+      - {key: dist_25mi, type: time_lower, distance_m: 40233.6, labels: {de: 25 Meilen, en: 25 miles, fr: 25 miles, it: 25 miglia, es: 25 millas}}
       - {key: dist_40km, type: time_lower, distance_m: 40000, labels: {de: 40 km}}
       - {key: dist_50km, type: time_lower, distance_m: 50000, labels: {de: 50 km}}
-      - {key: dist_50mi, type: time_lower, distance_m: 80467.2, labels: {de: 50 Meilen}}
+      - {key: dist_50mi, type: time_lower, distance_m: 80467.2, labels: {de: 50 Meilen, en: 50 miles, fr: 50 miles, it: 50 miglia, es: 50 millas}}
       - {key: dist_100km, type: time_lower, distance_m: 100000, labels: {de: 100 km}}
-      - {key: dist_100mi, type: time_lower, distance_m: 160934.4, labels: {de: 100 Meilen}}
+      - {key: dist_100mi, type: time_lower, distance_m: 160934.4, labels: {de: 100 Meilen, en: 100 miles, fr: 100 miles, it: 100 miglia, es: 100 millas}}
       - {key: dist_150km, type: time_lower, distance_m: 150000, labels: {de: 150 km}}
       - {key: dist_200km, type: time_lower, distance_m: 200000, labels: {de: 200 km}}
       - {key: dist_300km, type: time_lower, distance_m: 300000, labels: {de: 300 km}}
@@ -63,27 +63,27 @@ category_sets:
 
   - key: power
     categories:
-      - {key: power_5s, type: value_higher, duration_s: 5, labels: {de: 5 Sek}}
-      - {key: power_30s, type: value_higher, duration_s: 30, labels: {de: 30 Sek}}
-      - {key: power_1min, type: value_higher, duration_s: 60, labels: {de: 1 Min}}
-      - {key: power_5min, type: value_higher, duration_s: 300, labels: {de: 5 Min}}
-      - {key: power_10min, type: value_higher, duration_s: 600, labels: {de: 10 Min}}
-      - {key: power_20min, type: value_higher, duration_s: 1200, labels: {de: 20 Min}}
-      - {key: power_30min, type: value_higher, duration_s: 1800, labels: {de: 30 Min}}
-      - {key: power_1h, type: value_higher, duration_s: 3600, labels: {de: 1 Std}}
-      - {key: power_2h, type: value_higher, duration_s: 7200, labels: {de: 2 Std}}
+      - {key: power_5s, type: value_higher, duration_s: 5, labels: {de: 5 s, en: 5 s, fr: 5 s, it: 5 s, es: 5 s}}
+      - {key: power_30s, type: value_higher, duration_s: 30, labels: {de: 30 s, en: 30 s, fr: 30 s, it: 30 s, es: 30 s}}
+      - {key: power_1min, type: value_higher, duration_s: 60, labels: {de: 1 min, en: 1 min, fr: 1 min, it: 1 min, es: 1 min}}
+      - {key: power_5min, type: value_higher, duration_s: 300, labels: {de: 5 min, en: 5 min, fr: 5 min, it: 5 min, es: 5 min}}
+      - {key: power_10min, type: value_higher, duration_s: 600, labels: {de: 10 min, en: 10 min, fr: 10 min, it: 10 min, es: 10 min}}
+      - {key: power_20min, type: value_higher, duration_s: 1200, labels: {de: 20 min, en: 20 min, fr: 20 min, it: 20 min, es: 20 min}}
+      - {key: power_30min, type: value_higher, duration_s: 1800, labels: {de: 30 min, en: 30 min, fr: 30 min, it: 30 min, es: 30 min}}
+      - {key: power_1h, type: value_higher, duration_s: 3600, labels: {de: 1 h, en: 1 h, fr: 1 h, it: 1 h, es: 1 h}}
+      - {key: power_2h, type: value_higher, duration_s: 7200, labels: {de: 2 h, en: 2 h, fr: 2 h, it: 2 h, es: 2 h}}
 
   - key: superlatives_with_elevation
     categories:
-      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz}}
-      - {key: sup_most_elevation, type: value_superlative, labels: {de: Meiste Höhenmeter}}
-      - {key: sup_biggest_climb, type: value_superlative, labels: {de: Größter Anstieg}}
-      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer}}
+      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz, en: Longest distance, fr: Distance la plus longue, it: Distanza più lunga, es: Distancia más larga}}
+      - {key: sup_most_elevation, type: value_superlative, labels: {de: Meiste Höhenmeter, en: Most elevation gain, fr: Plus grand dénivelé, it: Maggior dislivello, es: Mayor desnivel}}
+      - {key: sup_biggest_climb, type: value_superlative, labels: {de: Größter Anstieg, en: Biggest climb, fr: Plus longue montée, it: Salita più lunga, es: Subida más larga}}
+      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer, en: Longest duration, fr: Durée la plus longue, it: Durata più lunga, es: Duración más larga}}
 
   - key: superlatives_basic
     categories:
-      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz}}
-      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer}}
+      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz, en: Longest distance, fr: Distance la plus longue, it: Distanza più lunga, es: Distancia más larga}}
+      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer, en: Longest duration, fr: Durée la plus longue, it: Durata più lunga, es: Duración más larga}}
 
 category_profiles:
   - {key: running_full, category_sets: [distances_running, elevation, power, superlatives_with_elevation]}
@@ -97,7 +97,7 @@ category_profiles:
 
 record_groups:
   - key: running
-    labels: {de: Laufen}
+    labels: {de: Laufen, en: Running, fr: Course à pied, it: Corsa, es: Carrera}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_full
@@ -108,7 +108,7 @@ record_groups:
         modifiers: {is_indoor: false, is_virtual: false}
 
   - key: running_trail
-    labels: {de: Laufen (Trail)}
+    labels: {de: Laufen (Trail), en: Trail running, fr: Trail, it: Trail running, es: Trail running}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_full
@@ -118,7 +118,7 @@ record_groups:
         sub_types: [trail]
 
   - key: running_indoor
-    labels: {de: Laufen (Indoor)}
+    labels: {de: Laufen (Indoor), en: Indoor running, fr: Course en salle, it: Corsa indoor, es: Carrera indoor}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_stationary
@@ -131,7 +131,7 @@ record_groups:
         modifiers: {is_indoor: true}
 
   - key: running_virtual
-    labels: {de: Laufen (Virtuell)}
+    labels: {de: Laufen (Virtuell), en: Virtual running, fr: Course virtuelle, it: Corsa virtuale, es: Carrera virtual}
     main_category: laufen
     color: "#3B82F6"
     category_profile: running_stationary
@@ -141,7 +141,7 @@ record_groups:
         modifiers: {is_virtual: true}
 
   - key: cycling
-    labels: {de: Radfahren}
+    labels: {de: Radfahren, en: Cycling, fr: Vélo, it: Ciclismo, es: Ciclismo}
     main_category: radfahren
     color: "#F97316"
     category_profile: cycling_full
@@ -152,7 +152,7 @@ record_groups:
         modifiers: {is_electric: false, is_indoor: false, is_virtual: false}
 
   - key: cycling_electric
-    labels: {de: E-Bike}
+    labels: {de: E-Bike, en: E-bike, fr: E-bike, it: E-bike, es: E-bike}
     main_category: radfahren
     color: "#F97316"
     category_profile: cycling_electric
@@ -162,7 +162,7 @@ record_groups:
         modifiers: {is_electric: true}
 
   - key: cycling_virtual
-    labels: {de: Radfahren (Stationär)}
+    labels: {de: Radfahren (Stationär), en: Stationary cycling, fr: Vélo stationnaire, it: Ciclismo stazionario, es: Ciclismo estacionario}
     main_category: radfahren
     color: "#F97316"
     category_profile: cycling_stationary
@@ -181,7 +181,7 @@ record_groups:
         modifiers: {is_indoor: true}
 
   - key: hiking
-    labels: {de: Wandern}
+    labels: {de: Wandern, en: Hiking, fr: Randonnée, it: Escursionismo, es: Senderismo}
     main_category: wandern
     color: "#22C55E"
     category_profile: hiking_full
@@ -194,7 +194,7 @@ record_groups:
         sport_type: snowshoeing
 
   - key: swim_pool
-    labels: {de: Schwimmen (Becken)}
+    labels: {de: Schwimmen (Becken), en: Pool swimming, fr: Natation en bassin, it: Nuoto in piscina, es: Natación en piscina}
     main_category: schwimmen
     color: "#06B6D4"
     category_profile: swim_pool
@@ -205,7 +205,7 @@ record_groups:
         sub_types: [lap_swimming]
 
   - key: swim_ow
-    labels: {de: Schwimmen (Freiwasser)}
+    labels: {de: Schwimmen (Freiwasser), en: Open water swimming, fr: Natation en eau libre, it: Nuoto in acque libere, es: Natación en aguas abiertas}
     main_category: schwimmen
     color: "#06B6D4"
     category_profile: swim_open_water
@@ -217,38 +217,38 @@ record_groups:
 
 main_categories:
   - key: laufen
-    labels: {de: Laufen}
+    labels: {de: Laufen, en: Running, fr: Course à pied, it: Corsa, es: Carrera}
     color: "#3B82F6"
     record_groups: [running, running_trail, running_indoor, running_virtual]
     sub_filters:
-      - {label: Alle, record_groups: [running, running_trail, running_indoor, running_virtual]}
-      - {label: Straße, record_groups: [running]}
-      - {label: Trail, record_groups: [running_trail]}
-      - {label: Stationär, record_groups: [running_indoor, running_virtual]}
-    power_curve: {label: Laufen, record_groups: [running, running_trail, running_indoor, running_virtual]}
+      - {key: all, labels: {de: Alle, en: All, fr: Tout, it: Tutti, es: Todo}, record_groups: [running, running_trail, running_indoor, running_virtual]}
+      - {key: road, labels: {de: Straße, en: Road, fr: Route, it: Strada, es: Carretera}, record_groups: [running]}
+      - {key: trail, labels: {de: Trail, en: Trail, fr: Trail, it: Trail, es: Trail}, record_groups: [running_trail]}
+      - {key: stationary, labels: {de: Stationär, en: Stationary, fr: Stationnaire, it: Stazionario, es: Estacionario}, record_groups: [running_indoor, running_virtual]}
+    power_curve: {key: power, labels: {de: Laufen, en: Running, fr: Course à pied, it: Corsa, es: Carrera}, record_groups: [running, running_trail, running_indoor, running_virtual]}
 
   - key: radfahren
-    labels: {de: Radfahren}
+    labels: {de: Radfahren, en: Cycling, fr: Vélo, it: Ciclismo, es: Ciclismo}
     color: "#F97316"
     record_groups: [cycling, cycling_electric, cycling_virtual]
     sub_filters:
-      - {label: Alle, record_groups: [cycling, cycling_electric, cycling_virtual]}
-      - {label: Radfahren, record_groups: [cycling]}
-      - {label: E-Bike, record_groups: [cycling_electric]}
-      - {label: Stationär, record_groups: [cycling_virtual]}
-    power_curve: {label: Radfahren, record_groups: [cycling]}
+      - {key: all, labels: {de: Alle, en: All, fr: Tout, it: Tutti, es: Todo}, record_groups: [cycling, cycling_electric, cycling_virtual]}
+      - {key: cycling, labels: {de: Radfahren, en: Cycling, fr: Vélo, it: Ciclismo, es: Ciclismo}, record_groups: [cycling]}
+      - {key: electric, labels: {de: E-Bike, en: E-bike, fr: E-bike, it: E-bike, es: E-bike}, record_groups: [cycling_electric]}
+      - {key: stationary, labels: {de: Stationär, en: Stationary, fr: Stationnaire, it: Stazionario, es: Estacionario}, record_groups: [cycling_virtual]}
+    power_curve: {key: power, labels: {de: Radfahren, en: Cycling, fr: Vélo, it: Ciclismo, es: Ciclismo}, record_groups: [cycling]}
 
   - key: wandern
-    labels: {de: Wandern}
+    labels: {de: Wandern, en: Hiking, fr: Randonnée, it: Escursionismo, es: Senderismo}
     color: "#22C55E"
     record_groups: [hiking]
     sub_filters: []
 
   - key: schwimmen
-    labels: {de: Schwimmen}
+    labels: {de: Schwimmen, en: Swimming, fr: Natation, it: Nuoto, es: Natación}
     color: "#06B6D4"
     record_groups: [swim_ow, swim_pool]
     sub_filters:
-      - {label: Alle, record_groups: [swim_ow, swim_pool]}
-      - {label: Freiwasser, record_groups: [swim_ow]}
-      - {label: Becken, record_groups: [swim_pool]}
+      - {key: all, labels: {de: Alle, en: All, fr: Tout, it: Tutti, es: Todo}, record_groups: [swim_ow, swim_pool]}
+      - {key: open_water, labels: {de: Freiwasser, en: Open water, fr: Eau libre, it: Acque libere, es: Aguas abiertas}, record_groups: [swim_ow]}
+      - {key: pool, labels: {de: Becken, en: Pool, fr: Bassin, it: Piscina, es: Piscina}, record_groups: [swim_pool]}

@@ -1,13 +1,13 @@
 import maplibregl from 'maplibre-gl'
 
-// ── Terra Incognita: Canvas Fog Overlay (Ansatz B) ──────────────────────────
-// Statt MapLibre line-blur (zoom-abhängig, Spike-Artifacts an Vertices):
-// Gradient-Fog-of-War: 5 gestapelte Donut-Fill-Layer mit additiver Alpha-Compositing.
-// PostGIS liefert 5 konzentrische Ring-Polygone (innermost → outermost).
-// Jedes wird als "Welt minus Ring" Donut gerendert. Da die Donuts überlappen,
-// addieren sich ihre Opacities automatisch per WebGL-Compositing → weicher Gradient.
+// ── Terra Incognita: Canvas Fog Overlay (Approach B) ─────────────────────────
+// Instead of MapLibre line-blur (zoom-dependent, spike artifacts at vertices):
+// gradient fog of war: 5 stacked donut fill layers with additive alpha compositing.
+// PostGIS returns 5 concentric ring polygons (innermost → outermost).
+// Each is rendered as a "world minus ring" donut. Because the donuts overlap,
+// their opacities add up automatically via WebGL compositing → soft gradient.
 //
-// Performance: vollständig GPU, kein Canvas, kein Re-Render bei Pan/Zoom.
+// Performance: fully GPU-backed, no canvas, no re-render on pan/zoom.
 
 const TERRA_RING_COUNT = 5
 const TERRA_INCOGNITA_LAYER_IDS = Array.from(
@@ -15,26 +15,26 @@ const TERRA_INCOGNITA_LAYER_IDS = Array.from(
   (_, i) => `terra-fog-ring-${i}`,
 )
 
-// Per-Layer-Opacity für additive Alpha-Compositing.
-// Berechnet so, dass die Zonen-Gesamtopacity einem weichen Gradient entspricht:
-//   Zone ring[0]→ring[1] (innermost):  ~0.10  (leichter Dunst)
+// Per-layer opacity for additive alpha compositing.
+// Computed so each zone's total opacity matches a soft gradient:
+//   Zone ring[0]→ring[1] (innermost):  ~0.10  (light haze)
 //   Zone ring[1]→ring[2]:              ~0.25
-//   Zone ring[2]→ring[3]:              ~0.50  (konfigurierter Radius ≈ 50%)
+//   Zone ring[2]→ring[3]:              ~0.50  (configured radius ≈ 50%)
 //   Zone ring[3]→ring[4]:              ~0.72
-//   Zone außerhalb ring[4] (all 5):    ~0.88  (voller Nebel)
+//   Zone outside ring[4] (all 5):      ~0.88  (full fog)
 const RING_LAYER_OPACITIES = [0.10, 0.17, 0.33, 0.44, 0.57]
 
 const FOG_COLOR = '#d0daea'
 
-// Halo-Layer-Konfiguration: [ringIdx, lineWidth, lineBlur, targetOpacity]
-// Drei äußere Ring-Grenzen erhalten verschwommene weiße Linien für den wolkigen Rand-Effekt.
+// Halo layer configuration: [ringIdx, lineWidth, lineBlur, targetOpacity]
+// Three outer ring boundaries get blurred white lines for the cloudy edge effect.
 const HALO_CONFIG: [number, number, number, number][] = [
-  [2, 16, 10, 0.30], // konfigurierter Radius (innerste Halo)
-  [3, 28, 18, 0.22], // mittlere Grenze
-  [4, 44, 28, 0.16], // äußerste Grenze (diffusester Übergang)
+  [2, 16, 10, 0.30], // configured radius (innermost halo)
+  [3, 28, 18, 0.22], // middle boundary
+  [4, 44, 28, 0.16], // outermost boundary (most diffuse transition)
 ]
 
-// Modul-globaler State
+// Module-global state
 let terraAnimRafId: number | null = null
 
 export function removeTerraIncognitaLayers(map: maplibregl.Map) {
@@ -49,7 +49,7 @@ export function removeTerraIncognitaLayers(map: maplibregl.Map) {
     const srcId = `terra-fog-src-${i}`
     if (map.getSource(srcId)) map.removeSource(srcId)
   }
-  // Halo-Layer + Sources aufräumen
+  // Clean up halo layers + sources
   for (const [ringIdx] of HALO_CONFIG) {
     const haloLayerId = `terra-fog-halo-${ringIdx}`
     const haloSrcId = `terra-fog-halo-src-${ringIdx}`
@@ -59,8 +59,8 @@ export function removeTerraIncognitaLayers(map: maplibregl.Map) {
 }
 
 /**
- * Baut ein Donut-GeoJSON: Weltrechteck mit der Ring-Geometrie als Loch.
- * PostGIS liefert Außenringe in CCW (GeoJSON-Standard) → reversieren für CW-Holes.
+ * Builds a donut GeoJSON: world rectangle with the ring geometry as a hole.
+ * PostGIS returns outer rings in CCW order (GeoJSON standard) → reverse for CW holes.
  */
 export function buildDonutFeature(ringGeometry: GeoJSON.Geometry): GeoJSON.FeatureCollection {
   const worldRing: GeoJSON.Position[] = [
@@ -78,7 +78,7 @@ export function buildDonutFeature(ringGeometry: GeoJSON.Geometry): GeoJSON.Featu
     }
   }
 
-  // Wenn keine Löcher → leeres Feature (kein Nebel für diesen Ring)
+  // No holes → empty feature (no fog for this ring)
   if (holes.length === 0) {
     return { type: 'FeatureCollection', features: [] }
   }
@@ -94,23 +94,23 @@ export function buildDonutFeature(ringGeometry: GeoJSON.Geometry): GeoJSON.Featu
 }
 
 /**
- * Fügt 5 gestapelte Fill-Layer + 3 Halo-Line-Layer für Fog-of-War hinzu.
+ * Adds 5 stacked fill layers + 3 halo line layers for fog of war.
  *
- * Fill-Layer (Nebel-Körper):
- *   Jeder Layer ist ein Donut (Welt minus Ring[i]). Die Donuts überlappen —
- *   additive Alpha-Compositing in WebGL erzeugt den Gradient.
- *   rings[0] = innerster (-0.3R, kleinstes Loch → meiste Abdeckung)
- *   rings[4] = äußerster (+0.6R, größtes Loch → wenigste Abdeckung)
+ * Fill layers (fog body):
+ *   Each layer is a donut (world minus ring[i]). The donuts overlap —
+ *   additive alpha compositing in WebGL creates the gradient.
+ *   rings[0] = innermost (-0.3R, smallest hole → most coverage)
+ *   rings[4] = outermost (+0.6R, largest hole → least coverage)
  *
- * Halo-Layer (weiche Ränder):
- *   Dicke weiße Linien mit line-blur auf den 3 äußeren Ring-Grenzen.
- *   GPU-Shader-Effekt — keine Canvas-Performance-Probleme.
- *   Erzeugen den charakteristischen wolkigen Rand-Effekt.
+ * Halo layers (soft edges):
+ *   Thick white lines with line-blur on the 3 outer ring boundaries.
+ *   GPU shader effect — no canvas performance issues.
+ *   Creates the characteristic cloudy edge effect.
  */
 export function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geometry[]) {
   removeTerraIncognitaLayers(map)
 
-  // Fill-Layer von außen (ring[4]) nach innen (ring[0]) hinzufügen.
+  // Add fill layers from outside (ring[4]) to inside (ring[0]).
   for (let i = TERRA_RING_COUNT - 1; i >= 0; i--) {
     const ring = rings[i]
     if (!ring) continue
@@ -131,8 +131,8 @@ export function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geom
     })
   }
 
-  // Halo-Layer: dicke verschwommene Linien auf den äußeren Ring-Grenzen.
-  // Werden über den Fill-Layern gezeichnet → weiche, wolkige Außenkanten.
+  // Halo layers: thick blurred lines on the outer ring boundaries.
+  // Drawn above the fill layers → soft, cloudy outer edges.
   for (const [ringIdx, lineWidth, lineBlur] of HALO_CONFIG) {
     const ring = rings[ringIdx]
     if (!ring) continue
@@ -155,7 +155,7 @@ export function addTerraIncognitaLayers(map: maplibregl.Map, rings: GeoJSON.Geom
     })
   }
 
-  // Einblend-Animation (easeInOutQuad, 1.8s) — Fill + Halo gleichzeitig
+  // Fade-in animation (easeInOutQuad, 1.8s) — fill + halo together
   const DURATION = 1800
   const ease = (t: number) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
   const startTs = performance.now()

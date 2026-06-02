@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   FIELD_METADATA,
-  SECTION_LABELS,
   getProfileDefaults,
   cacheServerDefaults,
   type ProfileConfig,
   type FieldSection,
 } from '@/lib/routingProfiles'
-import { PROFILE_ORDER, PROFILE_LABELS } from '@/lib/profileLabels'
+import { PROFILE_ORDER } from '@/lib/profileLabels'
 import {
   getProfileDefaults as fetchProfileDefaults,
   type ProfileDefaultsResponse,
@@ -15,6 +15,7 @@ import {
 import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
 import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 // ─── Highway cost slider definitions ──────────────────────────────────────
 
@@ -41,39 +42,32 @@ type HighwayCostKey = keyof Pick<
 
 interface HighwayCostDef {
   key: HighwayCostKey
-  label: string
   group: 'trails' | 'roads'
   hint?: string
 }
 
 const HIGHWAY_COST_DEFS: HighwayCostDef[] = [
   // Trails group
-  { key: 'path_cost', label: 'Path', group: 'trails' },
-  { key: 'track_cost', label: 'Track (Basis)', group: 'trails' },
-  { key: 'track_grade1_cost', label: 'Track Grade 1', group: 'trails' },
-  { key: 'track_grade2_cost', label: 'Track Grade 2', group: 'trails' },
-  { key: 'track_grade3_cost', label: 'Track Grade 3', group: 'trails' },
-  { key: 'track_grade4_cost', label: 'Track Grade 4', group: 'trails' },
-  { key: 'track_grade5_cost', label: 'Track Grade 5', group: 'trails' },
-  { key: 'footway_cost', label: 'Footway', group: 'trails' },
-  { key: 'bridleway_cost', label: 'Bridleway', group: 'trails' },
-  { key: 'pedestrian_cost', label: 'Pedestrian', group: 'trails' },
+  { key: 'path_cost', group: 'trails' },
+  { key: 'track_cost', group: 'trails' },
+  { key: 'track_grade1_cost', group: 'trails' },
+  { key: 'track_grade2_cost', group: 'trails' },
+  { key: 'track_grade3_cost', group: 'trails' },
+  { key: 'track_grade4_cost', group: 'trails' },
+  { key: 'track_grade5_cost', group: 'trails' },
+  { key: 'footway_cost', group: 'trails' },
+  { key: 'bridleway_cost', group: 'trails' },
+  { key: 'pedestrian_cost', group: 'trails' },
   // Roads group
-  { key: 'cycleway_cost', label: 'Cycleway', group: 'roads' },
-  { key: 'residential_cost', label: 'Residential', group: 'roads' },
-  { key: 'service_cost', label: 'Service', group: 'roads' },
-  { key: 'unclassified_cost', label: 'Unclassified', group: 'roads' },
-  { key: 'tertiary_cost', label: 'Tertiary', group: 'roads' },
-  { key: 'secondary_cost', label: 'Secondary', group: 'roads' },
-  { key: 'primary_cost', label: 'Primary', group: 'roads' },
+  { key: 'cycleway_cost', group: 'roads' },
+  { key: 'residential_cost', group: 'roads' },
+  { key: 'service_cost', group: 'roads' },
+  { key: 'unclassified_cost', group: 'roads' },
+  { key: 'tertiary_cost', group: 'roads' },
+  { key: 'secondary_cost', group: 'roads' },
+  { key: 'primary_cost', group: 'roads' },
 ]
 
-const HIGHWAY_GROUP_LABELS: Record<string, string> = {
-  trails: 'Trails',
-  roads: 'Strassen',
-}
-
-const ROUTE_SPORT_OPTIONS = routeSportOptions()
 const VISIBLE_MODIFIER_FILTER_KEYS = ['is_electric'] as const satisfies readonly (keyof ModifierFilters)[]
 const MODIFIER_FILTER_OPTIONS: { key: keyof ModifierFilters; label: string }[] = [
   ...VISIBLE_MODIFIER_FILTER_KEYS.map((key) => ({
@@ -104,6 +98,7 @@ interface SliderFieldProps {
 }
 
 function SliderField({ label, value, min, max, step, unit, hint, onChange, fieldKey, editingField, editValue, onStartEdit, onEditChange, onCommitEdit, onCancelEdit }: SliderFieldProps) {
+  const { t } = useTranslation()
   const display = step < 0.1 ? value.toFixed(2) : step < 1 ? value.toFixed(2) : String(Math.round(value))
   const isEditing = editingField === fieldKey
   const isOverMax = value > max
@@ -130,7 +125,7 @@ function SliderField({ label, value, min, max, step, unit, hint, onChange, field
         ) : (
           <button
             onClick={() => onStartEdit(fieldKey, value)}
-            title="Klicken zum Bearbeiten"
+            title={t('routePlanner.profileEditor.editValue')}
             className={`text-xs font-mono tabular-nums cursor-pointer hover:opacity-70 transition-opacity ${
               isOverMax
                 ? 'text-orange-500'
@@ -263,9 +258,10 @@ function HighwayCostSlider({
   onCommitEdit,
   onCancelEdit,
 }: HighwayCostSliderProps) {
+  const { t } = useTranslation()
   const blocked = defaultValue === null
   const displayVal = value.toFixed(1)
-  const defaultDisplay = defaultValue !== null ? defaultValue.toFixed(1) : 'gesperrt'
+  const defaultDisplay = defaultValue !== null ? defaultValue.toFixed(1) : t('routePlanner.profileEditor.blocked')
   const isEditing = editingField === fieldKey
   const hwMin = 0.5
   const hwMax = 10
@@ -282,7 +278,7 @@ function HighwayCostSlider({
             <button
               onClick={onReset}
               className="text-[9px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
-              title={`Auf Standard zuruecksetzen (${defaultDisplay})`}
+              title={t('routePlanner.profileEditor.resetToDefaultWithValue', { value: defaultDisplay })}
             >
               <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.28a.75.75 0 00-.75.75v3.955a.75.75 0 001.5 0v-2.146l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.386zm-10.624-2.85a5.5 5.5 0 019.201-2.466l.312.311h-2.433a.75.75 0 000 1.5h3.952a.75.75 0 00.75-.75V3.214a.75.75 0 00-1.5 0v2.146l-.312-.31A7 7 0 003.244 8.188a.75.75 0 001.449.386z" clipRule="evenodd" />
@@ -311,7 +307,7 @@ function HighwayCostSlider({
           ) : (
             <button
               onClick={() => onStartEdit(fieldKey, value)}
-              title="Klicken zum Bearbeiten"
+              title={t('routePlanner.profileEditor.editValue')}
               className={`text-xs font-mono tabular-nums w-8 text-right cursor-pointer hover:opacity-70 transition-opacity ${
                 isOverMax
                   ? 'text-orange-500'
@@ -331,7 +327,7 @@ function HighwayCostSlider({
         value={blocked ? hwMin : Math.min(value, hwMax)}
         disabled={blocked}
         onChange={e => onChange(parseFloat(e.target.value))}
-        title={`Standard: ${defaultDisplay}`}
+        title={t('routePlanner.profileEditor.defaultValue', { value: defaultDisplay })}
         className={`w-full h-1.5 rounded-full appearance-none ${
           blocked
             ? 'cursor-not-allowed bg-neutral-200 dark:bg-neutral-700'
@@ -355,6 +351,7 @@ interface SectionProps {
 }
 
 function Section({ title, children, onReset, defaultOpen = false }: SectionProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen)
 
   return (
@@ -378,9 +375,9 @@ function Section({ title, children, onReset, defaultOpen = false }: SectionProps
         <button
           onClick={onReset}
           className="text-[10px] text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
-          title="Sektion zurücksetzen"
+          title={t('routePlanner.profileEditor.resetSectionTitle')}
         >
-          Zurücksetzen
+          {t('routePlanner.profileEditor.reset')}
         </button>
       </div>
       {open && (
@@ -400,6 +397,7 @@ export interface ProfileEditorProps {
 }
 
 export default function ProfileEditor({ config, onChange }: ProfileEditorProps) {
+  const { t, i18n } = useTranslation()
   const currentProfile = config.profile ?? 'hiking'
   // getProfileDefaults returns null when server cache is not yet populated
   const defaults = getProfileDefaults(currentProfile)
@@ -507,16 +505,20 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
     return serverDefaults[key]
   }
 
-  /** Build a tooltip hint, adding "nur befestigte Tracks" for road profile track slider */
+  /** Build a tooltip hint, adding the paved-tracks hint for the road profile track slider. */
   function getHighwayHint(def: HighwayCostDef): string | undefined {
     if (def.key === 'track_cost' && currentProfile === 'road') {
-      return 'nur befestigte Tracks'
+      return t('routePlanner.profileEditor.highway.pavedTracksOnly')
     }
     return def.hint
   }
 
   const sections = ['elevation', 'difficulty', 'environment', 'paths', 'behavior'] as FieldSection[]
   const predicates = config.predicates ?? []
+  const routeSportOptionsForLocale = useMemo(
+    () => routeSportOptions(supportedLanguageFrom(i18n.language)),
+    [i18n.language],
+  )
 
   function predicateValue(predicate: SportPredicate): string {
     return `${predicate.sport}/${predicate.sub_type ?? ''}`
@@ -544,7 +546,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   function addPredicate() {
-    const firstOption = ROUTE_SPORT_OPTIONS[0]
+    const firstOption = routeSportOptionsForLocale[0]
     if (!firstOption) return
     const predicate: SportPredicate = { sport: firstOption.sportType }
     if (firstOption.subType) predicate.sub_type = firstOption.subType
@@ -572,11 +574,12 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
       {/* Profile tabs */}
       <div className="px-3 pt-2.5 pb-2 border-b border-neutral-100 dark:border-neutral-800">
         <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1.5">
-          Profil
+          {t('routePlanner.profileEditor.profile')}
         </div>
         <div className="flex gap-1 flex-wrap">
           {PROFILE_ORDER.map(name => {
-            const { label, description } = PROFILE_LABELS[name]
+            const label = t(`routePlanner.profileEditor.profiles.${name}.label`)
+            const description = t(`routePlanner.profileEditor.profiles.${name}.description`)
             return (
               <button
                 key={name}
@@ -597,11 +600,11 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
 
       <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 space-y-2">
         <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Sport-Zuordnung
+          {t('routePlanner.profileEditor.sportMapping')}
         </div>
         <div className="space-y-1.5">
           {predicates.length === 0 && (
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Nicht festgelegt</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('routePlanner.profileEditor.notSet')}</div>
           )}
           {predicates.map((predicate, idx) => (
             <div key={`${idx}-${predicateValue(predicate)}`} className="flex items-center gap-1.5">
@@ -609,9 +612,9 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                 value={predicateValue(predicate)}
                 onChange={e => updatePredicate(idx, e.target.value)}
                 className="min-w-0 flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
-                aria-label={`Sport-Zuordnung ${idx + 1}`}
+                aria-label={t('routePlanner.profileEditor.sportMappingNumber', { number: idx + 1 })}
               >
-                {ROUTE_SPORT_OPTIONS.map(option => (
+                {routeSportOptionsForLocale.map(option => (
                   <option key={`${option.sportType}/${option.subType ?? ''}`} value={`${option.sportType}/${option.subType ?? ''}`}>
                     {option.label}
                   </option>
@@ -621,7 +624,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                 type="button"
                 onClick={() => updatePredicate(idx, '')}
                 className="h-7 w-7 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
-                aria-label="Sport-Zuordnung entfernen"
+                aria-label={t('routePlanner.profileEditor.removeSportMapping')}
               >
                 ×
               </button>
@@ -632,7 +635,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
             onClick={addPredicate}
             className="text-xs text-accent-600 dark:text-accent-400 hover:underline cursor-pointer"
           >
-            + Sport-Zuordnung hinzufügen
+            {t('routePlanner.profileEditor.addSportMapping')}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -644,9 +647,9 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                 onChange={e => updateModifierFilter(option.key, e.target.value as ModifierFilterValue)}
                 className="w-full rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 text-xs text-neutral-800 dark:text-neutral-200"
               >
-                <option value="any">egal</option>
-                <option value="true">ja</option>
-                <option value="false">nein</option>
+                <option value="any">{t('routePlanner.profileEditor.modifierValue.any')}</option>
+                <option value="true">{t('routePlanner.profileEditor.modifierValue.yes')}</option>
+                <option value="false">{t('routePlanner.profileEditor.modifierValue.no')}</option>
               </select>
             </label>
           ))}
@@ -661,7 +664,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
         return (
           <Section
             key={section}
-            title={SECTION_LABELS[section]}
+            title={t(`routePlanner.profileEditor.sections.${section}`)}
             onReset={() => resetSection(section)}
             defaultOpen={idx === 0}
           >
@@ -673,9 +676,9 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                 return (
                   <SwitchField
                     key={field.key}
-                    label={field.label}
+                    label={t(`routePlanner.profileEditor.fields.${field.key}.label`)}
                     value={boolVal}
-                    hint={field.hint}
+                    hint={field.hint ? t(`routePlanner.profileEditor.fields.${field.key}.hint`) : undefined}
                     onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
                   />
                 )
@@ -692,18 +695,17 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                   return (
                     <div key={field.key} className="space-y-1">
                       <IntSegmented
-                        label={field.label}
+                        label={t(`routePlanner.profileEditor.fields.${field.key}.label`)}
                         value={vfVal}
                         min={field.min ?? 0}
                         max={field.max ?? 6}
-                        hint={field.hint}
+                        hint={field.hint ? t(`routePlanner.profileEditor.fields.${field.key}.hint`) : undefined}
                         onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
                       />
                       {vfVal > 0 && (
                         <>
                           <p className="text-[10px] text-neutral-400 dark:text-neutral-500 leading-snug">
-                            Nur bestätigt gescalede Klettersteige (K1–K{vfVal}) werden erlaubt.
-                            Für Klettersteige ohne OSM-Schwierigkeitsangabe siehe Opt-In unten.
+                            {t('routePlanner.profileEditor.viaFerrataConfirmedOnly', { level: vfVal })}
                           </p>
                           <label className="flex items-start gap-2 py-1 cursor-pointer">
                             <input
@@ -714,12 +716,10 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                             />
                             <div>
                               <span className="text-xs text-neutral-700 dark:text-neutral-300">
-                                Unscaled Klettersteige erlauben
+                                {t('routePlanner.profileEditor.allowUnscaledViaFerrata')}
                               </span>
                               <p className="text-[10px] text-red-600 dark:text-red-400 leading-snug">
-                                Achtung: Aktiviert Routing über Klettersteig-Ways ohne bestätigte
-                                Schwierigkeitsangabe in OSM. Tatsächliche Schwierigkeit kann K1 bis K6
-                                sein. Nur mit Ortskenntnis aktivieren.
+                                {t('routePlanner.profileEditor.unscaledViaFerrataWarning')}
                               </p>
                             </div>
                           </label>
@@ -732,11 +732,11 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                 return (
                   <IntSegmented
                     key={field.key}
-                    label={field.label}
+                    label={t(`routePlanner.profileEditor.fields.${field.key}.label`)}
                     value={Math.round(numVal)}
                     min={field.min ?? 0}
                     max={field.max ?? 10}
-                    hint={field.hint}
+                    hint={field.hint ? t(`routePlanner.profileEditor.fields.${field.key}.hint`) : undefined}
                     onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
                   />
                 )
@@ -746,13 +746,13 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               return (
                 <SliderField
                   key={field.key}
-                  label={field.label}
+                  label={t(`routePlanner.profileEditor.fields.${field.key}.label`)}
                   value={numVal}
                   min={field.min ?? 0}
                   max={field.max ?? 1}
                   step={field.step ?? 0.1}
                   unit={field.unit}
-                  hint={field.hint}
+                  hint={field.hint ? t(`routePlanner.profileEditor.fields.${field.key}.hint`) : undefined}
                   onChange={v => updateField(field.key, v as ProfileConfig[typeof field.key])}
                   fieldKey={field.key}
                   editingField={editingField}
@@ -768,10 +768,10 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
         )
       })}
 
-      {/* Highway-Kosten section */}
+      {/* Highway cost section */}
       {serverDefaults && (
         <Section
-          title="Highway-Kosten"
+          title={t('routePlanner.profileEditor.highway.title')}
           onReset={resetHighwayCosts}
           defaultOpen={false}
         >
@@ -780,7 +780,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
             return (
               <div key={group} className="space-y-2">
                 <div className="text-[10px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wide">
-                  {HIGHWAY_GROUP_LABELS[group]}
+                  {t(`routePlanner.profileEditor.highway.groups.${group}`)}
                 </div>
                 {groupDefs.map(def => {
                   const serverDefault = getServerDefault(def.key)
@@ -792,7 +792,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
                   return (
                     <HighwayCostSlider
                       key={def.key}
-                      label={def.label}
+                      label={t(`routePlanner.profileEditor.highway.costs.${def.key}`)}
                       value={displayValue}
                       defaultValue={serverDefault}
                       hint={getHighwayHint(def)}

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { ScatterChart, LineChart } from 'echarts/charts'
@@ -12,6 +13,8 @@ echarts.use([ScatterChart, LineChart, GridComponent, TooltipComponent, CanvasRen
 import { fmtDuration } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { useECharts } from '@/hooks/useECharts'
+import { localeForLanguage } from '@/i18n/languages'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 interface SegmentPerformanceChartProps {
   segmentId: string
@@ -22,6 +25,9 @@ interface SegmentPerformanceChartProps {
 
 export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: SegmentPerformanceChartProps) {
   const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const locale = localeForLanguage(language)
 
   const { data } = useQuery({
     queryKey: ['segment-performances', segmentId],
@@ -91,8 +97,8 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
             if (params.seriesIndex !== 0) return ''
             const [ts, time] = params.data.value ?? params.data
             const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
-            const dateStr = new Date(ts).toLocaleDateString('de-DE')
-            const title = perf ? (perf.title || sportLabel(perf.sport_type)) : ''
+            const dateStr = new Date(ts).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+            const title = perf ? (perf.title || sportLabel(perf.sport_type, perf.sub_type, { language })) : ''
             return `${dateStr}<br/><b>${fmtDuration(time)}</b>${title ? '<br/>' + title : ''}`
           },
         },
@@ -102,14 +108,14 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
           min: minTime,
           max: maxTime,
           axisLabel: {
-            formatter: (v: number) => new Date(v).toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
+            formatter: (v: number) => new Date(v).toLocaleDateString(locale, { month: 'short', year: '2-digit' }),
             fontSize: 10,
             rotate: 30,
           },
         },
         yAxis: {
           type: 'value',
-          name: 'Zeit',
+          name: t('segmentsList.leaderboard.columns.time'),
           axisLabel: { formatter: (v: number) => fmtDuration(v) },
         },
         series: [
@@ -135,7 +141,7 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
         ],
       } as EChartsCoreOption
     },
-    [sorted, bestTime, avgTime],
+    [sorted, bestTime, avgTime, locale, language, t],
     (chart) => {
       const handler = (params: any) => {
         if (params.seriesIndex === 0) {
@@ -155,17 +161,17 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg p-4">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          Leistungsverlauf
+          {t('segmentsList.performance.title')}
         </h3>
         <div className="flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
           {trend === 'improving' && (
-            <span className="text-green-600 dark:text-green-400">&#8599; Verbesserung</span>
+            <span className="text-green-600 dark:text-green-400">&#8599; {t('segmentsList.performance.improving')}</span>
           )}
           {trend === 'declining' && (
-            <span className="text-orange-500">&#8600; Verschlechterung</span>
+            <span className="text-orange-500">&#8600; {t('segmentsList.performance.declining')}</span>
           )}
           <span>
-            Beste:{' '}
+            {t('segmentsList.performance.best')}:{' '}
             <b className="text-yellow-600 dark:text-yellow-400">{fmtDuration(bestTime)}</b>
           </span>
           <span>&#216; {fmtDuration(Math.round(avgTime))}</span>

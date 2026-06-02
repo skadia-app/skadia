@@ -8,6 +8,10 @@ vi.mock('@/api/chat', () => ({
   confirmChatToolCall: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
+
 function request(overrides: Partial<ToolConfirmRequest> = {}): ToolConfirmRequest {
   return {
     toolCallID: 'call-1',
@@ -57,7 +61,7 @@ describe('ChatToolConfirm', () => {
   it('renders compact activity sample fields from backend previews', () => {
     render(<ChatToolConfirm request={request({ preview: { sample_activities: [{ title: 'Kurze Runde', date: '2026-05-13', sport: 'cycling', km: 9.4 }] } })} onConfirmed={vi.fn()} onDeclined={vi.fn()} />)
 
-    expect(screen.getByText(/Kurze Runde · 2026-05-13 · cycling · 9\.4 km/)).toBeInTheDocument()
+    expect(screen.getByText(/Kurze Runde · 2026-05-13 · cycling · 9,4 km/)).toBeInTheDocument()
   })
 
   it('does not render raw args when the backend does not provide a confirmation preview', () => {

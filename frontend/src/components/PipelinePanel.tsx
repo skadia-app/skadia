@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface PipelinePanelProps {
   title: string
@@ -18,6 +19,7 @@ export default function PipelinePanel({
   title, description, icon: Icon, buttonLabel,
   status, onStart, isPending, disabled, disabledHint, children,
 }: PipelinePanelProps) {
+  const { t } = useTranslation()
   const btnClass = 'bg-accent-DEFAULT hover:bg-accent-DEFAULT/90'
 
   return (
@@ -37,7 +39,7 @@ export default function PipelinePanel({
             disabled={disabled || isPending}
             className={`cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${btnClass}`}
           >
-            {isPending ? 'Läuft…' : buttonLabel}
+            {isPending ? t('workshopOperations.pipeline.running') : buttonLabel}
           </button>
         </div>
       </div>

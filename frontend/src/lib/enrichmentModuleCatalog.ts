@@ -18,6 +18,9 @@ export type EnrichmentModuleName =
   | 'lap_detection'
   | 'embeddings'
 
+export type EnrichmentModuleLabelKey = `enrichmentStatus.modules.${EnrichmentModuleName}.label`
+export type EnrichmentModuleDescriptionKey = `enrichmentStatus.modules.${EnrichmentModuleName}.description`
+
 export type ReprocessPolicy =
   | { type: 'standalone'; scope: string; group: 'stream' | 'geo' | 'metadata' }
   | { type: 'coveredBy'; scope: string }
@@ -28,8 +31,8 @@ export type ReprocessPolicy =
 export interface AnalysisModule {
   name: EnrichmentModuleName
   parentName?: EnrichmentModuleName
-  label: string
-  description: string
+  labelKey: EnrichmentModuleLabelKey
+  descriptionKey: EnrichmentModuleDescriptionKey
   field: keyof EnrichmentSettings
   requiresML: boolean
   requiresCapability?: CapabilityKey
@@ -37,11 +40,17 @@ export interface AnalysisModule {
   icon: string
 }
 
+function moduleTextKeys(name: EnrichmentModuleName): Pick<AnalysisModule, 'labelKey' | 'descriptionKey'> {
+  return {
+    labelKey: `enrichmentStatus.modules.${name}.label` as EnrichmentModuleLabelKey,
+    descriptionKey: `enrichmentStatus.modules.${name}.description` as EnrichmentModuleDescriptionKey,
+  }
+}
+
 export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   {
     name: 'auto_naming',
-    label: 'Automatische Benennung',
-    description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitätstyp.',
+    ...moduleTextKeys('auto_naming'),
     field: 'enable_auto_naming',
     requiresML: false,
     reprocess: { type: 'standalone', scope: 'auto_title', group: 'metadata' },
@@ -49,8 +58,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'summits',
-    label: 'Gipfel & Pässe',
-    description: 'Erkennt besuchte Gipfel und Bergsättel.',
+    ...moduleTextKeys('summits'),
     field: 'enable_summit_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -59,8 +67,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'forests',
-    label: 'Wälder',
-    description: 'Erkennt durchquerte Waldgebiete.',
+    ...moduleTextKeys('forests'),
     field: 'enable_forest_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -69,8 +76,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'water',
-    label: 'Gewässer',
-    description: 'Erkennt Seen und Fließgewässer entlang der Route.',
+    ...moduleTextKeys('water'),
     field: 'enable_water_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -79,8 +85,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'settlements',
-    label: 'Ortschaften',
-    description: 'Erkennt durchquerte Siedlungen.',
+    ...moduleTextKeys('settlements'),
     field: 'enable_settlement_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -89,8 +94,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'borders',
-    label: 'Grenzüberquerungen',
-    description: 'Erkennt überquerte Länder- und Regionsgrenzen.',
+    ...moduleTextKeys('borders'),
     field: 'enable_border_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -99,8 +103,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'stops',
-    label: 'Stopps & Einkehr',
-    description: 'Erkennt Aufenthalte und Restaurantbesuche (>=10 min).',
+    ...moduleTextKeys('stops'),
     field: 'enable_stop_detection',
     requiresML: false,
     requiresCapability: 'geo_poi_enrichment',
@@ -109,8 +112,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'lifts',
-    label: 'Lifte / Seilbahnen',
-    description: 'Erkennt Gondelbahnen und Sessellifte.',
+    ...moduleTextKeys('lifts'),
     field: 'enable_lift_detection',
     requiresML: false,
     reprocess: { type: 'standalone', scope: 'lifts', group: 'geo' },
@@ -119,8 +121,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   {
     name: 'lifts_osm',
     parentName: 'lifts',
-    label: 'OSM-Snap',
-    description: 'Snappt Heuristik-Rides auf bekannte Lift-Geometrien aus OSM (höchste Genauigkeit, braucht OSM-Daten in der Region).',
+    ...moduleTextKeys('lifts_osm'),
     field: 'enable_lift_detection_osm',
     requiresML: false,
     requiresCapability: 'osm_lift_snap',
@@ -130,8 +131,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   {
     name: 'lifts_heuristic',
     parentName: 'lifts',
-    label: 'Heuristik',
-    description: 'Erkennt Liftfahrten anhand von Bewegungsmustern (Geschwindigkeit, Steigung, Konstanz). Funktioniert ohne OSM-Daten.',
+    ...moduleTextKeys('lifts_heuristic'),
     field: 'enable_lift_detection_heuristic',
     requiresML: false,
     reprocess: { type: 'inherited' },
@@ -139,8 +139,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'surfaces',
-    label: 'Untergrundtypen',
-    description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Wege-Schwierigkeiten (SAC/MTB/Klettersteig).',
+    ...moduleTextKeys('surfaces'),
     field: 'enable_surface_detection',
     requiresML: false,
     requiresCapability: 'surface_enrichment',
@@ -149,8 +148,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'ascents',
-    label: 'Anstiege',
-    description: 'Erkennt und klassifiziert Anstiege.',
+    ...moduleTextKeys('ascents'),
     field: 'enable_ascent_detection',
     requiresML: false,
     reprocess: { type: 'standalone', scope: 'ascents', group: 'stream' },
@@ -158,8 +156,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'intervals',
-    label: 'Intervalltraining',
-    description: 'Erkennt Trainingsintervalle automatisch.',
+    ...moduleTextKeys('intervals'),
     field: 'enable_interval_detection',
     requiresML: false,
     reprocess: { type: 'standalone', scope: 'intervals', group: 'stream' },
@@ -167,8 +164,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'lap_detection',
-    label: 'Rundenerkennung',
-    description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',
+    ...moduleTextKeys('lap_detection'),
     field: 'enable_lap_detection',
     requiresML: false,
     reprocess: { type: 'coveredBy', scope: 'segments' },
@@ -176,11 +172,10 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
   },
   {
     name: 'embeddings',
-    label: 'Embeddings',
-    description: 'Berechnet semantische Vektoren für Ähnlichkeitssuche.',
+    ...moduleTextKeys('embeddings'),
     field: 'enable_embeddings',
     requiresML: true,
-    reprocess: { type: 'notReprocessable', reason: 'Route-Embeddings sind im ML-Pfad noch nicht aktiv.' },
+    reprocess: { type: 'notReprocessable', reason: 'Route embeddings are not active in the ML path yet.' },
     icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a3 3 0 110 6 3 3 0 010-6z',
   },
 ] as const
@@ -188,8 +183,8 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
 export const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> =
   Object.fromEntries(ANALYSIS_MODULES.map(module => [module.name, module.field]))
 
-export const MODULE_META: Record<string, { label: string; icon: string }> =
-  Object.fromEntries(ANALYSIS_MODULES.map(module => [module.name, { label: module.label, icon: module.icon }]))
+export const MODULE_META: Record<string, { labelKey: EnrichmentModuleLabelKey; icon: string }> =
+  Object.fromEntries(ANALYSIS_MODULES.map(module => [module.name, { labelKey: module.labelKey, icon: module.icon }]))
 
 export function reprocessScopeForModule(moduleName: string): string[] | null {
   const module = ANALYSIS_MODULES.find(item => item.name === moduleName)

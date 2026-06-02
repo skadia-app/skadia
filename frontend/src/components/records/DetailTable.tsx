@@ -1,11 +1,15 @@
 import { useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, TrendingUp } from 'lucide-react'
 import { formatBestEffortDisplay, categoryLabel, categoryKeysForRecordGroup } from '@/lib/bestEffortLabels'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
+import type { SupportedLanguage } from '@/i18n/languages'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import { cn } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { formatPower } from '@/lib/units'
 
 const RANK_STYLES: Record<number, { bg: string; text: string }> = {
   1: { bg: 'bg-yellow-100 dark:bg-yellow-500/20', text: 'text-yellow-700 dark:text-yellow-400' },
@@ -28,6 +32,7 @@ interface DetailTableProps {
   onChartToggle?: (category: string) => void
   /** Render function for the chart row content (receives category + sportGroup). */
   renderChart?: (category: string, sportGroup: string) => React.ReactNode
+  language?: SupportedLanguage
 }
 
 export function DetailTable({
@@ -36,7 +41,10 @@ export function DetailTable({
   chartExpandedCategory,
   onChartToggle,
   renderChart,
+  language,
 }: DetailTableProps) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const toggle = useCallback((category: string) => {
@@ -71,9 +79,9 @@ export function DetailTable({
         <thead>
           <tr className="text-[11px] text-neutral-500 border-b border-neutral-200 dark:border-neutral-800 uppercase tracking-wider">
             <th className="w-10" />
-            <th className="text-left px-3 py-2.5 font-medium">Kategorie</th>
-            <th className="text-right px-4 py-2.5 font-medium">Bestzeit</th>
-            <th className="text-left px-4 py-2.5 font-medium">Datum</th>
+            <th className="text-left px-3 py-2.5 font-medium">{t('records.table.category')}</th>
+            <th className="text-right px-4 py-2.5 font-medium">{t('records.table.best')}</th>
+            <th className="text-left px-4 py-2.5 font-medium">{t('records.table.date')}</th>
             <th className="w-8" />
             {renderChart && <th className="w-8" />}
           </tr>
@@ -89,7 +97,7 @@ export function DetailTable({
               .sort((a, b) => a.rank - b.rank)
             const hasMore = catRecords.length > 1
             const isExpanded = expanded.has(cat)
-            const display = formatBestEffortDisplay(cat, rank1.elapsed_time_s, rank1.value_numeric, sportGroup)
+            const display = formatBestEffortDisplay(cat, rank1.elapsed_time_s, rank1.value_numeric, sportGroup, unitFormatters.options)
             const valueColor = categoryColorHint(cat)
 
             const isChartExpanded = chartExpandedCategory === cat
@@ -108,13 +116,13 @@ export function DetailTable({
                   </span>
                 </td>
                 <td className="px-3 font-medium text-neutral-800 dark:text-neutral-200">
-                  {categoryLabel(cat)}
+                  {categoryLabel(cat, language)}
                   {rank1.suspicious && (
                     <span
                       className="ml-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/20"
-                      title="Möglicherweise fehlerhafter Sensor-Wert (Stuck Value)"
+                      title={t('records.suspiciousSensorValueTitle')}
                     >
-                      Verdächtig
+                      {t('records.suspicious')}
                     </span>
                   )}
                 </td>
@@ -140,7 +148,7 @@ export function DetailTable({
                   <td className="px-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); onChartToggle(cat) }}
-                      title={isChartExpanded ? 'Verlauf ausblenden' : 'Verlauf anzeigen'}
+                      title={isChartExpanded ? t('records.chart.hide') : t('records.chart.show')}
                       className={cn(
                         'p-1 rounded transition-colors',
                         isChartExpanded
@@ -164,20 +172,18 @@ export function DetailTable({
                     } else if (r.value_numeric != null && rank1Val != null) {
                       const diff = Math.abs(r.value_numeric - rank1Val)
                       if (cat.startsWith('power_')) {
-                        delta = `−${Math.round(diff)} W`
+                        delta = `−${formatPower(diff, unitFormatters.options)}`
                       } else if (cat === 'sup_longest_distance') {
-                        delta = diff >= 1000
-                          ? `−${(diff / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`
-                          : `−${Math.round(diff)} m`
+                        delta = `−${unitFormatters.formatDistanceCompact(diff)}`
                       } else if (cat === 'sup_most_elevation' || cat === 'sup_biggest_climb') {
-                        delta = `−${Math.round(diff)} m`
+                        delta = `−${unitFormatters.formatElevation(diff)}`
                       } else if (cat === 'sup_longest_duration') {
                         delta = `−${fmtDuration(diff)}`
                       } else {
-                        delta = `−${Math.round(diff)}`
+                        delta = `−${new Intl.NumberFormat(unitFormatters.options.locale, { maximumFractionDigits: 0 }).format(Math.round(diff))}`
                       }
                     }
-                    const d = formatBestEffortDisplay(cat, r.elapsed_time_s, r.value_numeric, sportGroup)
+                    const d = formatBestEffortDisplay(cat, r.elapsed_time_s, r.value_numeric, sportGroup, unitFormatters.options)
                     const style = RANK_STYLES[r.rank] ?? RANK_STYLES[3]
                     return (
                       <tr key={r.id} className="bg-neutral-50/50 dark:bg-neutral-800/10">
@@ -186,7 +192,7 @@ export function DetailTable({
                             #{r.rank}
                           </span>
                         </td>
-                        <td className="px-3 text-neutral-400 dark:text-neutral-500 text-xs">{categoryLabel(cat)}</td>
+                        <td className="px-3 text-neutral-400 dark:text-neutral-500 text-xs">{categoryLabel(cat, language)}</td>
                         <td className="text-right px-4 tabular-nums text-neutral-500 dark:text-neutral-400 text-xs">{d.primary}</td>
                         <td className="px-4 text-neutral-500 dark:text-neutral-600 text-[10px]">
                           <Link to={`/activities/${r.activity_id}`} className="hover:text-blue-500 dark:hover:text-blue-400">

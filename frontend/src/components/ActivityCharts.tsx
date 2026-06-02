@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { useQuery } from '@tanstack/react-query'
 import { useECharts } from '@/hooks/useECharts'
@@ -6,6 +7,21 @@ import { LineChart, ScatterChart, GaugeChart } from 'echarts/charts'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
 import { fieldLabel, fieldUnit, defaultSpeedMode, type FieldKey } from '@/lib/sportFieldLabels'
 import { getDevFieldLabel, getDevFieldUnit } from '@/lib/developerFieldUnits'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  formatDistanceCompact,
+  paceDisplayUnit,
+  paceToDisplayValue,
+  speedDisplayUnit,
+  speedToDisplayValue,
+  temperatureDisplayUnit,
+  temperatureToDisplayValue,
+  type UnitFormatOptions,
+} from '@/lib/units'
 import {
   GridComponent,
   TitleComponent,
@@ -28,6 +44,7 @@ import { DiveDecoPanel } from '@/components/activity/DiveDecoPanel'
 import { GlucoseChartPanel } from '@/components/activity/GlucoseChartPanel'
 import { findClosestIdx } from '@/lib/utils'
 import { re3GradeAdjustedSpeed } from '@/lib/re3'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 
 echarts.use([
   LineChart,
@@ -65,6 +82,11 @@ interface ChartMeta {
   label: string
   color: string
   tabKey: ChartKey | null
+}
+
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
 }
 
 function getTabCharts(tab: string, sportType: string): ChartKey[] | null {
@@ -314,15 +336,29 @@ function formatElapsed(minutes: number, maxMinutes: number): string {
   return `${h}h${m.toString().padStart(2, '0')}`
 }
 
+function formatDistanceAxisValue(kilometers: number, unitOptions?: UnitFormatOptions): string {
+  if (!unitOptions) return kilometers.toFixed(1)
+  return distanceToDisplayValue(kilometers * 1000, unitOptions.units).toFixed(1)
+}
+
+function formatDistancePosition(kilometers: number, unitOptions?: UnitFormatOptions): string {
+  if (!unitOptions) return `${kilometers.toFixed(1)}\u202fkm`
+  return formatDistanceCompact(kilometers * 1000, unitOptions)
+}
+
+function convertFiniteValues(values: number[], convert: (value: number) => number): number[] {
+  return values.map(value => Number.isFinite(value) ? convert(value) : value)
+}
+
 function buildTooltipPosLine(
-  xVal: number, xMode: XMode, data: ChartData,
+  xVal: number, xMode: XMode, data: ChartData, unitOptions?: UnitFormatOptions,
 ): string {
   if (xMode === 'distance') {
-    return `${xVal.toFixed(1)}\u202fkm`
+    return formatDistancePosition(xVal, unitOptions)
   }
   const idx = findClosestIdx(data.elapsedMin, xVal)
-  const kmStr = (data.distanceKm[idx] ?? 0).toFixed(1)
-  return `${formatElapsed(xVal, data.maxElapsed)}\u2009\u00b7\u2009${kmStr}\u202fkm`
+  const distance = formatDistancePosition(data.distanceKm[idx] ?? 0, unitOptions)
+  return `${formatElapsed(xVal, data.maxElapsed)}\u2009\u00b7\u2009${distance}`
 }
 
 // ── Exported types ─────────────────────────────────────────────────────────────
@@ -365,7 +401,7 @@ interface Props {
   splitMarkers?: SplitMarker[]
   /** Initial X-axis mode. Defaults to 'distance'. Pass 'time' for indoor/no-GPS activities. */
   defaultXMode?: XMode
-  /** Distanzbereich (in km) der im Höhenprofil als markArea hervorgehoben wird. */
+  /** Distance range in km highlighted as a markArea in the elevation profile. */
   highlightRange?: { startKm: number; endKm: number } | null
   /** Speed/Pace toggle mode: 'speed' = km/h, 'pace' = min/km (inverted Y axis). */
   speedMode?: 'speed' | 'pace'
@@ -477,8 +513,39 @@ function computeGearData(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ActivityCharts({ streams, onHover, onZoomChange, sunriseAt, sunsetAt, splitMarkers, defaultXMode, highlightRange, speedMode, onSpeedModeChange, sportType, activeTab, gearEvents, activityId }: Props) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
+  const { options: unitOptions } = useUnitFormatters()
   const data = useMemo(() => buildChartData(streams), [streams])
   const segGroup = sportType ? getSegmentGroup(sportType) : 'generic'
+  const altitudeValues = useMemo(
+    () => convertFiniteValues(data.altitude, value => elevationToDisplayValue(value, unitOptions.units)),
+    [data.altitude, unitOptions.units],
+  )
+  const temperatureValues = useMemo(
+    () => convertFiniteValues(data.temperature, value => temperatureToDisplayValue(value, unitOptions.units)),
+    [data.temperature, unitOptions.units],
+  )
+  const coreTemperatureValues = useMemo(
+    () => convertFiniteValues(data.coreTemperature, value => temperatureToDisplayValue(value, unitOptions.units)),
+    [data.coreTemperature, unitOptions.units],
+  )
+  const stepLengthValues = useMemo(
+    () => convertFiniteValues(data.stepLength, value => elevationToDisplayValue(value, unitOptions.units)),
+    [data.stepLength, unitOptions.units],
+  )
+  const travelRangeValues = useMemo(
+    () => convertFiniteValues(data.travelRange, value => distanceToDisplayValue(value * 1000, unitOptions.units)),
+    [data.travelRange, unitOptions.units],
+  )
+  const depthValues = useMemo(
+    () => convertFiniteValues(data.depth, value => elevationToDisplayValue(value, unitOptions.units)),
+    [data.depth, unitOptions.units],
+  )
+  const cycleLengthValues = useMemo(
+    () => convertFiniteValues(data.cycleLength, value => elevationToDisplayValue(value, unitOptions.units)),
+    [data.cycleLength, unitOptions.units],
+  )
 
   // Track hover index internally for power phase gauge live update
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
@@ -554,8 +621,8 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   // (inline object literal would be a new reference each render → setOption on every hover → lag + brush reset)
   const decoExtraSeries = useMemo(
     () => hasValidData(data.decoStopM) ? [{
-      values: data.decoStopM,
-      name: 'Dekotiefe (m)',
+      values: convertFiniteValues(data.decoStopM, value => elevationToDisplayValue(value, unitOptions.units)),
+      name: t('activityCharts.labels.decoDepth'),
       color: '#ef4444',
       lineStyle: { color: '#ef4444', width: 0 },
       areaStyle: { color: 'rgba(239,68,68,0.25)' },
@@ -564,7 +631,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       connectNulls: true,
       silent: true,
     }] : undefined,
-    [data.decoStopM],
+    [data.decoStopM, t, unitOptions.units],
   )
 
   const toggleChart = useCallback((id: string) => {
@@ -790,6 +857,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     brushZoomLockRef,
     xMode,
     splitMarkers,
+    unitOptions,
   }
 
   const tabCharts = activeTab ? getTabCharts(activeTab, sportType ?? '') : null
@@ -807,13 +875,14 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
     panelMetas.push(meta)
   }
 
-  const speedLabelText = (speedMode ?? defaultSpeedMode(sportType ?? '')) === 'pace' ? 'Pace' : 'Geschwindigkeit'
+  const speedLabelText = (speedMode ?? defaultSpeedMode(sportType ?? '')) === 'pace' ? t('activityCharts.labels.pace') : t('activityCharts.labels.speed')
   const speedColor = segGroup === 'foot' ? '#3b82f6' : '#f97316'
 
   if (hasValidData(data.altitude) && sportType !== 'diving')
-    addPanel({ id: 'altitude', label: 'Höhe', color: '#22c55e', tabKey: 'altitude' },
+    addPanel({ id: 'altitude', label: fieldLabel('altitude', sportType ?? '', language), color: '#22c55e', tabKey: 'altitude' },
       <ChartPanel chartId="altitude" {...common}
-        field="altitude" label="Höhe" unit="m" color="#22c55e" area
+        field="altitude" label={fieldLabel('altitude', sportType ?? '', language)} unit={fieldUnit('altitude', sportType ?? '', unitOptions)} color="#22c55e" area
+        overrideValues={altitudeValues}
         markLines="minmax" altitudeSmartY showGradeColor
         sunMarkLines={sunMarkLines} />)
   if (segGroup === 'foot' && hasValidData(data.speed))
@@ -824,21 +893,21 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         sportType={sportType ?? ''} />)
 
   if (hasValidData(data.heartRate))
-    addPanel({ id: 'hr', label: 'Herzfrequenz', color: '#ef4444', tabKey: 'heartRate' },
+    addPanel({ id: 'hr', label: fieldLabel('heartRate', sportType ?? '', language), color: '#ef4444', tabKey: 'heartRate' },
       <ChartPanel chartId="hr" {...common}
-        field="heartRate" label="Herzfrequenz" unit="bpm" color="#ef4444"
+        field="heartRate" label={fieldLabel('heartRate', sportType ?? '', language)} unit="bpm" color="#ef4444"
         markLines="max" />)
 
   if (hasValidData(data.power))
-    addPanel({ id: 'power', label: 'Leistung', color: '#a855f7', tabKey: 'power' },
+    addPanel({ id: 'power', label: fieldLabel('power', sportType ?? '', language), color: '#a855f7', tabKey: 'power' },
       <ChartPanel chartId="power" {...common}
-        field="power" label="Leistung" unit="W" color="#a855f7"
+        field="power" label={fieldLabel('power', sportType ?? '', language)} unit="W" color="#a855f7"
         extraSeries={hasValidData(data.strydPower) ? [{ values: data.strydPower, name: 'Stryd', color: '#7c3aed' }] : undefined} />)
 
   if (hasValidData(data.cadence))
-    addPanel({ id: 'cadence', label: sportType ? fieldLabel('cadence', sportType) : 'Kadenz', color: '#f97316', tabKey: 'cadence' },
+    addPanel({ id: 'cadence', label: sportType ? fieldLabel('cadence', sportType, language) : t('activityCharts.labels.cadence'), color: '#f97316', tabKey: 'cadence' },
       <ChartPanel chartId="cadence" {...common}
-        field="cadence" label={sportType ? fieldLabel('cadence', sportType) : 'Kadenz'} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />)
+        field="cadence" label={sportType ? fieldLabel('cadence', sportType, language) : t('activityCharts.labels.cadence')} unit={sportType ? fieldUnit('cadence', sportType) : 'rpm'} color="#f97316" />)
 
   if (segGroup !== 'foot' && hasValidData(data.speed))
     addPanel({ id: 'speed', label: speedLabelText, color: speedColor, tabKey: 'speed' },
@@ -848,86 +917,88 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
         sportType={sportType ?? ''} />)
 
   if (hasValidData(data.temperature))
-    addPanel({ id: 'temperature', label: 'Temperatur', color: '#06b6d4', tabKey: 'temperature' },
+    addPanel({ id: 'temperature', label: fieldLabel('temperature', sportType ?? '', language), color: '#06b6d4', tabKey: 'temperature' },
       <ChartPanel chartId="temperature" {...common}
-        field="temperature" label="Temperatur" unit="°C" color="#06b6d4"
+        field="temperature" label={fieldLabel('temperature', sportType ?? '', language)} unit={temperatureDisplayUnit(unitOptions.units)} color="#06b6d4"
+        overrideValues={temperatureValues}
         markLines="minmax" />)
 
   if (hasValidData(data.coreTemperature))
-    addPanel({ id: 'core-temp', label: 'Kerntemperatur', color: '#f43f5e', tabKey: 'coreTemperature' },
+    addPanel({ id: 'core-temp', label: fieldLabel('coreTemperature', sportType ?? '', language), color: '#f43f5e', tabKey: 'coreTemperature' },
       <ChartPanel chartId="core-temp" {...common}
-        field="coreTemperature" label="Kerntemperatur" unit="°C" color="#f43f5e" />)
+        field="coreTemperature" label={fieldLabel('coreTemperature', sportType ?? '', language)} unit={temperatureDisplayUnit(unitOptions.units)} color="#f43f5e"
+        overrideValues={coreTemperatureValues} />)
 
   if (hasValidData(data.groundContactTime) || hasValidData(data.verticalOscillation))
-    addPanel({ id: 'running-dynamics', label: 'Laufdynamik', color: '#10b981', tabKey: 'runningDynamics' },
+    addPanel({ id: 'running-dynamics', label: t('activityCharts.labels.runningDynamics'), color: '#10b981', tabKey: 'runningDynamics' },
       <RunningDynamicsChartPanel chartId="running-dynamics" {...common} />)
 
   if (hasValidData(data.stepLength))
-    addPanel({ id: 'step-length', label: 'Schrittlänge', color: '#0891b2', tabKey: 'stepLength' },
+    addPanel({ id: 'step-length', label: fieldLabel('stepLength', sportType ?? '', language), color: '#0891b2', tabKey: 'stepLength' },
       <ChartPanel chartId="step-length" {...common}
-        field="stepLength" label="Schrittlänge" unit="m" color="#0891b2"
-        overrideValues={data.stepLength} />)
+        field="stepLength" label={fieldLabel('stepLength', sportType ?? '', language)} unit={elevationInputUnit(unitOptions.units)} color="#0891b2"
+        overrideValues={stepLengthValues} />)
 
   if (hasValidData(data.runningSmoothness))
-    addPanel({ id: 'running-smoothness', label: 'Running Smoothness', color: '#8b5cf6', tabKey: 'runningSmoothness' },
+    addPanel({ id: 'running-smoothness', label: t('activityCharts.labels.runningSmoothness'), color: '#8b5cf6', tabKey: 'runningSmoothness' },
       <RunningSmoothnessChartPanel chartId="running-smoothness" {...common} />)
 
   if (powerPhaseAvg)
-    addPanel({ id: 'power-phase', label: 'Pedalphase', color: '#ec4899', tabKey: 'powerPhase' },
+    addPanel({ id: 'power-phase', label: t('activityCharts.labels.powerPhase'), color: '#ec4899', tabKey: 'powerPhase' },
       <PowerPhaseGaugePanel phaseData={powerPhaseAvg} streams={streams} hoverIdx={hoverIdx} />)
 
   if (hasValidData(data.torqueEffL) || hasValidData(data.torqueEffR))
-    addPanel({ id: 'torque-eff', label: 'Drehmoment-Eff.', color: '#ec4899', tabKey: 'torqueEff' },
+    addPanel({ id: 'torque-eff', label: t('activityCharts.labels.torqueEffectiveness'), color: '#ec4899', tabKey: 'torqueEff' },
       <PedalDualChartPanel chartId="torque-eff" {...common}
         leftValues={data.torqueEffL} rightValues={data.torqueEffR}
-        leftLabel="Drehmoment-Eff. Links" rightLabel="Drehmoment-Eff. Rechts"
+        leftLabel={fieldLabel('torqueEffectivenessL', sportType ?? '', language)} rightLabel={fieldLabel('torqueEffectivenessR', sportType ?? '', language)}
         leftColor="#EC4899" rightColor="#A855F7"
-        tooltipTitle="Drehmoment-Eff."
-        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
+        tooltipTitle={t('activityCharts.labels.torqueEffectiveness')}
+        leftTooltipSuffix={t('activityCharts.sides.left')} rightTooltipSuffix={t('activityCharts.sides.right')} />)
 
   if (hasValidData(data.pedalSmL) || hasValidData(data.pedalSmR))
-    addPanel({ id: 'pedal-sm', label: 'Tritt-Gleichm.', color: '#a855f7', tabKey: 'pedalSm' },
+    addPanel({ id: 'pedal-sm', label: t('activityCharts.labels.pedalSmoothness'), color: '#a855f7', tabKey: 'pedalSm' },
       <PedalDualChartPanel chartId="pedal-sm" {...common}
         leftValues={data.pedalSmL} rightValues={data.pedalSmR}
-        leftLabel="Tritt-Gleichm. Links" rightLabel="Tritt-Gleichm. Rechts"
+        leftLabel={fieldLabel('pedalSmoothnessL', sportType ?? '', language)} rightLabel={fieldLabel('pedalSmoothnessR', sportType ?? '', language)}
         leftColor="#A855F7" rightColor="#8B5CF6"
-        tooltipTitle="Tritt-Gleichm."
-        leftTooltipSuffix="Links" rightTooltipSuffix="Rechts" />)
+        tooltipTitle={t('activityCharts.labels.pedalSmoothness')}
+        leftTooltipSuffix={t('activityCharts.sides.left')} rightTooltipSuffix={t('activityCharts.sides.right')} />)
 
   if (hasValidData(data.motorPower))
-    addPanel({ id: 'motor-power', label: 'Motorleistung', color: '#9333ea', tabKey: 'motorPower' },
+    addPanel({ id: 'motor-power', label: fieldLabel('motorPower', sportType ?? '', language), color: '#9333ea', tabKey: 'motorPower' },
       <ChartPanel chartId="motor-power" {...common}
-        field="power" label="Motorleistung" unit="W" color="#9333EA"
+        field="power" label={fieldLabel('motorPower', sportType ?? '', language)} unit="W" color="#9333EA"
         overrideValues={data.motorPower} />)
 
   if (hasValidData(data.batteryLevel))
-    addPanel({ id: 'battery', label: 'Akku-Level', color: '#22c55e', tabKey: 'batteryLevel' },
+    addPanel({ id: 'battery', label: fieldLabel('batteryLevel', sportType ?? '', language), color: '#22c55e', tabKey: 'batteryLevel' },
       <ChartPanel chartId="battery" {...common}
-        field="power" label="Akku-Level" unit="%" color="#22C55E"
+        field="power" label={fieldLabel('batteryLevel', sportType ?? '', language)} unit="%" color="#22C55E"
         overrideValues={data.batteryLevel} yAxisFixed={[0, 100]} />)
 
   if (hasValidData(data.travelRange))
-    addPanel({ id: 'travel-range', label: 'Reichweite', color: '#6b7280', tabKey: 'travelRange' },
+    addPanel({ id: 'travel-range', label: fieldLabel('travelRange', sportType ?? '', language), color: '#6b7280', tabKey: 'travelRange' },
       <ChartPanel chartId="travel-range" {...common}
-        field="power" label="Reichweite" unit="km" color="#6B7280"
-        overrideValues={data.travelRange} />)
+        field="travelRange" label={fieldLabel('travelRange', sportType ?? '', language)} unit={fieldUnit('travelRange', sportType ?? '', unitOptions)} color="#6B7280"
+        overrideValues={travelRangeValues} />)
 
   if (hasValidData(data.depth))
-    addPanel({ id: 'depth', label: 'Tiefe', color: '#3b82f6', tabKey: 'depth' },
+    addPanel({ id: 'depth', label: fieldLabel('depth', sportType ?? '', language), color: '#3b82f6', tabKey: 'depth' },
       <ChartPanel chartId="depth" {...common}
-        field="altitude" label="Tiefe" unit="m" color="#3B82F6" area
-        overrideValues={data.depth} invertY
+        field="depth" label={fieldLabel('depth', sportType ?? '', language)} unit={fieldUnit('depth', sportType ?? '', unitOptions)} color="#3B82F6" area
+        overrideValues={depthValues} invertY
         extraSeries={decoExtraSeries} />)
 
   if ((segGroup === 'swim' || segGroup === 'paddle') && hasValidData(data.cycleLength)) {
-    const cycleLengthLabel = segGroup === 'swim' ? 'Distanz/Zug' : 'Distanz/Schlag'
+    const cycleLengthLabel = segGroup === 'swim' ? t('activityCharts.labels.distancePerStroke') : t('activityCharts.labels.distancePerPaddleStroke')
     addPanel({ id: 'cycle-length', label: cycleLengthLabel, color: '#0ea5e9', tabKey: 'cycleLength' },
       <ScatterChartPanel chartId="cycle-length" {...common}
-        values={data.cycleLength} label={cycleLengthLabel} unit="m" color="#0EA5E9" />)
+        values={cycleLengthValues} label={cycleLengthLabel} unit={elevationInputUnit(unitOptions.units)} color="#0EA5E9" />)
   }
 
   if (gearPoints.length > 0)
-    addPanel({ id: 'gear', label: 'Gangschaltung', color: '#94a3b8', tabKey: 'gear' },
+    addPanel({ id: 'gear', label: t('activityCharts.labels.gearShifting'), color: '#94a3b8', tabKey: 'gear' },
       <GearChartPanel chartId="gear" {...common} gearPoints={gearPoints} />)
 
   if (segGroup === 'bike' && hasValidData(data.grit))
@@ -945,18 +1016,18 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       <PedalDualChartPanel chartId="potentialStamina" {...common}
         leftValues={data.potentialStamina}
         rightValues={data.staminaCurrent}
-        leftLabel="Stamina (Potential)" rightLabel="Stamina (Aktuell)"
+        leftLabel={fieldLabel('potentialStamina', sportType ?? '', language)} rightLabel={fieldLabel('staminaCurrent', sportType ?? '', language)}
         leftColor="#8B5CF6" rightColor="#EC4899"
-        leftTooltipSuffix="Potential" rightTooltipSuffix="Aktuell"
+        leftTooltipSuffix={t('activityCharts.sides.potential')} rightTooltipSuffix={t('activityCharts.sides.current')}
         tooltipTitle="Garmin Stamina" />)
 
   if (hasValidData(data.pressure) && !hasValidData(data.depth))
-    addPanel({ id: 'pressure', label: 'Barometer', color: '#78716c', tabKey: 'pressure' },
+    addPanel({ id: 'pressure', label: fieldLabel('pressure', sportType ?? '', language), color: '#78716c', tabKey: 'pressure' },
       <ChartPanel chartId="pressure" {...common}
-        field="pressure" label="Barometer" unit="hPa" color="#78716c" />)
+        field="pressure" label={fieldLabel('pressure', sportType ?? '', language)} unit="hPa" color="#78716c" />)
 
   if (hasValidData(data.ndlMin) || hasValidData(data.cnsPct) || hasValidData(data.n2Pct))
-    addPanel({ id: 'deco-ts', label: 'Deko-Daten', color: '#3b82f6', tabKey: 'decoTimeSeries' },
+    addPanel({ id: 'deco-ts', label: t('activityCharts.labels.decoData'), color: '#3b82f6', tabKey: 'decoTimeSeries' },
       <DecoChartPanel chartId="deco-ts" {...common} />)
 
   if (hasValidData(data.po2))
@@ -972,12 +1043,13 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
   const showDekoPanel = (activeTab === CHART_TAB.deko || activeTab === CHART_TAB.alles) && activityId != null && hasDekoData
   const showDeveloperFieldsPanel = (activeTab === CHART_TAB.developerFields || activeTab === CHART_TAB.alles) && activityId != null && hasDevFields
   if (showDeveloperFieldsPanel && activityId != null) {
-    addPanel({ id: 'developer-fields', label: 'Entwickler-Felder', color: DEV_FIELD_COLOR, tabKey: null },
+    addPanel({ id: 'developer-fields', label: t('activityCharts.labels.developerFields'), color: DEV_FIELD_COLOR, tabKey: null },
       <DeveloperFieldChart
         activityId={activityId}
         streams={streams}
         data={data}
         xMode={xMode}
+        unitOptions={unitOptions}
         onHover={wrappedOnHover}
         onBrushZoom={stableBrushZoom}
         onSyncZoom={syncZoom}
@@ -1010,13 +1082,13 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
            style={{ top: 'calc(3.5rem + var(--chart-tabs-height, 0px))' }}>
       {/* ── Title row ── */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Datenströme</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('activityCharts.title')}</h2>
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
               className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
-              ✕ Zoom zurücksetzen
+              {t('activityCharts.resetZoom')}
             </button>
           )}
           <div className="flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden text-sm">
@@ -1024,13 +1096,13 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
               className={`cursor-pointer px-3 py-1 transition-colors ${xMode === 'distance'
                 ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                 : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}>
-              km
+              {distanceInputUnit(unitOptions.units)}
             </button>
             <button onClick={() => switchXMode('time')}
               className={`cursor-pointer px-3 py-1 transition-colors border-l border-neutral-200 dark:border-neutral-700 ${xMode === 'time'
                 ? 'bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900'
                 : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`}>
-              Zeit
+              {t('activityCharts.timeAxis')}
             </button>
           </div>
         </div>
@@ -1054,7 +1126,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
                 onDragLeave={() => setDropTargetId(null)}
                 onDragEnd={handleChartDragEnd}
                 onClick={() => toggleChart(id)}
-                title={isHidden ? `${meta.label} einblenden` : `${meta.label} ausblenden`}
+                title={isHidden ? t('activityCharts.showChart', { label: meta.label }) : t('activityCharts.hideChart', { label: meta.label })}
                 className={[
                   'flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium',
                   'border transition-all cursor-grab active:cursor-grabbing select-none',
@@ -1104,7 +1176,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
                          flex items-center justify-center rounded-l-xl
                          opacity-0 group-hover/chart:opacity-100 transition-opacity
                          hover:bg-neutral-100/80 dark:hover:bg-neutral-800/80"
-              title="Verschieben"
+              title={t('activityCharts.move')}
             >
               <svg width="10" height="16" viewBox="0 0 10 16" fill="none" className="text-neutral-400 dark:text-neutral-500">
                 <circle cx="2.5" cy="2" r="1.5" fill="currentColor"/>
@@ -1131,7 +1203,7 @@ export default function ActivityCharts({ streams, onHover, onZoomChange, sunrise
       )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-600">
-        Ziehen zum Auswählen · Mausrad zum Zoomen · Nach Auswahl: Ziehen zum Verschieben
+        {t('activityCharts.interactionHint')}
       </p>
     </div>
   )
@@ -1342,12 +1414,15 @@ interface DeveloperFieldChartProps {
   onRegister: (id: string, chart: echarts.ECharts) => void
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
+  unitOptions?: UnitFormatOptions
 }
 
 function DeveloperFieldChart({
   activityId, streams, data, xMode,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef,
+  unitOptions,
 }: DeveloperFieldChartProps) {
+  const { t } = useTranslation()
   const { data: devFieldInfos, isLoading } = useQuery<DeveloperFieldInfo[]>({
     queryKey: ['developer-fields', activityId],
     queryFn: () => fetchDeveloperFields(activityId),
@@ -1436,7 +1511,7 @@ function DeveloperFieldChart({
       }
 
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       return {
@@ -1444,7 +1519,7 @@ function DeveloperFieldChart({
         grid: { left: 52, right: unitGroups.size > 1 ? 76 : 52, top: 8, bottom: 56 },
         toolbox: { feature: {
           brush: { type: ['lineX'] },
-          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Entwickler-Felder' },
+          saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.developerFields') },
         }},
         brush: {
           toolbox: ['lineX'],
@@ -1461,7 +1536,7 @@ function DeveloperFieldChart({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const posStr = buildTooltipPosLine(xData[idx] ?? 0, xMode, data)
+            const posStr = buildTooltipPosLine(xData[idx] ?? 0, xMode, data, unitOptions)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:2px">${posStr}</div>`
             for (const field of fields) {
@@ -1488,7 +1563,7 @@ function DeveloperFieldChart({
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false }],
       }
     },
-    [fields, fieldValues, data, xMode],
+    [fields, fieldValues, data, xMode, unitOptions],
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -1500,12 +1575,12 @@ function DeveloperFieldChart({
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: DEV_FIELD_COLOR }} />
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Entwickler-Felder</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityCharts.labels.developerFields')}</span>
       </div>
       {isLoading
-        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">Lade…</div>
+        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">{t('common.loading')}</div>
         : fields.length === 0
-        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">Keine Entwickler-Felder</div>
+        ? <div className="h-[240px] flex items-center justify-center text-sm text-neutral-400 dark:text-neutral-600">{t('activityCharts.noDeveloperFields')}</div>
         : <div ref={containerRef} className="h-[240px] w-full" />}
     </div>
   )
@@ -1523,17 +1598,20 @@ interface DecoChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function DecoChartPanel({
   chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: DecoChartPanelProps) {
+  const { t } = useTranslation()
   const hasNdl = hasValidData(data.ndlMin)
   const hasCns = hasValidData(data.cnsPct)
   const hasN2 = hasValidData(data.n2Pct)
   const hasDecoStop = hasValidData(data.decoStopM)
+  const decoStopUnit = unitOptions ? elevationInputUnit(unitOptions.units) : 'm'
 
   const containerRef = useECharts(
     () => {
@@ -1542,7 +1620,7 @@ function DecoChartPanel({
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
 
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -1569,8 +1647,11 @@ function DecoChartPanel({
         lineStyle: { color: '#3b82f6', width: 2 }, itemStyle: { color: '#3b82f6' },
         yAxisIndex: 2,
       })
+      const decoStopValues = unitOptions
+        ? convertFiniteValues(data.decoStopM, value => elevationToDisplayValue(value, unitOptions.units))
+        : data.decoStopM
       if (hasDecoStop) series.push({
-        name: 'Deko-Stop', type: 'line', data: xy(data.decoStopM), symbol: 'none',
+        name: t('activityCharts.labels.decoStop'), type: 'line', data: xy(decoStopValues), symbol: 'none',
         step: 'end', sampling: 'lttb',
         lineStyle: { color: '#f97316', width: 2, type: 'dashed' }, itemStyle: { color: '#f97316' },
         yAxisIndex: 3,
@@ -1590,7 +1671,7 @@ function DecoChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Deko-Zeitreihen' },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.decoTimeSeries') },
           },
         },
 
@@ -1613,13 +1694,14 @@ function DecoChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const posLine = buildTooltipPosLine(xData[idx], xMode, data)
-            const units: Record<string, string> = { NDL: ' min', 'CNS%': ' %', 'N₂%': ' %', 'Deko-Stop': ' m' }
+            const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
+            const decoStopLabel = t('activityCharts.labels.decoStop')
+            const units: Record<string, string> = { NDL: ' min', 'CNS%': ' %', 'N₂%': ' %', [decoStopLabel]: ` ${decoStopUnit}` }
             const rows: Array<{ name: string; value: number; color: string }> = []
             if (hasNdl && !isNaN(data.ndlMin[idx])) rows.push({ name: 'NDL', value: data.ndlMin[idx], color: '#22c55e' })
             if (hasCns && !isNaN(data.cnsPct[idx])) rows.push({ name: 'CNS%', value: data.cnsPct[idx], color: '#ef4444' })
             if (hasN2 && !isNaN(data.n2Pct[idx])) rows.push({ name: 'N₂%', value: data.n2Pct[idx], color: '#3b82f6' })
-            if (hasDecoStop && !isNaN(data.decoStopM[idx])) rows.push({ name: 'Deko-Stop', value: data.decoStopM[idx], color: '#f97316' })
+            if (hasDecoStop && !isNaN(decoStopValues[idx])) rows.push({ name: decoStopLabel, value: decoStopValues[idx], color: '#f97316' })
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             for (const r of rows) {
@@ -1649,7 +1731,7 @@ function DecoChartPanel({
             splitLine: { show: false }, min: 0, max: 100, position: 'right' },
           { type: 'value', axisLabel: { show: false }, nameTextStyle: { show: false },
             splitLine: { show: false }, min: 0, position: 'right' },
-          { type: 'value', name: 'm', nameTextStyle: { fontSize: 10, color: '#9ca3af' },
+          { type: 'value', name: decoStopUnit, nameTextStyle: { fontSize: 10, color: '#9ca3af' },
             axisLabel: { fontSize: 10, color: '#f97316' },
             splitLine: { show: false }, position: 'right', offset: 40 },
         ],
@@ -1661,7 +1743,7 @@ function DecoChartPanel({
         series,
       }
     },
-    [data, xMode, splitMarkers, hasNdl, hasCns, hasN2, hasDecoStop],
+    [data, xMode, splitMarkers, unitOptions, hasNdl, hasCns, hasN2, hasDecoStop],
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -1692,7 +1774,7 @@ function DecoChartPanel({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#3b82f6' }} />
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              N₂-Loading <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+              {t('activityCharts.labels.n2Loading')} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
             </span>
           </div>
         )}
@@ -1700,7 +1782,7 @@ function DecoChartPanel({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#f97316' }} />
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              Deko-Stop <span className="font-normal text-neutral-400 dark:text-neutral-600">(m)</span>
+              {t('activityCharts.labels.decoStop')} <span className="font-normal text-neutral-400 dark:text-neutral-600">({decoStopUnit})</span>
             </span>
           </div>
         )}
@@ -1811,6 +1893,7 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
   streams: StreamPoint[]
   hoverIdx: number | null
 }) {
+  const { t } = useTranslation()
   // Live data: use hovered stream point, or fall back to averages
   const liveData = useMemo<PowerPhaseAvg>(() => {
     if (hoverIdx == null || hoverIdx < 0 || hoverIdx >= streams.length) return phaseData
@@ -1837,9 +1920,9 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
     const balR = d.leftBalance != null ? `${(100 - d.leftBalance).toFixed(0)}%` : null
     const isLive = hoverIdx != null
 
-    const leftFull = buildGaugeOption(d.leftStart, d.leftEnd, '#34d399', ringColor, 'LINKS', balL)
+    const leftFull = buildGaugeOption(d.leftStart, d.leftEnd, '#34d399', ringColor, t('activityCharts.sides.leftShort'), balL)
     const leftPeak = buildGaugeOption(d.leftPeakStart, d.leftPeakEnd, '#10b981', 'transparent', '', null, true)
-    const rightFull = buildGaugeOption(d.rightStart, d.rightEnd, '#60a5fa', ringColor, 'RECHTS', balR)
+    const rightFull = buildGaugeOption(d.rightStart, d.rightEnd, '#60a5fa', ringColor, t('activityCharts.sides.rightShort'), balR)
     const rightPeak = buildGaugeOption(d.rightPeakStart, d.rightPeakEnd, '#3b82f6', 'transparent', '', null, true)
 
     // Two gauges side by side — center in upper 75% to leave room for labels below
@@ -1853,20 +1936,22 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
     return {
       animation: false,
       title: {
-        text: isLive ? 'Kraftphasen (live)' : 'Kraftphasen (Ø)',
+        text: isLive ? t('activityCharts.powerPhasesLive') : t('activityCharts.powerPhasesAverage'),
         left: 4, top: 4,
         textStyle: { fontSize: 11, fontWeight: 500, color: isLive ? '#10b981' : '#888' },
       },
       toolbox: {
         feature: {
-          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Kraftphasen' },
+          saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.powerPhase') },
         },
       },
       series: [leftFull, leftPeak, rightFull, rightPeak],
     }
-  }, [liveData, hoverIdx])
+  }, [liveData, hoverIdx, t])
 
   const d = liveData
+  const ppLabel = t('activityCharts.powerPhaseLabels.pp')
+  const peakLabel = t('activityCharts.powerPhaseLabels.peak')
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -1874,15 +1959,15 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
       {/* Degree labels below */}
       <div className="flex justify-around text-center -mt-1 mb-1">
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          <div>PP {d.leftStart.toFixed(0)}°–{d.leftEnd.toFixed(0)}°</div>
+          <div>{ppLabel} {d.leftStart.toFixed(0)}°–{d.leftEnd.toFixed(0)}°</div>
           <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
-            Peak {d.leftPeakStart.toFixed(0)}°–{d.leftPeakEnd.toFixed(0)}°
+            {peakLabel} {d.leftPeakStart.toFixed(0)}°–{d.leftPeakEnd.toFixed(0)}°
           </div>
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          <div>PP {d.rightStart.toFixed(0)}°–{d.rightEnd.toFixed(0)}°</div>
+          <div>{ppLabel} {d.rightStart.toFixed(0)}°–{d.rightEnd.toFixed(0)}°</div>
           <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
-            Peak {d.rightPeakStart.toFixed(0)}°–{d.rightPeakEnd.toFixed(0)}°
+            {peakLabel} {d.rightPeakStart.toFixed(0)}°–{d.rightPeakEnd.toFixed(0)}°
           </div>
         </div>
       </div>
@@ -1890,11 +1975,11 @@ function PowerPhaseGaugePanel({ phaseData, streams, hoverIdx }: {
       <div className="flex justify-center gap-6 text-xs text-neutral-500">
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#10b981' }} />
-          L Power Phase
+          {t('activityCharts.powerPhaseLegend.left')}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#3b82f6' }} />
-          R Power Phase
+          {t('activityCharts.powerPhaseLegend.right')}
         </div>
       </div>
     </div>
@@ -1925,6 +2010,7 @@ interface PedalDualChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
@@ -1934,15 +2020,16 @@ function PedalDualChartPanel({
   leftTooltipSuffix, rightTooltipSuffix,
   headerUnit = '%',
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: PedalDualChartPanelProps) {
+  const { t } = useTranslation()
   const containerRef = useECharts(
     () => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -1973,7 +2060,7 @@ function PedalDualChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: tooltipTitle },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: tooltipTitle },
           },
         },
 
@@ -1996,7 +2083,7 @@ function PedalDualChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const posLine = buildTooltipPosLine(xData[idx], xMode, data)
+            const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
             let html = `<div style="line-height:1.75;min-width:160px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             html += `<div style="font-size:11px;color:#888;margin-bottom:2px">${tooltipTitle}</div>`
@@ -2070,7 +2157,7 @@ function PedalDualChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers, leftValues, rightValues, leftColor, rightColor, tooltipTitle, leftTooltipSuffix, rightTooltipSuffix, headerUnit],
+    [data, xMode, splitMarkers, unitOptions, leftValues, rightValues, leftColor, rightColor, tooltipTitle, leftTooltipSuffix, rightTooltipSuffix, headerUnit],
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -2115,13 +2202,13 @@ function sma(arr: number[], window = 30): number[] {
   return result
 }
 
-/** Format a min/km value as "m:ss min/km" for tooltip display. */
-function formatMinKm(minKm: number): string {
-  if (isNaN(minKm) || !isFinite(minKm) || minKm <= 0) return '—'
-  const min = Math.floor(minKm)
-  let sec = Math.round((minKm - min) * 60)
-  if (sec >= 60) { return `${min + 1}:00\u202fmin/km` }
-  return `${min}:${sec.toString().padStart(2, '0')}\u202fmin/km`
+/** Format a pace value as "m:ss unit" for tooltip display. */
+function formatMinutePace(minutes: number, unit: string): string {
+  if (isNaN(minutes) || !isFinite(minutes) || minutes <= 0) return '—'
+  const min = Math.floor(minutes)
+  let sec = Math.round((minutes - min) * 60)
+  if (sec >= 60) { return `${min + 1}:00\u202f${unit}` }
+  return `${min}:${sec.toString().padStart(2, '0')}\u202f${unit}`
 }
 
 const COLOR_PACE = '#3B82F6'
@@ -2142,14 +2229,16 @@ interface SpeedPaceChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function SpeedPaceChartPanel({
   chartId, data, speedMode, onSpeedModeChange, sportType,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: SpeedPaceChartPanelProps) {
+  const { t } = useTranslation()
   const segGroup = getSegmentGroup(sportType)
   const isRowingSport = sportType === 'rowing'
   const isSwimSport = segGroup === 'swim'
@@ -2189,10 +2278,18 @@ function SpeedPaceChartPanel({
     hasCorosEffort ? sma(data.corosEffortPaceMinKm) : null
   , [data, hasCorosEffort])
 
-  const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : 'min/km'
-  // fieldLabel('speed', ...) returns sport-specific label (e.g. "Pace" for foot) — but in
-  // speed mode we always want "Geschwindigkeit" regardless of sport type
-  const speedLabel = 'Geschwindigkeit'
+  const displaySpeedUnit = unitOptions ? speedDisplayUnit(unitOptions.units) : 'km/h'
+  const paceUnit = isRowingSport ? 'min/500m' : isSwimSport ? 'min/100m' : unitOptions ? paceDisplayUnit(unitOptions.units) : 'min/km'
+  const displayPaceMinutes = useCallback(
+    (minPerKm: number) => (unitOptions && !isRowingSport && !isSwimSport)
+      ? paceToDisplayValue(minPerKm * 60, unitOptions.units)
+      : minPerKm,
+    [isRowingSport, isSwimSport, unitOptions],
+  )
+  // fieldLabel('speed', ...) returns sport-specific labels; speed mode always
+  // uses the localized generic speed label regardless of sport type.
+  const speedLabel = t('activityCharts.labels.speed')
+  const paceLabel = t('activityCharts.labels.pace')
 
   const containerRef = useECharts(
     () => {
@@ -2200,7 +2297,7 @@ function SpeedPaceChartPanel({
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -2211,7 +2308,7 @@ function SpeedPaceChartPanel({
           grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
           title: {
-            text: `${speedLabel} (km/h)`,
+            text: `${speedLabel} (${displaySpeedUnit})`,
             left: 4,
             top: 4,
             textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
@@ -2232,7 +2329,7 @@ function SpeedPaceChartPanel({
           toolbox: {
             feature: {
               brush: { show: false },
-              saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: speedLabel },
+              saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: speedLabel },
             },
           },
 
@@ -2255,11 +2352,12 @@ function SpeedPaceChartPanel({
               const p = arr[0] as { dataIndex?: number }
               if (p?.dataIndex == null) return ''
               const idx = p.dataIndex
-              const v = data.speed[idx]
-              const posLine = buildTooltipPosLine(xData[idx], xMode, data)
+              const speedMs = data.speedMs[idx]
+              const v = Number.isFinite(speedMs) && unitOptions ? speedToDisplayValue(speedMs, unitOptions.units) : data.speed[idx]
+              const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
               let html = `<div style="line-height:1.75;min-width:130px">`
               html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-              if (!isNaN(v)) html += `<div style="font-size:13px;color:#3b82f6"><strong>${v.toFixed(1)}\u202fkm/h</strong></div>`
+              if (!isNaN(v)) html += `<div style="font-size:13px;color:#3b82f6"><strong>${v.toFixed(1)}\u202f${displaySpeedUnit}</strong></div>`
               return html + '</div>'
             },
           },
@@ -2284,7 +2382,12 @@ function SpeedPaceChartPanel({
 
           series: [{
             type: 'line',
-            data: xData.map((x, i) => [x, data.speed[i]]),
+            data: xData.map((x, i) => [
+              x,
+              Number.isFinite(data.speedMs[i]) && unitOptions
+                ? speedToDisplayValue(data.speedMs[i], unitOptions.units)
+                : data.speed[i],
+            ]),
             showSymbol: false,
             sampling: 'lttb',
             lineStyle: { width: 1.5, color: '#3b82f6' },
@@ -2324,7 +2427,7 @@ function SpeedPaceChartPanel({
       const clampAcc = (arr: number[] | null | undefined) => {
         if (!arr) return
         for (let i = 0; i < arr.length; i++) {
-          const v = arr[i]
+          const v = Number.isFinite(arr[i]) ? displayPaceMinutes(arr[i]) : arr[i]
           if (Number.isFinite(v) && v > 0 && v < 30) {
             if (v < pmMin) pmMin = v
             if (v > pmMax) pmMax = v
@@ -2336,12 +2439,12 @@ function SpeedPaceChartPanel({
       const yMin = hasAnyPm ? Math.max(0, Math.floor(pmMin * 10) / 10 - 0.5) : 0
       const yMax = hasAnyPm ? Math.ceil(pmMax * 10) / 10 + 0.5 : 15
 
-      const xy = (values: number[]) => values.map((v, i) => [xData[i], v])
+      const xy = (values: number[]) => values.map((v, i) => [xData[i], Number.isFinite(v) ? displayPaceMinutes(v) : v])
 
       const series: echarts.EChartsCoreOption['series'] = [
         {
           type: 'line',
-          name: 'Pace',
+          name: paceLabel,
           data: xy(ps),
           showSymbol: false,
           sampling: 'lttb',
@@ -2405,7 +2508,7 @@ function SpeedPaceChartPanel({
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
         title: {
-          text: `Pace (${paceUnit})`,
+          text: `${paceLabel} (${paceUnit})`,
           left: 4,
           top: 4,
           textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
@@ -2426,7 +2529,7 @@ function SpeedPaceChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: `Pace (${paceUnit})` },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: `${paceLabel} (${paceUnit})` },
           },
         },
 
@@ -2448,33 +2551,33 @@ function SpeedPaceChartPanel({
             const arr = Array.isArray(params) ? params : [params]
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
-            const idx = p.dataIndex
-            const posLine = buildTooltipPosLine(xData[idx], xMode, data)
+              const idx = p.dataIndex
+            const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
             let html = `<div style="line-height:1.75;min-width:180px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
-            const pv = ps[idx]
+            const pv = displayPaceMinutes(ps[idx])
             if (!isNaN(pv)) {
               // Primary pace: sport-specific unit
               let min = Math.floor(pv)
               let sec = Math.round((pv - min) * 60)
               if (sec >= 60) { min += 1; sec = 0 }
-              html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}</strong> Pace</div>`
+              html += `<div style="font-size:13px;color:${COLOR_PACE}"><strong>${min}:${sec.toString().padStart(2, '0')}\u202f${paceUnit}</strong> ${paceLabel}</div>`
             }
             if (gs) {
               const gv = gs[idx]
-              if (!isNaN(gv)) html += `<div style="font-size:13px;color:${COLOR_GARMIN_GAP}"><strong>${formatMinKm(gv)}</strong> Garmin GAP</div>`
+              if (!isNaN(gv)) html += `<div style="font-size:13px;color:${COLOR_GARMIN_GAP}"><strong>${formatMinutePace(displayPaceMinutes(gv), paceUnit)}</strong> Garmin GAP</div>`
             }
             if (rs) {
               const rv = rs[idx]
-              if (!isNaN(rv)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinKm(rv)}</strong> RE3 GAP</div>`
+              if (!isNaN(rv)) html += `<div style="font-size:13px;color:${COLOR_RE3_GAP}"><strong>${formatMinutePace(displayPaceMinutes(rv), paceUnit)}</strong> RE3 GAP</div>`
             }
             if (ns) {
               const nv = ns[idx]
-              if (!isNaN(nv)) html += `<div style="font-size:13px;color:#a855f7"><strong>${formatMinKm(nv)}</strong> Stryd NGP</div>`
+              if (!isNaN(nv)) html += `<div style="font-size:13px;color:#a855f7"><strong>${formatMinutePace(displayPaceMinutes(nv), paceUnit)}</strong> Stryd NGP</div>`
             }
             if (cs) {
               const cv = cs[idx]
-              if (!isNaN(cv)) html += `<div style="font-size:13px;color:${COLOR_COROS_EFFORT}"><strong>${formatMinKm(cv)}</strong> Coros Effort Pace</div>`
+              if (!isNaN(cv)) html += `<div style="font-size:13px;color:${COLOR_COROS_EFFORT}"><strong>${formatMinutePace(displayPaceMinutes(cv), paceUnit)}</strong> Coros Effort Pace</div>`
             }
             return html + '</div>'
           },
@@ -2522,7 +2625,7 @@ function SpeedPaceChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed, corosEffortSmoothed], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, speedMode, sportType, xMode, splitMarkers, paceSmoothed, garminSmoothed, re3Smoothed, strydNgpSmoothed, corosEffortSmoothed, paceLabel, speedLabel], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -2537,7 +2640,7 @@ function SpeedPaceChartPanel({
           <>
             <div className="flex items-center gap-1.5">
               <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLOR_PACE }} />
-              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Pace</span>
+              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{paceLabel}</span>
             </div>
             {hasGarminGap && (
               <div className="flex items-center gap-1.5">
@@ -2568,11 +2671,11 @@ function SpeedPaceChartPanel({
           <div className="flex items-center gap-1.5">
             <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#3b82f6' }} />
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              {speedLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(km/h)</span>
+              {speedLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">({displaySpeedUnit})</span>
             </span>
           </div>
         )}
-        <div role="radiogroup" aria-label="Geschwindigkeitsformat" className="ml-auto inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs overflow-hidden">
+        <div role="radiogroup" aria-label={t('activityCharts.speedFormat')} className="ml-auto inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs overflow-hidden">
           <button
             role="radio"
             aria-checked={speedMode === 'pace'}
@@ -2583,7 +2686,7 @@ function SpeedPaceChartPanel({
                 : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
             }`}
           >
-            Pace
+            {paceLabel}
           </button>
           <button
             role="radio"
@@ -2595,7 +2698,7 @@ function SpeedPaceChartPanel({
                 : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
             }`}
           >
-            Geschwindigkeit
+            {t('activityCharts.labels.speed')}
           </button>
         </div>
       </div>
@@ -2616,13 +2719,18 @@ interface RunningDynamicsChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function RunningDynamicsChartPanel({
   chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: RunningDynamicsChartPanelProps) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
+  const gctLabel = fieldLabel('groundContactTime', '', language)
+  const verticalOscillationLabel = fieldLabel('verticalOscillation', '', language)
   const containerRef = useECharts(
     () => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
@@ -2631,7 +2739,7 @@ function RunningDynamicsChartPanel({
       const voValues = data.verticalOscillation
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -2641,7 +2749,7 @@ function RunningDynamicsChartPanel({
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
         title: {
-          text: 'Laufdynamik (GCT / VO)',
+          text: t('activityCharts.runningDynamicsTitle'),
           left: 4,
           top: 4,
           textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
@@ -2662,7 +2770,7 @@ function RunningDynamicsChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Laufdynamik' },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.runningDynamics') },
           },
         },
 
@@ -2685,13 +2793,13 @@ function RunningDynamicsChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const posLine = buildTooltipPosLine(xData[idx], xMode, data)
+            const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             const gct = gctValues[idx]
-            if (!isNaN(gct)) html += `<div style="font-size:13px;color:#10B981"><strong>${Math.round(gct)}\u202fms</strong> GCT</div>`
+            if (!isNaN(gct)) html += `<div style="font-size:13px;color:#10B981"><strong>${Math.round(gct)}\u202fms</strong> ${gctLabel}</div>`
             const vo = voValues[idx]
-            if (!isNaN(vo)) html += `<div style="font-size:13px;color:#06B6D4"><strong>${vo.toFixed(1)}\u202fcm</strong> Vert. Oszi.</div>`
+            if (!isNaN(vo)) html += `<div style="font-size:13px;color:#06B6D4"><strong>${vo.toFixed(1)}\u202fcm</strong> ${verticalOscillationLabel}</div>`
             return html + '</div>'
           },
         },
@@ -2769,7 +2877,7 @@ function RunningDynamicsChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers],
+    [data, xMode, splitMarkers, unitOptions, gctLabel, verticalOscillationLabel, t],
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -2783,13 +2891,13 @@ function RunningDynamicsChartPanel({
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#10B981' }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            Bodenkontaktzeit <span className="font-normal text-neutral-400 dark:text-neutral-600">(ms)</span>
+            {gctLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(ms)</span>
           </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#06B6D4' }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            Vertikale Bewegung <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
+            {verticalOscillationLabel} <span className="font-normal text-neutral-400 dark:text-neutral-600">(cm)</span>
           </span>
         </div>
       </div>
@@ -2810,13 +2918,15 @@ interface RunningSmoothnessChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function RunningSmoothnessChartPanel({
   chartId, data, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: RunningSmoothnessChartPanelProps) {
+  const { t } = useTranslation()
   const containerRef = useECharts(
     () => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
@@ -2824,7 +2934,7 @@ function RunningSmoothnessChartPanel({
       const values = data.runningSmoothness
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -2834,7 +2944,7 @@ function RunningSmoothnessChartPanel({
         grid: { left: 52, right: 16, top: gridTop, bottom: 36 },
 
         title: {
-          text: 'Running Smoothness',
+          text: t('activityCharts.labels.runningSmoothness'),
           left: 4,
           top: 4,
           textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
@@ -2855,7 +2965,7 @@ function RunningSmoothnessChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Running Smoothness' },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.runningSmoothness') },
           },
         },
 
@@ -2878,11 +2988,11 @@ function RunningSmoothnessChartPanel({
             const p = arr[0] as { dataIndex?: number }
             if (p?.dataIndex == null) return ''
             const idx = p.dataIndex
-            const posLine = buildTooltipPosLine(xData[idx], xMode, data)
+            const posLine = buildTooltipPosLine(xData[idx], xMode, data, unitOptions)
             let html = `<div style="line-height:1.75;min-width:150px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             const v = values[idx]
-            if (!isNaN(v)) html += `<div style="font-size:13px;color:#8B5CF6"><strong>${Math.round(v)}\u202f%</strong> Running Smoothness</div>`
+            if (!isNaN(v)) html += `<div style="font-size:13px;color:#8B5CF6"><strong>${Math.round(v)}\u202f%</strong> ${t('activityCharts.labels.runningSmoothness')}</div>`
             return html + '</div>'
           },
         },
@@ -2941,7 +3051,7 @@ function RunningSmoothnessChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, xMode, splitMarkers],
+    [data, xMode, splitMarkers, unitOptions, t],
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -2955,7 +3065,7 @@ function RunningSmoothnessChartPanel({
         <div className="flex items-center gap-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#8B5CF6' }} />
           <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            Running Smoothness <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
+            {t('activityCharts.labels.runningSmoothness')} <span className="font-normal text-neutral-400 dark:text-neutral-600">(%)</span>
           </span>
         </div>
       </div>
@@ -2980,21 +3090,23 @@ interface ScatterChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function ScatterChartPanel({
   chartId, data, values, label, unit, color,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: ScatterChartPanelProps) {
+  const { t } = useTranslation()
   const containerRef = useECharts(
     () => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       // Average of non-NaN values for markLine
@@ -3048,7 +3160,7 @@ function ScatterChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: label },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: label },
           },
         },
 
@@ -3067,7 +3179,7 @@ function ScatterChartPanel({
             if (!Array.isArray(p.data) || typeof p.data[0] !== 'number') return ''
             const xVal = p.data[0] as number
             const val = p.data[1] as number
-            const posLine = buildTooltipPosLine(xVal, xMode, data)
+            const posLine = buildTooltipPosLine(xVal, xMode, data, unitOptions)
             return `<div style="line-height:1.75;min-width:120px"><div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div><div style="font-size:13px;color:${color}"><strong>${!isNaN(val) ? val.toFixed(2) : '—'}\u202f${unit}</strong></div></div>`
           },
         },
@@ -3168,6 +3280,7 @@ interface ChartPanelProps {
   /** Elevation chart: use grade_pct data for grade-based area colorization */
   showGradeColor?: boolean
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   sunMarkLines?: SunMarkLine[]
   splitMarkers?: SplitMarker[]
   /** Override the data values array (used for pace mode: pre-converted values). */
@@ -3198,8 +3311,9 @@ function ChartPanel({
   chartId, data, field, unit, label, color, area,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
   brushZoomLockRef, markLines = 'none', altitudeSmartY, showGradeColor, xMode,
-  sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed, extraSeries,
+  unitOptions, sunMarkLines, splitMarkers, overrideValues, invertY, tooltipValueFn, yAxisFixed, extraSeries,
 }: ChartPanelProps) {
+  const { t } = useTranslation()
   // Resolve the underlying value array (either override or looked up by field key).
   const values = useMemo<number[]>(() => {
     if (overrideValues) return overrideValues
@@ -3227,10 +3341,10 @@ function ChartPanel({
       // ── Mark lines ──────────────────────────────────────────────────────────
       const mlData: Record<string, unknown>[] = []
       if (markLines === 'max' || markLines === 'minmax') {
-        mlData.push({ type: 'max', name: 'Max', label: { position: 'insideMiddleBottom' } })
+        mlData.push({ type: 'max', name: t('activityCharts.labels.max'), label: { position: 'insideMiddleBottom' } })
       }
       if (markLines === 'minmax') {
-        mlData.push({ type: 'min', name: 'Min', label: { position: 'insideMiddleTop' } })
+        mlData.push({ type: 'min', name: t('activityCharts.labels.min'), label: { position: 'insideMiddleTop' } })
       }
 
       if (sunMarkLines && sunMarkLines.length > 0) {
@@ -3253,7 +3367,7 @@ function ChartPanel({
         const v = values[idx]
         if (v == null || isNaN(v)) return ''
         const xVal = xData[idx]
-        const posLine = buildTooltipPosLine(xVal, xMode, data)
+        const posLine = buildTooltipPosLine(xVal, xMode, data, unitOptions)
 
         const valStr = tooltipValueFn ? tooltipValueFn(v) : `${v.toFixed(decimals)}\u2009${unit}`
 
@@ -3275,14 +3389,14 @@ function ChartPanel({
           if (gradeVal != null && !isNaN(gradeVal)) {
             const sign = gradeVal >= 0 ? '+' : ''
             const gc = Math.abs(gradeVal) > 10 ? '#dc2626' : Math.abs(gradeVal) > 4 ? '#ea580c' : '#16a34a'
-            html += `<div style="color:${gc};font-size:12px;margin-top:1px">Steigung\u2009${sign}${gradeVal.toFixed(1)}\u202f%</div>`
+            html += `<div style="color:${gc};font-size:12px;margin-top:1px">${t('activityCharts.labels.grade')}\u2009${sign}${gradeVal.toFixed(1)}\u202f%</div>`
           }
         }
         return html + '</div>'
       }
 
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       return {
@@ -3311,7 +3425,7 @@ function ChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: label },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: label },
           },
         },
 
@@ -3515,7 +3629,7 @@ function ChartPanel({
         ],
       } as echarts.EChartsCoreOption
     },
-    [data, field, xMode, splitMarkers, showGradeColor, values, invertY, yAxisFixed, extraSeries, sunMarkLines], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, field, xMode, splitMarkers, showGradeColor, values, invertY, yAxisFixed, extraSeries, sunMarkLines, t], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
@@ -3558,14 +3672,16 @@ interface GearChartPanelProps {
   onUnregister: (id: string) => void
   brushZoomLockRef: React.MutableRefObject<boolean>
   xMode: XMode
+  unitOptions?: UnitFormatOptions
   splitMarkers?: SplitMarker[]
 }
 
 function GearChartPanel({
   chartId, data, gearPoints,
   onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister,
-  brushZoomLockRef, xMode, splitMarkers,
+  brushZoomLockRef, xMode, unitOptions, splitMarkers,
 }: GearChartPanelProps) {
+  const { t } = useTranslation()
   const xMax = xMode === 'distance' ? data.maxDist : data.maxElapsed
 
   // Build step-chart series: [xVal, ratio] pairs for ECharts step:'start' line
@@ -3589,7 +3705,7 @@ function GearChartPanel({
 
       const gridTop = ((splitMarkers && splitMarkers.length > 0) ? 34 : 8) + 18
       const xFormatter = xMode === 'distance'
-        ? (v: number) => v.toFixed(1)
+        ? (v: number) => formatDistanceAxisValue(v, unitOptions)
         : (v: number) => formatElapsed(v, xMax)
 
       const mlData = buildSplitMarkLines(splitMarkers, xMode)
@@ -3604,7 +3720,7 @@ function GearChartPanel({
         grid: { left: 52, right: 76, top: gridTop, bottom: 36 },
 
         title: {
-          text: 'Schaltung (Übersetzung)',
+          text: t('activityCharts.gearTitle'),
           left: 4,
           top: 4,
           textStyle: { fontSize: 11, fontWeight: 500, color: '#888' },
@@ -3625,7 +3741,7 @@ function GearChartPanel({
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2, name: 'Schaltung' },
+            saveAsImage: { title: t('activityCharts.saveAsImage'), pixelRatio: 2, name: t('activityCharts.labels.gearShifting') },
           },
         },
 
@@ -3660,15 +3776,15 @@ function GearChartPanel({
               }
             }
 
-            const posLine = buildTooltipPosLine(xVal, xMode, data)
+            const posLine = buildTooltipPosLine(xVal, xMode, data, unitOptions)
 
             let html = `<div style="line-height:1.75;min-width:140px">`
             html += `<div style="color:#888;font-size:11px;margin-bottom:1px">${posLine}</div>`
             if (activeGear) {
               html += `<div style="font-size:14px;font-weight:600;color:#6366f1">${activeGear.frontGear}\u00d7${activeGear.rearGear}</div>`
-              html += `<div style="font-size:11px;color:#888">Übersetzung: ${ratio.toFixed(2)}</div>`
+              html += `<div style="font-size:11px;color:#888">${t('activityCharts.gearRatio')}: ${ratio.toFixed(2)}</div>`
             } else {
-              html += `<div style="font-size:13px;color:#6366f1"><strong>Übersetzung ${ratio.toFixed(2)}</strong></div>`
+              html += `<div style="font-size:13px;color:#6366f1"><strong>${t('activityCharts.gearRatio')} ${ratio.toFixed(2)}</strong></div>`
             }
             return html + '</div>'
           },
@@ -3688,7 +3804,7 @@ function GearChartPanel({
           type: 'value',
           min: yMin,
           max: yMax,
-          name: 'Gang',
+          name: t('activityCharts.labels.gearAxis'),
           nameTextStyle: { fontSize: 10, color: '#666' },
           axisLabel: {
             fontSize: 11,
@@ -3730,7 +3846,7 @@ function GearChartPanel({
         }],
       } as echarts.EChartsCoreOption
     },
-    [data, stepData, gearPoints, xMode, splitMarkers, xMax], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, stepData, gearPoints, xMode, splitMarkers, unitOptions, xMax, t], // eslint-disable-line react-hooks/exhaustive-deps
     (chart) => {
       const xData = xMode === 'distance' ? data.distanceKm : data.elapsedMin
       return setupChartInteractions({ chart, chartId, onHover, onBrushZoom, onSyncZoom, onRegister, onUnregister, brushZoomLockRef, xMax, xData })
@@ -3744,8 +3860,8 @@ function GearChartPanel({
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 dark:border-neutral-800/60">
         <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#6366f1' }} />
         <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          Gangschaltung{' '}
-          <span className="font-normal text-neutral-400 dark:text-neutral-600">(Übersetzungsverhältnis)</span>
+          {t('activityCharts.labels.gearShifting')}{' '}
+          <span className="font-normal text-neutral-400 dark:text-neutral-600">({t('activityCharts.gearRatioLong')})</span>
         </span>
       </div>
       <div ref={containerRef} className="h-[180px] w-full" />

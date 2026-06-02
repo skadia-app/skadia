@@ -25,12 +25,17 @@ var (
 
 // apiWarning is the shape the frontend Warning type expects.
 type apiWarning struct {
-	Type        string  `json:"type"`
-	Severity    string  `json:"severity"`
-	Message     string  `json:"message"`
-	Value       float64 `json:"value"`
-	Threshold   float64 `json:"threshold"`
-	Explanation *string `json:"explanation"`
+	Type              string         `json:"type"`
+	Code              string         `json:"code"`
+	Severity          string         `json:"severity"`
+	Message           string         `json:"message"`
+	MessageKey        string         `json:"message_key"`
+	MessageParams     map[string]any `json:"message_params,omitempty"`
+	Value             float64        `json:"value"`
+	Threshold         float64        `json:"threshold"`
+	Explanation       *string        `json:"explanation"`
+	ExplanationKey    string         `json:"explanation_key,omitempty"`
+	ExplanationParams map[string]any `json:"explanation_params,omitempty"`
 }
 
 // metricLabel maps internal metric names to human-readable German labels.
@@ -39,6 +44,21 @@ var metricLabel = map[string]string{
 	"resting_hr":  "Ruhepuls",
 	"sleep_score": "Schlafqualität",
 	"spo2":        "SpO₂",
+}
+
+type anomalyDetail struct {
+	Metric       string  `json:"metric"`
+	Value        float64 `json:"value"`
+	ZScore       float64 `json:"zscore"`
+	BaselineMean float64 `json:"baseline_mean"`
+	BaselineStd  float64 `json:"baseline_std"`
+}
+
+type anomalyEntry struct {
+	Date            string          `json:"date"`
+	Severity        string          `json:"severity"`
+	AffectedMetrics []string        `json:"affected_metrics"`
+	Details         []anomalyDetail `json:"details"`
 }
 
 // GetInsightsWarnings reads the "anomalies" cache key written by the Go analytics
@@ -60,65 +80,72 @@ func (h *Handler) GetInsightsWarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decode []AnomalyEntry written by analytics.DetectAnomalies.
-	type anomalyDetail struct {
-		Metric       string  `json:"metric"`
-		Value        float64 `json:"value"`
-		ZScore       float64 `json:"zscore"`
-		BaselineMean float64 `json:"baseline_mean"`
-		BaselineStd  float64 `json:"baseline_std"`
-	}
-	type anomalyEntry struct {
-		Date            string          `json:"date"`
-		Severity        string          `json:"severity"`
-		AffectedMetrics []string        `json:"affected_metrics"`
-		Details         []anomalyDetail `json:"details"`
-	}
 	var anomalies []anomalyEntry
 	if err := json.Unmarshal(raw, &anomalies); err != nil {
 		httputil.WriteJSON(w, http.StatusOK, []apiWarning{})
 		return
 	}
 
-	// Map Go analytics severity (low/medium/high) to frontend severity labels.
-	sevMap := map[string]string{
-		"low":    "info",
-		"medium": "warning",
-		"high":   "danger",
-	}
-
 	// One apiWarning per (day × metric) detail entry.
 	warnings := make([]apiWarning, 0)
 	for _, a := range anomalies {
-		frontendSev := sevMap[a.Severity]
-		if frontendSev == "" {
-			frontendSev = "info"
-		}
 		for _, d := range a.Details {
-			label := metricLabel[d.Metric]
-			if label == "" {
-				label = d.Metric
-			}
-			explanation := fmt.Sprintf(
-				"%s am %s: %.2f (Baseline %.2f ± %.2f, Z-Score %.2f)",
-				label, a.Date, d.Value, d.BaselineMean, d.BaselineStd, d.ZScore,
-			)
-			threshold := d.BaselineMean - 2.0*d.BaselineStd
-			if d.ZScore > 0 {
-				threshold = d.BaselineMean + 2.0*d.BaselineStd
-			}
-			warnings = append(warnings, apiWarning{
-				Type:        d.Metric + "_anomaly",
-				Severity:    frontendSev,
-				Message:     fmt.Sprintf("Anomalie: %s am %s", label, a.Date),
-				Value:       d.Value,
-				Threshold:   threshold,
-				Explanation: &explanation,
-			})
+			warnings = append(warnings, buildAPIWarning(a, d))
 		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, warnings)
+}
+
+func buildAPIWarning(a anomalyEntry, d anomalyDetail) apiWarning {
+	frontendSev := mapAnomalySeverity(a.Severity)
+	label := metricLabel[d.Metric]
+	if label == "" {
+		label = d.Metric
+	}
+	explanation := fmt.Sprintf(
+		"%s am %s: %.2f (Baseline %.2f ± %.2f, Z-Score %.2f)",
+		label, a.Date, d.Value, d.BaselineMean, d.BaselineStd, d.ZScore,
+	)
+	threshold := d.BaselineMean - 2.0*d.BaselineStd
+	direction := "low"
+	if d.ZScore > 0 {
+		threshold = d.BaselineMean + 2.0*d.BaselineStd
+		direction = "high"
+	}
+	params := map[string]any{
+		"metric":        d.Metric,
+		"date":          a.Date,
+		"value":         d.Value,
+		"baseline_mean": d.BaselineMean,
+		"baseline_std":  d.BaselineStd,
+		"zscore":        d.ZScore,
+		"direction":     direction,
+	}
+	return apiWarning{
+		Type:              d.Metric + "_anomaly",
+		Code:              "analytics.warning.anomaly",
+		Severity:          frontendSev,
+		Message:           fmt.Sprintf("Anomalie: %s am %s", label, a.Date),
+		MessageKey:        "analytics.warning.anomaly.message",
+		MessageParams:     params,
+		Value:             d.Value,
+		Threshold:         threshold,
+		Explanation:       &explanation,
+		ExplanationKey:    "analytics.warning.anomaly.explanation",
+		ExplanationParams: params,
+	}
+}
+
+func mapAnomalySeverity(severity string) string {
+	switch severity {
+	case "medium":
+		return "warning"
+	case "high":
+		return "danger"
+	default:
+		return "info"
+	}
 }
 
 // mlProjectionDict is the shape the ML service stores in the "projection" cache key.
@@ -127,18 +154,22 @@ type mlProjectionDict struct {
 	CurrentCTL      *float64 `json:"current_ctl"`
 	ProjectedCTL28d *float64 `json:"projected_ctl_28d"`
 	Trend           *string  `json:"trend"`
+	TrendKey        *string  `json:"trend_key"`
 	DataPoints      int      `json:"data_points"`
 }
 
 // apiProjection is the shape the frontend Projection type expects.
 type apiProjection struct {
-	Metric        string  `json:"metric"`
-	Target        float64 `json:"target"`
-	Current       float64 `json:"current"`
-	PredictedDate *string `json:"predicted_date"`
-	OnTrack       bool    `json:"on_track"`
-	WeeklyNeeded  float64 `json:"weekly_needed"`
-	Explanation   *string `json:"explanation"`
+	Metric            string         `json:"metric"`
+	Code              string         `json:"code"`
+	Target            float64        `json:"target"`
+	Current           float64        `json:"current"`
+	PredictedDate     *string        `json:"predicted_date"`
+	OnTrack           bool           `json:"on_track"`
+	WeeklyNeeded      float64        `json:"weekly_needed"`
+	Explanation       *string        `json:"explanation"`
+	ExplanationKey    string         `json:"explanation_key,omitempty"`
+	ExplanationParams map[string]any `json:"explanation_params,omitempty"`
 }
 
 // GetInsightsProjection reads the "projection" cache key written by the ML service
@@ -183,40 +214,71 @@ func (h *Handler) GetInsightsProjection(w http.ResponseWriter, r *http.Request) 
 	// Weekly needed CTL gain to reach the projected value.
 	weeklyNeeded := (projectedCTL - currentCTL) / 4.0 // 28d ≈ 4 weeks
 
-	// Build a human-readable explanation from trend + slope.
-	var explanationStr string
-	if proj.Trend != nil && proj.Slope != nil {
-		trendLabel := map[string]string{
-			"aufbau":  "aufbauend",
-			"abbau":   "abbauend",
-			"plateau": "stabil (Plateau)",
-		}[*proj.Trend]
-		if trendLabel == "" {
-			trendLabel = *proj.Trend
-		}
-		explanationStr = fmt.Sprintf(
-			"Trend: %s (%.3f CTL/Tag) auf Basis von %d Datenpunkten",
-			trendLabel, *proj.Slope, proj.DataPoints,
-		)
-	}
-	var explanationPtr *string
-	if explanationStr != "" {
-		explanationPtr = &explanationStr
-	}
-
 	projections := []apiProjection{
-		{
-			Metric:        "ctl",
-			Target:        projectedCTL,
-			Current:       currentCTL,
-			PredictedDate: &predictedDate,
-			OnTrack:       onTrack,
-			WeeklyNeeded:  weeklyNeeded,
-			Explanation:   explanationPtr,
-		},
+		buildAPIProjection(currentCTL, projectedCTL, predictedDate, proj.Trend, proj.TrendKey, proj.Slope, proj.DataPoints),
 	}
+	projections[0].OnTrack = onTrack
+	projections[0].WeeklyNeeded = weeklyNeeded
 
 	httputil.WriteJSON(w, http.StatusOK, projections)
+}
+
+func buildAPIProjection(currentCTL, projectedCTL float64, predictedDate string, trend, trendKey *string, slope *float64, dataPoints int) apiProjection {
+	projection := apiProjection{
+		Metric:        "ctl",
+		Code:          "analytics.projection.ctl",
+		Target:        projectedCTL,
+		Current:       currentCTL,
+		PredictedDate: &predictedDate,
+		OnTrack:       projectedCTL >= currentCTL,
+		WeeklyNeeded:  (projectedCTL - currentCTL) / 4.0,
+	}
+	if trend == nil || slope == nil {
+		return projection
+	}
+
+	trendCode := normalizeProjectionTrend(*trend)
+	if trendKey != nil && *trendKey != "" {
+		trendCode = normalizeProjectionTrend(*trendKey)
+	}
+	explanationStr := fmt.Sprintf(
+		"Trend: %s (%.3f CTL/Tag) auf Basis von %d Datenpunkten",
+		legacyProjectionTrendLabel(trendCode), *slope, dataPoints,
+	)
+	projection.Explanation = &explanationStr
+	projection.ExplanationKey = "analytics.projection.ctl_trend"
+	projection.ExplanationParams = map[string]any{
+		"trend":             trendCode,
+		"slope_ctl_per_day": *slope,
+		"data_points":       dataPoints,
+	}
+	return projection
+}
+
+func normalizeProjectionTrend(trend string) string {
+	switch trend {
+	case "aufbau", "building":
+		return "building"
+	case "abbau", "detraining":
+		return "detraining"
+	case "plateau":
+		return "plateau"
+	default:
+		return trend
+	}
+}
+
+func legacyProjectionTrendLabel(trend string) string {
+	switch trend {
+	case "building":
+		return "aufbauend"
+	case "detraining":
+		return "abbauend"
+	case "plateau":
+		return "stabil (Plateau)"
+	default:
+		return trend
+	}
 }
 
 // GetInsightsClusters returns ML-computed activity cluster analysis from the analytics cache.

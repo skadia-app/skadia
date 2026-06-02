@@ -20,6 +20,7 @@ type ProjectionResult struct {
 	CurrentCTL      *float64 `json:"current_ctl"`
 	ProjectedCTL28d *float64 `json:"projected_ctl_28d"`
 	Trend           *string  `json:"trend"`
+	TrendKey        *string  `json:"trend_key,omitempty"`
 	DataPoints      int      `json:"data_points"`
 }
 
@@ -66,12 +67,8 @@ func ComputeProjection(ctx context.Context, db *database.DB, userID string) erro
 	xFuture := float64(len(ctlValues)-1) + projectionDays
 	projectedCTL := slope*xFuture + intercept
 
-	trend := "plateau"
-	if slope >= plateauSlopeThreshold {
-		trend = "aufbau"
-	} else if slope <= -plateauSlopeThreshold {
-		trend = "abbau"
-	}
+	trend := legacyProjectionTrendForSlope(slope)
+	trendKey := projectionTrendKeyForSlope(slope)
 
 	slopeR := roundN(slope, 4)
 	currentR := roundN(currentCTL, 1)
@@ -82,6 +79,7 @@ func ComputeProjection(ctx context.Context, db *database.DB, userID string) erro
 		CurrentCTL:      &currentR,
 		ProjectedCTL28d: &projectedR,
 		Trend:           &trend,
+		TrendKey:        &trendKey,
 		DataPoints:      len(ctlValues),
 	}
 
@@ -90,6 +88,26 @@ func ComputeProjection(ctx context.Context, db *database.DB, userID string) erro
 		return err
 	}
 	return db.UpsertAnalyticsCache(ctx, userID, projectionCacheKey, data)
+}
+
+func projectionTrendKeyForSlope(slope float64) string {
+	if slope >= plateauSlopeThreshold {
+		return "building"
+	}
+	if slope <= -plateauSlopeThreshold {
+		return "detraining"
+	}
+	return "plateau"
+}
+
+func legacyProjectionTrendForSlope(slope float64) string {
+	if slope >= plateauSlopeThreshold {
+		return "aufbau"
+	}
+	if slope <= -plateauSlopeThreshold {
+		return "abbau"
+	}
+	return "plateau"
 }
 
 // linearRegression berechnet Steigung (slope) und Achsenabschnitt (intercept)

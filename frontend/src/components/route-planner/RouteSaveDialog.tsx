@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { createRoute, updateRoute, setRouteTags } from '@/api/routes'
 import type { PlannedRoute, RouteWaypoint, RouteSegment } from '@/api/routes'
 import { useToast } from '@/lib/toast'
@@ -34,6 +35,8 @@ interface Props {
 
 type SaveMode = 'save' | 'save_as_new'
 
+export const ROUTE_SAVE_ERROR_MISSING_GEOMETRY = 'route_save_missing_geometry'
+
 export function buildRouteSavePayload({
   metadata,
   waypoints,
@@ -45,7 +48,7 @@ export function buildRouteSavePayload({
 }): Partial<PlannedRoute> {
   const combinedCoords = segments.flatMap((seg) => seg.geometry?.coordinates ?? [])
   if (combinedCoords.length < 2) {
-    throw new Error('Die Route hat keine Geometrie. Bitte zuerst Wegpunkte setzen und eine Strecke berechnen lassen.')
+    throw new Error(ROUTE_SAVE_ERROR_MISSING_GEOMETRY)
   }
   const geometry_geojson = JSON.stringify({
     type: 'LineString',
@@ -87,6 +90,7 @@ export default function RouteSaveDialog({
   onClose,
   onSaved,
 }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -132,19 +136,19 @@ export default function RouteSaveDialog({
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       queryClient.invalidateQueries({ queryKey: ['route', saved.id] })
-      // "Route aktualisiert" matches the wording from the hook's silent-PATCH path.
+      // Keep this wording aligned with the hook's silent PATCH path.
       // Only shown when updating an existing route via the dialog (not on create or
       // save-as-new, which produce a new route and are already self-evident).
       if (isEditing && saveMode === 'save') {
         addToast({
           type: 'success',
-          title: 'Route aktualisiert',
+          title: t('routePlanner.save.updated'),
           message: saved.name || undefined,
         })
       } else if (saveMode === 'save_as_new') {
         addToast({
           type: 'success',
-          title: 'Als neue Route gespeichert',
+          title: t('routePlanner.save.savedAsNew'),
           message: saved.name,
         })
       }
@@ -152,10 +156,13 @@ export default function RouteSaveDialog({
       onClose()
     },
     onError: (err) => {
+      const message = err instanceof Error && err.message === ROUTE_SAVE_ERROR_MISSING_GEOMETRY
+        ? t('routePlanner.save.errors.missingGeometry')
+        : err instanceof Error ? err.message : t('auth.errors.unknown_error')
       addToast({
         type: 'error',
-        title: 'Fehler beim Speichern',
-        message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+        title: t('routePlanner.save.saveFailed'),
+        message,
         duration: 0,
       })
     },
@@ -185,14 +192,14 @@ export default function RouteSaveDialog({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 dark:border-neutral-800 flex-shrink-0">
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-            {isEditing ? 'Route speichern' : 'Route speichern'}
+            {t('routePlanner.save.title')}
           </h2>
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
             className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            aria-label="Schließen"
+            aria-label={t('routePlanner.save.close')}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -218,7 +225,7 @@ export default function RouteSaveDialog({
             disabled={isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            Abbrechen
+            {t('routePlanner.save.cancel')}
           </button>
 
           {isEditing && (
@@ -230,10 +237,10 @@ export default function RouteSaveDialog({
             >
               {isPending && saveMode === 'save_as_new' ? (
                 <span className="flex items-center gap-2">
-                  <Spinner /> Als neue Route…
+                  <Spinner /> {t('routePlanner.save.savingAsNew')}
                 </span>
               ) : (
-                'Als neue Route speichern'
+                t('routePlanner.save.saveAsNew')
               )}
             </button>
           )}
@@ -246,10 +253,10 @@ export default function RouteSaveDialog({
           >
             {isPending && saveMode === 'save' ? (
               <span className="flex items-center gap-2">
-                <Spinner /> Speichert…
+                <Spinner /> {t('routePlanner.save.saving')}
               </span>
             ) : (
-              'Speichern'
+              t('routePlanner.save.save')
             )}
           </button>
         </div>

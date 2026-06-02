@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { describe, expect, it, vi } from 'vitest'
 import PlaceRegionEditor from './PlaceRegionEditor'
+import '@/i18n/i18n'
 
 vi.mock('./VisibilityAccessField', () => ({
   default: ({ visibility }: { visibility: string }) => (

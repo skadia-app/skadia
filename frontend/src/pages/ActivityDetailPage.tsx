@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchActivity, fetchActivityStreams, fetchActivitySensors, fetchActivityLaps, fetchActivitySplits, fetchActivityLengths, fetchActivityClimbPro, getZoneDistribution, fetchActivitySets, fetchActivityJumps, fetchActivityEvents, fetchDiveInfo } from '@/api/activities'
 import { fetchWorkout } from '@/api/workouts'
 import { fetchRecordingGroup } from '@/api/recordingGroups'
@@ -11,9 +12,10 @@ import type { Activity, StreamPoint, ActivitySet, ActivityJump, ActivityEvent, W
 import ActivityCharts, { type ZoomRange, type SplitMarker } from '@/components/ActivityCharts'
 import MapFullscreen from '@/components/MapFullscreen'
 import {
-  formatDuration, formatDistance,
+  formatDuration,
   sportColor,
 } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { getSegmentGroup, categoryForSport } from '@/lib/sportTaxonomy'
 import { defaultSpeedMode } from '@/lib/sportFieldLabels'
 import GeoTagsList from '@/components/GeoTagsList'
@@ -94,6 +96,8 @@ export function shouldRenderLiftSection(
 }
 
 export default function ActivityDetailPage() {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const { id: urlId } = useParams<{ id: string }>()
   const [activeActivityId, setActiveActivityId] = useState(urlId!)
   const queryClient = useQueryClient()
@@ -368,10 +372,14 @@ export default function ActivityDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['activity-photos', activeActivityId] })
       const duplicates = results.filter(r => r.status === 'fulfilled' && r.value.status === 'duplicate').length
       if (duplicates > 0) {
-        addToast({ type: 'warning', title: `${duplicates} Foto${duplicates > 1 ? 's' : ''} bereits vorhanden`, message: 'Duplikate wurden nicht erneut hochgeladen.' })
+        addToast({
+          type: 'warning',
+          title: t('activityPhotos.toasts.duplicatesTitle', { count: duplicates }),
+          message: t('activityPhotos.toasts.duplicatesMessage'),
+        })
       }
     })
-  }, [activeActivityId, queryClient])
+  }, [activeActivityId, queryClient, t])
 
   useEffect(() => {
     window.addEventListener('dragenter', handleDragEnter)
@@ -524,7 +532,7 @@ export default function ActivityDetailPage() {
     setHighlightedPoiHoverKind(null)
   }, [])
 
-  // Tags für Standort-Sektion bei Indoor-Aktivitäten laden
+  // Load tags for the location section on indoor activities
   const { data: allTagsForLocation = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: fetchTags,
@@ -590,14 +598,14 @@ export default function ActivityDetailPage() {
   }, [recordingGroup, activeActivityId, queryClient])
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Aktivität...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('activityDetail.loading')}</div>
   }
 
   if (!activity) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <span className="text-neutral-400">Aktivität nicht gefunden</span>
-        <Link to="/activities" className="text-sm text-accent-DEFAULT hover:text-accent-600">Zurück zur Liste</Link>
+        <span className="text-neutral-400">{t('activityDetail.notFound')}</span>
+        <Link to="/activities" className="text-sm text-accent-DEFAULT hover:text-accent-600">{t('activityDetail.backToList')}</Link>
       </div>
     )
   }
@@ -611,7 +619,7 @@ export default function ActivityDetailPage() {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 opacity-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18M3.75 3h16.5A.75.75 0 0121 3.75v13.5a.75.75 0 01-.75.75H3.75A.75.75 0 013 17.25V3.75A.75.75 0 013.75 3z" />
             </svg>
-            <span className="text-2xl font-semibold tracking-wide">Fotos hier ablegen</span>
+            <span className="text-2xl font-semibold tracking-wide">{t('activityDetail.dropPhotos')}</span>
           </div>
         </div>
       )}
@@ -622,14 +630,14 @@ export default function ActivityDetailPage() {
           to="/activities"
           className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
         >
-          <span>&#8592;</span> Alle Aktivitäten
+          <span>&#8592;</span> {t('activityDetail.allActivities')}
         </Link>
         {activity.parent_id && (
           <Link
             to={`/activities/${activity.parent_id}`}
             className="inline-flex items-center gap-1 text-sm text-accent-DEFAULT hover:text-accent-600 transition-colors"
           >
-            <span>&#8599;</span> Multisport-Aktivität
+            <span>&#8599;</span> {t('activityDetail.multisportActivity')}
           </Link>
         )}
       </div>
@@ -675,7 +683,7 @@ export default function ActivityDetailPage() {
       {/* Workout visualization */}
       {workout && <WorkoutOverview workout={workout} />}
 
-      {/* Ballsport Metriken */}
+      {/* Ball sports metrics */}
       {categoryForSport(activity.sport_type).key === 'game' && <BallSportStats activity={activity} />}
 
       {/* Health context from the night before (sleep, HRV, resting HR) */}
@@ -694,7 +702,7 @@ export default function ActivityDetailPage() {
           )}
           {activity.suunto_recovery_time_h != null && (
             <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-1">
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Erholungszeit</div>
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">{t('activityDetail.recoveryTime')}</div>
               <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
                 {Math.floor(activity.suunto_recovery_time_h)} h {Math.round((activity.suunto_recovery_time_h % 1) * 60)} min
               </div>
@@ -723,22 +731,22 @@ export default function ActivityDetailPage() {
           {/* Aggregated totals */}
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdauer</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('activityDetail.totalDuration')}</div>
               <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
                 {formatDuration(activity.elapsed_time_s ?? 0)}
               </div>
             </div>
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtdistanz</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('activityDetail.totalDistance')}</div>
               <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
                 {formatDistance(activity.distance_m)}
               </div>
             </div>
             {(activity.elevation_gain_m ?? 0) > 0 && (
               <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Höhenmeter</div>
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('activityDetail.elevationGain')}</div>
                 <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                  {Math.round(activity.elevation_gain_m ?? 0)} m
+                  {formatElevation(activity.elevation_gain_m)}
                 </div>
               </div>
             )}
@@ -752,7 +760,7 @@ export default function ActivityDetailPage() {
             />
           )}
 
-          {/* Kombinierte Zeitreihen-Datenströme */}
+          {/* Combined time-series data streams */}
           {multisportChartData && multisportChartData.merged.length > 0 && (
             <ActivityCharts
               streams={multisportChartData.merged}
@@ -762,20 +770,20 @@ export default function ActivityDetailPage() {
             />
           )}
 
-          {/* Enrichments aus Kindaktivitäten */}
+          {/* Enrichments from child activities */}
           {childActivities && childActivities.length > 0 && (
             <MultisportEnrichments childActivities={childActivities} timezone={activity.timezone} />
           )}
         </div>
       )}
 
-      {/* Erweiterte Metriken */}
+      {/* Extended metrics */}
       {(activity.variability_index != null || activity.efficiency_factor != null || activity.aerobic_decoupling != null || activity.workout_rpe != null || activity.workout_feel != null || activity.aerobic_training_effect != null) && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {activity.variability_index != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Variabilität</div>
-              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Variabilitätsindex: NP/Ø-Power. 1.0 = gleichmäßig, >1.05 = unruhig">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('activityDetail.variability')}</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title={t('activityDetail.titles.variability')}>
                 {activity.variability_index.toFixed(2)}
               </div>
             </div>
@@ -783,7 +791,7 @@ export default function ActivityDetailPage() {
           {activity.efficiency_factor != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
               <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">EF</div>
-              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Effizienzfaktor: Ø-Power/Ø-HR. Steigt bei besserer Fitness">
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title={t('activityDetail.titles.efficiencyFactor')}>
                 {activity.efficiency_factor.toFixed(2)}
               </div>
             </div>
@@ -794,15 +802,15 @@ export default function ActivityDetailPage() {
               <div className={`text-lg font-semibold ${
                 Math.abs(activity.aerobic_decoupling) < 5 ? 'text-green-600' :
                 Math.abs(activity.aerobic_decoupling) < 10 ? 'text-yellow-600' : 'text-red-600'
-              }`} title="Aerob. Decoupling Pw:Hr. <5% = gute Ausdauer">
+              }`} title={t('activityDetail.titles.aerobicDecoupling')}>
                 {activity.aerobic_decoupling.toFixed(1)}%
               </div>
             </div>
           )}
           {activity.workout_feel != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gefühl</div>
-              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Subjektives Wohlbefinden beim Training">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('activityDetail.feel')}</div>
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title={t('activityDetail.titles.feel')}>
                 {(['😫', '😕', '😐', '🙂', '😄'] as const)[activity.workout_feel] ?? activity.workout_feel}
               </div>
             </div>
@@ -815,7 +823,7 @@ export default function ActivityDetailPage() {
                 activity.workout_rpe <= 6 ? 'text-yellow-600 dark:text-yellow-400' :
                 activity.workout_rpe <= 8 ? 'text-orange-600 dark:text-orange-400' :
                 'text-red-600 dark:text-red-400'
-              }`} title="Subjektive Belastung (RPE 1-10, aus Garmin-Gerät)">
+              }`} title={t('activityDetail.titles.rpe')}>
                 {activity.workout_rpe}/10
               </div>
             </div>
@@ -823,7 +831,7 @@ export default function ActivityDetailPage() {
           {activity.aerobic_training_effect != null && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
               <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Training Effect</div>
-              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title="Aerober Trainingseffekt (Garmin Firstbeat, 1-5)">
+              <div className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" title={t('activityDetail.titles.trainingEffect')}>
                 {activity.aerobic_training_effect.toFixed(1)}
               </div>
             </div>
@@ -831,12 +839,12 @@ export default function ActivityDetailPage() {
         </div>
       )}
 
-      {/* Geo Tags (nicht für Multisport-Parent — Enrichments werden oben in der Multisport-Sektion gezeigt) */}
+      {/* Geo tags (not for multisport parents; enrichments are shown above in the multisport section) */}
       {activity.sport_type !== 'multisport' && (
         <GeoTagsList activityId={activity.id} hiddenModules={effectiveHiddenModules} enabled={geoPOIAvailable} />
       )}
 
-      {/* Standort (nur für Indoor-Aktivitäten ohne GPS, nicht für Multisport-Parent) */}
+      {/* Location (only for indoor activities without GPS, not for multisport parents) */}
       {!activity.has_gps && activity.sport_type !== 'multisport' && (
         <ActivityLocationTagSection
           activityId={activity.id}
@@ -848,7 +856,7 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Track-Zusammenfassung + Wege/Oberflächen + Karte als zusammenhängender Block (nicht für Multisport) */}
+      {/* Track summary + ways/surfaces + map as a contiguous block (not for multisport) */}
       {activity.sport_type !== 'multisport' && (
         <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
           {trackSummaryEnabled && !trackSummaryQuery.isError && (
@@ -940,7 +948,7 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Fotos */}
+      {/* Photos */}
       <ActivityPhotoSection activityId={activity.id} />
 
       {/* Charts */}
@@ -966,24 +974,24 @@ export default function ActivityDetailPage() {
         </ChartTabs>
       )}
 
-      {/* Krafttraining Sets */}
+      {/* Strength training sets */}
       {sets && sets.length > 0 && <StrengthSetsTable sets={sets} />}
 
-      {/* Sprünge */}
+      {/* Jumps */}
       {(activity.jump_count ?? 0) > 0 && <JumpSection jumpCount={activity.jump_count!} jumps={jumps} />}
 
-      {/* Runden */}
+      {/* Laps */}
       {laps && laps.length > 0 && <LapTable laps={laps} sportType={activity.sport_type} speedMode={speedMode} />}
 
-      {/* Splits (Klettern zuerst) */}
+      {/* Splits (climbing first) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type === 'rock_climbing' && (
         <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType="rock_climbing" subType={activity.sub_type ?? undefined} activityId={activity.id} />
       )}
 
-      {/* Bahnen */}
+      {/* Lengths */}
       {lengths && lengths.length > 0 && <SwimLengthTable lengths={lengths} />}
 
-      {/* Splits (alle anderen) */}
+      {/* Splits (all others) */}
       {splitsData && splitsData.splits.length > 0 && activity.sport_type !== 'rock_climbing' && (
         <SplitTable splits={splitsData.splits} summaries={splitsData.summaries ?? []} sportType={activity.sport_type} activityId={activity.id} />
       )}
@@ -991,13 +999,13 @@ export default function ActivityDetailPage() {
       {/* ClimbPro */}
       {climbPro && climbPro.length > 0 && <ClimbProChart events={climbPro} />}
 
-      {/* Anstiege (nur bei GPS-Aktivitäten sinnvoll) */}
+      {/* Climbs (only meaningful for GPS activities) */}
       {activity.has_gps && !hiddenModules.has('ascents') && <ClimbsSection activityId={activity.id} onClimbHover={setHoveredClimbRange} />}
 
-      {/* Intervalltraining */}
+      {/* Interval training */}
       <IntervalSection activityId={activity.id} sportType={activity.sport_type} />
 
-      {/* Liftfahrten */}
+      {/* Lift rides */}
       {shouldRenderLiftSection(activity, unreviewedLiftCandidateCount) ? (
         <LiftSection
           activity={activity}
@@ -1022,10 +1030,10 @@ export default function ActivityDetailPage() {
         osmSnapAvailable={osmLiftSnapAvailable}
       />
 
-      {/* Stopps (nicht für Multisport-Parent) */}
+      {/* Stops (not for multisport parents) */}
       {activity.sport_type !== 'multisport' && !effectiveHiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
 
-      {/* Enrichment-Modul-Status */}
+      {/* Enrichment module status */}
       <EnrichmentStatusSection
         activityId={activity.id}
         enrichmentStatus={activity.enrichment_status}
@@ -1033,13 +1041,13 @@ export default function ActivityDetailPage() {
         onToggleModule={toggleModule}
       />
 
-      {/* Datenkorrekturen (Höhe + Distanz) */}
+      {/* Data corrections (elevation + distance) */}
       <DataCorrectionsSection activity={activity} />
 
-      {/* Erkannte Runden */}
+      {/* Detected laps */}
       <DetectedLapsTable activityId={activity.id} sportType={activity.sport_type} />
 
-      {/* Segmente (nur bei GPS-Aktivitäten) */}
+      {/* Segments (only for GPS activities) */}
       {activity.has_gps && (
         <ActivitySegments
           activityId={activity.id}
@@ -1048,10 +1056,10 @@ export default function ActivityDetailPage() {
         />
       )}
 
-      {/* Ähnliche Routen (nur bei GPS-Aktivitäten) */}
+      {/* Similar routes (only for GPS activities) */}
       {activity.has_gps && <RouteSimilarityCard activityId={activity.id} />}
 
-      {/* Zonen-Verteilung */}
+      {/* Zone distribution */}
       {zoneDistribution && (zoneDistribution.hr_zones.length > 0 || zoneDistribution.power_zones.length > 0) && (
         <ZoneDistributionChart distribution={zoneDistribution} />
       )}
@@ -1059,7 +1067,7 @@ export default function ActivityDetailPage() {
       {/* Sensors */}
       {sensors && sensors.length > 0 && <SensorList sensors={sensors} />}
 
-      {/* PiP-Karte: erscheint wenn die Hauptkarte nicht sichtbar ist */}
+      {/* PiP map: shown when the main map is not visible */}
       {activity.has_gps && activity.sport_type !== 'multisport' && streams && (
         <PiPMap
           streams={streams}
@@ -1081,10 +1089,11 @@ function MultisportSectionWithUngroup({
   children: Activity[]
   onHoverChild?: (id: string | null) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
-        Multisport-Disziplinen
+        {t('activityDetail.multisportDisciplines')}
       </h3>
       <MultisportSection children={children} onHoverChild={onHoverChild} />
     </div>

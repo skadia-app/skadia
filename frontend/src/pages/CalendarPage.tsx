@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -14,7 +15,6 @@ import {
   eachDayOfInterval,
   getDay,
 } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -29,9 +29,12 @@ import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
-import { normTz } from '@/lib/format'
-import { formatDuration, formatDistance } from '@/lib/utils'
+import { dateFnsLocaleForLanguage, normTz, type DateFnsLocale } from '@/lib/format'
+import { formatDuration } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import DateRangePopover from '@/components/DateRangePopover'
+import { localeForLanguage } from '@/i18n/languages'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 echarts.use([HeatmapChart, CalendarComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
@@ -39,9 +42,6 @@ type WeekCount = 4 | 8 | 12
 type ViewTab = 'weeks' | 'year'
 type YearViewMode = 'calendar' | 'heatmap'
 
-const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
-// Short day headers for month grid (Mon-first, 7 columns)
-const MONTH_DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 const MAX_CARDS_PER_CELL = 3
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,14 +70,23 @@ function formatWeeklyTime(seconds: number): string {
   return `${h}:${m.toString().padStart(2, '0')}`
 }
 
-function formatWeeklyDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)} m`
-  return `${(meters / 1000).toFixed(1)} km`
+function formatShortDateRange(start: Date, end: Date, locale: string): string {
+  const formatter = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit' })
+  return `${formatter.format(start)}–${formatter.format(end)}`
+}
+
+export function formatCalendarDayHeading(day: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(day)
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const weekCount: WeekCount = 8 // Fixed to 8 weeks
   const [tab, setTab] = useState<ViewTab>('weeks')
@@ -301,6 +310,11 @@ export default function CalendarPage() {
   }
 
   const currentYear = new Date().getFullYear()
+  const language = supportedLanguageFrom(i18n.language)
+  const locale = localeForLanguage(language)
+  const dateLocale = dateFnsLocaleForLanguage(language)
+  const dayLabels = Object.values(t('calendar.weekdaysShort', { returnObjects: true }) as Record<string, string>)
+  const monthDayLabels = Object.values(t('calendar.weekdaysShort', { returnObjects: true }) as Record<string, string>)
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -308,7 +322,7 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Kalender
+          {t('calendar.title')}
         </h1>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -328,7 +342,7 @@ export default function CalendarPage() {
                 showHealthData ? 'translate-x-4' : 'translate-x-0.5',
               ].join(' ')} />
             </div>
-            Gesundheitsdaten
+            {t('calendar.healthData')}
           </label>
 
           {/* Tab Toggle */}
@@ -341,7 +355,7 @@ export default function CalendarPage() {
                   : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              Wochen
+              {t('calendar.tabs.weeks')}
             </button>
             <button
               onClick={() => setTab('year')}
@@ -351,11 +365,11 @@ export default function CalendarPage() {
                   : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              Jahr
+              {t('calendar.tabs.year')}
             </button>
           </div>
 
-          {/* View mode toggle — Kalender/TSS-Heatmap */}
+          {/* View mode toggle — calendar/TSS heatmap */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               onClick={() => setYearViewMode('calendar')}
@@ -365,7 +379,7 @@ export default function CalendarPage() {
                   : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              Kalender
+              {t('calendar.viewModes.calendar')}
             </button>
             <button
               onClick={() => setYearViewMode('heatmap')}
@@ -375,7 +389,7 @@ export default function CalendarPage() {
                   : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
               }
             >
-              TSS-Heatmap
+              {t('calendar.viewModes.heatmap')}
             </button>
           </div>
 
@@ -407,7 +421,7 @@ export default function CalendarPage() {
                   className="p-1.5 rounded-md border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
                              hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors"
-                  title="Vorheriges Jahr"
+                  title={t('calendar.navigation.previousYear')}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -461,7 +475,7 @@ export default function CalendarPage() {
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700
                              hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer transition-colors
                              disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
-                  title="Nächstes Jahr"
+                  title={t('calendar.navigation.nextYear')}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -472,6 +486,7 @@ export default function CalendarPage() {
       {tab === 'weeks' ? (
         <WeekGridView
           weeks={weeks}
+          dayLabels={dayLabels}
           weekSummaries={weekSummaries}
           activitiesByDate={activitiesByDate}
           navigate={navigate}
@@ -479,12 +494,18 @@ export default function CalendarPage() {
           healthDailyByDate={healthDailyByDate}
           healthSleepByDate={healthSleepByDate}
           healthHRVByDate={healthHRVByDate}
+          t={t}
+          locale={locale}
+          dateLocale={dateLocale}
         />
       ) : yearViewMode === 'calendar' ? (
         <YearCalendarView
           year={selectedYear}
           activitiesByDate={yearActivitiesByDate}
           navigate={navigate}
+          monthDayLabels={monthDayLabels}
+          locale={locale}
+          dateLocale={dateLocale}
         />
       ) : (
         <YearHeatmapView activitiesByDate={yearActivitiesByDate} year={selectedYear} />
@@ -497,6 +518,7 @@ export default function CalendarPage() {
 
 interface WeekGridProps {
   weeks: Date[][]
+  dayLabels: string[]
   weekSummaries: Array<{
     weekNum: number
     monday: Date
@@ -515,19 +537,24 @@ interface WeekGridProps {
   healthDailyByDate: Map<string, HealthDailySummary>
   healthSleepByDate: Map<string, HealthSleep>
   healthHRVByDate: Map<string, HealthHRVSnapshot>
+  t: ReturnType<typeof useTranslation>['t']
+  locale: string
+  dateLocale: DateFnsLocale
 }
 
-function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHealthData, healthDailyByDate, healthSleepByDate, healthHRVByDate }: WeekGridProps) {
+function WeekGridView({ weeks, dayLabels, weekSummaries, activitiesByDate, navigate, showHealthData, healthDailyByDate, healthSleepByDate, healthHRVByDate, t, locale, dateLocale }: WeekGridProps) {
+  const { formatDistance } = useUnitFormatters()
+
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
-            {/* Task 4: Wochenspalte Header */}
+            {/* Task 4: week-column header */}
             <th className="text-left px-2 py-2 text-neutral-500 dark:text-neutral-400 font-medium w-[140px] text-xs">
-              Woche
+              {t('calendar.week')}
             </th>
-            {DAY_LABELS.map((d) => (
+            {dayLabels.map((d) => (
               <th
                 key={d}
                 className="text-center px-1 py-2 text-neutral-500 dark:text-neutral-400 font-medium text-xs"
@@ -542,15 +569,15 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHe
             const summary = weekSummaries[wi]
             return (
               <tr key={wi} className="align-top">
-                {/* Task 4: Week summary cell — date bold, KW small below */}
+                {/* Task 4: week summary cell with bold date and compact calendar week */}
                 <td className="px-2 py-2 border-r border-neutral-100 dark:border-neutral-800/50 bg-neutral-50/50 dark:bg-neutral-900/30">
-                  {/* Datum-Range fett oben */}
+                  {/* Date range at the top */}
                   <div className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
-                    {format(summary.monday, 'dd.MM.')}–{format(summary.sunday, 'dd.MM.')}
+                    {formatShortDateRange(summary.monday, summary.sunday, locale)}
                   </div>
-                  {/* KW klein darunter */}
+                  {/* Calendar week below */}
                   <div className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                    KW {summary.weekNum}
+                    {t('calendar.calendarWeek', { week: summary.weekNum })}
                   </div>
                   {summary.actCount > 0 && (
                     <div className="mt-1.5 space-y-0.5 text-[10px] text-neutral-500 dark:text-neutral-400">
@@ -559,13 +586,13 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHe
                         <span className="font-medium tabular-nums">{summary.totalTSS}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Distanz</span>
+                        <span>{t('calendar.summary.distance')}</span>
                         <span className="font-medium tabular-nums">
-                          {formatWeeklyDistance(summary.totalDistance)}
+                          {formatDistance(summary.totalDistance)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Zeit</span>
+                        <span>{t('calendar.summary.time')}</span>
                         <span className="font-medium tabular-nums">
                           {formatWeeklyTime(summary.totalTime)}
                         </span>
@@ -611,7 +638,7 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHe
 
                 {/* Day cells */}
                 {days.map((day, di) => {
-                  // Task 4: detect first day of month or first day with new month in row
+                  // Task 4: detect the first day of a month or the row's first month transition.
                   const isFirstInMonth =
                     day.getDate() === 1 ||
                     (di > 0 && days[di - 1].getMonth() !== day.getMonth())
@@ -626,6 +653,8 @@ function WeekGridView({ weeks, weekSummaries, activitiesByDate, navigate, showHe
                       healthDaily={healthDailyByDate.get(dateKey(day))}
                       healthSleep={healthSleepByDate.get(dateKey(day))}
                       healthHRV={healthHRVByDate.get(dateKey(day))}
+                      t={t}
+                      dateLocale={dateLocale}
                     />
                   )
                 })}
@@ -649,9 +678,11 @@ interface DayCellProps {
   healthDaily?: HealthDailySummary
   healthSleep?: HealthSleep
   healthHRV?: HealthHRVSnapshot
+  t: ReturnType<typeof useTranslation>['t']
+  dateLocale: DateFnsLocale
 }
 
-function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, healthDaily, healthSleep, healthHRV }: DayCellProps) {
+function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, healthDaily, healthSleep, healthHRV, t, dateLocale }: DayCellProps) {
   const today = isToday(day)
   const shown = activities.slice(0, MAX_CARDS_PER_CELL)
   const extra = activities.length - MAX_CARDS_PER_CELL
@@ -676,7 +707,7 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
         </span>
         {isFirstInMonth && (
           <span className="text-[9px] font-medium text-[color:var(--color-accent-DEFAULT)] uppercase tracking-wide">
-            {format(day, 'MMM', { locale: de })}
+            {format(day, 'MMM', { locale: dateLocale })}
           </span>
         )}
       </div>
@@ -733,7 +764,7 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
             ))}
             {extra > 0 && (
               <div className="text-[10px] text-neutral-400 dark:text-neutral-500 px-1">
-                +{extra} mehr
+                {t('calendar.moreActivities', { count: extra })}
               </div>
             )}
           </div>
@@ -746,7 +777,7 @@ function DayCell({ day, activities, navigate, isFirstInMonth, showHealthData, he
           ))}
           {extra > 0 && (
             <div className="text-[10px] text-neutral-400 dark:text-neutral-500 px-1">
-              +{extra} mehr
+              {t('calendar.moreActivities', { count: extra })}
             </div>
           )}
         </div>
@@ -763,6 +794,7 @@ interface ActivityCardProps {
 }
 
 function ActivityCard({ activity, onClick }: ActivityCardProps) {
+  const { formatDistance } = useUnitFormatters()
   const color = sportColor(activity.sport_type)
   const label = sportLabel(activity.sport_type, activity.sub_type)
   const title = displayActivityTitle(activity, label)
@@ -820,6 +852,9 @@ interface YearCalendarViewProps {
   year: number
   activitiesByDate: Map<string, Activity[]>
   navigate: (path: string) => void
+  monthDayLabels: string[]
+  locale: string
+  dateLocale: DateFnsLocale
 }
 
 // Returns 0=Mon…6=Sun index for a given Date (JS getDay is 0=Sun)
@@ -827,7 +862,7 @@ function mondayFirstDayIndex(d: Date): number {
   return (getDay(d) + 6) % 7
 }
 
-function YearCalendarView({ year, activitiesByDate, navigate }: YearCalendarViewProps) {
+function YearCalendarView({ year, activitiesByDate, navigate, monthDayLabels, locale, dateLocale }: YearCalendarViewProps) {
   // Task 2: Freeze state for click-to-freeze overlay
   const [frozenDate, setFrozenDate] = useState<string | null>(null)
 
@@ -855,23 +890,20 @@ function YearCalendarView({ year, activitiesByDate, navigate }: YearCalendarView
     })
   }, [year])
 
-  const MONTH_NAMES = [
-    'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
-  ]
-
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {months.map(({ month, days, leadingBlanks }) => (
         <MonthCard
           key={month}
-          monthName={MONTH_NAMES[month]}
+          monthName={format(new Date(year, month, 1), 'MMMM', { locale: dateLocale })}
           days={days}
           leadingBlanks={leadingBlanks}
           activitiesByDate={activitiesByDate}
           navigate={navigate}
           frozenDate={frozenDate}
           onFreezeToggle={handleFreezeToggle}
+          monthDayLabels={monthDayLabels}
+          locale={locale}
         />
       ))}
     </div>
@@ -888,9 +920,11 @@ interface MonthCardProps {
   navigate: (path: string) => void
   frozenDate: string | null
   onFreezeToggle: (key: string) => void
+  monthDayLabels: string[]
+  locale: string
 }
 
-function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate, frozenDate, onFreezeToggle }: MonthCardProps) {
+function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate, frozenDate, onFreezeToggle, monthDayLabels, locale }: MonthCardProps) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {/* Month header */}
@@ -902,7 +936,7 @@ function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate,
 
       {/* Day-of-week header */}
       <div className="grid grid-cols-7 px-2 pt-2 pb-1">
-        {MONTH_DAY_LABELS.map((d) => (
+        {monthDayLabels.map((d) => (
           <div
             key={d}
             className="text-center text-[9px] font-medium text-neutral-400 dark:text-neutral-500 pb-1"
@@ -928,6 +962,7 @@ function MonthCard({ monthName, days, leadingBlanks, activitiesByDate, navigate,
               navigate={navigate}
               frozenDate={frozenDate}
               onFreezeToggle={onFreezeToggle}
+              locale={locale}
             />
           )
         })}
@@ -944,9 +979,11 @@ interface MonthDayCellProps {
   navigate: (path: string) => void
   frozenDate: string | null
   onFreezeToggle: (key: string) => void
+  locale: string
 }
 
-function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }: MonthDayCellProps) {
+function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle, locale }: MonthDayCellProps) {
+  const { formatDistance } = useUnitFormatters()
   const today = isToday(day)
   const hasActivities = activities.length > 0
   const key = dateKey(day)
@@ -1027,7 +1064,7 @@ function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }:
 
           <div className="p-2 space-y-1.5">
             <div className="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 mb-1 flex justify-between items-center">
-              <span>{format(day, 'EEEE, d. MMMM', { locale: de })}</span>
+              <span>{formatCalendarDayHeading(day, locale)}</span>
               {isFrozen && (
                 <button
                   onClick={() => onFreezeToggle(key)}
@@ -1090,7 +1127,9 @@ interface YearHeatmapProps {
 }
 
 function YearHeatmapView({ activitiesByDate, year }: YearHeatmapProps) {
+  const { t, i18n } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
+  const language = supportedLanguageFrom(i18n.language)
 
   // Compute daily TSS sums for the year
   const heatmapData = useMemo(() => {
@@ -1159,12 +1198,12 @@ function YearHeatmapView({ activitiesByDate, year }: YearHeatmapProps) {
           borderColor: borderColor,
         },
         dayLabel: {
-          nameMap: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+          nameMap: Object.values(t('calendar.weekdaysShortSundayFirst', { returnObjects: true }) as Record<string, string>),
           color: textColor,
           fontSize: 10,
         },
         monthLabel: {
-          nameMap: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
+          nameMap: Object.values(t('calendar.monthsShort', { returnObjects: true }) as Record<string, string>),
           color: textColor,
           fontSize: 11,
         },
@@ -1191,17 +1230,17 @@ function YearHeatmapView({ activitiesByDate, year }: YearHeatmapProps) {
       observer.disconnect()
       chart.dispose()
     }
-  }, [heatmapData, maxTSS, year])
+  }, [heatmapData, maxTSS, year, t, language])
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       <div className="p-4">
         <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-          TSS-Heatmap {year}
+          {t('calendar.heatmap.title', { year })}
         </h2>
         {/* Task 6: TSS info text */}
         <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mb-3">
-          Tägliche Trainingsbelastung (TSS). Nur Aktivitäten mit berechnetem TSS (z.B. Radfahren mit Leistungsmesser oder HR-Zonen).
+          {t('calendar.heatmap.description')}
         </p>
         <div ref={containerRef} className="h-[220px] w-full" />
       </div>

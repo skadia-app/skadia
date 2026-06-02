@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import '@/i18n/i18n'
 import { ScaleBadge } from '../ScaleBadge'
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => ({ locale: 'de', units: 'metric' }),
+}))
 
 describe('ScaleBadge', () => {
   const breakdown = [

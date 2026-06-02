@@ -1,14 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchSummitActivities, type SummitVisit } from '@/api/summits'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { fmtDist, fmtDateCompact } from '@/lib/format'
+import { fmtDateCompact } from '@/lib/format'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface SummitActivityListProps {
   summit: SummitVisit
 }
 
 export default function SummitActivityList({ summit }: SummitActivityListProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const navigate = useNavigate()
 
   const { data, isLoading, error } = useQuery({
@@ -22,15 +28,15 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
   return (
     <div className="flex flex-col gap-2">
       {isLoading && (
-        <div className="text-sm text-neutral-500 dark:text-neutral-400">Lädt...</div>
+        <div className="text-sm text-neutral-500 dark:text-neutral-400">{t('summitCollection.activities.loading')}</div>
       )}
       {!isLoading && error && (
         <div className="text-sm text-red-500 dark:text-red-400">
-          Aktivitäten konnten nicht geladen werden.
+          {t('summitCollection.activities.loadFailed')}
         </div>
       )}
       {!isLoading && !error && activities.length === 0 && (
-        <div className="text-sm text-neutral-500 dark:text-neutral-400">Keine Aktivitäten gefunden.</div>
+        <div className="text-sm text-neutral-500 dark:text-neutral-400">{t('summitCollection.activities.empty')}</div>
       )}
       <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
         {activities.map(act => (
@@ -42,22 +48,22 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
                        hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
           >
             <div className="font-medium text-sm truncate text-neutral-900 dark:text-neutral-100">
-              {act.title || 'Aktivität'}
+              {act.title || t('summitCollection.activities.untitled')}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 flex flex-wrap gap-2 mt-1">
               <span>{fmtDateCompact(act.started_at, act.timezone)}</span>
               <span>·</span>
-              <span>{sportLabel(act.sport_type)}</span>
+              <span>{sportLabel(act.sport_type, null, { language })}</span>
               {act.distance_m != null && (
                 <>
                   <span>·</span>
-                  <span>{fmtDist(act.distance_m)}</span>
+                  <span>{formatDistance(act.distance_m)}</span>
                 </>
               )}
               {act.elevation_gain_m != null && (
                 <>
                   <span>·</span>
-                  <span>↑{Math.round(act.elevation_gain_m)} m</span>
+                  <span>↑{formatElevation(act.elevation_gain_m)}</span>
                 </>
               )}
             </div>
@@ -66,7 +72,7 @@ export default function SummitActivityList({ summit }: SummitActivityListProps) 
       </div>
       {!isLoading && activities.length > 0 && (
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {activities.length} Aktivität{activities.length !== 1 ? 'en' : ''}
+          {t('summitCollection.activities.count', { count: activities.length })}
         </div>
       )}
     </div>

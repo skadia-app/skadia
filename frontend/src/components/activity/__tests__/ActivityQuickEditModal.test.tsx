@@ -2,17 +2,26 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ActivityQuickEditModal from '../ActivityQuickEditModal'
 import { fetchActivity, updateActivity } from '@/api/activities'
 import { assignActivitiesToTag, fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
 import type { Activity } from '@/api/types'
+import { i18n } from '@/i18n/i18n'
+
+const userPrefs = vi.hoisted(() => ({ locale: 'de', units: 'metric' as 'metric' | 'imperial' }))
 
 vi.mock('@/api/activities', () => ({
   fetchActivity: vi.fn(() => new Promise(() => {})),
   fetchActivityStreams: vi.fn(async () => []),
   updateActivity: vi.fn(),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
 }))
 
 vi.mock('@/api/tags', () => ({
@@ -96,7 +105,10 @@ function tag(overrides: Partial<Tag> = {}): Tag {
 }
 
 describe('ActivityQuickEditModal', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    userPrefs.locale = 'de'
+    userPrefs.units = 'metric'
+    await i18n.changeLanguage('de')
     vi.mocked(fetchActivity).mockImplementation(() => new Promise(() => {}))
     vi.mocked(updateActivity).mockReset()
     vi.mocked(fetchTags).mockResolvedValue([])
@@ -110,6 +122,65 @@ describe('ActivityQuickEditModal', () => {
     expect(screen.getByText('Aktivität wird geladen...')).toBeInTheDocument()
     expect(screen.queryByText('Titel')).not.toBeInTheDocument()
     expect(screen.queryByText('Tags')).not.toBeInTheDocument()
+  })
+
+  it('localizes visible form labels and actions in English', async () => {
+    await i18n.changeLanguage('en')
+    userPrefs.locale = 'en'
+    const user = userEvent.setup()
+    const initial = activity({
+      title: 'English row',
+      tags: [],
+      recording_device_name: 'Garmin Edge',
+      recording_device_id: 'device-1',
+    } as Partial<Activity>)
+    vi.mocked(fetchActivity).mockResolvedValue(initial)
+
+    renderModal(initial)
+
+    expect(await screen.findByRole('heading', { name: 'Edit activity' })).toBeInTheDocument()
+    expect(screen.getByText('Changes are applied when you save.')).toBeInTheDocument()
+    expect(screen.getByText('Recording device')).toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toHaveValue('English row')
+    expect(screen.getByText('Sport type')).toBeInTheDocument()
+    expect(screen.getByText('Privacy')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Private' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByLabelText('Hide map')).toBeInTheDocument()
+    expect(screen.getByText('No tags')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search or create tag...')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More editing' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.queryByText('Aktivität bearbeiten')).not.toBeInTheDocument()
+  })
+
+  it('formats quick stats with user unit preferences', async () => {
+    await i18n.changeLanguage('en')
+    userPrefs.locale = 'en'
+    userPrefs.units = 'imperial'
+    const initial = activity({
+      title: 'Imperial row',
+      distance_m: 1609.344,
+      elevation_gain_m: 100,
+      elevation_loss_m: 50,
+    })
+    vi.mocked(fetchActivity).mockResolvedValue(initial)
+
+    renderModal(initial)
+
+    expect(await screen.findByRole('heading', { name: 'Edit activity' })).toBeInTheDocument()
+    expect(screen.getByText('1.0 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft / −164 ft')).toBeInTheDocument()
+  })
+
+  it('uses catalog keys without hardcoded quick-edit visibility or feel fallbacks', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/activity/ActivityQuickEditModal.tsx'), 'utf8')
+
+    expect(source).not.toMatch(/label:\s*['"](?:Private|Known people|Instance|Federation|Public)['"]/)
+    expect(source).not.toMatch(/defaultValue:\s*VISIBILITY_OPTIONS/)
+    expect(source).not.toMatch(/defaultValue:\s*fallback/)
   })
 
   it('preserves typed draft fields when the full activity refresh resolves mid-edit', async () => {

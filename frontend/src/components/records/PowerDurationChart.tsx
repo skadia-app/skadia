@@ -1,11 +1,15 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useECharts } from '@/hooks/useECharts'
 import type { BestEffortRanked } from '@/api/bestEfforts'
-import { POWER_DURATIONS, CATEGORY_LABELS } from '@/lib/bestEffortLabels'
+import { POWER_DURATIONS, categoryLabel } from '@/lib/bestEffortLabels'
+import type { SupportedLanguage } from '@/i18n/languages'
+import { localeForLanguage } from '@/i18n/languages'
+import { formatPower } from '@/lib/units'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -15,13 +19,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = parseInt(hex.slice(5, 7), 16)
   return `rgba(${r},${g},${b},${alpha})`
 }
-
-const DURATION_LABELS = POWER_DURATIONS.map((category) =>
-  CATEGORY_LABELS[category]
-    .replace(' Sek', 's')
-    .replace(' Min', 'm')
-    .replace(' Std', 'h'),
-)
 
 interface PowerSeries {
   name: string
@@ -33,10 +30,19 @@ interface PowerDurationChartProps {
   records: BestEffortRanked[]
   series: PowerSeries[]
   height?: number
+  language?: SupportedLanguage
 }
 
-export function PowerDurationChart({ records, series, height = 220 }: PowerDurationChartProps) {
+export function PowerDurationChart({ records, series, height = 220, language }: PowerDurationChartProps) {
+  const { t } = useTranslation()
+  const locale = localeForLanguage(language ?? 'de')
   const rank1 = useMemo(() => records.filter((r) => r.rank === 1), [records])
+  const durationLabels = useMemo(() => POWER_DURATIONS.map((category) =>
+    categoryLabel(category, language)
+      .replace(' Sek', 's')
+      .replace(' Min', 'm')
+      .replace(' Std', 'h'),
+  ), [language])
 
   const chartSeries = useMemo(() => {
     return series.map((s) => {
@@ -58,19 +64,19 @@ export function PowerDurationChart({ records, series, height = 220 }: PowerDurat
         backgroundColor: 'rgba(17,24,39,0.95)',
         borderColor: '#374151',
         textStyle: { color: '#f3f4f6', fontSize: 11 },
-        valueFormatter: (v: number | string) => typeof v === 'number' ? `${Math.round(v)} W` : v,
+        valueFormatter: (v: number | string) => typeof v === 'number' ? formatPower(v, { locale }) : v,
       },
       grid: { left: 50, right: 20, top: 15, bottom: 35 },
       xAxis: {
         type: 'category' as const,
-        data: DURATION_LABELS,
+        data: durationLabels,
         axisLabel: { color: theme.textColor, fontSize: 10 },
         axisLine: { lineStyle: { color: '#374151' } },
         splitLine: { show: false },
       },
       yAxis: {
         type: 'value' as const,
-        name: 'Watt',
+        name: 'W',
         nameTextStyle: { color: theme.textColor, fontSize: 10 },
         axisLabel: { color: theme.textColor, fontSize: 10 },
         splitLine: { lineStyle: { color: theme.gridLineColor, type: 'dashed' as const } },
@@ -88,7 +94,7 @@ export function PowerDurationChart({ records, series, height = 220 }: PowerDurat
         connectNulls: true,
       })),
     }),
-    [chartSeries],
+    [chartSeries, durationLabels, locale],
   )
 
   if (chartSeries.length === 0) return null
@@ -97,8 +103,8 @@ export function PowerDurationChart({ records, series, height = 220 }: PowerDurat
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Leistungskurven</span>
-          <span className="text-[10px] text-neutral-500 dark:text-neutral-600 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">inkl. 0 W</span>
+          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('records.powerCurve.title')}</span>
+          <span className="text-[10px] text-neutral-500 dark:text-neutral-600 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">{t('records.powerCurve.includeZero')}</span>
         </div>
         <div className="flex items-center gap-3">
           {chartSeries.map((s) => (

@@ -5,6 +5,7 @@ import type { Activity, StreamPoint } from '@/api/types'
 import { useToast } from '@/lib/toast'
 import { useAccentColor } from '@/lib/accentColor'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ export function TrimSplitControls({
   initialMode,
 }: TrimSplitControlsProps) {
   const [mode, setMode] = useState<Mode>(initialMode ?? 'trim')
+  const { t } = useTranslation()
   const { accent } = useAccentColor()
   const { addToast } = useToast()
   const navigate = useNavigate()
@@ -261,13 +263,13 @@ export function TrimSplitControls({
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       addToast({
         type: 'success',
-        title: 'Aktivitat aufgeteilt',
-        message: 'Zwei Aktivitaten wurden erstellt.',
+        title: t('mapEditor.trimSplit.toast.splitSuccessTitle'),
+        message: t('mapEditor.trimSplit.toast.splitSuccessMessage'),
       })
       navigate(`/activities/${result.new_activity_id}`)
     },
     onError: (err) => {
-      addToast({ type: 'error', title: 'Aufteilung fehlgeschlagen', message: String(err), duration: 0 })
+      addToast({ type: 'error', title: t('mapEditor.trimSplit.toast.splitFailed'), message: String(err), duration: 0 })
       setConfirmSplit(false)
     },
   })
@@ -293,7 +295,7 @@ export function TrimSplitControls({
         >
           <span className="flex items-center gap-1.5">
             <ScissorsIcon className="w-3.5 h-3.5" />
-            Trim / Crop
+            {t('mapEditor.trimSplit.modeTrim')}
           </span>
         </button>
         <button
@@ -306,7 +308,7 @@ export function TrimSplitControls({
         >
           <span className="flex items-center gap-1.5">
             <SplitIcon className="w-3.5 h-3.5" />
-            Aufteilen
+            {t('mapEditor.trimSplit.modeSplit')}
           </span>
         </button>
       </div>
@@ -316,11 +318,11 @@ export function TrimSplitControls({
         <div className="space-y-3 p-4 border border-neutral-200 dark:border-neutral-700 rounded-lg bg-neutral-50 dark:bg-neutral-900">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Anfang und Ende zuschneiden
+              {t('mapEditor.trimSplit.trimTitle')}
             </h3>
             {trimActive && (
               <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                Anfang/Ende abgeschnitten
+                {t('mapEditor.trimSplit.trimActive')}
               </span>
             )}
           </div>
@@ -329,7 +331,7 @@ export function TrimSplitControls({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-                Start:
+                {t('mapEditor.trimSplit.startLabel')}
                 <TimestampInput
                   seconds={trimStartSeconds}
                   maxSeconds={trimEndSeconds}
@@ -337,7 +339,7 @@ export function TrimSplitControls({
                   onChange={onTrimStartChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
-                  ariaLabel="Start-Zeit"
+                  ariaLabel={t('mapEditor.trimSplit.startTime')}
                 />
               </label>
               <button
@@ -348,7 +350,7 @@ export function TrimSplitControls({
                     : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
-                {activeMapSelect === 'start' ? 'Auf Karte klicken...' : 'Auf Karte setzen'}
+                {activeMapSelect === 'start' ? t('mapEditor.trimSplit.clickMap') : t('mapEditor.trimSplit.setOnMap')}
               </button>
             </div>
             <div className="flex items-center gap-1.5">
@@ -380,7 +382,7 @@ export function TrimSplitControls({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-                Ende:
+                {t('mapEditor.trimSplit.endLabel')}
                 <TimestampInput
                   seconds={trimEndSeconds}
                   minSeconds={trimStartSeconds}
@@ -389,7 +391,7 @@ export function TrimSplitControls({
                   onChange={onTrimEndChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
-                  ariaLabel="End-Zeit"
+                  ariaLabel={t('mapEditor.trimSplit.endTime')}
                 />
               </label>
               <button
@@ -400,7 +402,7 @@ export function TrimSplitControls({
                     : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
-                {activeMapSelect === 'end' ? 'Auf Karte klicken...' : 'Auf Karte setzen'}
+                {activeMapSelect === 'end' ? t('mapEditor.trimSplit.clickMap') : t('mapEditor.trimSplit.setOnMap')}
               </button>
             </div>
             <div className="flex items-center gap-1.5">
@@ -431,7 +433,7 @@ export function TrimSplitControls({
           {/* Summary */}
           <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 pt-1 border-t border-neutral-200 dark:border-neutral-700">
             <span>
-              {keptCount} / {totalPoints} Punkte behalten ({keptPct}%)
+              {t('mapEditor.trimSplit.keptPoints', { keptCount, totalPoints, keptPct })}
               {trimActive && (
                 <span className="ml-2 font-mono text-neutral-600 dark:text-neutral-300">
                   {formatMMSS(trimStartSeconds)} – {formatMMSS(trimEndSeconds)}
@@ -446,7 +448,7 @@ export function TrimSplitControls({
                 }}
                 className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors underline cursor-pointer"
               >
-                Zurucksetzen
+                {t('mapEditor.trimSplit.reset')}
               </button>
             )}
           </div>
@@ -472,10 +474,10 @@ export function TrimSplitControls({
         <div className="space-y-3 p-4 border border-neutral-200 dark:border-neutral-700 rounded-lg bg-neutral-50 dark:bg-neutral-900">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Aktivitat an einem Punkt aufteilen
+              {t('mapEditor.trimSplit.splitTitle')}
             </h3>
             <span className="text-xs text-neutral-400 dark:text-neutral-500">
-              Gesamtdauer: <span className="font-mono text-neutral-600 dark:text-neutral-300">{formatMMSS(totalElapsed)}</span>
+              {t('mapEditor.trimSplit.totalDuration')} <span className="font-mono text-neutral-600 dark:text-neutral-300">{formatMMSS(totalElapsed)}</span>
             </span>
           </div>
 
@@ -483,7 +485,7 @@ export function TrimSplitControls({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-                Teilungspunkt:
+                {t('mapEditor.trimSplit.splitPoint')}
                 <TimestampInput
                   seconds={splitSeconds}
                   minSeconds={0}
@@ -492,7 +494,7 @@ export function TrimSplitControls({
                   onChange={onSplitIndexChange}
                   gpsStreams={gpsStreams}
                   startTime={startTime}
-                  ariaLabel="Split-Zeit"
+                  ariaLabel={t('mapEditor.trimSplit.splitTime')}
                 />
               </label>
               <button
@@ -503,7 +505,7 @@ export function TrimSplitControls({
                     : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
-                {activeMapSelect === 'split' ? 'Auf Karte klicken...' : 'Auf Karte setzen'}
+                {activeMapSelect === 'split' ? t('mapEditor.trimSplit.clickMap') : t('mapEditor.trimSplit.setOnMap')}
               </button>
             </div>
             <div className="flex items-center gap-1.5">
@@ -552,15 +554,15 @@ export function TrimSplitControls({
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-white dark:bg-neutral-800/50 px-3 py-2 text-center">
-                  <p className="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Teil 1</p>
+                  <p className="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{t('mapEditor.trimSplit.part1')}</p>
                   <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-50 mt-0.5 font-mono">
                     {part1Seconds > 0 ? formatMMSS(part1Seconds) : '\u2014'}
                   </p>
                 </div>
                 <div className="rounded-lg bg-white dark:bg-neutral-800/50 px-3 py-2 text-center">
-                  <p className="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">Teil 2</p>
+                  <p className="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{t('mapEditor.trimSplit.part2')}</p>
                   <p className={`text-sm font-semibold mt-0.5 font-mono ${part2Seconds <= 0 ? 'text-red-500' : 'text-neutral-900 dark:text-neutral-50'}`}>
-                    {part2Seconds > 0 ? formatMMSS(part2Seconds) : 'Ungultig'}
+                    {part2Seconds > 0 ? formatMMSS(part2Seconds) : t('mapEditor.trimSplit.invalid')}
                   </p>
                 </div>
               </div>
@@ -581,7 +583,7 @@ export function TrimSplitControls({
                            transition-colors cursor-pointer"
               >
                 <SplitIcon className="w-4 h-4" />
-                Aufteilen
+                {t('mapEditor.trimSplit.modeSplit')}
               </button>
             ) : (
               <div className="flex items-center gap-3">
@@ -590,7 +592,7 @@ export function TrimSplitControls({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                   </svg>
                   <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                    Diese Aktion erstellt eine zweite Aktivitat ab dem Teilungspunkt.
+                    {t('mapEditor.trimSplit.splitWarning')}
                   </p>
                 </div>
                 <button
@@ -601,7 +603,7 @@ export function TrimSplitControls({
                              hover:opacity-90 transition-colors cursor-pointer whitespace-nowrap"
                   style={{ backgroundColor: accent.shade500 }}
                 >
-                  {splitMutation.isPending ? 'Wird aufgeteilt\u2026' : 'Jetzt aufteilen'}
+                  {splitMutation.isPending ? t('mapEditor.trimSplit.splitting') : t('mapEditor.trimSplit.splitNow')}
                 </button>
                 <button
                   onClick={() => setConfirmSplit(false)}
@@ -610,7 +612,7 @@ export function TrimSplitControls({
                              text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800
                              disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  Abbrechen
+                  {t('mapEditor.trimSplit.cancel')}
                 </button>
               </div>
             )}
@@ -639,6 +641,7 @@ function SaveTrimButton({
   onSaved: () => void
 }) {
   const { addToast } = useToast()
+  const { t } = useTranslation()
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
@@ -682,10 +685,10 @@ function SaveTrimButton({
         },
       })
 
-      addToast({ type: 'success', title: 'Trim gespeichert' })
+      addToast({ type: 'success', title: t('mapEditor.trimSplit.toast.trimSaved') })
       onSaved()
     } catch {
-      addToast({ type: 'error', title: 'Trim-Speichern fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('mapEditor.trimSplit.toast.trimSaveFailed'), duration: 0 })
     } finally {
       setSaving(false)
     }
@@ -703,7 +706,7 @@ function SaveTrimButton({
                  transition-colors cursor-pointer"
     >
       <SaveIcon className="w-4 h-4" />
-      {saving ? 'Speichere...' : 'Trim speichern'}
+      {saving ? t('mapEditor.trimSplit.saving') : t('mapEditor.trimSplit.saveTrim')}
     </button>
   )
 }

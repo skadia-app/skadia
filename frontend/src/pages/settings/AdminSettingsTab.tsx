@@ -1,20 +1,20 @@
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import AdminStorageDashboard from '@/components/AdminStorageDashboard'
 import { AdminLibrarySettingsTab } from '@/components/AdminLibrarySettingsTab'
 import AdminUsersPage from '@/pages/admin/AdminUsersPage'
 import AdminSystemTab from '@/pages/settings/AdminSystemTab'
 import AdminSystemStatusTab from '@/pages/settings/AdminSystemStatusTab'
 import AdminMapTilesSubTab from '@/pages/settings/AdminMapTilesSubTab'
-import { LIB_LABELS } from '@/lib/libraryLabels'
 
 const SUB_TABS = [
-  { id: 'users' as const, label: 'Benutzer' },
-  { id: 'status' as const, label: 'Status' },
-  { id: 'storage' as const, label: 'Speicher' },
-  { id: 'system' as const, label: 'System' },
-  { id: 'library' as const, label: LIB_LABELS.adminTabTitle },
-  { id: 'maps' as const, label: 'Karten & Tiles' },
+  { id: 'users' as const, labelKey: 'settings.adminTabs.users' },
+  { id: 'status' as const, labelKey: 'settings.adminTabs.status' },
+  { id: 'storage' as const, labelKey: 'settings.adminTabs.storage' },
+  { id: 'system' as const, labelKey: 'settings.adminTabs.system' },
+  { id: 'library' as const, labelKey: 'admin.library.title' },
+  { id: 'maps' as const, labelKey: 'settings.adminTabs.maps' },
 ] as const
 
 type SubTab = (typeof SUB_TABS)[number]['id']
@@ -22,6 +22,7 @@ type SubTab = (typeof SUB_TABS)[number]['id']
 const VALID_SUBS = new Set<SubTab>(['users', 'status', 'storage', 'system', 'library', 'maps'])
 
 export default function AdminSettingsTab() {
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const rawSection = searchParams.get('section')
   const activeSubTab: SubTab = VALID_SUBS.has(rawSection as SubTab) ? (rawSection as SubTab) : 'users'
@@ -48,7 +49,7 @@ export default function AdminSettingsTab() {
                 : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
             }`}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>

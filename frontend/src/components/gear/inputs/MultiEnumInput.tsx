@@ -1,18 +1,15 @@
 import { useState, useMemo } from 'react'
 import type { OptionValue } from '@/lib/generatedGearSchema'
-import { GEAR_INPUT_STRINGS } from '@/lib/gearComponentStrings'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { gearSchemaLabel } from '@/lib/gearSchemaHelpers'
+import { useTranslation } from 'react-i18next'
 
-// i18n-strings — centralized for future extraction
-const STRINGS = {
-  searchPlaceholder: GEAR_INPUT_STRINGS.searchPlaceholder,
-  noOptions: 'Keine weiteren Optionen',
-  removeChip: (label: string) => `${label} entfernen`,
-} as const
+type DisplayOptionValue = OptionValue & { displayLabel?: string }
 
 export interface MultiEnumInputProps {
   id?: string
   value: string[]
-  options: OptionValue[]
+  options: DisplayOptionValue[]
   onChange: (value: string[]) => void
   allowFreeText?: boolean
   disabled?: boolean
@@ -26,6 +23,14 @@ export default function MultiEnumInput({
   allowFreeText = false,
   disabled = false,
 }: MultiEnumInputProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const strings = {
+    searchPlaceholder: t('gearZones.multiEnumInput.searchPlaceholder'),
+    noOptions: t('gearZones.multiEnumInput.noOptions'),
+    removeChip: (label: string) => t('gearZones.multiEnumInput.removeChip', { label }),
+    customValueLabel: (value: string) => t('gearZones.multiEnumInput.customValueLabel', { value }),
+  }
   const inputId = id ?? 'multi-enum-input'
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -35,23 +40,29 @@ export default function MultiEnumInput({
   const available = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return options.filter(
-      (o) =>
-        !selectedSet.has(o.key) &&
-        (needle === '' ||
-          o.labelDe.toLowerCase().includes(needle) ||
-          o.key.toLowerCase().includes(needle)),
+      (o) => {
+        const label = optionLabel(o, language)
+        return !selectedSet.has(o.key) &&
+          (needle === '' ||
+            label.toLowerCase().includes(needle) ||
+            o.key.toLowerCase().includes(needle))
+      },
     )
-  }, [options, selectedSet, query])
+  }, [options, selectedSet, query, language])
 
   const selectedOptions = useMemo(
-    () => value.map(key => options.find(o => o.key === key) ?? { key, labelDe: key }),
-    [options, value],
+    () => value.map((key) => {
+      const option = options.find(o => o.key === key)
+      return { key, label: option ? schemaOptionLabel(option, language) : key }
+    }),
+    [options, value, language],
   )
 
   const customValue = query.trim()
   const exactOption = options.some(
     o => o.key.toLowerCase() === customValue.toLowerCase() ||
-      o.labelDe.toLowerCase() === customValue.toLowerCase(),
+      optionLabel(o, language).toLowerCase() === customValue.toLowerCase() ||
+      schemaOptionLabel(o, language).toLowerCase() === customValue.toLowerCase(),
   )
   const showCustomOption = allowFreeText &&
     customValue !== '' &&
@@ -78,10 +89,10 @@ export default function MultiEnumInput({
               key={opt.key}
               className="inline-flex items-center gap-1 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 px-2 py-0.5 text-xs font-medium"
             >
-              {opt.labelDe}
+              {opt.label}
               <button
                 type="button"
-                aria-label={STRINGS.removeChip(opt.labelDe)}
+                aria-label={strings.removeChip(opt.label)}
                 disabled={disabled}
                 onClick={() => removeOption(opt.key)}
                 className="ml-0.5 rounded-full hover:bg-accent-200 dark:hover:bg-accent-800 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT disabled:opacity-50 cursor-pointer"
@@ -111,7 +122,7 @@ export default function MultiEnumInput({
           aria-controls={`${inputId}-listbox`}
           disabled={disabled}
           value={query}
-          placeholder={STRINGS.searchPlaceholder}
+          placeholder={strings.searchPlaceholder}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -137,7 +148,7 @@ export default function MultiEnumInput({
                   onClick={() => addOption(opt.key)}
                   className="block w-full px-3 py-2 text-left text-sm text-neutral-800 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                 >
-                  {opt.labelDe}
+                  {optionLabel(opt, language)}
                 </button>
                 ))}
                 {showCustomOption && (
@@ -149,16 +160,24 @@ export default function MultiEnumInput({
                     onClick={() => addOption(customValue)}
                     className="block w-full px-3 py-2 text-left text-sm text-accent-700 dark:text-accent-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                   >
-                    "{customValue}" verwenden
+                    {strings.customValueLabel(customValue)}
                   </button>
                 )}
               </>
             ) : (
-              <div className="px-3 py-2 text-sm text-neutral-400">{STRINGS.noOptions}</div>
+              <div className="px-3 py-2 text-sm text-neutral-400">{strings.noOptions}</div>
             )}
           </div>
         )}
       </div>
     </div>
   )
+}
+
+function optionLabel(option: DisplayOptionValue, language: ReturnType<typeof supportedLanguageFrom>): string {
+  return option.displayLabel ?? schemaOptionLabel(option, language)
+}
+
+function schemaOptionLabel(option: DisplayOptionValue, language: ReturnType<typeof supportedLanguageFrom>): string {
+  return gearSchemaLabel(option, language)
 }

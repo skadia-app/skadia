@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { useRef } from 'react'
+import { I18nProvider } from '@/i18n/I18nProvider'
 
 // ── ECharts mocks ─────────────────────────────────────────────────────────────
 
@@ -79,13 +80,25 @@ function makePMCResponse() {
   }
 }
 
+function makePMCDays(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    date: `2026-01-${String(index + 1).padStart(2, '0')}`,
+    ctl: index + 1,
+    atl: index + 2,
+    tsb: index + 3,
+    tss: index + 4,
+  }))
+}
+
 function renderWithProviders(url = '/analytics/training') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={[url]}>
-      <QueryClientProvider client={client}>
-        <PMCChartExtended />
-      </QueryClientProvider>
+      <I18nProvider>
+        <QueryClientProvider client={client}>
+          <PMCChartExtended />
+        </QueryClientProvider>
+      </I18nProvider>
     </MemoryRouter>,
   )
 }
@@ -157,5 +170,24 @@ describe('PMCChartExtended — pure-aggregate filter isolation', () => {
       expect(params['sport_type']).toBeUndefined()
       expect(params['tags']).toBeUndefined()
     }
+  })
+
+  it('uses localized sport-group labels and hides unknown raw split keys', async () => {
+    localStorage.setItem('pmc_selected_sport_groups', JSON.stringify(['cycling']))
+    mockFetchAnalyticsPMCSplit.mockResolvedValue({
+      ...makePMCResponse(),
+      series: {
+        __combined__: makePMCDays(6),
+        cycling: makePMCDays(6),
+        mystery_group: makePMCDays(6),
+      },
+    })
+
+    renderWithProviders()
+
+    expect(await screen.findByText('Radfahren')).toBeInTheDocument()
+    expect(await screen.findByText('Unbekannt')).toBeInTheDocument()
+    expect(screen.queryByText('Mystery_group')).not.toBeInTheDocument()
+    expect(screen.queryByText('mystery_group')).not.toBeInTheDocument()
   })
 })

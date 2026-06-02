@@ -1,6 +1,7 @@
 import { SAC_SCALE_OPTIONS, MTB_SCALE_OPTIONS, type SegType } from './constants'
 import { SAC_BADGE_COLORS, MTB_BADGE_COLORS } from '@/lib/scaleColors'
 import { ColoredSelect, type ColoredSelectOption } from '@/components/ui/ColoredSelect'
+import { useTranslation } from 'react-i18next'
 
 interface DifficultySelectsProps {
   segType: SegType
@@ -24,12 +25,13 @@ const mtbOptions: ReadonlyArray<ColoredSelectOption> = MTB_SCALE_OPTIONS.map(o =
 }))
 
 export function DifficultySelects({ segType, sacScale, mtbScale, onChange, disabled }: DifficultySelectsProps) {
+  const { t } = useTranslation()
   if (segType !== 'trail') return null
 
   return (
     <div className="grid grid-cols-1 gap-4">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-neutral-500 tracking-wide">SAC-Skala</label>
+        <label className="text-xs font-medium text-neutral-500 tracking-wide">{t('segmentEditor.sidebar.sacScale')}</label>
         <ColoredSelect
           value={sacScale}
           onChange={v => onChange('sac', v)}
@@ -40,15 +42,15 @@ export function DifficultySelects({ segType, sacScale, mtbScale, onChange, disab
 
       <div className="space-y-1.5">
         <label className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 tracking-wide">
-          MTB-Skala
+          {t('segmentEditor.sidebar.mtbScale')}
           <a
             href="https://www.singletrail-skala.de/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[10px] font-normal text-neutral-400 hover:text-accent-DEFAULT"
-            title="Offizielle Singletrail-Skala"
+            title={t('segmentEditor.sidebar.officialSingletrailScale')}
           >
-            (Details ↗)
+            {t('segmentEditor.sidebar.detailsLink')}
           </a>
         </label>
         <ColoredSelect

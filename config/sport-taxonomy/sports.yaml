@@ -2,6 +2,10 @@ categories:
 - key: run
   labels:
     de: Läufe
+    en: Runs
+    fr: Course à pied
+    it: Corsa
+    es: Carrera
   color:
     token: run
     light_hex: '#EF4444'
@@ -9,6 +13,10 @@ categories:
 - key: bike
   labels:
     de: Radfahrten
+    en: Rides
+    fr: Vélo
+    it: Ciclismo
+    es: Ciclismo
   color:
     token: bike
     light_hex: '#F97316'
@@ -16,6 +24,10 @@ categories:
 - key: winter
   labels:
     de: Wintersport
+    en: Winter sports
+    fr: Sports d'hiver
+    it: Sport invernali
+    es: Deportes de invierno
   color:
     token: winter
     light_hex: '#06B6D4'
@@ -23,6 +35,10 @@ categories:
 - key: water
   labels:
     de: Wassersport
+    en: Water sports
+    fr: Sports nautiques
+    it: Sport acquatici
+    es: Deportes acuáticos
   color:
     token: water
     light_hex: '#3B82F6'
@@ -30,6 +46,10 @@ categories:
 - key: fitness
   labels:
     de: Fitness
+    en: Fitness
+    fr: Fitness
+    it: Fitness
+    es: Fitness
   color:
     token: fitness
     light_hex: '#8B5CF6'
@@ -37,6 +57,10 @@ categories:
 - key: game
   labels:
     de: Spiele
+    en: Games
+    fr: Jeux
+    it: Giochi
+    es: Juegos
   color:
     token: game
     light_hex: '#10B981'
@@ -44,6 +68,10 @@ categories:
 - key: climb
   labels:
     de: Klettern
+    en: Climbing
+    fr: Escalade
+    it: Arrampicata
+    es: Escalada
   color:
     token: climb
     light_hex: '#A855F7'
@@ -51,6 +79,10 @@ categories:
 - key: outdoor
   labels:
     de: Weitere Aktivitäten
+    en: Other outdoor activities
+    fr: Autres activités de plein air
+    it: Altre attività all'aperto
+    es: Otras actividades al aire libre
   color:
     token: outdoor
     light_hex: '#84CC16'
@@ -58,6 +90,10 @@ categories:
 - key: multi
   labels:
     de: Multisport
+    en: Multisport
+    fr: Multisport
+    it: Multisport
+    es: Multisport
   color:
     token: multi
     light_hex: '#F59E0B'
@@ -65,6 +101,10 @@ categories:
 - key: other
   labels:
     de: Sonstiges
+    en: Other
+    fr: Autre
+    it: Altro
+    es: Otros
   color:
     token: other
     light_hex: '#6B7280'
@@ -75,8 +115,16 @@ sports:
   category_key: run
   labels:
     de: Laufen
+    en: Running
+    fr: Course à pied
+    it: Corsa
+    es: Carrera
   auto_titles:
     de: Lauf
+    en: Run
+    fr: Course
+    it: Corsa
+    es: Carrera
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.5
@@ -96,31 +144,79 @@ sports:
   - sub_type: street
     labels:
       de: Straße
+      en: "Road"
+      fr: "Route"
+      it: "Strada"
+      es: "Carretera"
     details:
       de: Straßenlauf
+      en: "Road running"
+      fr: "Course sur route"
+      it: "Corsa su strada"
+      es: "Carrera en carretera"
     auto_titles:
       de: Lauf
+      en: "Run"
+      fr: "Course"
+      it: "Corsa"
+      es: "Carrera"
   - sub_type: trail
     labels:
       de: Trail
+      en: "Trail"
+      fr: "Trail"
+      it: "Trail"
+      es: "Trail"
     details:
       de: Trailrun
+      en: "Trail run"
+      fr: "Trail"
+      it: "Trail running"
+      es: "Trail running"
     auto_titles:
       de: Trailrun
+      en: "Trail run"
+      fr: "Trail"
+      it: "Trail running"
+      es: "Trail running"
   - sub_type: track
     labels:
       de: Bahn
+      en: "Track"
+      fr: "Piste"
+      it: "Pista"
+      es: "Pista"
     details:
       de: Bahnlauf
+      en: "Track run"
+      fr: "Course sur piste"
+      it: "Corsa su pista"
+      es: "Carrera en pista"
     auto_titles:
       de: Bahnlauf
+      en: "Track run"
+      fr: "Course sur piste"
+      it: "Corsa su pista"
+      es: "Carrera en pista"
   - sub_type: treadmill
     labels:
       de: Laufband
+      en: "Treadmill"
+      fr: "Tapis roulant"
+      it: "Tapis roulant"
+      es: "Cinta de correr"
     details:
       de: Laufband
+      en: "Treadmill"
+      fr: "Tapis roulant"
+      it: "Tapis roulant"
+      es: "Cinta de correr"
     auto_titles:
       de: Laufband
+      en: "Treadmill"
+      fr: "Tapis roulant"
+      it: "Tapis roulant"
+      es: "Cinta de correr"
     traits:
       environments: [indoor]
       movement_families: [run]
@@ -132,10 +228,22 @@ sports:
   - sub_type: indoor_running
     labels:
       de: Indoor
+      en: Indoor
+      fr: Indoor
+      it: Indoor
+      es: Indoor
     details:
       de: Indoor-Lauf
+      en: Indoor running
+      fr: Course indoor
+      it: Corsa indoor
+      es: Carrera indoor
     auto_titles:
       de: Indoor-Lauf
+      en: Indoor run
+      fr: Course indoor
+      it: Corsa indoor
+      es: Carrera indoor
     traits:
       environments: [indoor]
       movement_families: [run]
@@ -147,24 +255,56 @@ sports:
   - sub_type: ultra
     labels:
       de: Ultra
+      en: "Ultra"
+      fr: "Ultra"
+      it: "Ultra"
+      es: "Ultra"
     details:
       de: Ultramarathon
+      en: "Ultramarathon"
+      fr: "Ultramarathon"
+      it: "Ultramaratona"
+      es: "Ultramaratón"
     auto_titles:
       de: Ultramarathon
+      en: "Ultramarathon"
+      fr: "Ultramarathon"
+      it: "Ultramaratona"
+      es: "Ultramaratón"
   - sub_type: obstacle
     labels:
       de: Hindernislauf
+      en: "Obstacle run"
+      fr: "Course d'obstacles"
+      it: "Corsa a ostacoli"
+      es: "Carrera de obstáculos"
     details:
       de: Hindernislauf
+      en: "Obstacle run"
+      fr: "Course d'obstacles"
+      it: "Corsa a ostacoli"
+      es: "Carrera de obstáculos"
     auto_titles:
       de: Hindernislauf
+      en: "Obstacle run"
+      fr: "Course d'obstacles"
+      it: "Corsa a ostacoli"
+      es: "Carrera de obstáculos"
 
 - sport_type: walking
   category_key: run
   labels:
     de: Gehen
+    en: "Walking"
+    fr: "Marche"
+    it: "Camminata"
+    es: "Caminata"
   auto_titles:
     de: Spaziergang
+    en: "Walk"
+    fr: "Promenade"
+    it: "Passeggiata"
+    es: "Paseo"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -184,24 +324,60 @@ sports:
   - sub_type: casual_walking
     labels:
       de: Spaziergang
+      en: "Walk"
+      fr: "Promenade"
+      it: "Passeggiata"
+      es: "Paseo"
     details:
       de: Spaziergang
+      en: "Walk"
+      fr: "Promenade"
+      it: "Passeggiata"
+      es: "Paseo"
     auto_titles:
       de: Spaziergang
+      en: "Walk"
+      fr: "Promenade"
+      it: "Passeggiata"
+      es: "Paseo"
   - sub_type: speed_walking
     labels:
       de: Speed Walking
+      en: "Speed walking"
+      fr: "Marche rapide"
+      it: "Speed walking"
+      es: "Marcha rápida"
     details:
       de: Speed Walking
+      en: "Speed walking"
+      fr: "Marche rapide"
+      it: "Speed walking"
+      es: "Marcha rápida"
     auto_titles:
       de: Speed Walking
+      en: "Speed walking"
+      fr: "Marche rapide"
+      it: "Speed walking"
+      es: "Marcha rápida"
   - sub_type: indoor_walking
     labels:
       de: Indoor
+      en: "Indoor"
+      fr: "Indoor"
+      it: "Indoor"
+      es: "Indoor"
     details:
       de: Indoor-Gehen
+      en: "Indoor walking"
+      fr: "Marche indoor"
+      it: "Camminata indoor"
+      es: "Caminata indoor"
     auto_titles:
       de: Indoor-Gehen
+      en: "Indoor walking"
+      fr: "Marche indoor"
+      it: "Camminata indoor"
+      es: "Caminata indoor"
     traits:
       environments: [indoor]
       movement_families: [walk]
@@ -215,8 +391,16 @@ sports:
   category_key: run
   labels:
     de: Wandern
+    en: "Hiking"
+    fr: "Randonnée"
+    it: "Escursionismo"
+    es: "Senderismo"
   auto_titles:
     de: Wanderung
+    en: "Hike"
+    fr: "Randonnée"
+    it: "Escursione"
+    es: "Caminata"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -236,10 +420,22 @@ sports:
   - sub_type: rucking
     labels:
       de: Rucking
+      en: "Rucking"
+      fr: "Rucking"
+      it: "Rucking"
+      es: "Rucking"
     details:
       de: Rucking
+      en: "Rucking"
+      fr: "Rucking"
+      it: "Rucking"
+      es: "Rucking"
     auto_titles:
       de: Rucking
+      en: "Rucking"
+      fr: "Rucking"
+      it: "Rucking"
+      es: "Rucking"
     traits:
       environments: [land]
       movement_families: [walk]
@@ -251,8 +447,16 @@ sports:
   category_key: run
   labels:
     de: Bergsteigen
+    en: "Mountaineering"
+    fr: "Alpinisme"
+    it: "Alpinismo"
+    es: "Montañismo"
   auto_titles:
     de: Bergtour
+    en: "Mountain tour"
+    fr: "Sortie montagne"
+    it: "Gita in montagna"
+    es: "Ruta de montaña"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -273,8 +477,16 @@ sports:
   category_key: winter
   labels:
     de: Schneeschuhwandern
+    en: "Snowshoeing"
+    fr: "Raquette à neige"
+    it: "Ciaspolata"
+    es: "Raquetas de nieve"
   auto_titles:
     de: Schneeschuhtour
+    en: "Snowshoe hike"
+    fr: "Randonnée en raquettes"
+    it: "Ciaspolata"
+    es: "Ruta con raquetas"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -295,8 +507,16 @@ sports:
   category_key: fitness
   labels:
     de: Treppensteigen
+    en: "Stair climbing"
+    fr: "Montée d'escaliers"
+    it: "Salita scale"
+    es: "Subida de escaleras"
   auto_titles:
     de: Treppensteigen
+    en: "Stair climbing"
+    fr: "Montée d'escaliers"
+    it: "Salita scale"
+    es: "Subida de escaleras"
   segment_group: foot
   typically_has_gps: false
   moving_threshold: 0
@@ -319,8 +539,16 @@ sports:
   category_key: run
   labels:
     de: Rollstuhl
+    en: "Wheelchair"
+    fr: "Fauteuil roulant"
+    it: "Sedia a rotelle"
+    es: "Silla de ruedas"
   auto_titles:
     de: Rollstuhl-Aktivität
+    en: "Wheelchair activity"
+    fr: "Activité en fauteuil roulant"
+    it: "Attività in sedia a rotelle"
+    es: "Actividad en silla de ruedas"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -340,26 +568,58 @@ sports:
   - sub_type: walk_speed
     labels:
       de: Gehtempo
+      en: "Walking pace"
+      fr: "Allure marche"
+      it: "Passo camminata"
+      es: "Ritmo de caminata"
     details:
       de: Rollstuhl (Gehtempo)
+      en: "Wheelchair (walking pace)"
+      fr: "Fauteuil roulant (allure marche)"
+      it: "Sedia a rotelle (passo camminata)"
+      es: "Silla de ruedas (ritmo de caminata)"
     auto_titles:
       de: Rollstuhl (Gehtempo)
+      en: "Wheelchair (walking pace)"
+      fr: "Fauteuil roulant (allure marche)"
+      it: "Sedia a rotelle (passo camminata)"
+      es: "Silla de ruedas (ritmo de caminata)"
     moving_threshold: 0.2
   - sub_type: run_speed
     labels:
       de: Lauftempo
+      en: "Running pace"
+      fr: "Allure course"
+      it: "Passo corsa"
+      es: "Ritmo de carrera"
     details:
       de: Rollstuhl (Lauftempo)
+      en: "Wheelchair (running pace)"
+      fr: "Fauteuil roulant (allure course)"
+      it: "Sedia a rotelle (passo corsa)"
+      es: "Silla de ruedas (ritmo de carrera)"
     auto_titles:
       de: Rollstuhl (Lauftempo)
+      en: "Wheelchair (running pace)"
+      fr: "Fauteuil roulant (allure course)"
+      it: "Sedia a rotelle (passo corsa)"
+      es: "Silla de ruedas (ritmo de carrera)"
     moving_threshold: 0.5
 
 - sport_type: cycling
   category_key: bike
   labels:
     de: Radfahren
+    en: Cycling
+    fr: Vélo
+    it: Ciclismo
+    es: Ciclismo
   auto_titles:
     de: Radfahrt
+    en: Ride
+    fr: Sortie vélo
+    it: Uscita in bici
+    es: Ruta en bici
   segment_group: bike
   typically_has_gps: true
   moving_threshold: 0.5
@@ -379,45 +639,117 @@ sports:
   - sub_type: road
     labels:
       de: Rennrad
+      en: "Road bike"
+      fr: "Vélo de route"
+      it: "Bici da corsa"
+      es: "Bici de carretera"
     details:
       de: Rennrad
+      en: "Road bike"
+      fr: "Vélo de route"
+      it: "Bici da corsa"
+      es: "Bici de carretera"
     auto_titles:
       de: Rennradfahrt
+      en: "Road ride"
+      fr: "Sortie vélo de route"
+      it: "Uscita in bici da corsa"
+      es: "Ruta en bici de carretera"
   - sub_type: mountain
     labels:
       de: MTB
+      en: Mountainbike
+      fr: Mountainbike
+      it: Mountainbike
+      es: Mountainbike
     details:
       de: Mountainbike
+      en: Mountainbike
+      fr: Mountainbike
+      it: Mountainbike
+      es: Mountainbike
     auto_titles:
       de: MTB-Tour
+      en: Mountainbike ride
+      fr: Sortie mountainbike
+      it: Uscita in Mountainbike
+      es: Ruta en Mountainbike
   - sub_type: downhill
     labels:
       de: Downhill
+      en: "Downhill"
+      fr: "Downhill"
+      it: "Downhill"
+      es: "Downhill"
     details:
       de: Downhill
+      en: "Downhill"
+      fr: "Downhill"
+      it: "Downhill"
+      es: "Downhill"
     auto_titles:
       de: Downhill
+      en: "Downhill"
+      fr: "Downhill"
+      it: "Downhill"
+      es: "Downhill"
   - sub_type: recumbent
     labels:
       de: Liegerad
+      en: "Recumbent bike"
+      fr: "Vélo couché"
+      it: "Bici reclinata"
+      es: "Bici reclinada"
     details:
       de: Liegerad
+      en: "Recumbent bike"
+      fr: "Vélo couché"
+      it: "Bici reclinata"
+      es: "Bici reclinada"
     auto_titles:
       de: Liegerad-Tour
+      en: "Recumbent bike ride"
+      fr: "Sortie vélo couché"
+      it: "Uscita in bici reclinata"
+      es: "Ruta en bici reclinada"
   - sub_type: cyclocross
     labels:
       de: Cyclocross
+      en: "Cyclocross"
+      fr: "Cyclocross"
+      it: "Ciclocross"
+      es: "Ciclocross"
     details:
       de: Cyclocross
+      en: "Cyclocross"
+      fr: "Cyclocross"
+      it: "Ciclocross"
+      es: "Ciclocross"
     auto_titles:
       de: Cyclocross
+      en: "Cyclocross"
+      fr: "Cyclocross"
+      it: "Ciclocross"
+      es: "Ciclocross"
   - sub_type: hand_cycling
     labels:
       de: Handbike
+      en: "Handbike"
+      fr: "Handbike"
+      it: "Handbike"
+      es: "Handbike"
     details:
       de: Handbike
+      en: "Handbike"
+      fr: "Handbike"
+      it: "Handbike"
+      es: "Handbike"
     auto_titles:
       de: Handbike-Tour
+      en: "Handbike ride"
+      fr: "Sortie handbike"
+      it: "Uscita in handbike"
+      es: "Ruta en handbike"
     traits:
       environments: [land]
       movement_families: [pedal]
@@ -427,17 +759,41 @@ sports:
   - sub_type: track_cycling
     labels:
       de: Bahnrad
+      en: "Track bike"
+      fr: "Vélo sur piste"
+      it: "Bici da pista"
+      es: "Bici de pista"
     details:
       de: Bahnrad
+      en: "Track bike"
+      fr: "Vélo sur piste"
+      it: "Bici da pista"
+      es: "Bici de pista"
     auto_titles:
       de: Bahnrad
+      en: "Track bike"
+      fr: "Vélo sur piste"
+      it: "Bici da pista"
+      es: "Bici de pista"
   - sub_type: indoor_cycling
     labels:
       de: Indoor
+      en: "Indoor"
+      fr: "Indoor"
+      it: "Indoor"
+      es: "Indoor"
     details:
       de: Indoor-Rad
+      en: "Indoor bike"
+      fr: "Vélo indoor"
+      it: "Bici indoor"
+      es: "Bici indoor"
     auto_titles:
       de: Indoor-Radfahrt
+      en: "Indoor ride"
+      fr: "Sortie vélo indoor"
+      it: "Uscita indoor in bici"
+      es: "Ruta indoor en bici"
     traits:
       environments: [indoor]
       movement_families: [pedal]
@@ -449,10 +805,22 @@ sports:
   - sub_type: spin
     labels:
       de: Spinning
+      en: "Spinning"
+      fr: "Spinning"
+      it: "Spinning"
+      es: "Spinning"
     details:
       de: Spinning
+      en: "Spinning"
+      fr: "Spinning"
+      it: "Spinning"
+      es: "Spinning"
     auto_titles:
       de: Spinning
+      en: "Spinning"
+      fr: "Spinning"
+      it: "Spinning"
+      es: "Spinning"
     traits:
       environments: [indoor]
       movement_families: [pedal]
@@ -464,38 +832,94 @@ sports:
   - sub_type: gravel_cycling
     labels:
       de: Gravel
+      en: "Gravel"
+      fr: "Gravel"
+      it: "Gravel"
+      es: "Gravel"
     details:
       de: Gravel
+      en: "Gravel"
+      fr: "Gravel"
+      it: "Gravel"
+      es: "Gravel"
     auto_titles:
       de: Gravel-Tour
+      en: "Gravel ride"
+      fr: "Sortie gravel"
+      it: "Uscita gravel"
+      es: "Ruta gravel"
   - sub_type: unicycling
     labels:
       de: Einrad
+      en: "Unicycle"
+      fr: "Monocycle"
+      it: "Monociclo"
+      es: "Monociclo"
     details:
       de: Einrad
+      en: "Unicycle"
+      fr: "Monocycle"
+      it: "Monociclo"
+      es: "Monociclo"
     auto_titles:
       de: Einradfahrt
+      en: "Unicycle ride"
+      fr: "Sortie monocycle"
+      it: "Uscita in monociclo"
+      es: "Ruta en monociclo"
   - sub_type: mixed_surface
     labels:
       de: Mixed
+      en: "Mixed"
+      fr: "Mixed"
+      it: "Mixed"
+      es: "Mixed"
     details:
       de: Mixed Surface
+      en: "Mixed surface"
+      fr: "Mixed surface"
+      it: "Mixed surface"
+      es: "Mixed surface"
     auto_titles:
       de: Mixed-Tour
+      en: "Mixed-surface ride"
+      fr: "Sortie mixed surface"
+      it: "Uscita mixed surface"
+      es: "Ruta mixed surface"
   - sub_type: bmx
     labels:
       de: BMX
+      en: "BMX"
+      fr: "BMX"
+      it: "BMX"
+      es: "BMX"
     details:
       de: BMX
+      en: "BMX"
+      fr: "BMX"
+      it: "BMX"
+      es: "BMX"
     auto_titles:
       de: BMX
+      en: "BMX"
+      fr: "BMX"
+      it: "BMX"
+      es: "BMX"
 
 - sport_type: inline_skating
   category_key: outdoor
   labels:
     de: Inline-Skaten
+    en: "Inline skating"
+    fr: "Roller en ligne"
+    it: "Pattinaggio in linea"
+    es: "Patinaje en línea"
   auto_titles:
     de: Inline-Skaten
+    en: "Inline skating"
+    fr: "Roller en ligne"
+    it: "Pattinaggio in linea"
+    es: "Patinaje en línea"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -516,8 +940,16 @@ sports:
   category_key: outdoor
   labels:
     de: Skateboard
+    en: "Skateboard"
+    fr: "Skateboard"
+    it: "Skateboard"
+    es: "Skateboard"
   auto_titles:
     de: Skateboarden
+    en: "Skateboarding"
+    fr: "Skateboard"
+    it: "Skateboard"
+    es: "Skateboarding"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -538,8 +970,16 @@ sports:
   category_key: winter
   labels:
     de: Alpin-Ski
+    en: "Alpine skiing"
+    fr: "Ski alpin"
+    it: "Sci alpino"
+    es: "Esquí alpino"
   auto_titles:
     de: Skifahrt
+    en: "Ski outing"
+    fr: "Sortie ski"
+    it: "Uscita sugli sci"
+    es: "Salida de esquí"
   segment_group: ski
   typically_has_gps: true
   moving_threshold: 0.3
@@ -559,24 +999,60 @@ sports:
   - sub_type: backcountry
     labels:
       de: Freeride
+      en: "Freeride"
+      fr: "Freeride"
+      it: "Freeride"
+      es: "Freeride"
     details:
       de: Freeride/Backcountry
+      en: "Freeride/Backcountry"
+      fr: "Freeride/Backcountry"
+      it: "Freeride/Backcountry"
+      es: "Freeride/Backcountry"
     auto_titles:
       de: Freeride
+      en: "Freeride"
+      fr: "Freeride"
+      it: "Freeride"
+      es: "Freeride"
   - sub_type: resort
     labels:
       de: Piste
+      en: "Piste"
+      fr: "Piste"
+      it: "Pista"
+      es: "Pista"
     details:
       de: Pisten-Ski
+      en: "Piste skiing"
+      fr: "Ski sur piste"
+      it: "Sci in pista"
+      es: "Esquí en pista"
     auto_titles:
       de: Skifahrt
+      en: "Ski outing"
+      fr: "Sortie ski"
+      it: "Uscita sugli sci"
+      es: "Salida de esquí"
   - sub_type: indoor_skiing
     labels:
       de: Indoor-Ski
+      en: "Indoor skiing"
+      fr: "Ski indoor"
+      it: "Sci indoor"
+      es: "Esquí indoor"
     details:
       de: Indoor-Ski
+      en: "Indoor skiing"
+      fr: "Ski indoor"
+      it: "Sci indoor"
+      es: "Esquí indoor"
     auto_titles:
       de: Indoor-Skifahrt
+      en: "Indoor ski outing"
+      fr: "Sortie ski indoor"
+      it: "Uscita sugli sci indoor"
+      es: "Salida de esquí indoor"
     traits:
       environments: [indoor]
       movement_families: [glide]
@@ -590,8 +1066,16 @@ sports:
   category_key: winter
   labels:
     de: Skitour
+    en: "Ski touring"
+    fr: "Ski de randonnée"
+    it: "Sci alpinismo"
+    es: "Esquí de travesía"
   auto_titles:
     de: Skitour
+    en: "Ski touring"
+    fr: "Ski de randonnée"
+    it: "Sci alpinismo"
+    es: "Esquí de travesía"
   segment_group: ski
   typically_has_gps: true
   moving_threshold: 0.3
@@ -612,8 +1096,16 @@ sports:
   category_key: winter
   labels:
     de: Langlauf
+    en: "Cross-country skiing"
+    fr: "Ski de fond"
+    it: "Sci di fondo"
+    es: "Esquí de fondo"
   auto_titles:
     de: Langlauf
+    en: "Cross-country skiing"
+    fr: "Ski de fond"
+    it: "Sci di fondo"
+    es: "Esquí de fondo"
   segment_group: ski
   typically_has_gps: true
   moving_threshold: 0.3
@@ -633,17 +1125,37 @@ sports:
   - sub_type: skate_skiing
     labels:
       de: Skating
+      en: "Skating"
+      fr: "Skating"
+      it: "Skating"
+      es: "Skating"
     details:
       de: Skating-Stil
+      en: "Skating style"
+      fr: "Style skating"
+      it: "Stile skating"
+      es: "Estilo skating"
     auto_titles:
       de: Skating-Langlauf
+      en: "Skate skiing"
+      fr: "Ski de fond skating"
+      it: "Sci di fondo skating"
+      es: "Esquí de fondo skating"
 
 - sport_type: snowboarding
   category_key: winter
   labels:
     de: Snowboard
+    en: "Snowboard"
+    fr: "Snowboard"
+    it: "Snowboard"
+    es: "Snowboard"
   auto_titles:
     de: Snowboard
+    en: "Snowboard"
+    fr: "Snowboard"
+    it: "Snowboard"
+    es: "Snowboard"
   segment_group: ski
   typically_has_gps: true
   moving_threshold: 0.3
@@ -663,24 +1175,56 @@ sports:
   - sub_type: backcountry
     labels:
       de: Backcountry
+      en: "Backcountry"
+      fr: "Backcountry"
+      it: "Backcountry"
+      es: "Backcountry"
     details:
       de: Backcountry-Snowboard
+      en: "Backcountry snowboard"
+      fr: "Snowboard backcountry"
+      it: "Snowboard backcountry"
+      es: "Snowboard backcountry"
     auto_titles:
       de: Backcountry-Snowboard
+      en: "Backcountry snowboard"
+      fr: "Snowboard backcountry"
+      it: "Snowboard backcountry"
+      es: "Snowboard backcountry"
   - sub_type: resort
     labels:
       de: Piste
+      en: "Piste"
+      fr: "Piste"
+      it: "Pista"
+      es: "Pista"
     details:
       de: Pisten-Snowboard
+      en: "Piste snowboard"
+      fr: "Snowboard sur piste"
+      it: "Snowboard in pista"
+      es: "Snowboard en pista"
     auto_titles:
       de: Snowboard
+      en: "Snowboard"
+      fr: "Snowboard"
+      it: "Snowboard"
+      es: "Snowboard"
 
 - sport_type: ice_skating
   category_key: winter
   labels:
     de: Eislaufen
+    en: "Ice skating"
+    fr: "Patinage sur glace"
+    it: "Pattinaggio su ghiaccio"
+    es: "Patinaje sobre hielo"
   auto_titles:
     de: Eislaufen
+    en: "Ice skating"
+    fr: "Patinage sur glace"
+    it: "Pattinaggio su ghiaccio"
+    es: "Patinaje sobre hielo"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.3
@@ -701,8 +1245,16 @@ sports:
   category_key: winter
   labels:
     de: Schneemobil
+    en: "Snowmobile"
+    fr: "Motoneige"
+    it: "Motoslitta"
+    es: "Moto de nieve"
   auto_titles:
     de: Schneemobil-Tour
+    en: "Snowmobile tour"
+    fr: "Sortie motoneige"
+    it: "Tour in motoslitta"
+    es: "Ruta en moto de nieve"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -723,8 +1275,16 @@ sports:
   category_key: winter
   labels:
     de: Rodeln
+    en: "Sledding"
+    fr: "Luge"
+    it: "Slittino"
+    es: "Trineo"
   auto_titles:
     de: Rodeln
+    en: "Sledding"
+    fr: "Luge"
+    it: "Slittino"
+    es: "Trineo"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -745,8 +1305,16 @@ sports:
   category_key: water
   labels:
     de: Schwimmen
+    en: "Swimming"
+    fr: "Natation"
+    it: "Nuoto"
+    es: "Natación"
   auto_titles:
     de: Schwimmen
+    en: "Swimming"
+    fr: "Natation"
+    it: "Nuoto"
+    es: "Natación"
   segment_group: swim
   typically_has_gps: false
   moving_threshold: 0.1
@@ -766,24 +1334,56 @@ sports:
   - sub_type: lap_swimming
     labels:
       de: Bahnschwimmen
+      en: "Pool swimming"
+      fr: "Natation en bassin"
+      it: "Nuoto in piscina"
+      es: "Natación en piscina"
     details:
       de: Bahnschwimmen
+      en: "Pool swimming"
+      fr: "Natation en bassin"
+      it: "Nuoto in piscina"
+      es: "Natación en piscina"
     auto_titles:
       de: Bahnschwimmen
+      en: "Pool swimming"
+      fr: "Natation en bassin"
+      it: "Nuoto in piscina"
+      es: "Natación en piscina"
   - sub_type: open_water
     labels:
       de: Freiwasser
+      en: "Open water"
+      fr: "Eau libre"
+      it: "Acque libere"
+      es: "Aguas abiertas"
     details:
       de: Freiwasserschwimmen
+      en: "Open-water swimming"
+      fr: "Natation en eau libre"
+      it: "Nuoto in acque libere"
+      es: "Natación en aguas abiertas"
     auto_titles:
       de: Freiwasserschwimmen
+      en: "Open-water swimming"
+      fr: "Natation en eau libre"
+      it: "Nuoto in acque libere"
+      es: "Natación en aguas abiertas"
 
 - sport_type: paddling
   category_key: water
   labels:
     de: Paddeln (allgemein)
+    en: "Paddling (general)"
+    fr: "Pagaie (général)"
+    it: "Pagaia (generale)"
+    es: "Paleo (general)"
   auto_titles:
     de: Wassersport-Tour
+    en: "Water sports outing"
+    fr: "Sortie sports nautiques"
+    it: "Uscita sport acquatici"
+    es: "Salida de deportes acuáticos"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
@@ -806,8 +1406,16 @@ sports:
   category_key: water
   labels:
     de: Kajak
+    en: "Kayak"
+    fr: "Kayak"
+    it: "Kayak"
+    es: "Kayak"
   auto_titles:
     de: Kajaktour
+    en: "Kayak tour"
+    fr: "Sortie kayak"
+    it: "Tour in kayak"
+    es: "Ruta en kayak"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
@@ -827,17 +1435,37 @@ sports:
   - sub_type: whitewater
     labels:
       de: Wildwasser
+      en: "Whitewater"
+      fr: "Eaux vives"
+      it: "Acque bianche"
+      es: "Aguas bravas"
     details:
       de: Wildwasser-Kajak
+      en: "Whitewater kayak"
+      fr: "Kayak en eaux vives"
+      it: "Kayak in acque bianche"
+      es: "Kayak en aguas bravas"
     auto_titles:
       de: Wildwasser-Kajak
+      en: "Whitewater kayak"
+      fr: "Kayak en eaux vives"
+      it: "Kayak in acque bianche"
+      es: "Kayak en aguas bravas"
 
 - sport_type: stand_up_paddleboarding
   category_key: water
   labels:
     de: SUP
+    en: "SUP"
+    fr: "SUP"
+    it: "SUP"
+    es: "SUP"
   auto_titles:
     de: SUP-Tour
+    en: "SUP tour"
+    fr: "Sortie SUP"
+    it: "Tour SUP"
+    es: "Ruta SUP"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
@@ -858,8 +1486,16 @@ sports:
   category_key: water
   labels:
     de: Rudern
+    en: "Rowing"
+    fr: "Aviron"
+    it: "Canottaggio"
+    es: "Remo"
   auto_titles:
     de: Rudern
+    en: "Rowing"
+    fr: "Aviron"
+    it: "Canottaggio"
+    es: "Remo"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
@@ -879,10 +1515,22 @@ sports:
   - sub_type: indoor_rowing
     labels:
       de: Indoor-Rudern
+      en: "Indoor rowing"
+      fr: "Aviron indoor"
+      it: "Canottaggio indoor"
+      es: "Remo indoor"
     details:
       de: Indoor-Rudern
+      en: "Indoor rowing"
+      fr: "Aviron indoor"
+      it: "Canottaggio indoor"
+      es: "Remo indoor"
     auto_titles:
       de: Indoor-Rudern
+      en: "Indoor rowing"
+      fr: "Aviron indoor"
+      it: "Canottaggio indoor"
+      es: "Remo indoor"
     traits:
       environments: [indoor]
       movement_families: [row]
@@ -896,8 +1544,16 @@ sports:
   category_key: water
   labels:
     de: Surfen
+    en: "Surfing"
+    fr: "Surf"
+    it: "Surf"
+    es: "Surf"
   auto_titles:
     de: Surfen
+    en: "Surfing"
+    fr: "Surf"
+    it: "Surf"
+    es: "Surf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -918,8 +1574,16 @@ sports:
   category_key: water
   labels:
     de: Kitesurfen
+    en: "Kitesurfing"
+    fr: "Kitesurf"
+    it: "Kitesurf"
+    es: "Kitesurf"
   auto_titles:
     de: Kitesurfen
+    en: "Kitesurfing"
+    fr: "Kitesurf"
+    it: "Kitesurf"
+    es: "Kitesurf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -940,8 +1604,16 @@ sports:
   category_key: water
   labels:
     de: Windsurfen
+    en: "Windsurfing"
+    fr: "Windsurf"
+    it: "Windsurf"
+    es: "Windsurf"
   auto_titles:
     de: Windsurfen
+    en: "Windsurfing"
+    fr: "Windsurf"
+    it: "Windsurf"
+    es: "Windsurf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -962,8 +1634,16 @@ sports:
   category_key: water
   labels:
     de: Wakeboard
+    en: "Wakeboard"
+    fr: "Wakeboard"
+    it: "Wakeboard"
+    es: "Wakeboard"
   auto_titles:
     de: Wakeboarden
+    en: "Wakeboarding"
+    fr: "Wakeboard"
+    it: "Wakeboard"
+    es: "Wakeboarding"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -984,8 +1664,16 @@ sports:
   category_key: water
   labels:
     de: Wakesurfen
+    en: "Wakesurfing"
+    fr: "Wakesurf"
+    it: "Wakesurf"
+    es: "Wakesurf"
   auto_titles:
     de: Wakesurfen
+    en: "Wakesurfing"
+    fr: "Wakesurf"
+    it: "Wakesurf"
+    es: "Wakesurf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1006,8 +1694,16 @@ sports:
   category_key: water
   labels:
     de: Wasserski
+    en: "Water skiing"
+    fr: "Ski nautique"
+    it: "Sci d'acqua"
+    es: "Esquí acuático"
   auto_titles:
     de: Wasserski
+    en: "Water skiing"
+    fr: "Ski nautique"
+    it: "Sci d'acqua"
+    es: "Esquí acuático"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1028,8 +1724,16 @@ sports:
   category_key: water
   labels:
     de: Wassertubing
+    en: "Water tubing"
+    fr: "Bouée tractée"
+    it: "Water tubing"
+    es: "Tubing acuático"
   auto_titles:
     de: Wassertubing
+    en: "Water tubing"
+    fr: "Bouée tractée"
+    it: "Water tubing"
+    es: "Tubing acuático"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1050,8 +1754,16 @@ sports:
   category_key: water
   labels:
     de: Tauchen
+    en: "Diving"
+    fr: "Plongée"
+    it: "Immersione"
+    es: "Buceo"
   auto_titles:
     de: Tauchen
+    en: "Diving"
+    fr: "Plongée"
+    it: "Immersione"
+    es: "Buceo"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1071,31 +1783,79 @@ sports:
   - sub_type: single_gas_diving
     labels:
       de: Eingas
+      en: "Single gas"
+      fr: "Monogaz"
+      it: "Gas singolo"
+      es: "Gas único"
     details:
       de: Eingas-Tauchen
+      en: "Single-gas diving"
+      fr: "Plongée monogaz"
+      it: "Immersione a gas singolo"
+      es: "Buceo con gas único"
     auto_titles:
       de: Tauchen
+      en: "Diving"
+      fr: "Plongée"
+      it: "Immersione"
+      es: "Buceo"
   - sub_type: multi_gas_diving
     labels:
       de: Mehrgas
+      en: "Multi gas"
+      fr: "Multigaz"
+      it: "Multigas"
+      es: "Multigas"
     details:
       de: Mehrgas-Tauchen
+      en: "Multi-gas diving"
+      fr: "Plongée multigaz"
+      it: "Immersione multigas"
+      es: "Buceo multigas"
     auto_titles:
       de: Tauchen
+      en: "Diving"
+      fr: "Plongée"
+      it: "Immersione"
+      es: "Buceo"
   - sub_type: gauge_diving
     labels:
       de: Gauge
+      en: "Gauge"
+      fr: "Gauge"
+      it: "Gauge"
+      es: "Gauge"
     details:
       de: Gauge-Tauchen
+      en: "Gauge diving"
+      fr: "Plongée gauge"
+      it: "Immersione gauge"
+      es: "Buceo gauge"
     auto_titles:
       de: Tauchen
+      en: "Diving"
+      fr: "Plongée"
+      it: "Immersione"
+      es: "Buceo"
   - sub_type: apnea_diving
     labels:
       de: Apnoe
+      en: "Apnea"
+      fr: "Apnée"
+      it: "Apnea"
+      es: "Apnea"
     details:
       de: Apnoe-Tauchen
+      en: "Apnea diving"
+      fr: "Plongée en apnée"
+      it: "Immersione in apnea"
+      es: "Buceo en apnea"
     auto_titles:
       de: Apnoe-Tauchen
+      en: "Apnea diving"
+      fr: "Plongée en apnée"
+      it: "Immersione in apnea"
+      es: "Buceo en apnea"
     traits:
       environments: [water]
       movement_families: [swim]
@@ -1105,10 +1865,22 @@ sports:
   - sub_type: dynamic_apnea
     labels:
       de: Dynamische Apnoe
+      en: "Dynamic apnea"
+      fr: "Apnée dynamique"
+      it: "Apnea dinamica"
+      es: "Apnea dinámica"
     details:
       de: Dynamische Apnoe
+      en: "Dynamic apnea"
+      fr: "Apnée dynamique"
+      it: "Apnea dinamica"
+      es: "Apnea dinámica"
     auto_titles:
       de: Apnoe-Tauchen
+      en: "Apnea diving"
+      fr: "Plongée en apnée"
+      it: "Immersione in apnea"
+      es: "Buceo en apnea"
     traits:
       environments: [water, indoor]
       movement_families: [swim]
@@ -1120,10 +1892,22 @@ sports:
   - sub_type: apnea_hunting
     labels:
       de: Apnoe-Jagd
+      en: "Apnea hunting"
+      fr: "Chasse en apnée"
+      it: "Caccia in apnea"
+      es: "Caza en apnea"
     details:
       de: Apnoe-Jagdtauchen
+      en: "Apnea hunting dive"
+      fr: "Plongée chasse en apnée"
+      it: "Immersione caccia in apnea"
+      es: "Buceo de caza en apnea"
     auto_titles:
       de: Apnoe-Tauchen
+      en: "Apnea diving"
+      fr: "Plongée en apnée"
+      it: "Immersione in apnea"
+      es: "Buceo en apnea"
     traits:
       environments: [water]
       movement_families: [swim]
@@ -1133,17 +1917,41 @@ sports:
   - sub_type: ccr_diving
     labels:
       de: CCR
+      en: "CCR"
+      fr: "CCR"
+      it: "CCR"
+      es: "CCR"
     details:
       de: Kreislauftauchen (CCR)
+      en: "Rebreather diving (CCR)"
+      fr: "Plongée recycleur (CCR)"
+      it: "Immersione con rebreather (CCR)"
+      es: "Buceo con rebreather (CCR)"
     auto_titles:
       de: CCR-Tauchen
+      en: "CCR diving"
+      fr: "Plongée CCR"
+      it: "Immersione CCR"
+      es: "Buceo CCR"
   - sub_type: apnea_pool
     labels:
       de: Apnoe Pool
+      en: "Pool apnea"
+      fr: "Apnée piscine"
+      it: "Apnea in piscina"
+      es: "Apnea en piscina"
     details:
       de: Apnoe-Tauchen (Pool)
+      en: "Apnea diving (pool)"
+      fr: "Plongée en apnée (piscine)"
+      it: "Immersione in apnea (piscina)"
+      es: "Buceo en apnea (piscina)"
     auto_titles:
       de: Apnoe-Tauchen
+      en: "Apnea diving"
+      fr: "Plongée en apnée"
+      it: "Immersione in apnea"
+      es: "Buceo en apnea"
     traits:
       environments: [water, indoor]
       movement_families: [swim]
@@ -1157,8 +1965,16 @@ sports:
   category_key: water
   labels:
     de: Schnorcheln
+    en: "Snorkeling"
+    fr: "Snorkeling"
+    it: "Snorkeling"
+    es: "Snorkel"
   auto_titles:
     de: Schnorcheln
+    en: "Snorkeling"
+    fr: "Snorkeling"
+    it: "Snorkeling"
+    es: "Snorkel"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1179,8 +1995,16 @@ sports:
   category_key: water
   labels:
     de: Bootfahren
+    en: "Boating"
+    fr: "Bateau"
+    it: "Nautica"
+    es: "Navegación"
   auto_titles:
     de: Bootstour
+    en: "Boat tour"
+    fr: "Sortie bateau"
+    it: "Gita in barca"
+    es: "Ruta en barco"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1201,8 +2025,16 @@ sports:
   category_key: water
   labels:
     de: Segeln
+    en: "Sailing"
+    fr: "Voile"
+    it: "Vela"
+    es: "Vela"
   auto_titles:
     de: Segeln
+    en: "Sailing"
+    fr: "Voile"
+    it: "Vela"
+    es: "Vela"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1222,17 +2054,37 @@ sports:
   - sub_type: sail_race
     labels:
       de: Regatta
+      en: "Regatta"
+      fr: "Régate"
+      it: "Regata"
+      es: "Regata"
     details:
       de: Segelregatta
+      en: "Sailing regatta"
+      fr: "Régate à voile"
+      it: "Regata a vela"
+      es: "Regata de vela"
     auto_titles:
       de: Regatta
+      en: "Regatta"
+      fr: "Régate"
+      it: "Regata"
+      es: "Regata"
 
 - sport_type: fishing
   category_key: water
   labels:
     de: Angeln
+    en: "Fishing"
+    fr: "Pêche"
+    it: "Pesca"
+    es: "Pesca"
   auto_titles:
     de: Angeln
+    en: "Fishing"
+    fr: "Pêche"
+    it: "Pesca"
+    es: "Pesca"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -1253,8 +2105,16 @@ sports:
   category_key: water
   labels:
     de: Rafting
+    en: "Rafting"
+    fr: "Rafting"
+    it: "Rafting"
+    es: "Rafting"
   auto_titles:
     de: Rafting
+    en: "Rafting"
+    fr: "Rafting"
+    it: "Rafting"
+    es: "Rafting"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
@@ -1274,17 +2134,37 @@ sports:
   - sub_type: whitewater
     labels:
       de: Wildwasser
+      en: "Whitewater"
+      fr: "Eaux vives"
+      it: "Acque bianche"
+      es: "Aguas bravas"
     details:
       de: Wildwasser-Rafting
+      en: "Whitewater rafting"
+      fr: "Rafting en eaux vives"
+      it: "Rafting in acque bianche"
+      es: "Rafting en aguas bravas"
     auto_titles:
       de: Wildwasser-Rafting
+      en: "Whitewater rafting"
+      fr: "Rafting en eaux vives"
+      it: "Rafting in acque bianche"
+      es: "Rafting en aguas bravas"
 
 - sport_type: training
   category_key: fitness
   labels:
     de: Training
+    en: "Training"
+    fr: "Entraînement"
+    it: "Allenamento"
+    es: "Entrenamiento"
   auto_titles:
     de: Training
+    en: "Training"
+    fr: "Entraînement"
+    it: "Allenamento"
+    es: "Entrenamiento"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1308,10 +2188,22 @@ sports:
   - sub_type: flexibility_training
     labels:
       de: Stretching
+      en: "Stretching"
+      fr: "Stretching"
+      it: "Stretching"
+      es: "Estiramientos"
     details:
       de: Dehnungstraining
+      en: "Flexibility training"
+      fr: "Entraînement de souplesse"
+      it: "Allenamento della flessibilità"
+      es: "Entrenamiento de flexibilidad"
     auto_titles:
       de: Stretching
+      en: "Stretching"
+      fr: "Stretching"
+      it: "Stretching"
+      es: "Estiramientos"
     traits:
       environments: [indoor]
       movement_families: [generic]
@@ -1321,10 +2213,22 @@ sports:
   - sub_type: cardio_training
     labels:
       de: Cardio
+      en: "Cardio"
+      fr: "Cardio"
+      it: "Cardio"
+      es: "Cardio"
     details:
       de: Cardio-Training
+      en: "Cardio training"
+      fr: "Entraînement cardio"
+      it: "Allenamento cardio"
+      es: "Entrenamiento cardio"
     auto_titles:
       de: Cardio
+      en: "Cardio"
+      fr: "Cardio"
+      it: "Cardio"
+      es: "Cardio"
     traits:
       environments: [indoor]
       movement_families: [generic]
@@ -1334,10 +2238,22 @@ sports:
   - sub_type: breathing
     labels:
       de: Atemübung
+      en: "Breathing exercise"
+      fr: "Exercice respiratoire"
+      it: "Esercizio di respirazione"
+      es: "Ejercicio de respiración"
     details:
       de: Atemübung
+      en: "Breathing exercise"
+      fr: "Exercice respiratoire"
+      it: "Esercizio di respirazione"
+      es: "Ejercicio de respiración"
     auto_titles:
       de: Atemübung
+      en: "Breathing exercise"
+      fr: "Exercice respiratoire"
+      it: "Esercizio di respirazione"
+      es: "Ejercicio de respiración"
     traits:
       environments: [indoor]
       movement_families: [mind_body]
@@ -1349,8 +2265,16 @@ sports:
   category_key: fitness
   labels:
     de: Fitnessgerät
+    en: "Fitness equipment"
+    fr: "Appareil fitness"
+    it: "Attrezzo fitness"
+    es: "Equipo de fitness"
   auto_titles:
     de: Fitnessgerät
+    en: "Fitness equipment"
+    fr: "Appareil fitness"
+    it: "Attrezzo fitness"
+    es: "Equipo de fitness"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1374,10 +2298,22 @@ sports:
   - sub_type: indoor_cycling
     labels:
       de: Indoor-Rad
+      en: "Indoor bike"
+      fr: "Vélo indoor"
+      it: "Bici indoor"
+      es: "Bici indoor"
     details:
       de: Indoor-Rad
+      en: "Indoor bike"
+      fr: "Vélo indoor"
+      it: "Bici indoor"
+      es: "Bici indoor"
     auto_titles:
       de: Indoor-Radfahrt
+      en: "Indoor ride"
+      fr: "Sortie vélo indoor"
+      it: "Uscita indoor in bici"
+      es: "Ruta indoor en bici"
     traits:
       environments: [indoor]
       movement_families: [pedal]
@@ -1387,10 +2323,22 @@ sports:
   - sub_type: indoor_rowing
     labels:
       de: Ruder-Ergometer
+      en: "Rowing ergometer"
+      fr: "Rameur"
+      it: "Vogatore"
+      es: "Remo ergómetro"
     details:
       de: Ruder-Ergometer
+      en: "Rowing ergometer"
+      fr: "Rameur"
+      it: "Vogatore"
+      es: "Remo ergómetro"
     auto_titles:
       de: Indoor-Rudern
+      en: "Indoor rowing"
+      fr: "Aviron indoor"
+      it: "Canottaggio indoor"
+      es: "Remo indoor"
     traits:
       environments: [indoor]
       movement_families: [row]
@@ -1400,10 +2348,22 @@ sports:
   - sub_type: elliptical
     labels:
       de: Crosstrainer
+      en: "Elliptical"
+      fr: "Elliptique"
+      it: "Ellittica"
+      es: "Elíptica"
     details:
       de: Crosstrainer
+      en: "Elliptical"
+      fr: "Elliptique"
+      it: "Ellittica"
+      es: "Elíptica"
     auto_titles:
       de: Crosstrainer
+      en: "Elliptical"
+      fr: "Elliptique"
+      it: "Ellittica"
+      es: "Elíptica"
     traits:
       environments: [indoor]
       movement_families: [generic]
@@ -1413,10 +2373,22 @@ sports:
   - sub_type: stair_climbing
     labels:
       de: Treppensteiger
+      en: "Stair climber"
+      fr: "Monte-escalier d'entraînement"
+      it: "Stepper"
+      es: "Escaladora"
     details:
       de: Treppensteiger
+      en: "Stair climber"
+      fr: "Monte-escalier d'entraînement"
+      it: "Stepper"
+      es: "Escaladora"
     auto_titles:
       de: Treppensteiger
+      en: "Stair climber"
+      fr: "Monte-escalier d'entraînement"
+      it: "Stepper"
+      es: "Escaladora"
     traits:
       environments: [indoor]
       movement_families: [climb]
@@ -1426,10 +2398,22 @@ sports:
   - sub_type: indoor_skiing
     labels:
       de: Indoor-Ski
+      en: "Indoor skiing"
+      fr: "Ski indoor"
+      it: "Sci indoor"
+      es: "Esquí indoor"
     details:
       de: Skimaschine
+      en: "Ski machine"
+      fr: "Machine de ski"
+      it: "Macchina da sci"
+      es: "Máquina de esquí"
     auto_titles:
       de: Indoor-Ski
+      en: "Indoor skiing"
+      fr: "Ski indoor"
+      it: "Sci indoor"
+      es: "Esquí indoor"
     traits:
       environments: [indoor]
       movement_families: [glide]
@@ -1439,10 +2423,22 @@ sports:
   - sub_type: indoor_walking
     labels:
       de: Indoor-Gehen
+      en: "Indoor walking"
+      fr: "Marche indoor"
+      it: "Camminata indoor"
+      es: "Caminata indoor"
     details:
       de: Indoor-Gehen
+      en: "Indoor walking"
+      fr: "Marche indoor"
+      it: "Camminata indoor"
+      es: "Caminata indoor"
     auto_titles:
       de: Indoor-Gehen
+      en: "Indoor walking"
+      fr: "Marche indoor"
+      it: "Camminata indoor"
+      es: "Caminata indoor"
     traits:
       environments: [indoor]
       movement_families: [walk]
@@ -1452,10 +2448,22 @@ sports:
   - sub_type: indoor_hand_cycling
     labels:
       de: Handbike-Ergometer
+      en: "Handbike ergometer"
+      fr: "Ergomètre handbike"
+      it: "Ergometro handbike"
+      es: "Ergómetro handbike"
     details:
       de: Handbike-Ergometer
+      en: "Handbike ergometer"
+      fr: "Ergomètre handbike"
+      it: "Ergometro handbike"
+      es: "Ergómetro handbike"
     auto_titles:
       de: Indoor-Handbike
+      en: "Indoor handbike"
+      fr: "Handbike indoor"
+      it: "Handbike indoor"
+      es: "Handbike indoor"
     traits:
       environments: [indoor]
       movement_families: [pedal]
@@ -1469,8 +2477,16 @@ sports:
   category_key: fitness
   labels:
     de: Krafttraining
+    en: "Strength training"
+    fr: "Musculation"
+    it: "Allenamento di forza"
+    es: "Entrenamiento de fuerza"
   auto_titles:
     de: Krafttraining
+    en: "Strength training"
+    fr: "Musculation"
+    it: "Allenamento di forza"
+    es: "Entrenamiento de fuerza"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1492,24 +2508,56 @@ sports:
   - sub_type: amrap
     labels:
       de: AMRAP
+      en: "AMRAP"
+      fr: "AMRAP"
+      it: "AMRAP"
+      es: "AMRAP"
     details:
       de: As Many Reps As Possible
+      en: "As Many Reps As Possible"
+      fr: "As Many Reps As Possible"
+      it: "As Many Reps As Possible"
+      es: "As Many Reps As Possible"
     auto_titles:
       de: AMRAP
+      en: "AMRAP"
+      fr: "AMRAP"
+      it: "AMRAP"
+      es: "AMRAP"
   - sub_type: emom
     labels:
       de: EMOM
+      en: "EMOM"
+      fr: "EMOM"
+      it: "EMOM"
+      es: "EMOM"
     details:
       de: Every Minute On the Minute
+      en: "Every Minute On the Minute"
+      fr: "Every Minute On the Minute"
+      it: "Every Minute On the Minute"
+      es: "Every Minute On the Minute"
     auto_titles:
       de: EMOM
+      en: "EMOM"
+      fr: "EMOM"
+      it: "EMOM"
+      es: "EMOM"
 
 - sport_type: hiit
   category_key: fitness
   labels:
     de: HIIT
+    en: "HIIT"
+    fr: "HIIT"
+    it: "HIIT"
+    es: "HIIT"
   auto_titles:
     de: HIIT
+    en: "HIIT"
+    fr: "HIIT"
+    it: "HIIT"
+    es: "HIIT"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1531,17 +2579,37 @@ sports:
   - sub_type: tabata
     labels:
       de: Tabata
+      en: "Tabata"
+      fr: "Tabata"
+      it: "Tabata"
+      es: "Tabata"
     details:
       de: Tabata
+      en: "Tabata"
+      fr: "Tabata"
+      it: "Tabata"
+      es: "Tabata"
     auto_titles:
       de: Tabata
+      en: "Tabata"
+      fr: "Tabata"
+      it: "Tabata"
+      es: "Tabata"
 
 - sport_type: dance
   category_key: fitness
   labels:
     de: Tanzen
+    en: "Dance"
+    fr: "Danse"
+    it: "Danza"
+    es: "Baile"
   auto_titles:
     de: Tanzen
+    en: "Dance"
+    fr: "Danse"
+    it: "Danza"
+    es: "Baile"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1564,8 +2632,16 @@ sports:
   category_key: fitness
   labels:
     de: Seilspringen
+    en: "Jump rope"
+    fr: "Corde à sauter"
+    it: "Salto con la corda"
+    es: "Saltar la cuerda"
   auto_titles:
     de: Seilspringen
+    en: "Jump rope"
+    fr: "Corde à sauter"
+    it: "Salto con la corda"
+    es: "Saltar la cuerda"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1588,8 +2664,16 @@ sports:
   category_key: fitness
   labels:
     de: Meditation
+    en: "Meditation"
+    fr: "Méditation"
+    it: "Meditazione"
+    es: "Meditación"
   auto_titles:
     de: Meditation
+    en: "Meditation"
+    fr: "Méditation"
+    it: "Meditazione"
+    es: "Meditación"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1612,8 +2696,16 @@ sports:
   category_key: fitness
   labels:
     de: Mobilität
+    en: "Mobility"
+    fr: "Mobilité"
+    it: "Mobilità"
+    es: "Movilidad"
   auto_titles:
     de: Mobilität
+    en: "Mobility"
+    fr: "Mobilité"
+    it: "Mobilità"
+    es: "Movilidad"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1636,8 +2728,16 @@ sports:
   category_key: fitness
   labels:
     de: Yoga
+    en: "Yoga"
+    fr: "Yoga"
+    it: "Yoga"
+    es: "Yoga"
   auto_titles:
     de: Yoga
+    en: "Yoga"
+    fr: "Yoga"
+    it: "Yoga"
+    es: "Yoga"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1660,8 +2760,16 @@ sports:
   category_key: fitness
   labels:
     de: Pilates
+    en: "Pilates"
+    fr: "Pilates"
+    it: "Pilates"
+    es: "Pilates"
   auto_titles:
     de: Pilates
+    en: "Pilates"
+    fr: "Pilates"
+    it: "Pilates"
+    es: "Pilates"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1684,8 +2792,16 @@ sports:
   category_key: game
   labels:
     de: Fußball
+    en: "Soccer"
+    fr: "Football"
+    it: "Calcio"
+    es: "Fútbol"
   auto_titles:
     de: Fußball
+    en: "Soccer"
+    fr: "Football"
+    it: "Calcio"
+    es: "Fútbol"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -1706,8 +2822,16 @@ sports:
   category_key: game
   labels:
     de: Basketball
+    en: "Basketball"
+    fr: "Basketball"
+    it: "Basket"
+    es: "Baloncesto"
   auto_titles:
     de: Basketball
+    en: "Basketball"
+    fr: "Basketball"
+    it: "Basket"
+    es: "Baloncesto"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1728,8 +2852,16 @@ sports:
   category_key: game
   labels:
     de: American Football
+    en: "American football"
+    fr: "Football américain"
+    it: "Football americano"
+    es: "Fútbol americano"
   auto_titles:
     de: American Football
+    en: "American football"
+    fr: "Football américain"
+    it: "Football americano"
+    es: "Fútbol americano"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -1750,8 +2882,16 @@ sports:
   category_key: game
   labels:
     de: Rugby
+    en: "Rugby"
+    fr: "Rugby"
+    it: "Rugby"
+    es: "Rugby"
   auto_titles:
     de: Rugby
+    en: "Rugby"
+    fr: "Rugby"
+    it: "Rugby"
+    es: "Rugby"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -1772,8 +2912,16 @@ sports:
   category_key: game
   labels:
     de: Lacrosse
+    en: "Lacrosse"
+    fr: "Lacrosse"
+    it: "Lacrosse"
+    es: "Lacrosse"
   auto_titles:
     de: Lacrosse
+    en: "Lacrosse"
+    fr: "Lacrosse"
+    it: "Lacrosse"
+    es: "Lacrosse"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -1794,8 +2942,16 @@ sports:
   category_key: game
   labels:
     de: Hockey
+    en: "Hockey"
+    fr: "Hockey"
+    it: "Hockey"
+    es: "Hockey"
   auto_titles:
     de: Hockey
+    en: "Hockey"
+    fr: "Hockey"
+    it: "Hockey"
+    es: "Hockey"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -1816,8 +2972,16 @@ sports:
   category_key: game
   labels:
     de: Volleyball
+    en: "Volleyball"
+    fr: "Volley-ball"
+    it: "Pallavolo"
+    es: "Voleibol"
   auto_titles:
     de: Volleyball
+    en: "Volleyball"
+    fr: "Volley-ball"
+    it: "Pallavolo"
+    es: "Voleibol"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1838,8 +3002,16 @@ sports:
   category_key: game
   labels:
     de: Tennis
+    en: "Tennis"
+    fr: "Tennis"
+    it: "Tennis"
+    es: "Tenis"
   auto_titles:
     de: Tennis
+    en: "Tennis"
+    fr: "Tennis"
+    it: "Tennis"
+    es: "Tenis"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1859,31 +3031,75 @@ sports:
   - sub_type: warm_up
     labels:
       de: Aufwärmen
+      en: "Warm-up"
+      fr: "Échauffement"
+      it: "Riscaldamento"
+      es: "Calentamiento"
     details:
       de: Aufwärmen
+      en: "Warm-up"
+      fr: "Échauffement"
+      it: "Riscaldamento"
+      es: "Calentamiento"
     auto_titles:
       de: Tennis-Aufwärmen
+      en: "Tennis warm-up"
+      fr: "Échauffement tennis"
+      it: "Riscaldamento tennis"
+      es: "Calentamiento de tenis"
   - sub_type: match
     labels:
       de: Match
+      en: "Match"
+      fr: "Match"
+      it: "Match"
+      es: "Partido"
     details:
       de: Tennis-Match
+      en: "Tennis match"
+      fr: "Match de tennis"
+      it: "Match di tennis"
+      es: "Partido de tenis"
     auto_titles:
       de: Tennis-Match
+      en: "Tennis match"
+      fr: "Match de tennis"
+      it: "Match di tennis"
+      es: "Partido de tenis"
   - sub_type: exercise
     labels:
       de: Übung
+      en: "Drill"
+      fr: "Exercice"
+      it: "Esercizio"
+      es: "Ejercicio"
     details:
       de: Tennis-Übung
+      en: "Tennis drill"
+      fr: "Exercice de tennis"
+      it: "Esercizio di tennis"
+      es: "Ejercicio de tenis"
     auto_titles:
       de: Tennis-Übung
+      en: "Tennis drill"
+      fr: "Exercice de tennis"
+      it: "Esercizio di tennis"
+      es: "Ejercicio de tenis"
 
 - sport_type: racket
   category_key: game
   labels:
     de: Schlägersport
+    en: "Racket sports"
+    fr: "Sports de raquette"
+    it: "Sport con racchetta"
+    es: "Deportes de raqueta"
   auto_titles:
     de: Schlägersport
+    en: "Racket sports"
+    fr: "Sports de raquette"
+    it: "Sport con racchetta"
+    es: "Deportes de raqueta"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -1903,10 +3119,22 @@ sports:
   - sub_type: pickleball
     labels:
       de: Pickleball
+      en: "Pickleball"
+      fr: "Pickleball"
+      it: "Pickleball"
+      es: "Pickleball"
     details:
       de: Pickleball
+      en: "Pickleball"
+      fr: "Pickleball"
+      it: "Pickleball"
+      es: "Pickleball"
     auto_titles:
       de: Pickleball
+      en: "Pickleball"
+      fr: "Pickleball"
+      it: "Pickleball"
+      es: "Pickleball"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1916,10 +3144,22 @@ sports:
   - sub_type: padel
     labels:
       de: Padel
+      en: "Padel"
+      fr: "Padel"
+      it: "Padel"
+      es: "Pádel"
     details:
       de: Padel
+      en: "Padel"
+      fr: "Padel"
+      it: "Padel"
+      es: "Pádel"
     auto_titles:
       de: Padel
+      en: "Padel"
+      fr: "Padel"
+      it: "Padel"
+      es: "Pádel"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1929,10 +3169,22 @@ sports:
   - sub_type: squash
     labels:
       de: Squash
+      en: "Squash"
+      fr: "Squash"
+      it: "Squash"
+      es: "Squash"
     details:
       de: Squash
+      en: "Squash"
+      fr: "Squash"
+      it: "Squash"
+      es: "Squash"
     auto_titles:
       de: Squash
+      en: "Squash"
+      fr: "Squash"
+      it: "Squash"
+      es: "Squash"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1942,10 +3194,22 @@ sports:
   - sub_type: badminton
     labels:
       de: Badminton
+      en: "Badminton"
+      fr: "Badminton"
+      it: "Badminton"
+      es: "Bádminton"
     details:
       de: Badminton
+      en: "Badminton"
+      fr: "Badminton"
+      it: "Badminton"
+      es: "Bádminton"
     auto_titles:
       de: Badminton
+      en: "Badminton"
+      fr: "Badminton"
+      it: "Badminton"
+      es: "Bádminton"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1955,10 +3219,22 @@ sports:
   - sub_type: racquetball
     labels:
       de: Racquetball
+      en: "Racquetball"
+      fr: "Racquetball"
+      it: "Racquetball"
+      es: "Racquetball"
     details:
       de: Racquetball
+      en: "Racquetball"
+      fr: "Racquetball"
+      it: "Racquetball"
+      es: "Racquetball"
     auto_titles:
       de: Racquetball
+      en: "Racquetball"
+      fr: "Racquetball"
+      it: "Racquetball"
+      es: "Racquetball"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1968,10 +3244,22 @@ sports:
   - sub_type: table_tennis
     labels:
       de: Tischtennis
+      en: "Table tennis"
+      fr: "Tennis de table"
+      it: "Tennis tavolo"
+      es: "Tenis de mesa"
     details:
       de: Tischtennis
+      en: "Table tennis"
+      fr: "Tennis de table"
+      it: "Tennis tavolo"
+      es: "Tenis de mesa"
     auto_titles:
       de: Tischtennis
+      en: "Table tennis"
+      fr: "Tennis de table"
+      it: "Tennis tavolo"
+      es: "Tenis de mesa"
     traits:
       environments: [land]
       movement_families: [strike]
@@ -1983,8 +3271,16 @@ sports:
   category_key: game
   labels:
     de: Cricket
+    en: "Cricket"
+    fr: "Cricket"
+    it: "Cricket"
+    es: "Críquet"
   auto_titles:
     de: Cricket
+    en: "Cricket"
+    fr: "Cricket"
+    it: "Cricket"
+    es: "Críquet"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2005,8 +3301,16 @@ sports:
   category_key: game
   labels:
     de: Baseball
+    en: "Baseball"
+    fr: "Baseball"
+    it: "Baseball"
+    es: "Béisbol"
   auto_titles:
     de: Baseball
+    en: "Baseball"
+    fr: "Baseball"
+    it: "Baseball"
+    es: "Béisbol"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2027,8 +3331,16 @@ sports:
   category_key: game
   labels:
     de: Golf
+    en: "Golf"
+    fr: "Golf"
+    it: "Golf"
+    es: "Golf"
   auto_titles:
     de: Golf
+    en: "Golf"
+    fr: "Golf"
+    it: "Golf"
+    es: "Golf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2049,8 +3361,16 @@ sports:
   category_key: game
   labels:
     de: Disc Golf
+    en: "Disc golf"
+    fr: "Disc golf"
+    it: "Disc golf"
+    es: "Disc golf"
   auto_titles:
     de: Disc Golf
+    en: "Disc golf"
+    fr: "Disc golf"
+    it: "Disc golf"
+    es: "Disc golf"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2071,8 +3391,16 @@ sports:
   category_key: climb
   labels:
     de: Klettern
+    en: "Climbing"
+    fr: "Escalade"
+    it: "Arrampicata"
+    es: "Escalada"
   auto_titles:
     de: Klettern
+    en: "Climbing"
+    fr: "Escalade"
+    it: "Arrampicata"
+    es: "Escalada"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2092,10 +3420,22 @@ sports:
   - sub_type: indoor_climbing
     labels:
       de: Indoor
+      en: "Indoor"
+      fr: "Indoor"
+      it: "Indoor"
+      es: "Indoor"
     details:
       de: Hallenklettern
+      en: "Indoor climbing"
+      fr: "Escalade indoor"
+      it: "Arrampicata indoor"
+      es: "Escalada indoor"
     auto_titles:
       de: Hallenklettern
+      en: "Indoor climbing"
+      fr: "Escalade indoor"
+      it: "Arrampicata indoor"
+      es: "Escalada indoor"
     traits:
       environments: [indoor]
       movement_families: [climb]
@@ -2107,17 +3447,37 @@ sports:
   - sub_type: bouldering
     labels:
       de: Bouldern
+      en: "Bouldering"
+      fr: "Bloc"
+      it: "Bouldering"
+      es: "Boulder"
     details:
       de: Bouldern
+      en: "Bouldering"
+      fr: "Bloc"
+      it: "Bouldering"
+      es: "Boulder"
     auto_titles:
       de: Bouldern
+      en: "Bouldering"
+      fr: "Bloc"
+      it: "Bouldering"
+      es: "Boulder"
 
 - sport_type: flying
   category_key: outdoor
   labels:
     de: Fliegen
+    en: "Flying"
+    fr: "Vol"
+    it: "Volo"
+    es: "Vuelo"
   auto_titles:
     de: Fliegen
+    en: "Flying"
+    fr: "Vol"
+    it: "Volo"
+    es: "Vuelo"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -2137,10 +3497,22 @@ sports:
   - sub_type: rc_drone
     labels:
       de: Drohne
+      en: "Drone"
+      fr: "Drone"
+      it: "Drone"
+      es: "Dron"
     details:
       de: Drohnenflug
+      en: "Drone flight"
+      fr: "Vol de drone"
+      it: "Volo con drone"
+      es: "Vuelo con dron"
     auto_titles:
       de: Drohnenflug
+      en: "Drone flight"
+      fr: "Vol de drone"
+      it: "Volo con drone"
+      es: "Vuelo con dron"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2150,10 +3522,22 @@ sports:
   - sub_type: wingsuit
     labels:
       de: Wingsuit
+      en: "Wingsuit"
+      fr: "Wingsuit"
+      it: "Wingsuit"
+      es: "Wingsuit"
     details:
       de: Wingsuit
+      en: "Wingsuit"
+      fr: "Wingsuit"
+      it: "Wingsuit"
+      es: "Wingsuit"
     auto_titles:
       de: Wingsuit-Flug
+      en: "Wingsuit flight"
+      fr: "Vol wingsuit"
+      it: "Volo in wingsuit"
+      es: "Vuelo en wingsuit"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2163,10 +3547,22 @@ sports:
   - sub_type: fly_canopy
     labels:
       de: Fallschirm
+      en: "Parachute"
+      fr: "Parachute"
+      it: "Paracadute"
+      es: "Paracaídas"
     details:
       de: Fallschirmspringen
+      en: "Skydiving"
+      fr: "Parachutisme"
+      it: "Paracadutismo"
+      es: "Paracaidismo"
     auto_titles:
       de: Fallschirmsprung
+      en: "Skydive"
+      fr: "Saut en parachute"
+      it: "Lancio con paracadute"
+      es: "Salto en paracaídas"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2176,10 +3572,22 @@ sports:
   - sub_type: fly_paraglide
     labels:
       de: Gleitschirm
+      en: "Paraglider"
+      fr: "Parapente"
+      it: "Parapendio"
+      es: "Parapente"
     details:
       de: Gleitschirmfliegen
+      en: "Paragliding"
+      fr: "Parapente"
+      it: "Parapendio"
+      es: "Parapente"
     auto_titles:
       de: Gleitschirmflug
+      en: "Paraglider flight"
+      fr: "Vol en parapente"
+      it: "Volo in parapendio"
+      es: "Vuelo en parapente"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2189,10 +3597,22 @@ sports:
   - sub_type: fly_paramotor
     labels:
       de: Paramotor
+      en: "Paramotor"
+      fr: "Paramoteur"
+      it: "Paramotore"
+      es: "Paramotor"
     details:
       de: Paramotorfliegen
+      en: "Paramotor flying"
+      fr: "Vol en paramoteur"
+      it: "Volo in paramotore"
+      es: "Vuelo en paramotor"
     auto_titles:
       de: Paramotorflug
+      en: "Paramotor flight"
+      fr: "Vol en paramoteur"
+      it: "Volo in paramotore"
+      es: "Vuelo en paramotor"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2202,10 +3622,22 @@ sports:
   - sub_type: fly_pressurized
     labels:
       de: Druckkabine
+      en: "Pressurized cabin"
+      fr: "Cabine pressurisée"
+      it: "Cabina pressurizzata"
+      es: "Cabina presurizada"
     details:
       de: Druckkabinenflugzeug
+      en: "Pressurized aircraft"
+      fr: "Avion pressurisé"
+      it: "Aereo pressurizzato"
+      es: "Avión presurizado"
     auto_titles:
       de: Flug
+      en: "Flight"
+      fr: "Vol"
+      it: "Volo"
+      es: "Vuelo"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2215,10 +3647,22 @@ sports:
   - sub_type: fly_vfr
     labels:
       de: Sichtflug (VFR)
+      en: "Visual flight (VFR)"
+      fr: "Vol à vue (VFR)"
+      it: "Volo a vista (VFR)"
+      es: "Vuelo visual (VFR)"
     details:
       de: Sichtflugregeln (VFR)
+      en: "Visual flight rules (VFR)"
+      fr: "Règles de vol à vue (VFR)"
+      it: "Regole del volo a vista (VFR)"
+      es: "Reglas de vuelo visual (VFR)"
     auto_titles:
       de: VFR-Flug
+      en: "VFR flight"
+      fr: "Vol VFR"
+      it: "Volo VFR"
+      es: "Vuelo VFR"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2228,10 +3672,22 @@ sports:
   - sub_type: fly_ifr
     labels:
       de: Instrumentenflug (IFR)
+      en: "Instrument flight (IFR)"
+      fr: "Vol aux instruments (IFR)"
+      it: "Volo strumentale (IFR)"
+      es: "Vuelo instrumental (IFR)"
     details:
       de: Instrumentenflugregeln (IFR)
+      en: "Instrument flight rules (IFR)"
+      fr: "Règles de vol aux instruments (IFR)"
+      it: "Regole del volo strumentale (IFR)"
+      es: "Reglas de vuelo instrumental (IFR)"
     auto_titles:
       de: IFR-Flug
+      en: "IFR flight"
+      fr: "Vol IFR"
+      it: "Volo IFR"
+      es: "Vuelo IFR"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2241,10 +3697,22 @@ sports:
   - sub_type: fly_navigate
     labels:
       de: Navigation
+      en: "Navigation"
+      fr: "Navigation"
+      it: "Navigazione"
+      es: "Navegación"
     details:
       de: Luftfahrt-Navigation
+      en: "Aviation navigation"
+      fr: "Navigation aéronautique"
+      it: "Navigazione aeronautica"
+      es: "Navegación aeronáutica"
     auto_titles:
       de: Flug
+      en: "Flight"
+      fr: "Vol"
+      it: "Volo"
+      es: "Vuelo"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2254,10 +3722,22 @@ sports:
   - sub_type: fly_timer
     labels:
       de: Timer
+      en: "Timer"
+      fr: "Timer"
+      it: "Timer"
+      es: "Temporizador"
     details:
       de: Flug-Timer
+      en: "Flight timer"
+      fr: "Timer de vol"
+      it: "Timer di volo"
+      es: "Temporizador de vuelo"
     auto_titles:
       de: Flug
+      en: "Flight"
+      fr: "Vol"
+      it: "Volo"
+      es: "Vuelo"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2267,10 +3747,22 @@ sports:
   - sub_type: fly_altimeter
     labels:
       de: Höhenmesser
+      en: "Altimeter"
+      fr: "Altimètre"
+      it: "Altimetro"
+      es: "Altímetro"
     details:
       de: Höhenmesser-Modus
+      en: "Altimeter mode"
+      fr: "Mode altimètre"
+      it: "Modalità altimetro"
+      es: "Modo altímetro"
     auto_titles:
       de: Flug
+      en: "Flight"
+      fr: "Vol"
+      it: "Volo"
+      es: "Vuelo"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2280,10 +3772,22 @@ sports:
   - sub_type: fly_wx
     labels:
       de: Wetter
+      en: "Weather"
+      fr: "Météo"
+      it: "Meteo"
+      es: "Tiempo"
     details:
       de: Flugwetter
+      en: "Aviation weather"
+      fr: "Météo aéronautique"
+      it: "Meteo aeronautica"
+      es: "Meteorología aeronáutica"
     auto_titles:
       de: Flug
+      en: "Flight"
+      fr: "Vol"
+      it: "Volo"
+      es: "Vuelo"
     traits:
       environments: [air]
       movement_families: [fly]
@@ -2295,8 +3799,16 @@ sports:
   category_key: outdoor
   labels:
     de: Gleitschirmfliegen
+    en: "Paragliding"
+    fr: "Parapente"
+    it: "Parapendio"
+    es: "Parapente"
   auto_titles:
     de: Gleitschirmflug
+    en: "Paraglider flight"
+    fr: "Vol en parapente"
+    it: "Volo in parapendio"
+    es: "Vuelo en parapente"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -2317,8 +3829,16 @@ sports:
   category_key: outdoor
   labels:
     de: Fallschirmspringen
+    en: "Skydiving"
+    fr: "Parachutisme"
+    it: "Paracadutismo"
+    es: "Paracaidismo"
   auto_titles:
     de: Fallschirmsprung
+    en: "Skydive"
+    fr: "Saut en parachute"
+    it: "Lancio con paracadute"
+    es: "Salto en paracaídas"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2339,8 +3859,16 @@ sports:
   category_key: outdoor
   labels:
     de: Jumpmaster
+    en: "Jumpmaster"
+    fr: "Jumpmaster"
+    it: "Jumpmaster"
+    es: "Jumpmaster"
   auto_titles:
     de: Jumpmaster
+    en: "Jumpmaster"
+    fr: "Jumpmaster"
+    it: "Jumpmaster"
+    es: "Jumpmaster"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2361,8 +3889,16 @@ sports:
   category_key: outdoor
   labels:
     de: Reiten
+    en: "Horseback riding"
+    fr: "Équitation"
+    it: "Equitazione"
+    es: "Equitación"
   auto_titles:
     de: Ausritt
+    en: "Horse ride"
+    fr: "Sortie à cheval"
+    it: "Uscita a cavallo"
+    es: "Paseo a caballo"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -2383,8 +3919,16 @@ sports:
   category_key: outdoor
   labels:
     de: Jagd
+    en: "Hunting"
+    fr: "Chasse"
+    it: "Caccia"
+    es: "Caza"
   auto_titles:
     de: Jagd
+    en: "Hunting"
+    fr: "Chasse"
+    it: "Caccia"
+    es: "Caza"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2405,8 +3949,16 @@ sports:
   category_key: outdoor
   labels:
     de: Motorrad
+    en: "Motorcycling"
+    fr: "Moto"
+    it: "Motociclismo"
+    es: "Motociclismo"
   auto_titles:
     de: Motorradtour
+    en: "Motorcycle ride"
+    fr: "Sortie moto"
+    it: "Giro in moto"
+    es: "Ruta en moto"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -2426,24 +3978,56 @@ sports:
   - sub_type: atv
     labels:
       de: Quad/ATV
+      en: "Quad/ATV"
+      fr: "Quad/ATV"
+      it: "Quad/ATV"
+      es: "Quad/ATV"
     details:
       de: Quad/ATV
+      en: "Quad/ATV"
+      fr: "Quad/ATV"
+      it: "Quad/ATV"
+      es: "Quad/ATV"
     auto_titles:
       de: Quad-Tour
+      en: "Quad ride"
+      fr: "Sortie quad"
+      it: "Giro in quad"
+      es: "Ruta en quad"
   - sub_type: motocross
     labels:
       de: Motocross
+      en: "Motocross"
+      fr: "Motocross"
+      it: "Motocross"
+      es: "Motocross"
     details:
       de: Motocross
+      en: "Motocross"
+      fr: "Motocross"
+      it: "Motocross"
+      es: "Motocross"
     auto_titles:
       de: Motocross
+      en: "Motocross"
+      fr: "Motocross"
+      it: "Motocross"
+      es: "Motocross"
 
 - sport_type: driving
   category_key: outdoor
   labels:
     de: Autofahren
+    en: "Driving"
+    fr: "Conduite"
+    it: "Guida"
+    es: "Conducción"
   auto_titles:
     de: Autofahrt
+    en: "Drive"
+    fr: "Trajet en voiture"
+    it: "Viaggio in auto"
+    es: "Trayecto en coche"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.5
@@ -2464,8 +4048,16 @@ sports:
   category_key: outdoor
   labels:
     de: Bogenschießen
+    en: "Archery"
+    fr: "Tir à l'arc"
+    it: "Tiro con arco"
+    es: "Tiro con arco"
   auto_titles:
     de: Bogenschießen
+    en: "Archery"
+    fr: "Tir à l'arc"
+    it: "Tiro con arco"
+    es: "Tiro con arco"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2486,8 +4078,16 @@ sports:
   category_key: outdoor
   labels:
     de: Schießen
+    en: "Shooting"
+    fr: "Tir"
+    it: "Tiro"
+    es: "Tiro"
   auto_titles:
     de: Schießen
+    en: "Shooting"
+    fr: "Tir"
+    it: "Tiro"
+    es: "Tiro"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2508,8 +4108,16 @@ sports:
   category_key: outdoor
   labels:
     de: Geocaching
+    en: "Geocaching"
+    fr: "Géocaching"
+    it: "Geocaching"
+    es: "Geocaching"
   auto_titles:
     de: Geocaching
+    en: "Geocaching"
+    fr: "Géocaching"
+    it: "Geocaching"
+    es: "Geocaching"
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -2530,8 +4138,16 @@ sports:
   category_key: fitness
   labels:
     de: Boxen
+    en: "Boxing"
+    fr: "Boxe"
+    it: "Boxe"
+    es: "Boxeo"
   auto_titles:
     de: Boxen
+    en: "Boxing"
+    fr: "Boxe"
+    it: "Boxe"
+    es: "Boxeo"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2554,8 +4170,16 @@ sports:
   category_key: fitness
   labels:
     de: MMA
+    en: "MMA"
+    fr: "MMA"
+    it: "MMA"
+    es: "MMA"
   auto_titles:
     de: MMA
+    en: "MMA"
+    fr: "MMA"
+    it: "MMA"
+    es: "MMA"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2578,8 +4202,16 @@ sports:
   category_key: outdoor
   labels:
     de: Taktisch
+    en: "Tactical"
+    fr: "Tactique"
+    it: "Tattico"
+    es: "Táctico"
   auto_titles:
     de: Taktisches Training
+    en: "Tactical training"
+    fr: "Entraînement tactique"
+    it: "Allenamento tattico"
+    es: "Entrenamiento táctico"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0.2
@@ -2600,8 +4232,16 @@ sports:
   category_key: multi
   labels:
     de: Multisport
+    en: "Multisport"
+    fr: "Multisport"
+    it: "Multisport"
+    es: "Multisport"
   auto_titles:
     de: Multisport
+    en: "Multisport"
+    fr: "Multisport"
+    it: "Multisport"
+    es: "Multisport"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2622,8 +4262,16 @@ sports:
   category_key: multi
   labels:
     de: Wechselzone
+    en: "Transition zone"
+    fr: "Zone de transition"
+    it: "Zona cambio"
+    es: "Zona de transición"
   auto_titles:
     de: Wechselzone
+    en: "Transition zone"
+    fr: "Zone de transition"
+    it: "Zona cambio"
+    es: "Zona de transición"
   segment_group: generic
   typically_has_gps: true
   moving_threshold: 0
@@ -2644,34 +4292,78 @@ sports:
   - sub_type: bike_to_run_transition
     labels:
       de: Rad→Lauf
+      en: "Bike→Run"
+      fr: "Vélo→Course"
+      it: "Bici→Corsa"
+      es: "Bici→Carrera"
     details:
       de: Wechsel Rad zu Lauf
+      en: "Bike-to-run transition"
+      fr: "Transition vélo-course"
+      it: "Transizione bici-corsa"
+      es: "Transición bici-carrera"
     auto_titles:
       de: Wechselzone
+      en: "Transition zone"
+      fr: "Zone de transition"
+      it: "Zona cambio"
+      es: "Zona de transición"
     selectable: false
   - sub_type: run_to_bike_transition
     labels:
       de: Lauf→Rad
+      en: "Run→Bike"
+      fr: "Course→Vélo"
+      it: "Corsa→Bici"
+      es: "Carrera→Bici"
     details:
       de: Wechsel Lauf zu Rad
+      en: "Run-to-bike transition"
+      fr: "Transition course-vélo"
+      it: "Transizione corsa-bici"
+      es: "Transición carrera-bici"
     auto_titles:
       de: Wechselzone
+      en: "Transition zone"
+      fr: "Zone de transition"
+      it: "Zona cambio"
+      es: "Zona de transición"
     selectable: false
   - sub_type: swim_to_bike_transition
     labels:
       de: Schwimmen→Rad
+      en: "Swim→Bike"
+      fr: "Natation→Vélo"
+      it: "Nuoto→Bici"
+      es: "Natación→Bici"
     details:
       de: Wechsel Schwimmen zu Rad
+      en: "Swim-to-bike transition"
+      fr: "Transition natation-vélo"
+      it: "Transizione nuoto-bici"
+      es: "Transición natación-bici"
     auto_titles:
       de: Wechselzone
+      en: "Transition zone"
+      fr: "Zone de transition"
+      it: "Zona cambio"
+      es: "Zona de transición"
     selectable: false
 
 - sport_type: generic
   category_key: other
   labels:
     de: Aktivität
+    en: "Activity"
+    fr: "Activité"
+    it: "Attività"
+    es: "Actividad"
   auto_titles:
     de: Training
+    en: "Training"
+    fr: "Entraînement"
+    it: "Allenamento"
+    es: "Entrenamiento"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2692,8 +4384,16 @@ sports:
   category_key: other
   labels:
     de: Unbekannt
+    en: "Unknown"
+    fr: "Inconnu"
+    it: "Sconosciuto"
+    es: "Desconocido"
   auto_titles:
     de: Training
+    en: "Training"
+    fr: "Entraînement"
+    it: "Allenamento"
+    es: "Entrenamiento"
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2715,8 +4415,16 @@ sports:
   category_key: winter
   labels:
     de: Skifahren
+    en: "Skiing"
+    fr: "Ski"
+    it: "Sci"
+    es: "Esquí"
   auto_titles:
     de: Skifahrt
+    en: "Ski outing"
+    fr: "Sortie ski"
+    it: "Uscita sugli sci"
+    es: "Salida de esquí"
   segment_group: ski
   typically_has_gps: true
   moving_threshold: 0.3
@@ -2739,8 +4447,16 @@ sports:
   category_key: water
   labels:
     de: Kanu
+    en: "Canoe"
+    fr: "Canoë"
+    it: "Canoa"
+    es: "Canoa"
   auto_titles:
     de: Kanutour
+    en: "Canoe tour"
+    fr: "Sortie canoë"
+    it: "Tour in canoa"
+    es: "Ruta en canoa"
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
@@ -18,7 +19,6 @@ import (
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
-	"github.com/go-chi/chi/v5"
 )
 
 // Kategorie-Definitionen: ID → betroffene Tabellen.
@@ -226,10 +226,14 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 			cancel5s()
 			if strings.Contains(regReporter.lastErr, "Korruption") || strings.Contains(regReporter.lastErr, "XX0") {
 				ctx5s, cancel5s := context.WithTimeout(context.Background(), 5*time.Second)
-				h.DB.Pool.Exec(ctx5s,
-					`INSERT INTO notifications (user_id, category, title, body)
-					 VALUES ($1, 'error', 'Datenbank-Korruption bei OSM Import', $2)`,
-					userID, fmt.Sprintf("Region %s: %s", reg.Label, regReporter.lastErr))
+				_ = h.DB.CreateNotificationKeyed(ctx5s, userID, "error",
+					"OSM import database issue",
+					fmt.Sprintf("Region %s: %s", reg.Label, regReporter.lastErr),
+					"notifications.osmImport.databaseIssue",
+					map[string]any{
+						"region": reg.Label,
+						"error":  regReporter.lastErr,
+					})
 				cancel5s()
 			}
 		}
@@ -295,10 +299,15 @@ func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, region
 			`UPDATE background_jobs SET error = $1 WHERE id = $2`, failMsg, jobID)
 		cancel5s()
 		ctx5s, cancel5s = context.WithTimeout(context.Background(), 5*time.Second)
-		h.DB.Pool.Exec(ctx5s,
-			`INSERT INTO notifications (user_id, category, title, body)
-			 VALUES ($1, 'warning', 'OSM Import teilweise fehlgeschlagen', $2)`,
-			userID, failMsg)
+		_ = h.DB.CreateNotificationKeyed(ctx5s, userID, "warning",
+			"OSM import partially failed",
+			failMsg,
+			"notifications.osmImport.partialFailure",
+			map[string]any{
+				"succeeded":     len(succeededRegions),
+				"total":         len(regions),
+				"failedRegions": strings.Join(failedRegionIDs, ", "),
+			})
 		cancel5s()
 	}
 	mainReporter.Complete()

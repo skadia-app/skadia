@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   listRoutes,
   deleteRoute,
@@ -11,15 +12,14 @@ import {
 } from '@/api/routes'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
-import { fmtDist } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { triggerBlobDownload } from '@/lib/utils'
 import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
-import { ROUTE_MODIFIER_LABELS, type RouteModifierKey } from '@/lib/routeModifierLabels'
 import { RoutingApplicableModifierKeys } from '@/lib/generatedRoutingApplicableModifiers'
+import type { SportModifierKey } from '@/lib/generatedSportModifiers'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
-
-const SPORT_TYPE_OPTIONS = routeSportOptions()
 
 const SPORT_TYPE_COLORS: Record<string, string> = {
   hiking: 'text-green-500',
@@ -37,15 +37,9 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
 type ModifierFilter = 'any' | 'true' | 'false'
+type RouteModifierKey = SportModifierKey
 const ROUTE_MODIFIER_KEYS = [...RoutingApplicableModifierKeys] as RouteModifierKey[]
 const ROUTES_PAGE_LIMIT = 50
-
-const SORT_LABELS: Record<SortOption, string> = {
-  created_at: 'Neueste',
-  name: 'Name A–Z',
-  distance: 'Distanz',
-  elevation: 'Höhenmeter',
-}
 
 function emptyRouteModifierFilters(): Record<RouteModifierKey, ModifierFilter> {
   return Object.fromEntries(ROUTE_MODIFIER_KEYS.map((key) => [key, 'any'])) as Record<RouteModifierKey, ModifierFilter>
@@ -213,7 +207,10 @@ function RouteCard({
   isDeleting,
 }: RouteCardProps) {
   const navigate = useNavigate()
-  const sportLabel = sportDetailLabel(route.sport_type, route.sub_type)
+  const { t, i18n } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
+  const language = supportedLanguageFrom(i18n.language)
+  const sportLabel = sportDetailLabel(route.sport_type, route.sub_type, language)
 
   return (
     <div
@@ -242,7 +239,7 @@ function RouteCard({
             {/* Edit */}
             <button
               onClick={onEdit}
-              title="Route bearbeiten"
+              title={t('routesPage.actions.edit')}
               className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -253,7 +250,7 @@ function RouteCard({
             <button
               onClick={onDuplicate}
               disabled={isDuplicating}
-              title="Duplizieren"
+              title={t('routesPage.actions.duplicate')}
               className="p-1 rounded text-neutral-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className={`w-3.5 h-3.5 ${isDuplicating ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -263,7 +260,7 @@ function RouteCard({
             {/* GPX Export */}
             <button
               onClick={onExportGPX}
-              title="GPX exportieren"
+              title={t('routesPage.actions.exportGpx')}
               className="p-1 rounded text-neutral-400 hover:text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -274,7 +271,7 @@ function RouteCard({
             <button
               onClick={onDelete}
               disabled={isDeleting}
-              title="Löschen"
+              title={t('routesPage.actions.delete')}
               className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -303,7 +300,7 @@ function RouteCard({
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               </svg>
-              {fmtDist(route.total_distance_m)}
+              {formatDistance(route.total_distance_m)}
             </span>
           )}
           {route.total_elevation_gain != null && route.total_elevation_gain > 0 && (
@@ -311,7 +308,7 @@ function RouteCard({
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
               </svg>
-              {Math.round(route.total_elevation_gain)} m
+              {formatElevation(route.total_elevation_gain)}
             </span>
           )}
           {route.estimated_time_min != null && (
@@ -356,6 +353,17 @@ export default function RoutesPage() {
   const queryClient = useQueryClient()
   const { openModal } = useModal()
   const { addToast } = useToast()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const sportOptions = useMemo(() => routeSportOptions(language), [language])
+  const routeModifierOptions = useMemo(
+    () => ROUTE_MODIFIER_KEYS.flatMap((key) => {
+      const labelKey = `routesPage.modifiers.${key}`
+      if (!i18n.exists(labelKey)) return []
+      return [{ key, label: t(labelKey) }]
+    }),
+    [i18n, t],
+  )
 
   const [sportPredicates, setSportPredicates] = useState<string[]>([])
   const [modifierFilters, setModifierFilters] = useState<Record<RouteModifierKey, ModifierFilter>>(() => emptyRouteModifierFilters())
@@ -444,10 +452,10 @@ export default function RoutesPage() {
     mutationFn: deleteRoute,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
-      addToast({ type: 'success', title: 'Route gelöscht' })
+      addToast({ type: 'success', title: t('routesPage.toasts.deleted') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Löschen', duration: 0 })
+      addToast({ type: 'error', title: t('routesPage.toasts.deleteFailed'), duration: 0 })
     },
   })
 
@@ -455,25 +463,25 @@ export default function RoutesPage() {
     mutationFn: duplicateRoute,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
-      addToast({ type: 'success', title: 'Route dupliziert' })
+      addToast({ type: 'success', title: t('routesPage.toasts.duplicated') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Duplizieren fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('routesPage.toasts.duplicateFailed'), duration: 0 })
     },
   })
 
   const handleDelete = useCallback(
     (route: PlannedRoute) => {
       openModal({
-        title: 'Route löschen?',
-        message: `"${route.name}" wird unwiderruflich gelöscht.`,
+        title: t('routesPage.modals.deleteTitle'),
+        message: t('routesPage.modals.deleteMessage', { name: route.name }),
         buttons: [
-          { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-          { label: 'Löschen', variant: 'destructive', onClick: () => deleteMut.mutate(route.id) },
+          { label: t('common.cancel'), variant: 'default', onClick: () => {} },
+          { label: t('routesPage.actions.delete'), variant: 'destructive', onClick: () => deleteMut.mutate(route.id) },
         ],
       })
     },
-    [openModal, deleteMut],
+    [openModal, deleteMut, t],
   )
 
   const handleExportGPX = useCallback(
@@ -481,12 +489,12 @@ export default function RoutesPage() {
       try {
         const { blob, filename } = await exportRouteGPX(route.id)
         triggerBlobDownload(blob, filename || `route-${route.id}.gpx`)
-        addToast({ type: 'success', title: 'GPX-Export erfolgreich' })
+        addToast({ type: 'success', title: t('routesPage.toasts.exportSuccess') })
       } catch {
-        addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })
+        addToast({ type: 'error', title: t('routesPage.toasts.exportFailed'), duration: 0 })
       }
     },
-    [addToast],
+    [addToast, t],
   )
 
   const handleNewRoute = () => {
@@ -505,7 +513,7 @@ export default function RoutesPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-400">
-        Lade Routen...
+        {t('routesPage.loading')}
       </div>
     )
   }
@@ -517,12 +525,12 @@ export default function RoutesPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15.75h.007v.008H12v-.008z" />
         </svg>
-        <p className="text-sm">Routen konnten nicht geladen werden.</p>
+        <p className="text-sm">{t('routesPage.loadError')}</p>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: ['routes'] })}
           className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
         >
-          Erneut versuchen
+          {t('common.retry')}
         </button>
       </div>
     )
@@ -532,7 +540,7 @@ export default function RoutesPage() {
     <div className="relative">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Routen</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('routesPage.title')}</h1>
         <button
           onClick={handleNewRoute}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
@@ -541,7 +549,7 @@ export default function RoutesPage() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Neue Route
+          {t('routesPage.actions.new')}
         </button>
       </div>
 
@@ -562,8 +570,8 @@ export default function RoutesPage() {
                      bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
-          <option value="">{sportPredicates.length > 0 ? 'Sportart hinzufügen' : 'Alle Sportarten'}</option>
-          {SPORT_TYPE_OPTIONS.map(({ sportType, subType, label }) => (
+          <option value="">{sportPredicates.length > 0 ? t('routesPage.filters.addSport') : t('routesPage.filters.allSports')}</option>
+          {sportOptions.map(({ sportType, subType, label }) => (
             <option key={`${sportType}:${subType ?? ''}`} value={`${sportType}:${subType ?? ''}`}>{label}</option>
           ))}
         </select>
@@ -579,28 +587,29 @@ export default function RoutesPage() {
                   onClick={() => setSportPredicates(prev => prev.filter(v => v !== key))}
                   className="rounded-full border border-neutral-200 dark:border-neutral-700 px-2 py-1 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
                 >
-                  {sportDetailLabel(st, sub || null)} ×
+                  {sportDetailLabel(st, sub || null, language)} ×
                 </button>
               )
             })}
           </div>
         )}
 
-        {Object.entries(ROUTE_MODIFIER_LABELS).map(([key, label]) => (
+        {routeModifierOptions.map(({ key, label }) => {
+          return (
           <select
             key={key}
-            value={modifierFilters[key as RouteModifierKey]}
+            value={modifierFilters[key]}
             onChange={(e) => setModifierFilters(prev => ({ ...prev, [key]: e.target.value as ModifierFilter }))}
             className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
             aria-label={`${label}-Filter`}
           >
-            <option value="any">{label}: egal</option>
-            <option value="true">{label}: ja</option>
-            <option value="false">{label}: nein</option>
+            <option value="any">{t('routesPage.filters.modifierAny', { label })}</option>
+            <option value="true">{t('routesPage.filters.modifierYes', { label })}</option>
+            <option value="false">{t('routesPage.filters.modifierNo', { label })}</option>
           </select>
-        ))}
+        )})}
 
         {/* Sort */}
         <select
@@ -610,8 +619,8 @@ export default function RoutesPage() {
                      bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
-          {(Object.entries(SORT_LABELS) as [SortOption, string][]).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
+          {(['created_at', 'name', 'distance', 'elevation'] as SortOption[]).map((key) => (
+            <option key={key} value={key}>{t(`routesPage.sort.${key}`)}</option>
           ))}
         </select>
 
@@ -630,7 +639,7 @@ export default function RoutesPage() {
             type="text"
             value={searchInput}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Route suchen..."
+            placeholder={t('routesPage.filters.searchPlaceholder')}
             className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 pl-8 text-sm
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                        placeholder:text-neutral-400 dark:placeholder:text-neutral-600
@@ -651,7 +660,7 @@ export default function RoutesPage() {
         {/* Result count */}
         {filteredRoutes.length > 0 && (
           <span className="text-xs text-neutral-400 dark:text-neutral-500 ml-auto">
-            {filteredRoutes.length} von {totalRoutes} {totalRoutes === 1 ? 'Route' : 'Routen'}
+            {t('routesPage.resultCount', { count: filteredRoutes.length, total: totalRoutes })}
           </span>
         )}
       </div>
@@ -664,19 +673,19 @@ export default function RoutesPage() {
           </svg>
           {search || sportPredicates.length > 0 || Object.values(modifierFilters).some(v => v !== 'any') ? (
             <>
-              <p className="text-sm">Keine Routen gefunden.</p>
+              <p className="text-sm">{t('routesPage.empty.filtered')}</p>
               <button
                 onClick={resetFilters}
                 className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
-                Filter zurücksetzen
+                {t('routesPage.actions.resetFilters')}
               </button>
             </>
           ) : (
             <>
-              <p className="text-sm font-medium">Noch keine Routen vorhanden</p>
+              <p className="text-sm font-medium">{t('routesPage.empty.noneTitle')}</p>
               <p className="text-xs text-center max-w-xs">
-                Plane deine erste Route im Routenplaner und speichere sie hier.
+                {t('routesPage.empty.noneDescription')}
               </p>
               <button
                 onClick={handleNewRoute}
@@ -686,7 +695,7 @@ export default function RoutesPage() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
-                Route planen
+                {t('routesPage.actions.planRoute')}
               </button>
             </>
           )}
@@ -709,15 +718,15 @@ export default function RoutesPage() {
             ))}
           </div>
           <div ref={loadMoreRef} className="h-12 flex items-center justify-center text-xs text-neutral-400">
-            {isFetchingNextPage ? 'Lade weitere Routen...' : hasNextPage ? '' : filteredRoutes.length > ROUTES_PAGE_LIMIT ? 'Alle Routen geladen' : ''}
+            {isFetchingNextPage ? t('routesPage.pagination.loadingMore') : hasNextPage ? '' : filteredRoutes.length > ROUTES_PAGE_LIMIT ? t('routesPage.pagination.allLoaded') : ''}
           </div>
         </>
       )}
 
-      {/* FAB — visible on mobile (sm and below), otherwise "Neue Route" button in header is enough) */}
+      {/* FAB: visible on mobile; larger viewports use the header button. */}
       <button
         onClick={handleNewRoute}
-        title="Neue Route planen"
+        title={t('routesPage.actions.planNewTitle')}
         className="fixed bottom-6 right-6 sm:hidden z-40 w-14 h-14 rounded-full shadow-lg
                    bg-accent-DEFAULT text-white hover:bg-accent-600 cursor-pointer transition-colors
                    flex items-center justify-center"
