@@ -46,6 +46,8 @@ export interface Tag {
   text_color: string
   category: string
   description: string
+  display_key?: string | null
+  description_key?: string | null
   is_system: boolean
   is_auto: boolean
   has_automation?: boolean
