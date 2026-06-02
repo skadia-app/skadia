@@ -5,7 +5,7 @@
  *  - Circle mode: click to place center, drag marker, radius slider + number input
  *  - Polygon mode: click to add vertices, double-click or button to close,
  *                  draggable vertex markers after closing
- *  - Holes: after main polygon is closed, "Ausschnitt hinzufügen" switches to
+ *  - Holes: after main polygon is closed, the add-cutout action switches to
  *           hole-drawing mode; additional rings stored in polygon.coordinates[1+]
  *  - Optional pin marker (showPin=true) that must stay within the zone
  *
@@ -13,9 +13,12 @@
  */
 
 import { useRef, useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { circlePolygon, formatRadius, clampToCircle, pointInPolygon, centroid } from '@/lib/geoUtils'
+import { circlePolygon, clampToCircle, pointInPolygon, centroid } from '@/lib/geoUtils'
+import { elevationFromDisplayValue, elevationInputUnit, elevationToDisplayValue } from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +43,7 @@ export interface ZoneEditorProps {
   showPin?: boolean
   /** Enable hole (cut-out) drawing after outer polygon is closed (default: false) */
   enableHoles?: boolean
-  /** Versteckt den internen Kreis/Polygon-Toggle (wenn der Modus extern gesteuert wird) */
+  /** Hides the internal circle/polygon toggle when the mode is controlled externally */
   hideModeSwitcher?: boolean
   className?: string
   /** MapLibre style URL or style object; defaults to OSM raster */
@@ -48,9 +51,9 @@ export interface ZoneEditorProps {
 }
 
 // ── Cursor helpers ─────────────────────────────────────────────────────────────
-// MapLibre setzt canvas.style.cursor intern bei jedem mousemove auf 'grab'.
-// Inline-Styles lassen sich nicht zuverlässig überschreiben — daher CSS-Klassen
-// mit !important auf dem Container-Div.
+// MapLibre sets canvas.style.cursor to 'grab' internally on every mousemove.
+// Inline styles cannot be overridden reliably, so container CSS classes use
+// !important.
 
 function injectCursorStyles() {
   if (document.getElementById('ze-cursor-styles')) return
@@ -75,6 +78,10 @@ const DEFAULT_RADIUS = 200
 
 type DrawingMode = 'idle' | 'hole'
 
+function radiusToInputValue(meters: number, units: 'metric' | 'imperial'): number {
+  return Math.round(elevationToDisplayValue(meters, units))
+}
+
 export default function ZoneEditor({
   value,
   onChange,
@@ -86,6 +93,8 @@ export default function ZoneEditor({
   className,
   mapStyle,
 }: ZoneEditorProps) {
+  const { t } = useTranslation()
+  const { options: unitOptions, formatDistanceCompact } = useUnitFormatters()
   // ── Derive initial state from `value` ──────────────────────────────────────
   const initialMode = value.mode ?? 'circle'
   const initialCenter = value.center ?? DEFAULT_CENTER
@@ -106,7 +115,7 @@ export default function ZoneEditor({
   const [mode, setMode] = useState<'circle' | 'polygon'>(initialMode)
   const [center, setCenter] = useState<[number, number]>(initialCenter)
   const [radiusM, setRadiusM] = useState(initialRadius)
-  const [radiusInput, setRadiusInput] = useState(String(initialRadius))
+  const [radiusInput, setRadiusInput] = useState(String(radiusToInputValue(initialRadius, unitOptions.units)))
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>(initialPolygonPoints)
   const [polygonClosed, setPolygonClosed] = useState(initialPolygonClosed)
   const [pinPos, setPinPos] = useState<[number, number] | undefined>(value.pinPosition)
@@ -148,6 +157,10 @@ export default function ZoneEditor({
   useEffect(() => { drawingModeRef.current = drawingMode }, [drawingMode])
   useEffect(() => { currentHolePointsRef.current = currentHolePoints }, [currentHolePoints])
   useEffect(() => { holesRef.current = holes }, [holes])
+
+  useEffect(() => {
+    setRadiusInput(String(radiusToInputValue(radiusM, unitOptions.units)))
+  }, [radiusM, unitOptions.units])
 
   // ── Build full polygon coordinates (outer ring + holes) ────────────────────
   function buildFullCoords(
@@ -544,7 +557,7 @@ export default function ZoneEditor({
         // Polygon outer ring mode — only add vertices if not yet closed
         if (polygonClosedRef.current) return
         const pts = polygonPointsRef.current
-        // Klick nahe am ersten Punkt (≥3 Punkte) → Polygon automatisch schließen
+        // Click near the first point with at least three points to close the polygon.
         if (pts.length >= 3) {
           const firstPx = map.project(pts[0])
           const clickPx = map.project(lngLat)
@@ -623,9 +636,8 @@ export default function ZoneEditor({
 
     mapRef.current = map
 
-    // Cursor-Management via CSS-Klassen auf dem Container (schlägt MapLibres inline cursor).
-    // MapLibre setzt canvas.style.cursor = 'grab' bei jedem internen mousemove — das lässt
-    // sich nur mit !important in einer CSS-Klasse auf einem Ancestor zuverlässig überschreiben.
+    // Cursor management uses CSS classes on the container to override
+    // MapLibre's inline cursor updates reliably.
     injectCursorStyles()
     const container = mapContainerRef.current!
     let isMouseDown = false
@@ -738,7 +750,7 @@ export default function ZoneEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holes])
 
-  // ── Cursor-Klasse aktualisieren wenn Zeichen-Modus wechselt ──────────────────
+  // ── Update cursor class when drawing mode changes ───────────────────────────
   useEffect(() => {
     const el = mapContainerRef.current
     if (!el) return
@@ -842,11 +854,12 @@ export default function ZoneEditor({
   function handleRadiusInputBlur() {
     const parsed = parseInt(radiusInput, 10)
     if (!isNaN(parsed)) {
-      const clamped = Math.max(minRadiusM, Math.min(maxRadiusM, parsed))
+      const meters = elevationFromDisplayValue(parsed, unitOptions.units)
+      const clamped = Math.max(minRadiusM, Math.min(maxRadiusM, meters))
       setRadiusM(clamped)
-      setRadiusInput(String(clamped))
+      setRadiusInput(String(radiusToInputValue(clamped, unitOptions.units)))
     } else {
-      setRadiusInput(String(radiusM))
+      setRadiusInput(String(radiusToInputValue(radiusM, unitOptions.units)))
     }
   }
 
@@ -859,10 +872,11 @@ export default function ZoneEditor({
   const canClosePolygon = polygonPoints.length >= 3 && !polygonClosed
   const canAddHole = enableHoles && polygonClosed && drawingMode === 'idle'
   const isDrawingHole = drawingMode === 'hole'
+  const radiusUnit = elevationInputUnit(unitOptions.units)
 
   return (
     <div className={`space-y-4 ${className ?? ''}`}>
-      {/* Mode toggle — versteckt wenn extern gesteuert */}
+      {/* Mode toggle, hidden when controlled externally */}
       {!hideModeSwitcher && (
         <div className="flex gap-2">
           {(['circle', 'polygon'] as const).map((m) => (
@@ -876,7 +890,7 @@ export default function ZoneEditor({
                   : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
             >
-              {m === 'circle' ? 'Kreis' : 'Polygon'}
+              {m === 'circle' ? t('zoneEditor.circle') : t('zoneEditor.polygon')}
             </button>
           ))}
         </div>
@@ -890,15 +904,15 @@ export default function ZoneEditor({
       {/* Instruction text */}
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
         {mode === 'circle' ? (
-          'Klicke auf die Karte, um das Zentrum zu setzen. Den Marker kannst du verschieben.'
+          t('zoneEditor.circleHint')
         ) : isDrawingHole ? (
-          `Ausschnitt zeichnen: ${currentHolePoints.length} Punkte. Doppelklick oder "Schliessen" zum Beenden.`
+          t('zoneEditor.drawingHoleHint', { count: currentHolePoints.length })
         ) : polygonClosed ? (
-          'Polygon fertig. Eckpunkte lassen sich per Drag-and-Drop verschieben.'
+          t('zoneEditor.polygonDone')
         ) : polygonPoints.length < 3 ? (
-          `Klicke auf die Karte, um Eckpunkte hinzuzufügen (${polygonPoints.length} von mind. 3).`
+          t('zoneEditor.addVerticesHint', { count: polygonPoints.length })
         ) : (
-          `${polygonPoints.length} Eckpunkte gesetzt. Doppelklick oder "Schließen" um das Polygon zu schließen.`
+          t('zoneEditor.closePolygonHint', { count: polygonPoints.length })
         )}
       </p>
 
@@ -915,7 +929,7 @@ export default function ZoneEditor({
                   text-neutral-700 dark:text-neutral-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                   hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
-                Polygon schliessen
+                {t('zoneEditor.closePolygon')}
               </button>
               <button
                 type="button"
@@ -925,7 +939,7 @@ export default function ZoneEditor({
                   text-red-600 dark:text-red-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                   hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
               >
-                Zurücksetzen
+                {t('zoneEditor.reset')}
               </button>
             </>
           )}
@@ -943,7 +957,7 @@ export default function ZoneEditor({
                       text-blue-700 dark:text-blue-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                       hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
                   >
-                    Ausschnitt schliessen
+                    {t('zoneEditor.closeHole')}
                   </button>
                   <button
                     type="button"
@@ -952,10 +966,10 @@ export default function ZoneEditor({
                       text-neutral-600 dark:text-neutral-400
                       hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                   >
-                    Abbrechen
+                    {t('common.cancel')}
                   </button>
                   <span className="text-xs text-blue-500 dark:text-blue-400">
-                    {currentHolePoints.length} Punkte
+                    {t('zoneEditor.pointCount', { count: currentHolePoints.length })}
                   </span>
                 </>
               ) : (
@@ -967,7 +981,7 @@ export default function ZoneEditor({
                     text-blue-600 dark:text-blue-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed
                     hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
                 >
-                  + Ausschnitt hinzufügen
+                  {t('zoneEditor.addHole')}
                 </button>
               )}
             </>
@@ -981,14 +995,14 @@ export default function ZoneEditor({
                 text-red-600 dark:text-red-400
                 hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer"
             >
-              Zurücksetzen
+              {t('zoneEditor.reset')}
             </button>
           )}
 
           {!isDrawingHole && (
             <span className="ml-auto text-sm text-neutral-400 tabular-nums">
-              {polygonPoints.length} Eckpunkte
-              {holes.length > 0 && `, ${holes.length} Ausschnitt${holes.length > 1 ? 'e' : ''}`}
+              {t('zoneEditor.vertexCount', { count: polygonPoints.length })}
+              {holes.length > 0 && t('zoneEditor.holeCountSuffix', { count: holes.length })}
             </span>
           )}
         </div>
@@ -1000,12 +1014,12 @@ export default function ZoneEditor({
           {holes.map((hole, idx) => (
             <div key={idx} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
-              <span>Ausschnitt {idx + 1} ({hole.length} Punkte)</span>
+              <span>{t('zoneEditor.holeItem', { index: idx + 1, count: hole.length })}</span>
               <button
                 type="button"
                 onClick={() => handleRemoveHole(idx)}
                 className="ml-auto text-neutral-400 hover:text-red-500 cursor-pointer transition-colors"
-                title="Ausschnitt entfernen"
+                title={t('zoneEditor.removeHole')}
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1021,14 +1035,14 @@ export default function ZoneEditor({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Radius
+              {t('zoneEditor.radius')}
             </label>
             <div className="flex items-center gap-1.5">
               <input
                 type="number"
                 value={radiusInput}
-                min={minRadiusM}
-                max={maxRadiusM}
+                min={radiusToInputValue(minRadiusM, unitOptions.units)}
+                max={radiusToInputValue(maxRadiusM, unitOptions.units)}
                 onChange={(e) => setRadiusInput(e.target.value)}
                 onBlur={handleRadiusInputBlur}
                 onKeyDown={handleRadiusInputKeyDown}
@@ -1036,9 +1050,9 @@ export default function ZoneEditor({
                   text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100
                   focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent tabular-nums"
               />
-              <span className="text-sm text-neutral-500">m</span>
+              <span className="text-sm text-neutral-500">{radiusUnit}</span>
               <span className="text-sm text-neutral-400 tabular-nums ml-1">
-                ({formatRadius(radiusM)})
+                ({formatDistanceCompact(radiusM)})
               </span>
             </div>
           </div>
@@ -1051,14 +1065,14 @@ export default function ZoneEditor({
             onChange={(e) => {
               const v = Number(e.target.value)
               setRadiusM(v)
-              setRadiusInput(String(v))
+              setRadiusInput(String(radiusToInputValue(v, unitOptions.units)))
             }}
             className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700
               accent-accent-DEFAULT cursor-pointer"
           />
           <div className="flex justify-between text-xs text-neutral-400">
-            <span>{formatRadius(minRadiusM)}</span>
-            <span>{formatRadius(maxRadiusM)}</span>
+            <span>{formatDistanceCompact(minRadiusM)}</span>
+            <span>{formatDistanceCompact(maxRadiusM)}</span>
           </div>
         </div>
       )}
@@ -1067,8 +1081,11 @@ export default function ZoneEditor({
       {showPin && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           {pinPos
-            ? `Pin: ${pinPos[1].toFixed(5)}, ${pinPos[0].toFixed(5)}`
-            : 'Pin wird nach dem Setzen des Zentrums platziert.'}
+            ? t('zoneEditor.pinCoordinates', {
+                lat: pinPos[1].toFixed(5),
+                lng: pinPos[0].toFixed(5),
+              })
+            : t('zoneEditor.pinAfterCenter')}
         </p>
       )}
 

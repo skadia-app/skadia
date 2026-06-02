@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Trophy, RotateCcw } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -20,14 +21,16 @@ import { cn } from '@/lib/utils'
 import {
   MAIN_CATEGORIES,
   MAIN_CATEGORY_ORDER,
-  MAIN_CATEGORY_LABELS,
   MAIN_CATEGORY_COLORS,
   SUB_FILTERS,
   POWER_CURVE_GROUPS,
   CATEGORY_PREFIXES,
+  getMainCategoryLabel,
+  getSubFilters,
   matchesSportGroup,
   type MainCategory,
 } from '@/lib/recordsConstants'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { HighlightBanner } from '@/components/records/HighlightBanner'
 import { SportCard } from '@/components/records/SportCard'
 import { CategoryGrid } from '@/components/records/CategoryGrid'
@@ -40,10 +43,10 @@ import { PRProgressionChart } from '@/components/records/PRProgressionChart'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = [
-  { value: '', label: 'Gesamt' },
-  { value: String(CURRENT_YEAR), label: String(CURRENT_YEAR) },
-  { value: String(CURRENT_YEAR - 1), label: String(CURRENT_YEAR - 1) },
-  { value: String(CURRENT_YEAR - 2), label: String(CURRENT_YEAR - 2) },
+  { value: '' },
+  { value: String(CURRENT_YEAR) },
+  { value: String(CURRENT_YEAR - 1) },
+  { value: String(CURRENT_YEAR - 2) },
 ]
 
 // ── Excluded List ──────────────────────────────────────────────────────────
@@ -57,10 +60,11 @@ interface ExcludedListProps {
 }
 
 function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListProps) {
+  const { t } = useTranslation()
   if (excluded.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-2 text-neutral-400 dark:text-neutral-500">
-        <p className="text-sm">Keine ausgeschlossenen Aktivitäten</p>
+        <p className="text-sm">{t('records.excluded.empty')}</p>
       </div>
     )
   }
@@ -77,7 +81,7 @@ function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListPro
                 to={`/activities/${entry.activity_id}`}
                 className="text-sm text-neutral-700 dark:text-neutral-300 hover:text-accent-DEFAULT transition-colors"
               >
-                Aktivität {entry.activity_id.slice(0, 8)}…
+                {t('records.excluded.activityShort', { id: entry.activity_id.slice(0, 8) })}
               </Link>
               <span className="ml-2 text-xs text-neutral-400">{getCategoryLabel(entry.category)}</span>
             </div>
@@ -91,7 +95,7 @@ function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListPro
                 isProcessing && 'opacity-50 cursor-not-allowed',
               )}
             >
-              {isProcessing ? 'Wird eingeschlossen…' : 'Wieder einschließen'}
+              {isProcessing ? t('records.excluded.reincluding') : t('records.excluded.reinclude')}
             </button>
           </div>
         )
@@ -105,6 +109,8 @@ function ExcludedList({ excluded, onReinclude, reincludingKey }: ExcludedListPro
 export default function PersonalRecordsTab() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { i18n, t } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
 
   // ── Chart expansion state (PR progression timeline) ─────────────────────
   // Only one category chart open at a time; null = none.
@@ -117,9 +123,22 @@ export default function PersonalRecordsTab() {
   // ── URL state ────────────────────────────────────────────────────────────
   const [searchParams, setSearchParams] = useSearchParams()
   const mainCategory = (searchParams.get('sport') as MainCategory) ?? null
-  const subFilter = searchParams.get('sub') ?? null
+  const rawSubFilter = searchParams.get('sub') ?? null
   const year = searchParams.get('year') ?? ''
   const categoryTab = searchParams.get('tab') ?? 'distanz'
+
+  const subFilter = useMemo(() => {
+    if (!mainCategory || !rawSubFilter) return null
+    const filters = SUB_FILTERS[mainCategory]
+    const byKey = filters.find(filter => filter.key === rawSubFilter)
+    if (byKey) return byKey.key
+    return filters.find(filter => filter.label === rawSubFilter)?.key ?? null
+  }, [mainCategory, rawSubFilter])
+
+  const subFilters = useMemo(
+    () => (mainCategory ? getSubFilters(mainCategory, language) : []),
+    [mainCategory, language],
+  )
 
   const setMainCategory = (cat: MainCategory | null) => {
     setSearchParams(prev => {
@@ -130,9 +149,9 @@ export default function PersonalRecordsTab() {
     }, { replace: true })
   }
 
-  const setSubFilter = (label: string | null) => {
+  const setSubFilter = (key: string | null) => {
     setSearchParams(prev => {
-      if (label) prev.set('sub', label); else prev.delete('sub')
+      if (key) prev.set('sub', key); else prev.delete('sub')
       return prev
     }, { replace: true })
   }
@@ -187,10 +206,10 @@ export default function PersonalRecordsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey })
       queryClient.invalidateQueries({ queryKey: ['best-effort-exclusions'] })
-      addToast({ type: 'success', title: 'Aktivität wieder eingeschlossen' })
+      addToast({ type: 'success', title: t('records.toasts.reincluded') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Einschließen', message: 'Die Aktivität konnte nicht wieder eingeschlossen werden' })
+      addToast({ type: 'error', title: t('records.toasts.reincludeErrorTitle'), message: t('records.toasts.reincludeErrorMessage') })
     },
   })
 
@@ -198,14 +217,14 @@ export default function PersonalRecordsTab() {
     mutationFn: recalcBestEfforts,
     onSuccess: (data) => {
       if (data.status === 'already_running') {
-        addToast({ type: 'info', title: 'Neuberechnung läuft bereits' })
+        addToast({ type: 'info', title: t('records.toasts.recalcAlreadyRunning') })
       } else {
-        addToast({ type: 'success', title: 'Neuberechnung gestartet', message: 'Die Bestleistungen werden im Hintergrund neu berechnet' })
+        addToast({ type: 'success', title: t('records.toasts.recalcStarted'), message: t('records.toasts.recalcStartedMessage') })
         queryClient.invalidateQueries({ queryKey: ['personal-records'] })
       }
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Neuberechnung fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('records.toasts.recalcFailed'), duration: 0 })
     },
   })
 
@@ -217,7 +236,7 @@ export default function PersonalRecordsTab() {
       filtered = filtered.filter(r => groups.includes(r.sport_group))
     }
     if (subFilter && mainCategory) {
-      const sf = SUB_FILTERS[mainCategory].find(f => f.label === subFilter)
+      const sf = SUB_FILTERS[mainCategory].find(f => f.key === subFilter)
       if (sf) filtered = filtered.filter(r => sf.sportGroups.includes(r.sport_group))
     }
     return filtered
@@ -238,7 +257,7 @@ export default function PersonalRecordsTab() {
   const segmentEffortFilter = useMemo(() => {
     if (!mainCategory) return undefined
     const groups = subFilter
-      ? SUB_FILTERS[mainCategory].find(f => f.label === subFilter)?.sportGroups ?? MAIN_CATEGORIES[mainCategory]
+      ? SUB_FILTERS[mainCategory].find(f => f.key === subFilter)?.sportGroups ?? MAIN_CATEGORIES[mainCategory]
       : MAIN_CATEGORIES[mainCategory]
     return (effort: { sport_type: string; sub_type?: string }) =>
       groups.some(g => matchesSportGroup(g, effort))
@@ -249,18 +268,18 @@ export default function PersonalRecordsTab() {
     if (!mainCategory) return []
     const groups = POWER_CURVE_GROUPS[mainCategory]
     if (!groups) return []
-    return [{ name: MAIN_CATEGORY_LABELS[mainCategory], color: MAIN_CATEGORY_COLORS[mainCategory], sportGroups: groups }]
-  }, [mainCategory])
+    return [{ name: getMainCategoryLabel(mainCategory, language), color: MAIN_CATEGORY_COLORS[mainCategory], sportGroups: groups }]
+  }, [mainCategory, language])
 
   const overviewPowerSeries = useMemo(() => {
     return MAIN_CATEGORY_ORDER
       .filter((category) => POWER_CURVE_GROUPS[category]?.length)
       .map((category) => ({
-        name: MAIN_CATEGORY_LABELS[category],
+        name: getMainCategoryLabel(category, language),
         color: MAIN_CATEGORY_COLORS[category],
         sportGroups: POWER_CURVE_GROUPS[category]!,
       }))
-  }, [])
+  }, [language])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -272,8 +291,8 @@ export default function PersonalRecordsTab() {
             <Trophy className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">Bestleistungen</h1>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">Persönliche Rekorde nach Kategorie</p>
+            <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('records.title')}</h1>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('records.subtitle')}</p>
           </div>
         </div>
         <button
@@ -285,10 +304,10 @@ export default function PersonalRecordsTab() {
             'hover:bg-neutral-100 dark:hover:bg-neutral-800',
             recalcMutation.isPending && 'opacity-50 cursor-not-allowed',
           )}
-          title="Bestleistungen neu berechnen"
+          title={t('records.recalculateTitle')}
         >
           <RotateCcw className={cn('w-4 h-4', recalcMutation.isPending && 'animate-spin')} />
-          <span className="hidden sm:inline">Neu berechnen</span>
+          <span className="hidden sm:inline">{t('records.recalculate')}</span>
         </button>
       </div>
 
@@ -304,7 +323,7 @@ export default function PersonalRecordsTab() {
               : 'bg-transparent text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200',
           )}
         >
-          Alle
+          {t('common.all')}
         </button>
 
         {/* Per-sport tabs */}
@@ -325,7 +344,7 @@ export default function PersonalRecordsTab() {
                 className="w-2 h-2 rounded-full shrink-0"
                 style={{ backgroundColor: mainCategory === cat ? 'white' : MAIN_CATEGORY_COLORS[cat] }}
               />
-              {MAIN_CATEGORY_LABELS[cat]}
+              {getMainCategoryLabel(cat, language)}
             </button>
           ))
         }
@@ -342,7 +361,7 @@ export default function PersonalRecordsTab() {
           )}
         >
           {YEAR_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>{opt.value || t('analyticsTrainingStats.records.allYears')}</option>
           ))}
         </select>
       </div>
@@ -351,14 +370,14 @@ export default function PersonalRecordsTab() {
       {isLoading && (
         <div className="flex items-center justify-center py-16 text-sm text-neutral-400">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-neutral-300 border-t-orange-500 mr-3" />
-          Lade Bestleistungen…
+          {t('records.loading')}
         </div>
       )}
 
       {/* Error state */}
       {isError && !isLoading && (
         <div className="flex items-center justify-center py-12 text-sm text-rose-500 dark:text-rose-400">
-          Fehler beim Laden der Bestleistungen
+          {t('records.loadError')}
         </div>
       )}
 
@@ -366,16 +385,16 @@ export default function PersonalRecordsTab() {
       {!isLoading && !isError && allRecords.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-400 dark:text-neutral-500">
           <Trophy className="w-10 h-10 opacity-30" />
-          <p className="text-sm">Noch keine Bestleistungen vorhanden</p>
+          <p className="text-sm">{t('records.empty')}</p>
         </div>
       )}
 
       {/* ── OVERVIEW MODE (mainCategory === null) ── */}
       {!isLoading && !isError && allRecords.length > 0 && mainCategory === null && (
         <div className="space-y-6">
-          <HighlightBanner records={allRecords} />
+          <HighlightBanner records={allRecords} language={language} />
 
-          <PowerDurationChart records={allRecords} series={overviewPowerSeries} />
+          <PowerDurationChart records={allRecords} series={overviewPowerSeries} language={language} />
 
           {MAIN_CATEGORY_ORDER
             .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
@@ -388,6 +407,7 @@ export default function PersonalRecordsTab() {
                   records={catRecords}
                   color={MAIN_CATEGORY_COLORS[cat]}
                   onNavigate={() => setMainCategory(cat)}
+                  language={language}
                 />
               )
             })
@@ -404,56 +424,56 @@ export default function PersonalRecordsTab() {
       {!isLoading && !isError && allRecords.length > 0 && mainCategory !== null && (
         <div className="space-y-5">
           {/* Sub-filter pills */}
-          {SUB_FILTERS[mainCategory].length > 0 && (
+          {subFilters.length > 0 && (
             <SubFilterPills
-              filters={SUB_FILTERS[mainCategory]}
-              active={subFilter}
+              filters={subFilters}
+              activeKey={subFilter}
               onChange={setSubFilter}
             />
           )}
 
           {/* Superlative banner for this category */}
-          <SuperlativeBar records={filteredRecords} />
+          <SuperlativeBar records={filteredRecords} language={language} />
 
           {/* Category tabs */}
           <Tabs value={categoryTab} onValueChange={setCategoryTab}>
             <TabsList className="w-full justify-start overflow-x-auto flex-nowrap gap-0">
               <TabsTrigger value="distanz" disabled={distRecords.length === 0}>
-                Distanz
+                {t('records.tabs.distance')}
                 {distRecords.length > 0 && (
                   <span className="ml-1.5 text-xs opacity-60">({new Set(distRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="hoehenmeter" disabled={elevRecords.length === 0}>
-                Höhenmeter
+                {t('records.tabs.elevation')}
                 {elevRecords.length > 0 && (
                   <span className="ml-1.5 text-xs opacity-60">({new Set(elevRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="leistung" disabled={powerRecords.length === 0}>
-                Leistung
+                {t('records.tabs.power')}
                 {powerRecords.length > 0 && (
                   <span className="ml-1.5 text-xs opacity-60">({new Set(powerRecords.map(r => r.category)).size})</span>
                 )}
               </TabsTrigger>
               <TabsTrigger value="segmente">
-                Segmente
+                {t('records.tabs.segments')}
               </TabsTrigger>
               <TabsTrigger value="ausgeschlossen">
-                Ausgeschlossen
+                {t('records.tabs.excluded')}
                 {excluded.length > 0 && (
                   <span className="ml-1.5 text-xs opacity-60">({excluded.length})</span>
                 )}
               </TabsTrigger>
             </TabsList>
 
-            {/* Distanz tab */}
+            {/* Distance tab */}
             <TabsContent value="distanz" className="mt-5 space-y-5">
               {distRecords.length === 0 ? (
                 <EmptyTabState />
               ) : (
                 <>
-                  <CategoryGrid records={distRecords} />
+                  <CategoryGrid records={distRecords} language={language} />
                   <DetailTable
                     records={distRecords}
                     sportGroup={distRecords[0]?.sport_group}
@@ -464,20 +484,22 @@ export default function PersonalRecordsTab() {
                         category={cat}
                         sportGroup={sg}
                         isExpanded={chartExpandedCategory === cat}
+                        language={language}
                       />
                     )}
+                    language={language}
                   />
                 </>
               )}
             </TabsContent>
 
-            {/* Höhenmeter tab */}
+            {/* Elevation tab */}
             <TabsContent value="hoehenmeter" className="mt-5 space-y-5">
               {elevRecords.length === 0 ? (
                 <EmptyTabState />
               ) : (
                 <>
-                  <CategoryGrid records={elevRecords} />
+                  <CategoryGrid records={elevRecords} language={language} />
                   <DetailTable
                     records={elevRecords}
                     sportGroup={elevRecords[0]?.sport_group}
@@ -488,20 +510,22 @@ export default function PersonalRecordsTab() {
                         category={cat}
                         sportGroup={sg}
                         isExpanded={chartExpandedCategory === cat}
+                        language={language}
                       />
                     )}
+                    language={language}
                   />
                 </>
               )}
             </TabsContent>
 
-            {/* Leistung tab */}
+            {/* Power tab */}
             <TabsContent value="leistung" className="mt-5 space-y-5">
               {powerRecords.length === 0 ? (
                 <EmptyTabState />
               ) : (
                 <>
-                  <CategoryGrid records={powerRecords} />
+                  <CategoryGrid records={powerRecords} language={language} />
                   <DetailTable
                     records={powerRecords}
                     sportGroup={powerRecords[0]?.sport_group}
@@ -512,13 +536,16 @@ export default function PersonalRecordsTab() {
                         category={cat}
                         sportGroup={sg}
                         isExpanded={chartExpandedCategory === cat}
+                        language={language}
                       />
                     )}
+                    language={language}
                   />
                   {detailPowerSeries.length > 0 && (
                     <PowerDurationChart
                       records={filteredRecords}
                       series={detailPowerSeries}
+                      language={language}
                     />
                   )}
                 </>
@@ -533,7 +560,7 @@ export default function PersonalRecordsTab() {
                 effortFilter={segmentEffortFilter}
               />
               {segmentPRs.length === 0 && globalTopEfforts.length === 0 && (
-                <EmptyTabState message="Keine Segment-Bestzeiten für diese Sportart" />
+                <EmptyTabState message={t('records.emptyStates.noSegmentRecords')} />
               )}
             </TabsContent>
 
@@ -541,7 +568,7 @@ export default function PersonalRecordsTab() {
             <TabsContent value="ausgeschlossen" className="mt-5">
               <div className="space-y-3">
                 <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                  Diese Aktivitäten wurden von der Bestleistungs-Wertung ausgeschlossen.
+                  {t('records.excluded.description')}
                 </p>
                 <ExcludedList
                   excluded={excluded}
@@ -557,8 +584,8 @@ export default function PersonalRecordsTab() {
           {/* Superlative tab — shown below tabs when viewing dist/elev/leistung */}
           {(categoryTab === 'distanz' || categoryTab === 'hoehenmeter') && supRecords.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-600">Superlative</h3>
-              <DetailTable records={supRecords} />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-600">{t('records.sections.superlatives')}</h3>
+              <DetailTable records={supRecords} language={language} />
             </div>
           )}
 
@@ -567,6 +594,7 @@ export default function PersonalRecordsTab() {
             <PowerDurationChart
               records={filteredRecords}
               series={detailPowerSeries}
+              language={language}
             />
           )}
 
@@ -586,11 +614,12 @@ export default function PersonalRecordsTab() {
 
 // ── Small helper ───────────────────────────────────────────────────────────
 
-function EmptyTabState({ message = 'Keine Daten für diese Auswahl' }: { message?: string }) {
+function EmptyTabState({ message }: { message?: string }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-12 gap-3 text-neutral-400 dark:text-neutral-500">
       <Trophy className="w-8 h-8 opacity-30" />
-      <p className="text-sm">{message}</p>
+      <p className="text-sm">{message ?? t('records.emptyStates.noData')}</p>
     </div>
   )
 }

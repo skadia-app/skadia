@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { fmtDuration, fmtDist } from '@/lib/format'
+import { formatElevation, type UnitFormatOptions } from '@/lib/units'
 export { sportColor, sportLabel } from '@/lib/sportTaxonomy'
 
 /** Backwards-compatible re-export — defaults to 'human' style (was the old utils.ts format). */
@@ -11,15 +12,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Gibt null zurueck wenn kein sinnvoller Wert vorhanden (null, undefined, NaN, <= 0)
-export function formatElevationGain(meters: number | null | undefined): string | null {
+// Returns null when no useful value is available (null, undefined, NaN, <= 0).
+export function formatElevationGain(meters: number | null | undefined, unitOptions?: UnitFormatOptions): string | null {
   if (meters == null || isNaN(meters) || meters <= 0) return null
-  return `+${Math.round(meters)} m`
+  return `+${unitOptions ? formatElevation(meters, unitOptions) : `${Math.round(meters)} m`}`
 }
 
-export function formatElevationLoss(meters: number | null | undefined): string | null {
+export function formatElevationLoss(meters: number | null | undefined, unitOptions?: UnitFormatOptions): string | null {
   if (meters == null || isNaN(meters) || meters <= 0) return null
-  return `−${Math.round(meters)} m`
+  return `−${unitOptions ? formatElevation(meters, unitOptions) : `${Math.round(meters)} m`}`
 }
 
 /** Show blue "I" badge when activity is indoor. Always shown, no suppression. */

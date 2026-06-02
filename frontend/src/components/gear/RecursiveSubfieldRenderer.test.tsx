@@ -1,10 +1,11 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RecursiveSubfieldRenderer from '@/components/gear/RecursiveSubfieldRenderer'
 import type { Attribute, OptionValue } from '@/lib/generatedGearSchema'
 import type { EvalContext } from '@/lib/gearConditionEval'
+import { i18n } from '@/i18n/i18n'
 
 function noOptions(_key: string | undefined): OptionValue[] {
   return []
@@ -15,6 +16,10 @@ function makeOptions(keys: string[]): OptionValue[] {
 }
 
 describe('RecursiveSubfieldRenderer', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
+  })
+
   it('TestRendersSimpleStringSubfield', () => {
     const subfields: Attribute[] = [
       { key: 'kartusche', labelDe: 'Kartusche', valueType: 'string' },
@@ -91,6 +96,36 @@ describe('RecursiveSubfieldRenderer', () => {
     // fieldset with legend 'Chassis' should contain 'material' input
     expect(screen.getByText('Chassis')).toBeInTheDocument()
     expect(screen.getByDisplayValue('carbon')).toBeInTheDocument()
+  })
+
+  it('uses localized labels for legends and leaf fields', async () => {
+    await i18n.changeLanguage('en')
+    const subfields: Attribute[] = [
+      {
+        key: 'chassis',
+        labelDe: 'Fahrwerk',
+        labels: { de: 'Fahrwerk', en: 'Chassis' },
+        valueType: 'geometry',
+        subfields: [
+          { key: 'material', labelDe: 'Material', labels: { de: 'Material', en: 'Frame material' }, valueType: 'string' },
+        ],
+      },
+    ]
+
+    render(
+      <RecursiveSubfieldRenderer
+        subfields={subfields}
+        values={{ chassis: { material: 'carbon' } }}
+        prefix="fork"
+        depth={1}
+        onChange={vi.fn()}
+        resolveOptions={noOptions}
+      />,
+    )
+
+    expect(screen.getByText('Chassis')).toBeInTheDocument()
+    expect(screen.getByLabelText('Frame material')).toBeInTheDocument()
+    expect(screen.queryByText('Fahrwerk')).not.toBeInTheDocument()
   })
 
   it('TestConditionalFieldHidesFieldWhenSiblingMismatch', () => {

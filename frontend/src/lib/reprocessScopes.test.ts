@@ -43,6 +43,10 @@ describe('reprocess scope catalog', () => {
     expect(scopeLabel('settlements')).toBe('Ortschaften')
   })
 
+  it('does not expose unknown backend scope keys as UI labels', () => {
+    expect(scopeLabel('private_backend_scope')).toBe('Unbekannter Umfang')
+  })
+
   it('exposes auto title recompute as a default metadata scope', () => {
     const keys = REPROCESS_SCOPES.map(([key]) => key)
 

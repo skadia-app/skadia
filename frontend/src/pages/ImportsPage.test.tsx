@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ImportsPage from './ImportsPage'
 import type { ImportLogEntry, ImportLogParams, ImportLogResponse } from '@/api/imports'
 import type { ImportQueueItem } from '@/api/importQueue'
+import { i18n } from '@/i18n/i18n'
 
 const mocks = vi.hoisted(() => ({
   getImports: vi.fn<(params?: ImportLogParams) => Promise<ImportLogResponse>>(),
@@ -116,7 +117,8 @@ const pdfItem: ImportQueueItem = {
 }
 
 describe('ImportsPage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('de')
     vi.clearAllMocks()
     mocks.fetchImportQueue.mockResolvedValue([])
     mocks.fetchImportQueueCount.mockResolvedValue(0)
@@ -208,6 +210,39 @@ describe('ImportsPage', () => {
     expect(await screen.findByText('Schritt 2/3: Texterkennung')).toBeInTheDocument()
   })
 
+  it('localizes active queue step labels instead of rendering backend labels', async () => {
+    await i18n.changeLanguage('en')
+    mocks.getImports.mockImplementation(async (params = {}) => {
+      if (params.status === 'pending,processing') {
+        return {
+          entries: [
+            makeLogEntry({
+              id: 'active-log',
+              filename: 'active-import.fit',
+              status: 'processing',
+              metadata: {
+                steps: [
+                  { key: 'upload', label: 'Upload', status: 'completed' },
+                  { key: 'text_extraction', label: 'Texterkennung', status: 'pending' },
+                  { key: 'markdown', label: 'Markdown', status: 'pending' },
+                ],
+              },
+            }),
+          ],
+          total: 1,
+        }
+      }
+      return { entries: [], total: 0 }
+    })
+
+    renderImportsPage('/imports?view=queue')
+
+    expect(await screen.findByText('Import queue')).toBeInTheDocument()
+    expect(await screen.findByText('active-import.fit')).toBeInTheDocument()
+    expect(await screen.findByText('Step 2/3: Text extraction')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('Texterkennung')
+  })
+
   it('preserves source wizard state when switching sources', async () => {
     mocks.getCapabilities.mockResolvedValue({ import_path_enabled: true })
     const user = userEvent.setup()
@@ -234,6 +269,21 @@ describe('ImportsPage', () => {
       'src',
       '/api/v1/import-queue/queue-1/thumb',
     )
+  })
+
+  it('localizes manual review queue labels in English', async () => {
+    await i18n.changeLanguage('en')
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([reviewItem])
+
+    renderImportsPage('/imports?view=review')
+
+    expect(await screen.findByText('Missing capture date')).toBeInTheDocument()
+    expect(screen.getByText(/EXIF capture date is missing/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Select activity...')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
+    expect(screen.queryByText('Kein Aufnahmedatum')).not.toBeInTheDocument()
   })
 
   it('opens a larger preview for image queue items', async () => {
@@ -278,6 +328,25 @@ describe('ImportsPage', () => {
     expect(screen.getByRole('button', { name: 'Kategorisieren' })).toBeDisabled()
   })
 
+  it('renders unknown manual review item types as generic localized labels', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([
+      {
+        id: 'queue-future-1',
+        item_type: 'future_item' as ImportQueueItem['item_type'],
+        status: 'pending',
+        filename: 'future-file.bin',
+        created_at: '2026-05-13T09:00:00Z',
+      },
+    ])
+
+    renderImportsPage('/imports?view=review')
+
+    expect(await screen.findByText('Unbekannter Eintragstyp')).toBeInTheDocument()
+    expect(screen.getByText('future-file.bin')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('future_item')
+  })
+
   it('renders queued history rows as Zu prüfen with review link', async () => {
     mocks.getImports.mockImplementation(async (params = {}) => {
       if (params.status === 'pending,processing') {
@@ -301,6 +370,34 @@ describe('ImportsPage', () => {
     expect(await screen.findByText('queued-photo.jpg')).toBeInTheDocument()
     const reviewLinks = screen.getAllByRole('link', { name: /Zu prüfen/i })
     expect(reviewLinks.some(link => link.getAttribute('href') === '/imports?view=review')).toBe(true)
+  })
+
+  it('renders unknown import history codes as generic localized labels', async () => {
+    mocks.getImports.mockImplementation(async (params = {}) => {
+      if (params.status === 'pending,processing') {
+        return { entries: [], total: 0 }
+      }
+      return {
+        entries: [
+          makeLogEntry({
+            id: 'log-unknown',
+            filename: 'future-format.bin',
+            source_platform: 'future_sync',
+            status: 'paused_backend_state',
+            import_type: 'future_type',
+          }),
+        ],
+        total: 1,
+      }
+    })
+
+    renderImportsPage('/imports?view=history')
+
+    expect(await screen.findByText('future-format.bin')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannte Quelle')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannter Status')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('future_sync')
+    expect(document.body).not.toHaveTextContent('paused_backend_state')
   })
 
   it('keeps explicit view query parameters ahead of the automatic default', async () => {

@@ -47,7 +47,7 @@ export function EditorMap({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Vollstandiger Track (grau, dunn)
+      // Full track (grey, thin)
       map.addSource('track-full', {
         type: 'geojson',
         data: { type: 'Feature', geometry: trackRef.current, properties: {} },
@@ -59,7 +59,7 @@ export function EditorMap({
         paint: { 'line-color': '#6b7280', 'line-width': 2, 'line-opacity': 0.4 },
       })
 
-      // Aktiver Bereich (nach Trim, blau, dick)
+      // Active segment after trim (blue, thick)
       const activeCoords = trackRef.current.coordinates.slice(
         trimStart ?? 0,
         (trimEnd ?? trackRef.current.coordinates.length - 1) + 1,

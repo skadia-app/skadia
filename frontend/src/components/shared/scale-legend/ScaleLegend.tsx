@@ -1,29 +1,27 @@
-// Legende für den Map-Overlay der Route-/Activity-Difficulty-Scales (SAC/MTB/VF).
-// Erscheint nur wenn ein Scale-Pin aktiv ist und zeigt die 6 Rainbow-Farben
-// passend zu den Map-Layer-Farben aus scaleColors.ts (SAC_COLORS/MTB_COLORS/
-// VF_COLORS). Badge-Dots nutzen dagegen DAV-Konvention (3 Farben) — die
-// Legende erklärt daher primär das Map-Overlay, nicht die Badge-Dots.
+// Legend for the map overlay of route/activity difficulty scales (SAC/MTB/VF).
+// Rendered only while a scale pin is active. It shows the six rainbow colors
+// matching the map layer colors from scaleColors.ts (SAC_COLORS/MTB_COLORS/
+// VF_COLORS). Badge dots use the DAV convention (three colors), so this legend
+// primarily explains the map overlay rather than badge dots.
+import { useTranslation } from 'react-i18next'
 import { SAC_COLORS, MTB_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
 
 type ScaleKind = 'sac' | 'mtb' | 'vf'
 
 interface Props {
   kind: ScaleKind | null
-  hasUnknownVf?: boolean   // true wenn vf_unknown_ranges auf der Route/Aktivität existieren
+  hasUnknownVf?: boolean   // true when vf_unknown_ranges exist on the route/activity
 }
 
 const SAC_LEVELS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'] as const
 const MTB_LEVELS = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'] as const
 const VF_LEVELS  = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const
 
-const TITLES: Record<ScaleKind, string> = {
-  sac: 'SAC-Wanderskala',
-  mtb: 'MTB-Schwierigkeit',
-  vf:  'Klettersteig (Via Ferrata)',
-}
-
 export default function ScaleLegend({ kind, hasUnknownVf }: Props) {
+  const { t } = useTranslation()
   if (!kind) return null
+
+  const title = t(`scaleLegend.titles.${kind}`)
 
   const entries =
     kind === 'sac' ? SAC_LEVELS.map(l => ({ level: l, color: SAC_COLORS[l] })) :
@@ -34,9 +32,9 @@ export default function ScaleLegend({ kind, hasUnknownVf }: Props) {
     <div
       className="absolute bottom-4 right-4 z-10 rounded-lg bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md p-2 text-xs text-neutral-700 dark:text-neutral-300 min-w-[140px]"
       role="region"
-      aria-label={`Legende für ${TITLES[kind]}`}
+      aria-label={t('scaleLegend.ariaLabel', { title })}
     >
-      <div className="font-medium mb-1">{TITLES[kind]}</div>
+      <div className="font-medium mb-1">{title}</div>
       <ul className="space-y-0.5">
         {entries.map(({ level, color }) => (
           <li key={level} className="flex items-center gap-2">
@@ -56,7 +54,7 @@ export default function ScaleLegend({ kind, hasUnknownVf }: Props) {
               aria-hidden="true"
             />
             <span className="font-medium">K?</span>
-            <span className="ml-auto text-[10px] text-neutral-500 dark:text-neutral-400">unscaled</span>
+            <span className="ml-auto text-[10px] text-neutral-500 dark:text-neutral-400">{t('scaleLegend.unscaled')}</span>
           </li>
         )}
       </ul>

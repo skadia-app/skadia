@@ -1,6 +1,7 @@
 // frontend/src/lib/libraryLabels.ts
 
 import type { FileType } from '@/api/shadowfs'
+import { i18n } from '@/i18n/i18n'
 
 // Pattern follows bestEffortLabels.ts, jobLabels.ts etc. — all labels files
 // live in frontend/src/lib/. Static Record-of-strings (no functions) —
@@ -17,56 +18,58 @@ export interface VarDef {
   label: string
 }
 
+const l = (key: string) => i18n.t(key)
+
 export const TYPE_VARIABLES: Record<FileType, VarDef[]> = {
   activity: [
-    { key: '{year}',        label: 'Jahr'          },
-    { key: '{month}',       label: 'Monat'         },
-    { key: '{day}',         label: 'Tag'           },
-    { key: '{time}',        label: 'Uhrzeit'       },
-    { key: '{format}',      label: 'Dateiformat'   },
-    { key: '{sport}',       label: 'Sportart'      },
-    { key: '{subCategory}', label: 'Unterkategorie'},
-    { key: '{modifiers}',   label: 'Modifier'      },
-    { key: '{city}',        label: 'Stadt'         },
-    { key: '{country}',     label: 'Land'          },
-    { key: '{title}',       label: 'Titel'         },
-    { key: '{distance_km}', label: 'Distanz (km)'  },
-    { key: '{duration_h}',  label: 'Dauer (h)'     },
-    { key: '{elevation_m}', label: 'Höhenmeter'    },
+    { key: '{year}',        label: l('libraryLabels.variables.year') },
+    { key: '{month}',       label: l('libraryLabels.variables.month') },
+    { key: '{day}',         label: l('libraryLabels.variables.day') },
+    { key: '{time}',        label: l('libraryLabels.variables.time') },
+    { key: '{format}',      label: l('libraryLabels.variables.format') },
+    { key: '{sport}',       label: l('libraryLabels.variables.sport') },
+    { key: '{subCategory}', label: l('libraryLabels.variables.subCategory') },
+    { key: '{modifiers}',   label: l('libraryLabels.variables.modifiers') },
+    { key: '{city}',        label: l('libraryLabels.variables.city') },
+    { key: '{country}',     label: l('libraryLabels.variables.country') },
+    { key: '{title}',       label: l('libraryLabels.variables.title') },
+    { key: '{distance_km}', label: l('libraryLabels.variables.distanceKm') },
+    { key: '{duration_h}',  label: l('libraryLabels.variables.durationH') },
+    { key: '{elevation_m}', label: l('libraryLabels.variables.elevationM') },
   ],
   media: [
-    { key: '{year}',        label: 'Jahr'          },
-    { key: '{month}',       label: 'Monat'         },
-    { key: '{day}',         label: 'Tag'           },
-    { key: '{time}',        label: 'Uhrzeit'       },
-    { key: '{title}',       label: 'Titel'         },
-    { key: '{parent_type}', label: 'Eltern-Typ'    },
-    { key: '{parent_name}', label: 'Eltern-Name'   },
-    { key: '{camera}',      label: 'Kamera'        },
-    { key: '{width}',       label: 'Breite (px)'   },
-    { key: '{height}',      label: 'Höhe (px)'     },
+    { key: '{year}',        label: l('libraryLabels.variables.year') },
+    { key: '{month}',       label: l('libraryLabels.variables.month') },
+    { key: '{day}',         label: l('libraryLabels.variables.day') },
+    { key: '{time}',        label: l('libraryLabels.variables.time') },
+    { key: '{title}',       label: l('libraryLabels.variables.title') },
+    { key: '{parent_type}', label: l('libraryLabels.variables.parentType') },
+    { key: '{parent_name}', label: l('libraryLabels.variables.parentName') },
+    { key: '{camera}',      label: l('libraryLabels.variables.camera') },
+    { key: '{width}',       label: l('libraryLabels.variables.width') },
+    { key: '{height}',      label: l('libraryLabels.variables.height') },
   ],
   document: [
-    { key: '{year}',        label: 'Jahr'        },
-    { key: '{month}',       label: 'Monat'       },
-    { key: '{day}',         label: 'Tag'         },
-    { key: '{category}',    label: 'Kategorie'   },
-    { key: '{title}',       label: 'Titel'       },
-    { key: '{parent_type}', label: 'Eltern-Typ'  },
-    { key: '{parent_name}', label: 'Eltern-Name' },
+    { key: '{year}',        label: l('libraryLabels.variables.year') },
+    { key: '{month}',       label: l('libraryLabels.variables.month') },
+    { key: '{day}',         label: l('libraryLabels.variables.day') },
+    { key: '{category}',    label: l('libraryLabels.variables.category') },
+    { key: '{title}',       label: l('libraryLabels.variables.title') },
+    { key: '{parent_type}', label: l('libraryLabels.variables.parentType') },
+    { key: '{parent_name}', label: l('libraryLabels.variables.parentName') },
   ],
   health: [
-    { key: '{year}',  label: 'Jahr'  },
-    { key: '{month}', label: 'Monat' },
-    { key: '{day}',   label: 'Tag'   },
-    { key: '{type}',  label: 'Typ'   },
+    { key: '{year}',  label: l('libraryLabels.variables.year') },
+    { key: '{month}', label: l('libraryLabels.variables.month') },
+    { key: '{day}',   label: l('libraryLabels.variables.day') },
+    { key: '{type}',  label: l('libraryLabels.variables.type') },
   ],
   route: [
-    { key: '{sport}',       label: 'Sportart'      },
-    { key: '{title}',       label: 'Titel'         },
-    { key: '{distance_km}', label: 'Distanz (km)'  },
-    { key: '{elevation_m}', label: 'Höhenmeter'    },
-    { key: '{difficulty}',  label: 'Schwierigkeit' },
+    { key: '{sport}',       label: l('libraryLabels.variables.sport') },
+    { key: '{title}',       label: l('libraryLabels.variables.title') },
+    { key: '{distance_km}', label: l('libraryLabels.variables.distanceKm') },
+    { key: '{elevation_m}', label: l('libraryLabels.variables.elevationM') },
+    { key: '{difficulty}',  label: l('libraryLabels.variables.difficulty') },
   ],
 }
 
@@ -99,69 +102,70 @@ export const FILE_TYPE_ORDER: FileType[] = ['activity', 'media', 'document', 'he
 
 export const LIB_LABELS = {
   // Library-Dir
-  libraryDirPrefix: 'Pfad-Präfix:',
-  libraryDirManagedByAdmin: 'Wird vom Administrator verwaltet.',
-  libraryDirNotApplicableS3: 'Nicht anwendbar bei S3-Storage.',
+  libraryDirPrefix: l('libraryLabels.labels.libraryDirPrefix'),
+  libraryDirManagedByAdmin: l('libraryLabels.labels.libraryDirManagedByAdmin'),
+  libraryDirNotApplicableS3: l('libraryLabels.labels.libraryDirNotApplicableS3'),
 
   // File-Schemas
-  schemaAdminManaged: 'Diese Einstellung wird vom Administrator verwaltet.',
-  schemaS3Inactive: 'Pfad-Einstellungen sind bei S3-Storage inaktiv.',
+  schemaAdminManaged: l('libraryLabels.labels.schemaAdminManaged'),
+  schemaS3Inactive: l('libraryLabels.labels.schemaS3Inactive'),
 
   // Admin-Library-Tab
-  adminTabTitle: 'Dateipfade & Schemas',
-  toggleUserCanEditDirName: 'User dürfen Verzeichnisname bearbeiten',
-  toggleUserCanEditSchemas: 'User dürfen Schema-Templates bearbeiten',
-  hintDirEditDisabledS3: 'Nicht anwendbar bei S3-Storage',
-  buttonBulkRename: 'Rename auf alle User anwenden',
-  bulkRenameConfirmTitle: 'Bulk-Rename bestätigen',
-  bulkRenameConfirmLabel: 'Bulk-Rename starten',
+  adminTabTitle: l('libraryLabels.labels.adminTabTitle'),
+  toggleUserCanEditDirName: l('libraryLabels.labels.toggleUserCanEditDirName'),
+  toggleUserCanEditSchemas: l('libraryLabels.labels.toggleUserCanEditSchemas'),
+  hintDirEditDisabledS3: l('libraryLabels.labels.hintDirEditDisabledS3'),
+  buttonBulkRename: l('libraryLabels.labels.buttonBulkRename'),
+  bulkRenameConfirmTitle: l('libraryLabels.labels.bulkRenameConfirmTitle'),
+  bulkRenameConfirmLabel: l('libraryLabels.labels.bulkRenameConfirmLabel'),
   // Template with {ft} placeholder — replaced at call-site via .replace('{ft}', ft).
   // Future i18n framework (e.g. i18next) natively supports this pattern.
   bulkRenameConfirmMessage:
-    'Rename für alle User mit file_type={ft} ausführen? Dies läuft im Hintergrund und kann nicht abgebrochen werden.',
+    l('libraryLabels.labels.bulkRenameConfirmMessage'),
 
   // Toasts
-  toastSaved: 'Einstellungen gespeichert',
-  toastRenameStarted: 'Rename gestartet',
-  toastBulkAlreadyRunning: 'Bulk-Rename läuft bereits',
-  toastLibraryDirTaken: 'Verzeichnisname bereits vergeben',
-  toastLibraryDirClashesUUID: 'Name entspricht einer fremden User-UUID',
-  toastError: 'Fehler',
+  toastSaved: l('libraryLabels.labels.toastSaved'),
+  toastRenameStarted: l('libraryLabels.labels.toastRenameStarted'),
+  toastBulkAlreadyRunning: l('libraryLabels.labels.toastBulkAlreadyRunning'),
+  toastLibraryDirTaken: l('libraryLabels.labels.toastLibraryDirTaken'),
+  toastLibraryDirClashesUUID: l('libraryLabels.labels.toastLibraryDirClashesUUID'),
+  toastError: l('common.error'),
+  unknownErrorFallback: l('common.unknownError'),
 
   // Schema effective-value hint
-  schemaEffectiveLabel: 'Effektiv:',
-  schemaAdminDefaultHint: 'Standard: ',
+  schemaEffectiveLabel: l('libraryLabels.labels.schemaEffectiveLabel'),
+  schemaAdminDefaultHint: l('libraryLabels.labels.schemaAdminDefaultHint'),
 
   // Common action buttons
-  saveButton: 'Speichern',
-  savingButton: 'Speichert...',
-  discardButton: 'Verwerfen',
-  closeButton: 'Schließen',
+  saveButton: l('common.save'),
+  savingButton: l('common.saving'),
+  discardButton: l('libraryLabels.labels.discardButton'),
+  closeButton: l('common.close'),
 
   // UserLibraryDirDialog
-  editLibraryDirMenuItem: 'Library-Dir bearbeiten',
-  effectiveLabel: 'Effektiv:',
-  resetToUUIDHint: 'Leer lassen = auf UUID zurücksetzen',
-  executeRenameButton: 'Rename ausführen',
-  renameJobBackgroundHint: 'Startet einen Rename-Job im Hintergrund.',
-  loadLibraryDirErrorTitle: 'Fehler beim Laden der Library-Dir.',
+  editLibraryDirMenuItem: l('libraryLabels.labels.editLibraryDirMenuItem'),
+  effectiveLabel: l('libraryLabels.labels.effectiveLabel'),
+  resetToUUIDHint: l('libraryLabels.labels.resetToUUIDHint'),
+  executeRenameButton: l('libraryLabels.labels.executeRenameButton'),
+  renameJobBackgroundHint: l('libraryLabels.labels.renameJobBackgroundHint'),
+  loadLibraryDirErrorTitle: l('libraryLabels.labels.loadLibraryDirErrorTitle'),
 
   // FileSchemaSettings — section
-  fileSchemaSectionTitle: 'Dateibenennung',
+  fileSchemaSectionTitle: l('libraryLabels.labels.fileSchemaSectionTitle'),
   fileSchemaSectionDescription:
-    'Benennungsschema für jeden Dateityp. Variablen werden durch Werte des jeweiligen Eintrags ersetzt.',
-  fileSchemaAvailableVars: 'Verfügbare Variablen',
-  fileSchemaTemplateLabel: 'Schema-Template',
-  fileSchemaInsertVariable: 'Variable einfügen',
-  fileSchemaPreview: 'Vorschau',
-  fileSchemaToastSaved: 'Schema gespeichert',
-  fileSchemaErrorLoad: 'Schemata konnten nicht geladen werden',
-  fileSchemaErrorSave: 'Fehler beim Speichern',
+    l('libraryLabels.labels.fileSchemaSectionDescription'),
+  fileSchemaAvailableVars: l('libraryLabels.labels.fileSchemaAvailableVars'),
+  fileSchemaTemplateLabel: l('libraryLabels.labels.fileSchemaTemplateLabel'),
+  fileSchemaInsertVariable: l('libraryLabels.labels.fileSchemaInsertVariable'),
+  fileSchemaPreview: l('libraryLabels.labels.fileSchemaPreview'),
+  fileSchemaToastSaved: l('libraryLabels.labels.fileSchemaToastSaved'),
+  fileSchemaErrorLoad: l('libraryLabels.labels.fileSchemaErrorLoad'),
+  fileSchemaErrorSave: l('libraryLabels.labels.fileSchemaErrorSave'),
 
   // FileSchemaSettings — library dir subsection
-  libraryDirSectionTitle: 'Bibliotheks-Verzeichnis',
-  libraryDirSectionDesc: 'Name des Wurzel-Verzeichnisses in der Bibliothek.',
+  libraryDirSectionTitle: l('libraryLabels.labels.libraryDirSectionTitle'),
+  libraryDirSectionDesc: l('libraryLabels.labels.libraryDirSectionDesc'),
   libraryDirInputPlaceholder: 'skadia-library',
-  libraryDirToastSaved: 'Bibliotheks-Verzeichnis gespeichert',
+  libraryDirToastSaved: l('libraryLabels.labels.libraryDirToastSaved'),
 
 } as const

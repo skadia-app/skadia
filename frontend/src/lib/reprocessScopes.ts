@@ -1,28 +1,38 @@
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
 import type { Capabilities } from '@/api/routes'
 import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabilities'
+import { i18n } from '@/i18n/i18n'
 
 export type ScopeTuple = readonly [key: string, label: string, description: string | undefined]
+const tr = (key: string) => i18n.t(key)
 
 const BASE_REPROCESS_SCOPES: readonly ScopeTuple[] = [
-  ['streams',      'Streams & Track',   'GPS-Track, Zeitstempel und alle Sensor-Zeitreihen neu importieren.'],
-  ['sensors',      'Sensoren',          'Gerätezuordnungen und Sensor-Metadaten neu auflösen.'],
-  ['metrics',      'Metriken',          'Zusammenfassende Kennzahlen (Power, NP, TSS, Pace etc.) neu berechnen.'],
-  ['details',      'Runden/Splits',     'Runden und Split-Zeiten aus den FIT-Daten neu auslesen.'],
-  ['segments',     'Segmente & Runden', 'Alle Segment-Matches und Rundenzeiten neu berechnen.'],
-  ['sport_type',   'Sportart',          'Sportart aus den FIT-Daten neu erkennen und setzen.'],
-  ['tags',         'Tags',              'Automatische Tags basierend auf der Aktivität neu vergeben.'],
-  ['best_efforts', 'Bestleistungen',    'Distanz-, Höhenmeter- und Power-Bestleistungen neu berechnen.'],
-  ['running_form', 'Laufform-Analyse',  'Duty Factor, Vertical Ratio und Fatigue Index neu berechnen.'],
+  ['streams',      tr('reprocessScopes.items.streams.label'),      tr('reprocessScopes.items.streams.description')],
+  ['sensors',      tr('reprocessScopes.items.sensors.label'),      tr('reprocessScopes.items.sensors.description')],
+  ['metrics',      tr('reprocessScopes.items.metrics.label'),      tr('reprocessScopes.items.metrics.description')],
+  ['details',      tr('reprocessScopes.items.details.label'),      tr('reprocessScopes.items.details.description')],
+  ['segments',     tr('reprocessScopes.items.segments.label'),     tr('reprocessScopes.items.segments.description')],
+  ['sport_type',   tr('reprocessScopes.items.sport_type.label'),   tr('reprocessScopes.items.sport_type.description')],
+  ['tags',         tr('reprocessScopes.items.tags.label'),         tr('reprocessScopes.items.tags.description')],
+  ['best_efforts', tr('reprocessScopes.items.best_efforts.label'), tr('reprocessScopes.items.best_efforts.description')],
+  ['running_form', tr('reprocessScopes.items.running_form.label'), tr('reprocessScopes.items.running_form.description')],
 ] as const
 
 const STREAM_ANALYSIS_SCOPES = ANALYSIS_MODULES
   .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'stream')
-  .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.label, module.description] as const)
+  .map(module => [
+    module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name,
+    tr(`enrichmentStatus.modules.${module.name}.label`),
+    tr(`enrichmentStatus.modules.${module.name}.description`),
+  ] as const)
 
 const METADATA_ANALYSIS_SCOPES = ANALYSIS_MODULES
   .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'metadata')
-  .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.label, module.description] as const)
+  .map(module => [
+    module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name,
+    tr(`enrichmentStatus.modules.${module.name}.label`),
+    tr(`enrichmentStatus.modules.${module.name}.description`),
+  ] as const)
 
 export const REPROCESS_SCOPES: readonly ScopeTuple[] = [
   ...BASE_REPROCESS_SCOPES,
@@ -39,13 +49,13 @@ export type GeoScopeKey = (typeof GEO_SCOPE_KEYS)[number]
 export const GEO_SCOPE_LABELS: Record<GeoScopeKey, string> = Object.fromEntries(
   ANALYSIS_MODULES
     .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'geo')
-    .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.label]),
+    .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, tr(`enrichmentStatus.modules.${module.name}.label`)]),
 ) as Record<GeoScopeKey, string>
 
 export const GEO_SCOPE_DESCRIPTIONS: Record<GeoScopeKey, string> = Object.fromEntries(
   ANALYSIS_MODULES
     .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'geo')
-    .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.description]),
+    .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, tr(`enrichmentStatus.modules.${module.name}.description`)]),
 ) as Record<GeoScopeKey, string>
 
 export type ReprocessScopeKey = (typeof REPROCESS_SCOPES)[number][0]
@@ -89,5 +99,5 @@ export function toBackendScope(sel: Set<AnyReprocessKey>, allowedKeys?: readonly
 export function scopeLabel(key: string): string {
   const base = REPROCESS_SCOPES.find(([scope]) => scope === key)
   if (base) return base[1]
-  return GEO_SCOPE_LABELS[key as GeoScopeKey] ?? key
+  return GEO_SCOPE_LABELS[key as GeoScopeKey] ?? tr('reprocessScopes.unknown')
 }

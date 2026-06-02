@@ -1,13 +1,15 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { type SummitVisit } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
 import SummitMap from '@/components/summit/SummitMap'
 import SummitMapFullscreen from '@/components/summit/SummitMapFullscreen'
-import { ELEV_CLASSES, type ElevClass } from '@/components/summit/summitConstants'
+import { ELEV_CLASSES, findElevationClass, type ElevClass } from '@/components/summit/summitConstants'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
@@ -19,12 +21,13 @@ const SUMMIT_COUNTRY_PARAM = 'summit_country'
 const SUMMIT_YEAR_PARAM = 'summit_year'
 const SUMMIT_ELEV_PARAM = 'summit_elev'
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 export default function SummitCollectionPage({ defaultView = 'list' }: SummitCollectionPageProps) {
+  const { t } = useTranslation()
   const { data: capabilities, isLoading: capabilitiesLoading } = useCapabilities()
 
   if (capabilitiesLoading && !capabilities) {
@@ -38,7 +41,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: SummitCol
   if (!featureAvailable(capabilities, 'geo_poi_enrichment')) {
     return (
       <div className="rounded-lg border border-neutral-200 bg-white p-6 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-        Gipfeldaten sind in dieser Installation nicht verfügbar.
+        {t('summitCollection.unavailable')}
       </div>
     )
   }
@@ -47,6 +50,8 @@ export default function SummitCollectionPage({ defaultView = 'list' }: SummitCol
 }
 
 function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageProps) {
+  const { i18n, t } = useTranslation()
+  const { formatElevation } = useUnitFormatters()
   const location = useLocation()
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -62,8 +67,8 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
   const allowLegacySummitParams = location.pathname.startsWith('/map/summits')
   const countryFilter = searchParams.get(SUMMIT_COUNTRY_PARAM) ?? (allowLegacySummitParams ? searchParams.get('country') ?? '' : '')
   const yearFilter = searchParams.get(SUMMIT_YEAR_PARAM) ?? (allowLegacySummitParams ? searchParams.get('year') ?? '' : '')
-  const elevClassLabel = searchParams.get(SUMMIT_ELEV_PARAM) ?? (allowLegacySummitParams ? searchParams.get('elev') ?? 'Alle' : 'Alle')
-  const elevClass = ELEV_CLASSES.find(c => c.label === elevClassLabel) ?? ELEV_CLASSES[0]
+  const elevClassValue = searchParams.get(SUMMIT_ELEV_PARAM) ?? (allowLegacySummitParams ? searchParams.get('elev') : null)
+  const elevClass = findElevationClass(elevClassValue)
 
   const setCountryFilter = (v: string) => setSearchParams(prev => {
     const next = new URLSearchParams(prev)
@@ -81,7 +86,7 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
 
   const setElevClass = (cls: ElevClass) => setSearchParams(prev => {
     const next = new URLSearchParams(prev)
-    cls.label !== 'Alle' ? next.set(SUMMIT_ELEV_PARAM, cls.label) : next.delete(SUMMIT_ELEV_PARAM)
+    cls.id !== 'all' ? next.set(SUMMIT_ELEV_PARAM, cls.id) : next.delete(SUMMIT_ELEV_PARAM)
     if (allowLegacySummitParams) next.delete('elev')
     return next
   }, { replace: true })
@@ -160,30 +165,30 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Gipfelsammlung</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('summitCollection.title')}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Alle besuchten Gipfel mit Statistiken und Kartenansicht.
+          {t('summitCollection.description')}
         </p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
-          label="Besuchte Gipfel"
+          label={t('summitCollection.stats.visitedSummits')}
           value={summits.length.toString()}
-          sub={isFiltered ? `von ${allSummits.length} gesamt` : undefined}
+          sub={isFiltered ? t('summitCollection.stats.ofTotal', { total: allSummits.length }) : undefined}
         />
         <StatCard
-          label="Höchster Gipfel"
-          value={highestSummit ? `${Math.round(highestSummit.elevation_m ?? 0)} m` : '-'}
+          label={t('summitCollection.stats.highestSummit')}
+          value={highestSummit ? formatElevation(highestSummit.elevation_m) : '-'}
           sub={highestSummit?.name}
         />
         <StatCard
-          label="Gesamte Besteigungen"
+          label={t('summitCollection.stats.totalAscents')}
           value={summits.reduce((s, p) => s + p.visit_count, 0).toString()}
         />
         <StatCard
-          label="Über 3000 m"
+          label={t('summitCollection.stats.over3000', { threshold: formatElevation(3000) })}
           value={summits.filter(s => (s.elevation_m ?? 0) >= 3000).length.toString()}
         />
       </div>
@@ -191,31 +196,31 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
       {/* Badges — always based on all summits (unfiltered) */}
       {allSummits.length > 0 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Errungenschaften</h2>
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('summitCollection.achievements')}</h2>
           <SummitBadges summits={allSummits} />
         </div>
       )}
 
       {/* Filters + View Toggle */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Höhenklassen-Filter */}
+        {/* Elevation class filter */}
         <div className="flex rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-700">
           {ELEV_CLASSES.map(cls => (
             <button
-              key={cls.label}
+              key={cls.id}
               onClick={() => setElevClass(cls)}
               className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
-                elevClass.label === cls.label
+                elevClass.id === cls.id
                   ? 'bg-accent-DEFAULT text-white'
                   : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
             >
-              {cls.label}
+              {t(cls.labelKey)}
             </button>
           ))}
         </div>
 
-        {/* Länder-Filter */}
+        {/* Country filter */}
         {availableCountries.length > 1 && (
           <select
             value={countryFilter}
@@ -224,14 +229,14 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
                        px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300
                        focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40"
           >
-            <option value="">Alle Länder</option>
+            <option value="">{t('summitCollection.filters.allCountries')}</option>
             {availableCountries.map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
         )}
 
-        {/* Jahr-Filter */}
+        {/* Year filter */}
         {availableYears.length > 0 && (
           <select
             value={yearFilter}
@@ -240,7 +245,7 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
                        px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300
                        focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT/40"
           >
-            <option value="">Alle Jahre</option>
+            <option value="">{t('summitCollection.filters.allYears')}</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         )}
@@ -250,7 +255,7 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
           type="text"
           value={nameFilter}
           onChange={e => setNameFilter(e.target.value)}
-          placeholder="Gipfel suchen…"
+          placeholder={t('summitCollection.filters.searchPlaceholder')}
           className="rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800
                      px-2 py-1.5 text-sm text-neutral-700 dark:text-neutral-300
                      focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600"
@@ -274,9 +279,9 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
               setNameFilter('')
             }}
             className="text-xs px-2.5 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
-            aria-label="Alle Filter zurücksetzen"
+            aria-label={t('summitCollection.filters.resetAria')}
           >
-            ✕ Filter zurücksetzen
+            {t('summitCollection.filters.reset')}
           </button>
         )}
 
@@ -321,11 +326,11 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
-                <SortableHeader field="name" label="Name" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
-                <SortableHeader field="elevation_m" label="Höhe" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
-                <SortableHeader field="first_visit" label="Erstbesuch" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
-                <SortableHeader field="last_visit" label="Letzter Besuch" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
-                <SortableHeader field="visit_count" label="Besuche" sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="name" label={t('summitCollection.table.name')} sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="elevation_m" label={t('summitCollection.table.elevation')} sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="first_visit" label={t('summitCollection.table.firstVisit')} sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="last_visit" label={t('summitCollection.table.lastVisit')} sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
+                <SortableHeader field="visit_count" label={t('summitCollection.table.visits')} sortField={sortField} sortDir={sortDir} onToggle={toggleSort} indicator={sortIndicator} />
               </tr>
             </thead>
             <tbody>
@@ -342,13 +347,13 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
                     </div>
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {summit.elevation_m != null ? `${Math.round(summit.elevation_m)} m` : '-'}
+                    {summit.elevation_m != null ? formatElevation(summit.elevation_m) : '-'}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {formatDate(summit.first_visit)}
+                    {formatDate(summit.first_visit, i18n.language)}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
-                    {formatDate(summit.last_visit)}
+                    {formatDate(summit.last_visit, i18n.language)}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400 tabular-nums">
                     {summit.visit_count}
@@ -358,7 +363,7 @@ function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageP
               {displaySummits.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
-                    Keine Gipfel gefunden.
+                    {t('summitCollection.empty')}
                   </td>
                 </tr>
               )}

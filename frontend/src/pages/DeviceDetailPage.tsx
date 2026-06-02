@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Pencil, Check, X, Trash2, Merge } from 'lucide-react'
 import { fetchDevice, fetchDevices, fetchDeviceActivities, updateDeviceCustomName, deleteDevice, mergeDevices } from '@/api/hardware'
 import type { DeviceActivity } from '@/api/hardware'
-import { formatDistance } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { useModal } from '@/lib/modal'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { connectionTypeLabel, deviceTypeBadgeLabel } from '@/lib/deviceUtils'
 import { fmtDateMedium } from '@/lib/format'
 
 function ActivityRow({ activity }: { activity: DeviceActivity }) {
+  const { t } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
   const date = fmtDateMedium(activity.started_at, activity.timezone)
 
   return (
@@ -21,7 +24,7 @@ function ActivityRow({ activity }: { activity: DeviceActivity }) {
     >
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-          {activity.title || 'Unbenannt'}
+          {activity.title || t('devicePages.untitledActivity')}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
           {sportLabel(activity.sport_type)} · {date}
@@ -37,6 +40,7 @@ function ActivityRow({ activity }: { activity: DeviceActivity }) {
 }
 
 export default function DeviceDetailPage() {
+  const { t, i18n } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -99,7 +103,7 @@ export default function DeviceDetailPage() {
     },
   })
 
-  // Andere Devices gleichen Typs für Merge-Auswahl
+  // Other devices of the same type for merge selection.
   const { data: mergeTargets } = useQuery({
     queryKey: ['devices', device?.type],
     queryFn: () => fetchDevices(device?.type),
@@ -107,26 +111,26 @@ export default function DeviceDetailPage() {
   })
 
   if (deviceLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Gerät...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('devicePages.loadingDevice')}</div>
   }
 
   if (!device) {
     return (
       <div className="text-center py-16 text-neutral-400">
-        Gerät nicht gefunden.
+        {t('devicePages.deviceNotFound')}
       </div>
     )
   }
 
-  const displayName = device.custom_name || device.product_name || device.manufacturer || 'Unbekannt'
+  const displayName = device.custom_name || device.product_name || device.manufacturer || t('devicePages.unknown')
   const backType = device.type ?? 'recorder'
-  const backLabel = backType === 'recorder' ? 'Aufzeichnungsgeräte' : 'Sensoren'
+  const backLabel = backType === 'recorder' ? t('devicePages.recorders') : t('devicePages.sensors')
 
   const firstSeen = device.first_seen_at
-    ? new Date(device.first_seen_at).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
+    ? new Date(device.first_seen_at).toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' })
     : null
   const lastSeen = device.last_seen_at
-    ? new Date(device.last_seen_at).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
+    ? new Date(device.last_seen_at).toLocaleDateString(i18n.language, { year: 'numeric', month: 'short', day: 'numeric' })
     : null
 
   const connType = connectionTypeLabel(device.source_type)
@@ -169,14 +173,14 @@ export default function DeviceDetailPage() {
               onClick={() => renameMutation.mutate(nameInput)}
               disabled={renameMutation.isPending}
               className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Speichern"
+              title={t('devicePages.save')}
             >
               <Check className="w-5 h-5" />
             </button>
             <button
               onClick={() => setEditingName(false)}
               className="p-1.5 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-              title="Abbrechen"
+              title={t('common.cancel')}
             >
               <X className="w-5 h-5" />
             </button>
@@ -192,7 +196,7 @@ export default function DeviceDetailPage() {
                 setEditingName(true)
               }}
               className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-              title="Name bearbeiten"
+              title={t('devicePages.editName')}
             >
               <Pencil className="w-4 h-4" />
             </button>
@@ -203,12 +207,12 @@ export default function DeviceDetailPage() {
       {/* Info grid */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-4">
-          Geräteinformationen
+          {t('devicePages.infoTitle')}
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {device.manufacturer && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Hersteller</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.manufacturer')}</div>
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
                 {device.manufacturer}
               </div>
@@ -216,7 +220,7 @@ export default function DeviceDetailPage() {
           )}
           {device.product_name && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Produkt</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.product')}</div>
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
                 {device.product_name}
               </div>
@@ -224,7 +228,7 @@ export default function DeviceDetailPage() {
           )}
           {device.serial_number != null && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Seriennummer</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.serialNumber')}</div>
               <div className="text-sm font-medium font-mono text-neutral-900 dark:text-neutral-100 mt-0.5">
                 {device.serial_number}
               </div>
@@ -232,7 +236,7 @@ export default function DeviceDetailPage() {
           )}
           {connType && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Verbindung</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.connection')}</div>
               <div className="mt-0.5">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${connBadgeStyle}`}>
                   {connType}
@@ -242,7 +246,7 @@ export default function DeviceDetailPage() {
           )}
           {firstSeen && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Zuerst gesehen</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.firstSeen')}</div>
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
                 {firstSeen}
               </div>
@@ -250,7 +254,7 @@ export default function DeviceDetailPage() {
           )}
           {lastSeen && (
             <div>
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">Zuletzt gesehen</div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('devicePages.lastSeen')}</div>
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
                 {lastSeen}
               </div>
@@ -261,14 +265,14 @@ export default function DeviceDetailPage() {
         {/* Sensor type badges */}
         {device.device_types && device.device_types.length > 0 && (
           <div className="mt-4 pt-4 border-t border-neutral-100 dark:border-neutral-800">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">Sensortypen</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">{t('devicePages.sensorTypes')}</div>
             <div className="flex flex-wrap gap-1.5">
               {device.device_types.map(type_ => (
                 <span
                   key={type_}
                   className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
                 >
-                  {deviceTypeBadgeLabel(type_)}
+                  {deviceTypeBadgeLabel(type_, t)}
                 </span>
               ))}
             </div>
@@ -285,16 +289,16 @@ export default function DeviceDetailPage() {
                      hover:border-accent-400 dark:hover:border-accent-600 transition-all cursor-pointer"
         >
           <Merge className="w-4 h-4" />
-          Zusammenführen
+          {t('devicePages.merge')}
         </button>
         <button
           onClick={() => {
             openModal({
-              title: `"${displayName}" wirklich löschen?`,
-              message: 'Aktivitäten behalten ihre Daten, verlieren aber die Gerätezuordnung.',
+              title: t('devicePages.deleteTitle', { name: displayName }),
+              message: t('devicePages.deleteMessage'),
               buttons: [
-                { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate() },
+                { label: t('common.cancel'), variant: 'default', onClick: () => {} },
+                { label: t('devicePages.delete'), variant: 'destructive', onClick: () => deleteMutation.mutate() },
               ],
             })
           }}
@@ -304,7 +308,7 @@ export default function DeviceDetailPage() {
                      transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Trash2 className="w-4 h-4" />
-          Löschen
+          {t('devicePages.delete')}
         </button>
       </div>
 
@@ -312,10 +316,10 @@ export default function DeviceDetailPage() {
       {showMerge && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
           <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            Mit anderem Gerät zusammenführen
+            {t('devicePages.mergeWithOther')}
           </h3>
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Alle Aktivitäten dieses Geräts werden dem Zielgerät zugeordnet. Dieses Gerät wird anschließend gelöscht.
+            {t('devicePages.mergeDescription')}
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -324,10 +328,10 @@ export default function DeviceDetailPage() {
               className="flex-1 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900
                          text-neutral-900 dark:text-neutral-100 px-3 py-2"
             >
-              <option value="">Zielgerät auswählen...</option>
+              <option value="">{t('devicePages.selectTargetDevice')}</option>
               {mergeTargets?.filter(d => d.id !== id).map(d => (
                 <option key={d.id} value={d.id}>
-                  {d.custom_name || d.product_name || d.manufacturer || 'Unbekannt'}
+                  {d.custom_name || d.product_name || d.manufacturer || t('devicePages.unknown')}
                   {d.serial_number ? ` (S/N: ${d.serial_number})` : ''}
                 </option>
               ))}
@@ -336,11 +340,11 @@ export default function DeviceDetailPage() {
               onClick={() => {
                 if (!mergeTargetId) return
                 openModal({
-                  title: 'Geräte wirklich zusammenführen?',
-                  message: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+                  title: t('devicePages.mergeConfirmTitle'),
+                  message: t('devicePages.irreversibleAction'),
                   buttons: [
-                    { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-                    { label: 'Zusammenführen', variant: 'destructive', onClick: () => mergeMutation.mutate(mergeTargetId) },
+                    { label: t('common.cancel'), variant: 'default', onClick: () => {} },
+                    { label: t('devicePages.merge'), variant: 'destructive', onClick: () => mergeMutation.mutate(mergeTargetId) },
                   ],
                 })
               }}
@@ -348,13 +352,13 @@ export default function DeviceDetailPage() {
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600
                          transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {mergeMutation.isPending ? 'Wird zusammengeführt...' : 'Zusammenführen'}
+              {mergeMutation.isPending ? t('devicePages.merging') : t('devicePages.merge')}
             </button>
             <button
               onClick={() => { setShowMerge(false); setMergeTargetId('') }}
               className="px-3 py-2 rounded-lg text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -364,7 +368,7 @@ export default function DeviceDetailPage() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Aktivitäten
+            {t('devicePages.activities')}
             {device.activity_count > 0 && (
               <span className="ml-2 text-sm font-normal text-neutral-500 dark:text-neutral-400">
                 ({device.activity_count})
@@ -374,7 +378,7 @@ export default function DeviceDetailPage() {
         </div>
 
         {activitiesLoading && allActivities.length === 0 ? (
-          <div className="text-center py-8 text-neutral-400">Lade Aktivitäten...</div>
+          <div className="text-center py-8 text-neutral-400">{t('devicePages.loadingActivities')}</div>
         ) : allActivities.length > 0 ? (
           <>
             <div className="space-y-2">
@@ -394,14 +398,14 @@ export default function DeviceDetailPage() {
                   className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400
                              hover:border-accent-400 dark:hover:border-accent-600 hover:text-neutral-900 dark:hover:text-neutral-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isFetching ? 'Lade...' : 'Mehr laden'}
+                  {isFetching ? t('devicePages.loading') : t('devicePages.loadMore')}
                 </button>
               </div>
             )}
           </>
         ) : (
           <div className="text-center py-8 text-neutral-400">
-            Keine Aktivitäten für dieses Gerät.
+            {t('devicePages.noActivitiesForDevice')}
           </div>
         )}
       </div>

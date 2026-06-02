@@ -1,5 +1,6 @@
 import type { AggregatedSurface } from '@/lib/surfaceConstants'
-import { formatLength } from '@/lib/surfaceConstants'
+import { useTranslation } from 'react-i18next'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 export interface StackedBarProps {
   aggregated: AggregatedSurface[]
@@ -25,8 +26,11 @@ export default function StackedBar({
   compact = false,
   streamsLoading = false,
 }: StackedBarProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
+
   function label(surface_type: string): string {
-    if (surface_type === '__other__') return 'Sonstige'
+    if (surface_type === '__other__') return t('activityOperations.surfaces.other')
     return labelMap?.[surface_type] ?? surface_type
   }
 
@@ -105,7 +109,7 @@ export default function StackedBar({
               {label(s.surface_type)}
             </span>
             <span className="tabular-nums">{s.percentage.toFixed(0)}%</span>
-            <span className="text-neutral-400 dark:text-neutral-500">({formatLength(s.length_m)})</span>
+            <span className="text-neutral-400 dark:text-neutral-500">({formatDistanceCompact(s.length_m)})</span>
           </span>
         ))}
       </div>

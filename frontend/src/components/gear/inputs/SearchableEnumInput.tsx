@@ -1,17 +1,15 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import type { OptionValue } from '@/lib/generatedGearSchema'
-import { GEAR_INPUT_STRINGS } from '@/lib/gearComponentStrings'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import { gearSchemaLabel } from '@/lib/gearSchemaHelpers'
+import { useTranslation } from 'react-i18next'
 
-// i18n-strings — centralized for future extraction
-const STRINGS = {
-  noResults: 'Keine Treffer',
-  customValueLabel: (v: string) => `"${v}" verwenden`,
-} as const
+type DisplayOptionValue = OptionValue & { displayLabel?: string }
 
 export interface SearchableEnumInputProps {
   id?: string
   value: string
-  options: OptionValue[]
+  options: DisplayOptionValue[]
   onChange: (value: string) => void
   /** When true, freetext values not in the options list are accepted */
   allowFreeText?: boolean
@@ -25,9 +23,16 @@ export default function SearchableEnumInput({
   options,
   onChange,
   allowFreeText = false,
-  placeholder = GEAR_INPUT_STRINGS.searchPlaceholder,
+  placeholder,
   disabled = false,
 }: SearchableEnumInputProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const strings = {
+    searchPlaceholder: t('gearZones.searchableEnumInput.searchPlaceholder'),
+    noResults: t('gearZones.searchableEnumInput.noResults'),
+    customValueLabel: (value: string) => t('gearZones.searchableEnumInput.customValueLabel', { value }),
+  }
   const inputId = id ?? 'searchable-enum-input'
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -37,7 +42,8 @@ export default function SearchableEnumInput({
 
   // Sync query with externally-controlled value label
   const selectedOption = options.find(o => o.key === value)
-  const displayValue = selectedOption ? selectedOption.labelDe : value
+  const displayValue = selectedOption ? schemaOptionLabel(selectedOption, language) : value
+  const resolvedPlaceholder = placeholder ?? strings.searchPlaceholder
 
   useEffect(() => {
     if (!open) setQuery(displayValue)
@@ -47,18 +53,20 @@ export default function SearchableEnumInput({
     const needle = query.trim().toLowerCase()
     if (!needle || query === displayValue) return options
     return options.filter(
-      o =>
-        o.labelDe.toLowerCase().includes(needle) ||
-        o.key.toLowerCase().includes(needle),
+      (o) => {
+        const label = optionLabel(o, language)
+        return label.toLowerCase().includes(needle) ||
+          o.key.toLowerCase().includes(needle)
+      },
     )
-  }, [options, query, displayValue])
+  }, [options, query, displayValue, language])
 
   // Whether the current query is a custom value (not matching any option key or label exactly)
   const isCustomValue =
     allowFreeText &&
     query.trim() !== '' &&
     query !== displayValue &&
-    !options.some(o => o.labelDe === query.trim() || o.key === query.trim())
+    !options.some(o => optionMatchesQuery(o, query.trim(), language))
 
   const totalItems = filtered.length + (isCustomValue ? 1 : 0)
 
@@ -138,7 +146,7 @@ export default function SearchableEnumInput({
         type="text"
         value={open ? query : displayValue}
         disabled={disabled}
-        placeholder={placeholder}
+        placeholder={resolvedPlaceholder}
         onFocus={() => {
           setQuery('')
           setOpen(true)
@@ -175,11 +183,11 @@ export default function SearchableEnumInput({
                     : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
-                {opt.labelDe}
+                {optionLabel(opt, language)}
               </button>
             ))
           ) : !isCustomValue ? (
-            <div className="px-3 py-2 text-sm text-neutral-400">{STRINGS.noResults}</div>
+            <div className="px-3 py-2 text-sm text-neutral-400">{strings.noResults}</div>
           ) : null}
           {isCustomValue && (
             <button
@@ -195,11 +203,25 @@ export default function SearchableEnumInput({
                   : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
               }`}
             >
-              {STRINGS.customValueLabel(query.trim())}
+              {strings.customValueLabel(query.trim())}
             </button>
           )}
         </div>
       )}
     </div>
   )
+}
+
+function optionLabel(option: DisplayOptionValue, language: ReturnType<typeof supportedLanguageFrom>): string {
+  return option.displayLabel ?? schemaOptionLabel(option, language)
+}
+
+function schemaOptionLabel(option: DisplayOptionValue, language: ReturnType<typeof supportedLanguageFrom>): string {
+  return gearSchemaLabel(option, language)
+}
+
+function optionMatchesQuery(option: DisplayOptionValue, query: string, language: ReturnType<typeof supportedLanguageFrom>): boolean {
+  return option.key === query ||
+    optionLabel(option, language) === query ||
+    schemaOptionLabel(option, language) === query
 }

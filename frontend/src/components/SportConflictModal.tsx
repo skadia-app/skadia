@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Activity } from '@/api/types'
 import { apiFetch } from '@/lib/auth'
 import { resolveSportConflict, type ResolveSportConflictPayload } from '@/api/sportConflict'
 import { useToast } from '@/lib/toast'
 import { CATEGORIES, SPORT_DEFS, normalizeSportTuple, sportDetailLabel } from '@/lib/sportTaxonomy'
-import { activityModifierLabels } from '@/lib/activityModifierLabels'
+import { modifierLabel } from '@/lib/sportModifiers'
 import { ModalShell } from '@/components/ui/ModalShell'
+import { localizeString, supportedLanguageFrom } from '@/i18n/localizedString'
 
 interface SportConflictModalProps {
   activity: Activity
@@ -29,6 +31,8 @@ type SportPickerEntry = {
 }
 
 export default function SportConflictModal({ activity, open, onClose, onResolved }: SportConflictModalProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -67,23 +71,26 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
     const seenTopLevel = new Set<string>()
     return SPORT_DEFS.flatMap(sd => {
       const cat = CATEGORIES.find(c => c.key === sd.categoryKey)
-      const category = cat?.label ?? sd.categoryKey
+      const category = cat ? localizeString(cat.labels, language) : sd.categoryKey
       const entries: SportPickerEntry[] = []
       if (sd.selectable) {
         const topKey = `${sd.label}:${category}`
         if (!seenTopLevel.has(topKey)) {
           seenTopLevel.add(topKey)
-          entries.push({ sportType: sd.sportType, subType: '', label: sd.label, displayLabel: sd.label, category })
+          const label = localizeString(sd.labels, language)
+          entries.push({ sportType: sd.sportType, subType: '', label, displayLabel: label, category })
         }
       }
       for (const st of sd.subTypes) {
         if (st.selectable) {
-          entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, displayLabel: `${sd.label} › ${st.label}`, category })
+          const parentLabel = localizeString(sd.labels, language)
+          const subTypeLabel = localizeString(st.labels, language)
+          entries.push({ sportType: sd.sportType, subType: st.subType, label: subTypeLabel, displayLabel: `${parentLabel} › ${subTypeLabel}`, category })
         }
       }
       return entries
     })
-  }, [])
+  }, [language])
 
   const filtered = useMemo(() => {
     if (!search) return allSports
@@ -118,8 +125,12 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
   })
 
   const conflictLabel = (sportType: string, subType?: string, isElectric?: boolean, isIndoor?: boolean, isVirtual?: boolean) => {
-    const modifiers = activityModifierLabels({ isElectric, isIndoor, isVirtual })
-    return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
+    const modifiers = [
+      isElectric ? modifierLabel('is_electric', language) : '',
+      isIndoor ? modifierLabel('is_indoor', language) : '',
+      isVirtual ? modifierLabel('is_virtual', language) : '',
+    ].filter(Boolean)
+    return [sportDetailLabel(sportType, subType || null, language), ...modifiers].join(' · ')
   }
 
   const handleConfirm = async () => {
@@ -127,11 +138,16 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
     setLoading(true)
     try {
       await resolveSportConflict(activity.id, selection.payload)
-      addToast({ type: 'success', title: selection.payload ? 'Sport-Typ aktualisiert' : 'Sport-Konflikt aufgelöst' })
+      addToast({
+        type: 'success',
+        title: selection.payload
+          ? t('activityOperations.sportConflict.toasts.updated')
+          : t('activityOperations.sportConflict.toasts.resolved'),
+      })
       onResolved()
       onClose()
     } catch {
-      addToast({ type: 'error', title: 'Fehler beim Auflösen', duration: 0 })
+      addToast({ type: 'error', title: t('activityOperations.sportConflict.toasts.resolveFailed'), duration: 0 })
     } finally {
       setLoading(false)
     }
@@ -142,11 +158,12 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
   const sourceLabel = (src: string) => {
     switch (src) {
       case 'strava': return 'Strava'
+      case 'garmin': return 'Garmin'
       case 'komoot': return 'Komoot'
-      case 'fit': return 'FIT-Datei'
-      case 'gpx': return 'GPX-Datei'
-      case 'tcx': return 'TCX-Datei'
-      default: return src
+      case 'fit': return t('activityOperations.sportConflict.sources.fit')
+      case 'gpx': return t('activityOperations.sportConflict.sources.gpx')
+      case 'tcx': return t('activityOperations.sportConflict.sources.tcx')
+      default: return t('activityOperations.sportConflict.sources.unknown')
     }
   }
 
@@ -166,18 +183,18 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
         {/* Header */}
         <div>
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Sport-Typ-Konflikt
+            {t('activityOperations.sportConflict.title')}
           </h2>
           <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
             {bothGeneric
-              ? 'Keine Sportart erkannt. Bitte wähle die passende Sportart.'
-              : 'Es wurden unterschiedliche Sportarten erkannt. Bitte wähle, welche Sportart übernommen werden soll.'}
+              ? t('activityOperations.sportConflict.noSportDetected')
+              : t('activityOperations.sportConflict.description')}
           </p>
           {effectiveActivity.sport_type && (
             <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-500">
-              Aktuell gesetzt:{' '}
+              {t('activityOperations.sportConflict.currentPrefix')}{' '}
               <span className="font-medium text-neutral-700 dark:text-neutral-300">
-                {sportDetailLabel(effectiveActivity.sport_type, effectiveActivity.sub_type ?? null)}
+                {sportDetailLabel(effectiveActivity.sport_type, effectiveActivity.sub_type ?? null, language)}
               </span>
             </p>
           )}
@@ -236,7 +253,7 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
         {/* Search */}
         <input
           type="text"
-          placeholder="Sportart suchen..."
+          placeholder={t('activityOperations.sportConflict.searchPlaceholder')}
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full px-3 py-2 rounded-lg bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-sm text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:border-neutral-400 dark:focus:border-neutral-500"
@@ -264,14 +281,14 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
         <div className="flex items-center justify-between gap-3 pt-2 border-t border-neutral-200 dark:border-neutral-800">
           <button
             disabled={loading}
-            onClick={() => setSelection({ key: 'keep', payload: undefined, label: 'Importierte Sportart behalten' })}
+              onClick={() => setSelection({ key: 'keep', payload: undefined, label: t('activityOperations.sportConflict.keepImported') })}
             className={`cursor-pointer px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border ${
               selection?.key === 'keep'
                 ? 'ring-2 ring-accent-DEFAULT border-accent-DEFAULT/30 bg-accent-DEFAULT/10 dark:bg-accent-DEFAULT/15 text-neutral-900 dark:text-neutral-100'
                 : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
             }`}
           >
-            Importierte Sportart behalten
+            {t('activityOperations.sportConflict.keepImported')}
           </button>
           <div className="flex gap-2 shrink-0">
             <button
@@ -279,14 +296,14 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
               disabled={loading}
               className="cursor-pointer px-4 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleConfirm}
               disabled={loading || !selection}
               className="cursor-pointer px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT hover:bg-accent-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {loading ? 'Wird gespeichert…' : 'Übernehmen'}
+              {loading ? t('common.saving') : t('activityOperations.sportConflict.apply')}
             </button>
           </div>
         </div>

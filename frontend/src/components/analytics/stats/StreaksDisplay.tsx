@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -10,10 +11,10 @@ import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
-function fmtDate(dateStr: string | undefined): string {
+function fmtDate(dateStr: string | undefined, locale: string): string {
   if (!dateStr) return '—'
   try {
-    return new Date(dateStr).toLocaleDateString('de-DE', { year: 'numeric', month: 'short', day: 'numeric' })
+    return new Date(dateStr).toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' })
   } catch {
     return dateStr
   }
@@ -23,13 +24,19 @@ interface StreakCardProps {
   label: string
   current: number
   record: number
-  unit: string
+  unitSingular: string
+  unitPlural: string
   recordFrom?: string
   recordTo?: string
+  locale: string
 }
 
-function StreakCard({ label, current, record, unit, recordFrom, recordTo }: StreakCardProps) {
+function StreakCard({ label, current, record, unitSingular, unitPlural, recordFrom, recordTo, locale }: StreakCardProps) {
+  const { t } = useTranslation()
+  const formatInteger = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
   const isFire = current >= 7
+  const currentUnit = current === 1 ? unitSingular : unitPlural
+  const recordUnit = record === 1 ? unitSingular : unitPlural
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-3">
       <div className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">{label}</div>
@@ -39,10 +46,10 @@ function StreakCard({ label, current, record, unit, recordFrom, recordTo }: Stre
         {isFire && <span className="text-xl leading-none">🔥</span>}
         <div>
           <div className="text-3xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100 leading-none">
-            {current}
+            {formatInteger.format(current)}
           </div>
           <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            aktuell {current === 1 ? unit.split('/')[0] : unit.split('/')[1] || unit.split('/')[0]}
+            {t('analyticsTrainingStats.streaks.current', { unit: currentUnit })}
           </div>
         </div>
       </div>
@@ -52,11 +59,11 @@ function StreakCard({ label, current, record, unit, recordFrom, recordTo }: Stre
         <div className="border-t border-neutral-100 dark:border-neutral-800 pt-2">
           <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
             <span>🏆</span>
-            <span className="font-semibold">Rekord: {record} {record === 1 ? unit.split('/')[0] : unit.split('/')[1] || unit.split('/')[0]}</span>
+            <span className="font-semibold">{t('analyticsTrainingStats.streaks.record', { count: record, unit: recordUnit })}</span>
           </div>
           {(recordFrom || recordTo) && (
             <div className="text-xs text-neutral-400 mt-0.5">
-              {fmtDate(recordFrom)} – {fmtDate(recordTo)}
+              {fmtDate(recordFrom, locale)} – {fmtDate(recordTo, locale)}
             </div>
           )}
         </div>
@@ -70,6 +77,8 @@ interface MiniBarChartProps {
 }
 
 function StreakHistoryChart({ data }: MiniBarChartProps) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language || 'de'
   const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
 
   const containerRef = useECharts(
@@ -85,8 +94,8 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
           const item = items[0]
           const d = sorted[item.dataIndex]
           return `<div style="font-size:11px">
-            <div style="font-weight:600">${item.value} Tage</div>
-            <div style="color:#9ca3af">${fmtDate(d.from)} – ${fmtDate(d.to)}</div>
+            <div style="font-weight:600">${t('analyticsTrainingStats.streaks.daysValue', { count: item.value })}</div>
+            <div style="color:#9ca3af">${fmtDate(d.from, locale)} – ${fmtDate(d.to, locale)}</div>
           </div>`
         },
       },
@@ -121,13 +130,15 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
         },
       ],
     }),
-    [data],
+    [data, locale, t],
   )
 
   return <div ref={containerRef} className="h-24 w-full" />
 }
 
 export default function StreaksDisplay() {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language || 'de'
   const { toQueryString } = useAnalyticsFilters()
   const params = toQueryString()
 
@@ -153,7 +164,7 @@ export default function StreaksDisplay() {
   if (isError || !data) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-        Fehler beim Laden der Serien
+        {t('analyticsTrainingStats.streaks.loadError')}
       </div>
     )
   }
@@ -165,8 +176,8 @@ export default function StreaksDisplay() {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
         <div className="text-3xl mb-3">🎯</div>
-        <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">Noch keine Serien</div>
-        <div className="text-xs text-neutral-400 mt-1">Trainiere an mehreren aufeinanderfolgenden Tagen, um Serien zu starten.</div>
+        <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">{t('analyticsTrainingStats.streaks.emptyTitle')}</div>
+        <div className="text-xs text-neutral-400 mt-1">{t('analyticsTrainingStats.streaks.emptyDescription')}</div>
       </div>
     )
   }
@@ -175,27 +186,31 @@ export default function StreaksDisplay() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Serien</h3>
+      <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('analyticsTrainingStats.streaks.title')}</h3>
 
       <div className="grid grid-cols-2 gap-3">
         <StreakCard
-          label="Tages-Serie"
+          label={t('analyticsTrainingStats.streaks.dayStreak')}
           current={data.current_streak}
           record={data.max_streak}
-          unit="Tag/Tage"
+          unitSingular={t('analyticsTrainingStats.units.day', { count: 1 })}
+          unitPlural={t('analyticsTrainingStats.units.day', { count: 2 })}
+          locale={locale}
         />
         <StreakCard
-          label="Wochen-Serie"
+          label={t('analyticsTrainingStats.streaks.weekStreak')}
           current={data.current_week_streak}
           record={data.max_week_streak}
-          unit="Woche/Wochen"
+          unitSingular={t('analyticsTrainingStats.units.week', { count: 1 })}
+          unitPlural={t('analyticsTrainingStats.units.week', { count: 2 })}
+          locale={locale}
         />
       </div>
 
       {/* Streak history chart */}
       {streakHistory.length > 0 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
-          <div className="text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-2">Top Serien</div>
+          <div className="text-xs font-semibold text-neutral-600 dark:text-neutral-400 mb-2">{t('analyticsTrainingStats.streaks.topStreaks')}</div>
           <StreakHistoryChart data={streakHistory} />
         </div>
       )}

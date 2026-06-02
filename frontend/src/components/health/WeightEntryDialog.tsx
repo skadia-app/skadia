@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { useToast } from '@/lib/toast'
 import { createWeightEntry } from '@/api/healthMutations'
 import { getUserProfile } from '@/api/settings'
 import { fmtLocalDateTimeInput } from '@/lib/format'
+import { weightFromDisplayValue, weightInputUnit, weightToDisplayValue } from '@/lib/units'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 
 function parseOptionalFloat(s: string): number | null {
@@ -20,8 +23,10 @@ interface Props {
 }
 
 export default function WeightEntryDialog({ onClose }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { options: unitOptions } = useUnitFormatters()
 
   const [measuredAt, setMeasuredAt] = useState(() => fmtLocalDateTimeInput(new Date()))
   const [weightStr, setWeightStr] = useState('')
@@ -45,8 +50,19 @@ export default function WeightEntryDialog({ onClose }: Props) {
     staleTime: 5 * 60 * 1000,
   })
 
-  const weightKg = parseFloat(weightStr)
+  const displayedWeight = parseFloat(weightStr)
+  const weightKg = Number.isNaN(displayedWeight) ? NaN : weightFromDisplayValue(displayedWeight, unitOptions.units)
+  const weightUnit = weightInputUnit(unitOptions.units)
+  const weightPlaceholder = unitOptions.units === 'imperial' ? '154.0' : '70.0'
+  const massPlaceholder = unitOptions.units === 'imperial' ? '110.0' : '50.0'
+  const boneMassPlaceholder = unitOptions.units === 'imperial' ? '6.6' : '3.0'
+  const leanBodyMassPlaceholder = unitOptions.units === 'imperial' ? '121.0' : '55.0'
   const isWeightValid = !isNaN(weightKg) && weightKg > 0 && weightKg < 700
+
+  const parseOptionalDisplayWeightKg = (s: string): number | null => {
+    const value = parseOptionalFloat(s)
+    return value == null ? null : weightFromDisplayValue(value, unitOptions.units)
+  }
 
   // Auto-compute BMI from profile height if weight is valid and BMI field is empty
   const heightCm = profile?.height_cm ?? null
@@ -64,14 +80,13 @@ export default function WeightEntryDialog({ onClose }: Props) {
       const weightG = Math.round(weightKg * 1000)
       const bmi = bmiStr.trim() !== '' ? parseOptionalFloat(bmiStr) : computedBmi
 
-      // lean_body_mass_g: if entered in kg, convert to g
-      const leanBodyMassKg = parseOptionalFloat(leanBodyMassStr)
+      // Stored health mass fields remain metric even when the UI displays pounds.
+      const leanBodyMassKg = parseOptionalDisplayWeightKg(leanBodyMassStr)
       const leanBodyMassG = leanBodyMassKg != null ? Math.round(leanBodyMassKg * 1000) : null
 
-      // muscle_mass and bone_mass entered in kg, convert to g
-      const muscleMassKg = parseOptionalFloat(muscleMassStr)
+      const muscleMassKg = parseOptionalDisplayWeightKg(muscleMassStr)
       const muscleMassG = muscleMassKg != null ? Math.round(muscleMassKg * 1000) : null
-      const boneMassKg = parseOptionalFloat(boneMassStr)
+      const boneMassKg = parseOptionalDisplayWeightKg(boneMassStr)
       const boneMassG = boneMassKg != null ? Math.round(boneMassKg * 1000) : null
 
       return createWeightEntry({
@@ -91,28 +106,28 @@ export default function WeightEntryDialog({ onClose }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['health-weight'] })
       queryClient.invalidateQueries({ queryKey: ['health-overview'] })
-      addToast({ type: 'success', title: 'Gewicht gespeichert' })
+      addToast({ type: 'success', title: t('healthDialogs.weight.saved') })
       onClose()
     },
     onError: (err) => {
-      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: String(err), duration: 0 })
+      addToast({ type: 'error', title: t('healthDialogs.saveFailed'), message: String(err), duration: 0 })
     },
   })
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-md" className="max-h-[90vh] overflow-y-auto">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50 mb-1">
-        Gewicht erfassen
+        {t('healthDialogs.weight.title')}
       </h2>
       <p className="text-xs text-neutral-400 dark:text-neutral-500 mb-5">
-        Manuelle Messung eintragen
+        {t('healthDialogs.manualMeasurement')}
       </p>
 
       <div className="space-y-4">
         {/* Date/time */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Datum &amp; Uhrzeit
+            {t('healthDialogs.dateTime')}
           </label>
           <input
             type="datetime-local"
@@ -125,25 +140,25 @@ export default function WeightEntryDialog({ onClose }: Props) {
         {/* Weight */}
         <div>
           <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Gewicht <span className="text-red-500">*</span>
+            {t('healthDialogs.weight.weight')} <span className="text-red-500">*</span>
           </label>
           <div className="relative">
             <input
               type="number"
-              min={0.1}
-              max={699}
+              min={weightToDisplayValue(0.1, unitOptions.units)}
+              max={weightToDisplayValue(699, unitOptions.units)}
               step={0.1}
-              placeholder="70.0"
+              placeholder={weightPlaceholder}
               value={weightStr}
               onChange={e => setWeightStr(e.target.value)}
               className={AUTH_INPUT_CLASS}
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-              kg
+              {weightUnit}
             </span>
           </div>
           {weightStr !== '' && !isWeightValid && (
-            <p className="mt-1 text-xs text-red-500">Bitte ein gültiges Gewicht eingeben</p>
+            <p className="mt-1 text-xs text-red-500">{t('healthDialogs.weight.invalidWeight')}</p>
           )}
         </div>
 
@@ -167,22 +182,22 @@ export default function WeightEntryDialog({ onClose }: Props) {
             </div>
             {computedBmi != null && bmiStr.trim() === '' && (
               <p className="mt-1 text-xs text-neutral-400">
-                Auto: {computedBmi} kg/m²
+                {t('healthDialogs.weight.autoBmi', { value: computedBmi })}
               </p>
             )}
             {bmiDisplay != null && (
               <p className="mt-1 text-xs text-neutral-500">
-                {bmiDisplay < 18.5 ? 'Untergewicht' :
-                 bmiDisplay < 25 ? 'Normalgewicht' :
-                 bmiDisplay < 30 ? 'Übergewicht' :
-                 'Adipositas'}
+                {bmiDisplay < 18.5 ? t('healthDialogs.weight.bmiClasses.underweight') :
+                 bmiDisplay < 25 ? t('healthDialogs.weight.bmiClasses.normal') :
+                 bmiDisplay < 30 ? t('healthDialogs.weight.bmiClasses.overweight') :
+                 t('healthDialogs.weight.bmiClasses.obesity')}
               </p>
             )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Körperfett
+              {t('healthDialogs.weight.bodyFat')}
             </label>
             <div className="relative">
               <input
@@ -209,7 +224,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
             onClick={() => setShowExtended(v => !v)}
             className="cursor-pointer w-full flex items-center justify-between text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 py-2 transition-colors"
           >
-            <span>Erweiterte Körperzusammensetzung</span>
+            <span>{t('healthDialogs.weight.extendedBodyComposition')}</span>
             <svg
               className={`w-4 h-4 transition-transform ${showExtended ? 'rotate-180' : ''}`}
               fill="none"
@@ -227,40 +242,40 @@ export default function WeightEntryDialog({ onClose }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Muskelmasse
+                    {t('healthDialogs.weight.muscleMass')}
                   </label>
                   <div className="relative">
                     <input
                       type="number"
                       min={0}
                       step={0.1}
-                      placeholder="50.0"
+                      placeholder={massPlaceholder}
                       value={muscleMassStr}
                       onChange={e => setMuscleMassStr(e.target.value)}
                       className={AUTH_INPUT_CLASS}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-                      kg
+                      {weightUnit}
                     </span>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Knochenmasse
+                    {t('healthDialogs.weight.boneMass')}
                   </label>
                   <div className="relative">
                     <input
                       type="number"
                       min={0}
                       step={0.1}
-                      placeholder="3.0"
+                      placeholder={boneMassPlaceholder}
                       value={boneMassStr}
                       onChange={e => setBoneMassStr(e.target.value)}
                       className={AUTH_INPUT_CLASS}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-                      kg
+                      {weightUnit}
                     </span>
                   </div>
                 </div>
@@ -272,7 +287,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Protein
+                    {t('healthDialogs.weight.protein')}
                   </label>
                   <div className="relative">
                     <input
@@ -293,7 +308,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
 
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Subkutanfett
+                    {t('healthDialogs.weight.subcutaneousFat')}
                   </label>
                   <div className="relative">
                     <input
@@ -317,7 +332,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Skelettmuskel
+                    {t('healthDialogs.weight.skeletalMuscle')}
                   </label>
                   <div className="relative">
                     <input
@@ -338,20 +353,20 @@ export default function WeightEntryDialog({ onClose }: Props) {
 
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Fettfreie Masse
+                    {t('healthDialogs.weight.leanBodyMass')}
                   </label>
                   <div className="relative">
                     <input
                       type="number"
                       min={0}
                       step={0.1}
-                      placeholder="55.0"
+                      placeholder={leanBodyMassPlaceholder}
                       value={leanBodyMassStr}
                       onChange={e => setLeanBodyMassStr(e.target.value)}
                       className={AUTH_INPUT_CLASS}
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
-                      kg
+                      {weightUnit}
                     </span>
                   </div>
                 </div>
@@ -361,7 +376,7 @@ export default function WeightEntryDialog({ onClose }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-                    Körperwasser
+                    {t('healthDialogs.weight.bodyWater')}
                   </label>
                   <div className="relative">
                     <input
@@ -390,14 +405,14 @@ export default function WeightEntryDialog({ onClose }: Props) {
           onClick={onClose}
           className="cursor-pointer px-4 py-2 rounded-md text-sm font-medium bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50"
         >
-          Abbrechen
+          {t('common.cancel')}
         </button>
         <button
           onClick={() => mutation.mutate()}
           disabled={!canSubmit || mutation.isPending}
           className="cursor-pointer px-4 py-2 rounded-md text-sm font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {mutation.isPending ? 'Speichern…' : 'Speichern'}
+          {mutation.isPending ? t('healthDialogs.saving') : t('healthDialogs.save')}
         </button>
       </div>
     </ModalShell>

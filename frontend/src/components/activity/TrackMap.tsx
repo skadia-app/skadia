@@ -2,6 +2,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { listActivityPhotos, type ActivityPhoto } from '@/api/activityPhotos'
 import { apiDownload } from '@/api/client'
 import type { StreamPoint, GeoTag, ActivityStop } from '@/api/types'
@@ -16,6 +17,7 @@ import MapColorDropdown from './MapColorDropdown'
 import MapColorLegend from './MapColorLegend'
 import ScaleLegend from '@/components/shared/scale-legend/ScaleLegend'
 import { buildTrackMapFitTarget } from './trackMapZoom'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 export type SurfaceHighlightKey = {
   kind: 'highway' | 'surface'
@@ -105,16 +107,6 @@ function highlightedPoiKind(category: HighlightedPoiCategory): HighlightedPoiHov
   return 'settlement'
 }
 
-function highlightedPoiCategoryLabel(category: HighlightedPoiCategory): string {
-  switch (category) {
-    case 'summit': return 'Gipfel'
-    case 'pass': return 'Pass'
-    case 'still_water': return 'Gewässer'
-    case 'flowing_water': return 'Bach/Fluss'
-    case 'settlement': return 'Ort'
-  }
-}
-
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -149,6 +141,8 @@ export default function TrackMap({
   scaleRanges = null,
   hasUnknownVf = false,
 }: TrackMapProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -162,6 +156,13 @@ export default function TrackMap({
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
   const hasSummarySummitPois = highlightedPois.some(p => p.category === 'summit' || p.category === 'pass')
+  const poiLabels = useMemo<Record<HighlightedPoiCategory, string>>(() => ({
+    summit: t('trackMap.poi.summit'),
+    pass: t('trackMap.poi.pass'),
+    still_water: t('trackMap.poi.stillWater'),
+    flowing_water: t('trackMap.poi.flowingWater'),
+    settlement: t('trackMap.poi.settlement'),
+  }), [t])
 
   const { data: allPhotos = [] } = useQuery({
     queryKey: ['activity-photos', activityId],
@@ -631,7 +632,7 @@ export default function TrackMap({
         properties: {
           ...p,
           kind: highlightedPoiKind(p.category),
-          label: highlightedPoiCategoryLabel(p.category),
+          label: poiLabels[p.category],
           active: highlightedPoiHoverKind === highlightedPoiKind(p.category),
           dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
         },
@@ -649,7 +650,7 @@ export default function TrackMap({
         properties: {
           ...p,
           kind: highlightedPoiKind(p.category),
-          label: highlightedPoiCategoryLabel(p.category),
+          label: poiLabels[p.category],
         },
       }))
 
@@ -668,8 +669,8 @@ export default function TrackMap({
       if (!props) return
       const name = escapeHtml(String(props.name || props.label || 'POI'))
       const label = escapeHtml(String(props.label || 'POI'))
-      const ele = props.eleM != null ? ` · ${Math.round(Number(props.eleM)).toLocaleString('de-DE')} m` : ''
-      const dist = props.distM != null ? ` · ${Math.round(Number(props.distM)).toLocaleString('de-DE')} m` : ''
+      const ele = props.eleM != null ? ` · ${escapeHtml(formatElevation(Number(props.eleM)))}` : ''
+      const dist = props.distM != null ? ` · ${escapeHtml(formatDistanceCompact(Number(props.distM)))}` : ''
       popup
         .setLngLat(e.lngLat)
         .setHTML(`<span style="font-size:12px;font-weight:600">${name}</span><br><span style="font-size:11px;color:#6b7280">${label}${ele}${dist}</span>`)
@@ -695,7 +696,7 @@ export default function TrackMap({
       map.off('mouseleave', SUMMARY_SUMMIT_LAYER_ID, clearPointer)
       map.off('mouseleave', SUMMARY_POI_LAYER_ID, clearPointer)
     }
-  }, [hasTrack, hasSummarySummitPois, highlightedPoiHoverKind, highlightedPois, mapLoaded])
+  }, [formatDistanceCompact, formatElevation, hasTrack, hasSummarySummitPois, highlightedPoiHoverKind, highlightedPois, mapLoaded, poiLabels])
 
   // Surface/highway highlight overlay — yellow line over the matching parts
   // of the resampled track. Mirrors the route-planner highlight semantics
@@ -809,7 +810,7 @@ export default function TrackMap({
     src.setData({ type: 'FeatureCollection', features })
   }, [mapLoaded, hasTrack, scaleHighlight, scaleRanges, resampledCoords])
 
-  // Location-Pin-Karte für Indoor-Aktivitäten ohne GPS
+  // Location-pin map for indoor activities without GPS.
   useEffect(() => {
     if (!locationPinMapContainerRef.current || !locationPin) return
 
@@ -1015,7 +1016,7 @@ export default function TrackMap({
     }
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
-        <span className="text-sm text-neutral-400">Keine GPS-Daten</span>
+        <span className="text-sm text-neutral-400">{t('trackMap.noGps')}</span>
       </div>
     )
   }
@@ -1024,14 +1025,14 @@ export default function TrackMap({
     if (streamsLoading !== false) {
       return (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex items-center justify-center h-48">
-          <span className="text-sm text-neutral-400">Lade Kartendaten...</span>
+          <span className="text-sm text-neutral-400">{t('trackMap.loadingMapData')}</span>
         </div>
       )
     }
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 flex flex-col items-center justify-center h-48 gap-1">
-        <span className="text-sm text-neutral-400">GPS-Daten nicht verfügbar</span>
-        <span className="text-xs text-neutral-400">„Neu berechnen" kann helfen</span>
+        <span className="text-sm text-neutral-400">{t('trackMap.gpsUnavailable')}</span>
+        <span className="text-xs text-neutral-400">{t('trackMap.recomputeHint')}</span>
       </div>
     )
   }
@@ -1050,7 +1051,7 @@ export default function TrackMap({
         <button
           onClick={onMaximize}
           className={`${btnBase} ${btnActive}`}
-          title="Karte maximieren"
+          title={t('trackMap.maximize')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path d="M13.28 7.78l3.22-3.22v2.69a.75.75 0 001.5 0v-4.5a.75.75 0 00-.75-.75h-4.5a.75.75 0 000 1.5h2.69l-3.22 3.22a.75.75 0 001.06 1.06zM2 17.25v-4.5a.75.75 0 011.5 0v2.69l3.22-3.22a.75.75 0 011.06 1.06L4.56 16.5h2.69a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z" />
@@ -1062,7 +1063,7 @@ export default function TrackMap({
           <button
             onClick={() => setShowPhotos(p => !p)}
             className={`${btnBase} ${showPhotos ? btnActive : btnDimmed}`}
-            title={showPhotos ? 'Fotos ausblenden' : 'Fotos einblenden'}
+            title={showPhotos ? t('trackMap.hidePhotos') : t('trackMap.showPhotos')}
           >
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
               <path fillRule="evenodd" d="M1 8a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 018.07 3h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0016.07 6H17a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V8zm13.5 3a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM10 14a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
@@ -1075,7 +1076,7 @@ export default function TrackMap({
           <button
             onClick={() => setShowSummits(p => !p)}
             className={`${btnBase} ${showSummits ? btnActive : btnDimmed}`}
-            title={showSummits ? 'Gipfel ausblenden' : 'Gipfel einblenden'}
+            title={showSummits ? t('trackMap.hideSummits') : t('trackMap.showSummits')}
           >
             <Mountain className="w-4 h-4" aria-hidden="true" />
           </button>

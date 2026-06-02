@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -17,12 +18,8 @@ import { useECharts } from '@/hooks/useECharts'
 import { aggregateScaleLevels } from '@/lib/scaleAggregation'
 import { ScaleBadge } from './ScaleBadge'
 import { SummitBadge } from './SummitBadge'
-import {
-  suggestRoutesStrings,
-  statsForestLabel,
-  statsProtectedLabel,
-} from '@/lib/strings/suggest-routes'
 import { HIGHWAY_LABELS, SURFACE_GROUPS } from '@/lib/surfaceConstants'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 echarts.use([
   LineChart,
@@ -45,8 +42,8 @@ interface ProfilePoint {
 }
 
 interface Props {
-  /** Elevation profile — RouteElevationPoint[] with cumulative dist_m/ele_m.
-   *  null → "Höhenprofil nicht verfügbar" placeholder is rendered. */
+  /** Elevation profile: RouteElevationPoint[] with cumulative dist_m/ele_m.
+   *  null renders the unavailable placeholder. */
   profile: RouteElevationPoint[] | null
   /** Total route distance in meters — used for hover fraction calculation and
    *  x-axis max when profile is shorter than the full route (e.g. partial fill). */
@@ -59,25 +56,23 @@ interface Props {
   onBrushReset?: () => void
   /** Height of the chart container */
   height?: number
-  /** V6-Retrofit: zentraler Stats-Shape aus useRoutePlanner.routeStats.
-   *  null = keine Stats verfügbar (BRouter-Engine, kein Segment, oder noch kein
-   *  Segment fertig berechnet). */
+  /** V6 retrofit: central stats shape from useRoutePlanner.routeStats.
+   *  null = no stats available yet. */
   routeStats: RouteStats | null
   /** Scale-pin state, hoisted in useRoutePlanner. null = no pin. */
   scalePin: 'sac' | 'mtb' | 'vf' | null
   /** Toggle handler for the scale-pin (mutually exclusive radio). */
   onTogglePin: (kind: 'sac' | 'mtb' | 'vf') => void
-  /** Hover handler — transient Map-Preview, clearet bei mouseleave. */
+  /** Hover handler: transient map preview, cleared on mouseleave. */
   onScaleHover?: (kind: 'sac' | 'mtb' | 'vf' | null) => void
-  /** Hover-Callback — transient, aktiviert Karten-Marker während Hover */
+  /** Hover callback: transient summit markers while hovering. */
   onSummitHover?: (active: boolean) => void
-  /** Pin-Zustand für Summit-Marker (Klick-persistent) */
+  /** Click-persistent summit marker pin state. */
   summitPinned?: boolean
-  /** Toggle-Callback für den Summit-Pin */
+  /** Toggle callback for the summit pin. */
   onToggleSummitPin?: () => void
-  /** True während Routing-Recompute. Chart freezt am letzten gerenderten Stand
-   *  und committet erst nach Settle — verhindert ECharts-Re-Render-Storm
-   *  bei jedem Zwischenergebnis während Drag-/Multi-Click-Operationen. */
+  /** True during routing recompute. Keeps the previous chart visible until the
+   *  new result settles to avoid ECharts render churn during drag/multi-click. */
   isCalculating?: boolean
 }
 
@@ -309,6 +304,8 @@ function RouteProfileChart({
   onToggleSummitPin,
   isCalculating = false,
 }: Props) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const normalizedProfile = useMemo(
     () => normalizeRouteProfileInput(profile, totalDistanceM),
     [profile, totalDistanceM],
@@ -330,7 +327,7 @@ function RouteProfileChart({
   //   - isCalculating === true (recompute in flight, transient profile)
   //   - transient empty windows like insertViaWaypoint, where segments are
   //     briefly removed before _calculateSegment fires (would otherwise
-  //     collapse the whole panel to "Höhenprofil nicht verfügbar")
+  //     collapse the whole panel to the unavailable-profile placeholder)
   // Both points AND totalDistanceM are frozen together so the x-axis scale
   // stays consistent with the rendered data.
   const snap = useRef({ points: livePoints, totalDistanceM })
@@ -418,12 +415,12 @@ function RouteProfileChart({
 
             return `
               <div style="font-size:11px;line-height:1.7">
-                <div style="margin-bottom:2px"><span style="color:#9ca3af">Distanz:</span> <strong style="color:#f9fafb">${pt.distanceKm.toFixed(2)} km</strong></div>
-                <div><span style="color:#9ca3af">Höhe:</span> <strong style="color:#f9fafb">${pt.elevation !== null ? `${Math.round(pt.elevation)} m` : '—'}</strong></div>
-                <div><span style="color:#9ca3af">Steigung:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
-                ${wayLabel ? `<div><span style="color:#9ca3af">Wegart:</span> <strong style="color:#f9fafb">${wayLabel}</strong></div>` : ''}
-                ${surfaceLabel ? `<div><span style="color:#9ca3af">Oberfläche:</span> <strong style="color:#f9fafb">${surfaceLabel}</strong></div>` : ''}
-                ${!ws && pt.isOffroad ? '<div><span style="color:#a78bfa">Offroad</span></div>' : ''}
+                <div style="margin-bottom:2px"><span style="color:#9ca3af">${t('routePlanner.profileChart.tooltip.distance')}:</span> <strong style="color:#f9fafb">${formatDistanceCompact(pt.distanceKm * 1000)}</strong></div>
+                <div><span style="color:#9ca3af">${t('routePlanner.profileChart.tooltip.elevation')}:</span> <strong style="color:#f9fafb">${pt.elevation !== null ? formatElevation(pt.elevation) : '—'}</strong></div>
+                <div><span style="color:#9ca3af">${t('routePlanner.profileChart.tooltip.grade')}:</span> <strong style="color:${gradeColor(pt.grade)}">${formatGrade(pt.grade)}</strong></div>
+                ${wayLabel ? `<div><span style="color:#9ca3af">${t('routePlanner.profileChart.tooltip.wayType')}:</span> <strong style="color:#f9fafb">${wayLabel}</strong></div>` : ''}
+                ${surfaceLabel ? `<div><span style="color:#9ca3af">${t('routePlanner.profileChart.tooltip.surface')}:</span> <strong style="color:#f9fafb">${surfaceLabel}</strong></div>` : ''}
+                ${!ws && pt.isOffroad ? `<div><span style="color:#a78bfa">${t('routePlanner.profileChart.offroad')}</span></div>` : ''}
               </div>
             `
           },
@@ -435,7 +432,7 @@ function RouteProfileChart({
           axisLabel: {
             fontSize: 10,
             color: '#6b7280',
-            formatter: (v: number) => `${v.toFixed(1)} km`,
+            formatter: (v: number) => formatDistanceCompact(v * 1000),
           },
           axisLine: { lineStyle: { color: '#374151' } },
           splitLine: { show: false },
@@ -448,7 +445,7 @@ function RouteProfileChart({
           axisLabel: {
             fontSize: 10,
             color: '#6b7280',
-            formatter: (v: number) => `${v} m`,
+            formatter: (v: number) => formatElevation(v),
           },
           splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
         },
@@ -497,7 +494,7 @@ function RouteProfileChart({
         ],
       } as EChartsCoreOption
     },
-    [points, yRange, effectiveTotalM, onHoverFraction, onBrushZoom],
+    [points, yRange, effectiveTotalM, onHoverFraction, onBrushZoom, t, formatDistanceCompact, formatElevation],
     (chart) => {
       chartInstanceRef.current = chart
       const cleanups: Array<() => void> = []
@@ -588,7 +585,7 @@ function RouteProfileChart({
         chart.on('brushEnd', handleBrushEnd)
         cleanups.push(() => chart.off('brushEnd', handleBrushEnd))
 
-        // Mirror wheel-zoom into the same map-sync + "Zoom zurück"-state
+        // Mirror wheel-zoom into the same map-sync and reset-zoom state
         // as the brush flow. The dataZoom event fires for every range change,
         // including programmatic dispatchAction calls; we ignore the latter
         // by debouncing on the start/end percentage values themselves.
@@ -635,9 +632,9 @@ function RouteProfileChart({
     onBrushReset?.()
   }
 
-  // ── Scale aggregation (LF-#6: ONE parsedCoords memo shared by SAC + MTB) ──
-  // V6-Retrofit: parsedCoords kommt aus routeStats.coordinates (merged + deduped
-  // über alle Segmente). Bei null → leeres Array → keine Scale-Badges.
+  // Scale aggregation (LF-#6: one parsedCoords memo shared by SAC + MTB).
+  // parsedCoords comes from routeStats.coordinates, merged and deduplicated
+  // across all segments. Null data becomes an empty array and renders no badges.
   const parsedCoords = useMemo<number[][]>(
     () => routeStats?.coordinates ?? [],
     [routeStats?.coordinates],
@@ -683,7 +680,7 @@ function RouteProfileChart({
     { color: 'rgba(249,115,22,0.85)', label: '4–8 %' },
     { color: 'rgba(34,197,94,0.80)', label: '0–4 %' },
     { color: 'rgba(96,165,250,0.80)', label: '< 0 %' },
-    { color: 'rgba(139,92,246,0.85)', label: 'Offroad' },
+    { color: 'rgba(139,92,246,0.85)', label: t('routePlanner.profileChart.offroad') },
   ]
 
   // Placeholder only when truly empty — profile === null alone is too eager
@@ -696,7 +693,7 @@ function RouteProfileChart({
         className="flex items-center justify-center rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-sm text-neutral-400"
         style={{ height }}
       >
-        Höhenprofil nicht verfügbar
+        {t('routePlanner.profileChart.unavailable')}
       </div>
     )
   }
@@ -717,21 +714,21 @@ function RouteProfileChart({
           <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
             <span>
               <span className="text-green-500">↑</span>{' '}
-              <strong className="text-neutral-700 dark:text-neutral-200">{stats.gain} m</strong>
+              <strong className="text-neutral-700 dark:text-neutral-200">{formatElevation(stats.gain)}</strong>
             </span>
             <span>
               <span className="text-blue-400">↓</span>{' '}
-              <strong className="text-neutral-700 dark:text-neutral-200">{stats.loss} m</strong>
+              <strong className="text-neutral-700 dark:text-neutral-200">{formatElevation(stats.loss)}</strong>
             </span>
             {routeStats && (
               <>
                 {/* Threshold mirrors StatsRow.tsx (Math.round(pct) >= 1 on 0..100 scale).
                     forest_pct/protected_pct here are 0..1, hence the *100 before rounding. */}
                 {routeStats.forest_pct != null && Math.round(routeStats.forest_pct * 100) >= 1 && (
-                  <span title="Waldanteil auf der Route">{statsForestLabel(Math.round(routeStats.forest_pct * 100))}</span>
+                  <span title={t('routePlanner.profileChart.forestTitle')}>🌲 {Math.round(routeStats.forest_pct * 100)} %</span>
                 )}
                 {routeStats.protected_pct != null && Math.round(routeStats.protected_pct * 100) >= 1 && (
-                  <span title="Anteil durch Schutzgebiet auf der Route">{statsProtectedLabel(Math.round(routeStats.protected_pct * 100))}</span>
+                  <span title={t('routePlanner.profileChart.protectedTitle')}>🛡️ {Math.round(routeStats.protected_pct * 100)} %</span>
                 )}
                 {routeStats.summits_passed && routeStats.summits_passed.length > 0 && (
                   <SummitBadge
@@ -772,19 +769,18 @@ function RouteProfileChart({
                   />
                 )}
                 {/*
-                 * I9: vf_unknown_ranges rendert IMMER wenn nicht-leer, unabhängig von scalePin.
-                 * Begründung: K?-Ranges sind ein Safety-Warning — der User darf sie nicht
-                 * nur sehen, wenn er zufällig den VF-Pin aktiviert hat. MapPage-Layer
-                 * LAYER_VF_UNKNOWN ist analog dauerhaft aktiv (Task 22a.6).
+                 * I9: vf_unknown_ranges always render when non-empty, regardless of scalePin.
+                 * K?-ranges are safety warnings and should not depend on the VF pin state.
+                 * MapPage keeps the equivalent LAYER_VF_UNKNOWN layer active as well.
                  */}
                 {routeStats.vf_unknown_ranges && routeStats.vf_unknown_ranges.length > 0 && (
                   <span
                     role="status"
-                    aria-label={suggestRoutesStrings.stats.vfUnknownAriaLabel}
+                    aria-label={t('routePlanner.profileChart.vfUnknownAriaLabel')}
                     className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
-                    title={suggestRoutesStrings.stats.vfUnknownTitle}
+                    title={t('routePlanner.profileChart.vfUnknownTitle')}
                   >
-                    {suggestRoutesStrings.stats.vfUnknownLabel}
+                    {t('routePlanner.profileChart.vfUnknownLabel')}
                   </span>
                 )}
               </>
@@ -800,7 +796,7 @@ function RouteProfileChart({
               onClick={handleBrushReset}
               className="text-[10px] text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100 underline underline-offset-2 cursor-pointer"
             >
-              Zoom zurück
+              {t('routePlanner.profileChart.resetZoom')}
             </button>
           )}
           {legendItems.map(item => (

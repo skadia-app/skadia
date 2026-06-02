@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Database, XCircle, ChevronDown, RefreshCw, AlertTriangle, Sparkles, Layers, Route, Grid3x3, ArrowDownToLine } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   fetchOSMRegionStatus,
   fetchOSMDiskUsage,
@@ -29,7 +30,7 @@ export interface OSMRegionManagerBatchUpdateProps {
   onClick: () => void
   /** True while a batch update / single update / OSM import is running or the mutation is pending. */
   disabled: boolean
-  /** Localized label, switches to "Batch-Update läuft…" while a batch update is active. */
+  /** Localized label, switches while a batch update is active. */
   label: string
   /** True only when the button should be visible at all (≥1 imported region with replication_url). */
   visible: boolean
@@ -44,7 +45,7 @@ export function OSMRegionManager({
   hasOsmData?: boolean
   fullGeodataAvailable?: boolean
   /**
-   * Optional render-prop that lets the parent place the "Alle Regionen aktualisieren"
+   * Optional render-prop that lets the parent place the batch-update
    * button outside the imported-regions table (e.g. in a bottom action row).
    * When supplied, OSMRegionManager hides its own inline button.
    */
@@ -57,6 +58,7 @@ export function OSMRegionManager({
    */
   onBatchUpdateState?: (props: OSMRegionManagerBatchUpdateProps) => void
 }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { addToast } = useToast()
   const { openModal } = useModal()
@@ -74,10 +76,10 @@ export function OSMRegionManager({
     mutationFn: deleteOSMRegion,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
-      addToast({ type: 'success', title: 'Region entfernt' })
+      addToast({ type: 'success', title: t('osm.regions.toasts.regionRemoved') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Entfernen der Region', duration: 0 })
+      addToast({ type: 'error', title: t('osm.regions.toasts.regionRemoveFailed'), duration: 0 })
     },
   })
 
@@ -85,10 +87,10 @@ export function OSMRegionManager({
     mutationFn: cancelOSMImport,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
-      addToast({ type: 'info', title: 'Import abgebrochen' })
+      addToast({ type: 'info', title: t('osm.regions.toasts.importCanceled') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Abbrechen des Imports', duration: 0 })
+      addToast({ type: 'error', title: t('osm.regions.toasts.importCancelFailed'), duration: 0 })
     },
   })
 
@@ -111,20 +113,20 @@ export function OSMRegionManager({
     }
   }
 
-  const enrichMut = useMutation(mutOpts((regions: string[]) => retryOSMEnrichment(regions), 'Enrichment gestartet', 'Enrichment konnte nicht gestartet werden'))
-  const tilesMut = useMutation(mutOpts((regions: string[]) => rebuildTiles({ regions, force: true }), 'Tile-Build gestartet', 'Tile-Build konnte nicht gestartet werden'))
-  const brouterLocalMut = useMutation(mutOpts((regions: string[]) => buildBRouterSegments(regions), 'BRouter-Build gestartet', 'BRouter-Build konnte nicht gestartet werden'))
-  const brouterDlMut = useMutation(mutOpts((regions: string[]) => downloadBRouterSegments(regions), 'BRouter-Download gestartet', 'BRouter-Download konnte nicht gestartet werden'))
-  const coverageMut = useMutation(mutOpts((regions: string[]) => buildCoverageGrids(regions), 'Coverage-Build gestartet', 'Coverage-Build konnte nicht gestartet werden'))
+  const enrichMut = useMutation(mutOpts((regions: string[]) => retryOSMEnrichment(regions), t('osm.regions.toasts.enrichmentStarted'), t('osm.regions.toasts.enrichmentStartFailed')))
+  const tilesMut = useMutation(mutOpts((regions: string[]) => rebuildTiles({ regions, force: true }), t('osm.regions.toasts.tileBuildStarted'), t('osm.regions.toasts.tileBuildStartFailed')))
+  const brouterLocalMut = useMutation(mutOpts((regions: string[]) => buildBRouterSegments(regions), t('osm.regions.toasts.brouterBuildStarted'), t('osm.regions.toasts.brouterBuildStartFailed')))
+  const brouterDlMut = useMutation(mutOpts((regions: string[]) => downloadBRouterSegments(regions), t('osm.regions.toasts.brouterDownloadStarted'), t('osm.regions.toasts.brouterDownloadStartFailed')))
+  const coverageMut = useMutation(mutOpts((regions: string[]) => buildCoverageGrids(regions), t('osm.regions.toasts.coverageBuildStarted'), t('osm.regions.toasts.coverageBuildStartFailed')))
 
   const updateMut = useMutation({
     mutationFn: (regionID: string) => triggerOSMRegionUpdate(regionID),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
-      addToast({ type: 'info', title: 'Inkrementelles Update gestartet' })
+      addToast({ type: 'info', title: t('osm.regions.toasts.incrementalUpdateStarted') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Update konnte nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('osm.regions.toasts.updateStartFailed'), duration: 0 })
     },
   })
 
@@ -132,10 +134,10 @@ export function OSMRegionManager({
     mutationFn: (rebuildTiles: boolean) => batchUpdateAllRegions(rebuildTiles),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['osm-regions-status'] })
-      addToast({ type: 'info', title: 'Batch-Update gestartet' })
+      addToast({ type: 'info', title: t('osm.regions.toasts.batchUpdateStarted') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Batch-Update konnte nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('osm.regions.toasts.batchUpdateStartFailed'), duration: 0 })
     },
   })
 
@@ -172,11 +174,11 @@ export function OSMRegionManager({
   // optional `renderBatchUpdateButton` slot rendered by the parent.
   function triggerBatchUpdate() {
     openModal({
-      title: 'Routing-Tiles neu bauen?',
-      message: 'Sollen nach dem Update auch Routing-Tiles neu gebaut werden?',
+      title: t('osm.regions.batchUpdate.title'),
+      message: t('osm.regions.batchUpdate.message'),
       buttons: [
-        { label: 'Nein', variant: 'default', onClick: () => batchUpdateMut.mutate(false) },
-        { label: 'Ja, Tiles bauen', variant: 'default', onClick: () => batchUpdateMut.mutate(true) },
+        { label: t('osm.regions.batchUpdate.no'), variant: 'default', onClick: () => batchUpdateMut.mutate(false) },
+        { label: t('osm.regions.batchUpdate.yesBuildTiles'), variant: 'default', onClick: () => batchUpdateMut.mutate(true) },
       ],
     })
   }
@@ -184,7 +186,7 @@ export function OSMRegionManager({
     importedRegions.length > 0 && importedRegions.some(r => r.replication_url)
   const batchUpdateDisabled =
     !!activeOsmJob || !!activeOsmUpdate || !!activeBatchUpdate || batchUpdateMut.isPending
-  const batchUpdateLabel = activeBatchUpdate ? 'Batch-Update läuft…' : 'Alle Regionen aktualisieren'
+  const batchUpdateLabel = activeBatchUpdate ? t('osm.regions.batchUpdate.running') : t('osm.regions.batchUpdate.allRegions')
 
   // Push the latest batch-update state up so the parent can render the button
   // wherever it visually belongs (e.g. a bottom action row).
@@ -212,19 +214,19 @@ export function OSMRegionManager({
         <div className="flex items-start gap-2 mb-3">
           <Route className="w-4 h-4 mt-0.5 text-neutral-500 dark:text-neutral-400 shrink-0" />
           <div>
-            <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">BRouter-Segmente</h4>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">rd5-Routing-Daten aus dem Regionskatalog herunterladen</p>
+            <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t('osm.regions.brouter.title')}</h4>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('osm.regions.brouter.downloadCatalogDescription')}</p>
           </div>
         </div>
         <div className="pl-6">
           <div className="flex items-start justify-between mb-2">
-            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">RD5-Download</span>
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">{t('osm.regions.brouter.rd5Download')}</span>
             <button
               onClick={() => brouterDlMut.mutate(brouterDlRegions)}
               disabled={brouterDlMut.isPending || !!activeBrouterDl}
               className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
             >
-              {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
+              {brouterDlMut.isPending || activeBrouterDl ? t('common.loading') : t('osm.regions.actions.download')}
             </button>
           </div>
           <RegionSelector
@@ -232,7 +234,7 @@ export function OSMRegionManager({
             selected={brouterDlRegions}
             onChange={setBrouterDlRegions}
             showContinentTabs
-            hint="Alle Regionen aus dem Katalog verfügbar."
+            hint={t('osm.regions.hints.allCatalogRegions')}
           />
         </div>
       </div>
@@ -253,7 +255,7 @@ export function OSMRegionManager({
       {activeOsmJob && (
         <div className="flex items-center justify-between rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
           <span className="text-xs text-yellow-700 dark:text-yellow-400">
-            OSM-Import läuft…
+            {t('osm.regions.importRunning')}
           </span>
           <button
             onClick={() => cancelMutation.mutate(activeOsmJob.id)}
@@ -261,7 +263,7 @@ export function OSMRegionManager({
             className="cursor-pointer flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <XCircle className="w-3.5 h-3.5" />
-            Abbrechen
+            {t('common.cancel')}
           </button>
         </div>
       )}
@@ -270,14 +272,14 @@ export function OSMRegionManager({
         <div className="flex items-start gap-2 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
           <p className="text-xs text-yellow-700 dark:text-yellow-300">
-            OSM-Daten vorhanden, aber kein vollständiger Import verzeichnet — die Daten könnten unvollständig sein. Import neu starten um sauberen Stand zu erhalten.
+            {t('osm.regions.incompleteImportWarning')}
           </p>
         </div>
       )}
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Importierte Regionen
+          {t('osm.regions.importedRegions')}
         </h3>
         {diskData && (
           <button
@@ -285,7 +287,7 @@ export function OSMRegionManager({
             className="cursor-pointer flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
           >
             <Database className="w-3 h-3" />
-            {fmtBytes(diskData.total_bytes)} OSM-Daten
+            {t('osm.regions.osmDataSize', { size: fmtBytes(diskData.total_bytes) })}
             <ChevronDown
               className={`w-3 h-3 transition-transform ${diskExpanded ? 'rotate-180' : ''}`}
             />
@@ -302,7 +304,7 @@ export function OSMRegionManager({
             </div>
           ))}
           <div className="flex justify-between border-t border-neutral-200 dark:border-neutral-700 pt-1 mt-1 font-medium">
-            <span className="text-neutral-600 dark:text-neutral-300">Gesamt</span>
+            <span className="text-neutral-600 dark:text-neutral-300">{t('osm.regions.total')}</span>
             <span className="text-neutral-800 dark:text-neutral-200">{fmtBytes(diskData.total_bytes)}</span>
           </div>
         </div>
@@ -310,7 +312,7 @@ export function OSMRegionManager({
 
       {regions.length === 0 ? (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Noch keine OSM-Regionen importiert.
+          {t('osm.regions.empty')}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -338,14 +340,14 @@ export function OSMRegionManager({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 text-xs">
-                <th className="text-left pb-2 pr-3 font-medium">Region</th>
-                <th className="text-left pb-2 pr-3 font-medium">Kontinent</th>
-                <th className="text-left pb-2 pr-3 font-medium">Importiert</th>
-                <th className="text-left pb-2 pr-3 font-medium">Daten vom</th>
-                <th className="text-left pb-2 pr-3 font-medium">Kategorien</th>
-                <th className="text-left pb-2 pr-3 font-medium">Größe</th>
-                <th className="text-left pb-2 pr-3 font-medium">Status</th>
-                <th className="text-right pb-2 font-medium">Aktionen</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.region')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.continent')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.imported')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.dataDate')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.categories')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.size')}</th>
+                <th className="text-left pb-2 pr-3 font-medium">{t('osm.regions.table.status')}</th>
+                <th className="text-right pb-2 font-medium">{t('osm.regions.table.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -385,12 +387,12 @@ export function OSMRegionManager({
                       }`}
                     >
                       {reg.status === 'imported'
-                        ? 'Importiert'
+                        ? t('osm.regions.status.imported')
                         : reg.status === 'importing'
-                          ? 'Wird importiert…'
+                          ? t('osm.regions.status.importing')
                           : reg.status === 'needs_redownload'
-                            ? 'Neu herunterladen'
-                            : 'Fehler'}
+                            ? t('osm.regions.status.needsRedownload')
+                            : t('osm.regions.status.error')}
                     </span>
                   </td>
                   <td className="py-2 text-right">
@@ -400,7 +402,7 @@ export function OSMRegionManager({
                           onClick={() => updateMut.mutate(reg.region_id)}
                           disabled={!!activeOsmJob || !!activeOsmUpdate || updateMut.isPending}
                           className="cursor-pointer p-1 text-neutral-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Inkrementelles Update (Diffs anwenden)"
+                          title={t('osm.regions.actions.incrementalUpdate')}
                         >
                           <ArrowDownToLine className="w-4 h-4" />
                         </button>
@@ -409,23 +411,23 @@ export function OSMRegionManager({
                         onClick={() => setUpdateTarget(reg)}
                         disabled={!!activeOsmJob}
                         className="cursor-pointer p-1 text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="Region neu importieren"
+                        title={t('osm.regions.actions.reimportRegion')}
                       >
                         <RefreshCw className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => {
                           openModal({
-                            title: 'Region entfernen?',
-                            message: `"${reg.label}" und alle zugehörigen OSM-Daten werden unwiderruflich gelöscht.`,
+                            title: t('osm.regions.delete.title'),
+                            message: t('osm.regions.delete.message', { label: reg.label }),
                             buttons: [
                               {
-                                label: 'Abbrechen',
+                                label: t('common.cancel'),
                                 variant: 'default',
                                 onClick: () => {},
                               },
                               {
-                                label: 'Entfernen',
+                                label: t('osm.regions.actions.remove'),
                                 variant: 'destructive',
                                 onClick: () => deleteMutation.mutate(reg.region_id),
                               },
@@ -434,7 +436,7 @@ export function OSMRegionManager({
                         }}
                         disabled={deleteMutation.isPending}
                         className="cursor-pointer p-1 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="Aus Tracking entfernen"
+                        title={t('osm.regions.actions.removeFromTracking')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -450,103 +452,103 @@ export function OSMRegionManager({
       {regions.length > 0 && (
         <div className="space-y-3 pt-3">
           <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-            Pipeline-Aktionen
+            {t('osm.regions.pipelineActions')}
           </h3>
 
           <PipelinePanel
-            title="Route-Membership"
-            description="Berechnet Rad- und Wanderrouten-Zugehörigkeit. Coverage-Werte (Wald, Lärm) werden beim Tile-Build automatisch berechnet."
+            title={t('osm.regions.pipeline.routeMembershipTitle')}
+            description={t('osm.regions.pipeline.routeMembershipDescription')}
             icon={Sparkles}
-            buttonLabel="Berechnen"
+            buttonLabel={t('osm.regions.actions.calculate')}
             onStart={() => enrichMut.mutate(enrichRegions)}
             isPending={enrichMut.isPending || !!activeEnrichmentJob}
             disabled={importedRegions.length === 0}
-            disabledHint="Keine importierten Regionen vorhanden."
+            disabledHint={t('osm.regions.hints.noImportedRegions')}
           >
             <RegionSelector
               regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
               selected={enrichRegions}
               onChange={setEnrichRegions}
-              hint="Nur importierte Regionen werden angezeigt."
+              hint={t('osm.regions.hints.onlyImportedRegions')}
             />
           </PipelinePanel>
 
           <PipelinePanel
-            title="Routing-Tiles"
-            description="BadRouter Graph-Tiles mit DEM-Elevation neu bauen"
+            title={t('osm.regions.pipeline.routingTilesTitle')}
+            description={t('osm.regions.pipeline.routingTilesDescription')}
             icon={Layers}
-            buttonLabel="Tiles bauen"
+            buttonLabel={t('osm.regions.actions.buildTiles')}
             onStart={() => tilesMut.mutate(tilesRegions)}
             isPending={tilesMut.isPending || !!activeTileBuild}
             disabled={importedRegions.length === 0}
-            disabledHint="Keine importierten Regionen vorhanden."
+            disabledHint={t('osm.regions.hints.noImportedRegions')}
           >
             <RegionSelector
               regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
               selected={tilesRegions}
               onChange={setTilesRegions}
-              hint="Nur importierte Regionen werden angezeigt."
+              hint={t('osm.regions.hints.onlyImportedRegions')}
             />
           </PipelinePanel>
 
           <PipelinePanel
-            title="Coverage-Grids"
-            description="Wald-, Lärm-, Verkehrs- und weitere Coverage-Grids neu bauen (für Karten-Overlays und Graph-Build)"
+            title={t('osm.regions.pipeline.coverageTitle')}
+            description={t('osm.regions.pipeline.coverageDescription')}
             icon={Grid3x3}
-            buttonLabel="Bauen"
+            buttonLabel={t('osm.regions.actions.build')}
             onStart={() => coverageMut.mutate(coverageRegions)}
             isPending={coverageMut.isPending || !!activeCoverageBuild}
             disabled={importedRegions.length === 0}
-            disabledHint="Keine importierten Regionen vorhanden."
+            disabledHint={t('osm.regions.hints.noImportedRegions')}
           >
             <RegionSelector
               regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
               selected={coverageRegions}
               onChange={setCoverageRegions}
-              hint="Nur importierte Regionen werden angezeigt."
+              hint={t('osm.regions.hints.onlyImportedRegions')}
             />
           </PipelinePanel>
 
-          {/* BRouter — combined panel with two sections */}
+          {/* BRouter: combined panel with two sections */}
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
             <div className="flex items-start gap-2 mb-3">
               <Route className="w-4 h-4 mt-0.5 text-neutral-500 dark:text-neutral-400 shrink-0" />
               <div>
-                <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">BRouter-Segmente</h4>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">rd5-Routing-Daten lokal generieren oder von brouter.de herunterladen</p>
+                <h4 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t('osm.regions.brouter.title')}</h4>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('osm.regions.brouter.description')}</p>
               </div>
             </div>
 
-            {/* Lokal generieren */}
+            {/* Local generation */}
             <div className="mb-3 pl-6">
               <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">Lokal generieren (aus PBF-Dateien)</span>
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">{t('osm.regions.brouter.localGenerate')}</span>
                 <button
                   onClick={() => brouterLocalMut.mutate(brouterLocalRegions)}
                   disabled={importedRegions.length === 0 || brouterLocalMut.isPending || !!activeBrouterBuild}
                   className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
-                  {brouterLocalMut.isPending || activeBrouterBuild ? 'Läuft…' : 'Generieren'}
+                  {brouterLocalMut.isPending || activeBrouterBuild ? t('common.loading') : t('osm.regions.actions.generate')}
                 </button>
               </div>
               <RegionSelector
                 regions={importedRegions.map(r => ({ id: r.region_id, label: r.label }))}
                 selected={brouterLocalRegions}
                 onChange={setBrouterLocalRegions}
-                hint="Nur Regionen mit vorhandener PBF-Datei."
+                hint={t('osm.regions.hints.onlyRegionsWithPbf')}
               />
             </div>
 
-            {/* Download von brouter.de */}
+            {/* Download from brouter.de */}
             <div className="pl-6 pt-3 border-t border-neutral-100 dark:border-neutral-800/60">
               <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">Download von brouter.de</span>
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mt-0.5">{t('osm.regions.brouter.downloadFromBrouter')}</span>
                 <button
                   onClick={() => brouterDlMut.mutate(brouterDlRegions)}
                   disabled={brouterDlMut.isPending || !!activeBrouterDl}
                   className="cursor-pointer text-sm font-medium text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-DEFAULT hover:bg-accent-DEFAULT/90 shrink-0 ml-3"
                 >
-                  {brouterDlMut.isPending || activeBrouterDl ? 'Läuft…' : 'Downloaden'}
+                  {brouterDlMut.isPending || activeBrouterDl ? t('common.loading') : t('osm.regions.actions.download')}
                 </button>
               </div>
               <RegionSelector
@@ -554,7 +556,7 @@ export function OSMRegionManager({
                 selected={brouterDlRegions}
                 onChange={setBrouterDlRegions}
                 showContinentTabs
-                hint="Alle Regionen aus dem Katalog verfügbar."
+                hint={t('osm.regions.hints.allCatalogRegions')}
               />
             </div>
           </div>

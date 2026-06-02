@@ -1,5 +1,5 @@
-// Rendert ein GeoJSON-LineString-Objekt als SVG-Polyline-Points-String.
-// Kein MapLibre nötig — leichtgewichtig für Miniaturkarten in der Galerie.
+// Renders a GeoJSON LineString object as an SVG polyline points string.
+// No MapLibre required: lightweight enough for gallery mini-maps.
 
 interface GeoJSONLineString {
   type: 'LineString'
@@ -7,9 +7,9 @@ interface GeoJSONLineString {
 }
 
 /**
- * Wandelt einen GeoJSON-LineString-String in einen SVG-Polyline-Points-String um.
- * Normalisiert Koordinaten auf [0, viewBoxSize].
- * Gibt null zurück wenn coordinates leer oder kein LineString.
+ * Converts a GeoJSON LineString string into an SVG polyline points string.
+ * Normalizes coordinates to [0, viewBoxSize].
+ * Returns null when coordinates are empty or the geometry is not a LineString.
  */
 export function lineStringToSvgPoints(
   geojsonStr: string,

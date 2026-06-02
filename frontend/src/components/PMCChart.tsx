@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -22,21 +23,12 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendCompone
 type TimeRange = '1m' | '3m' | '6m' | '1y' | 'ly' | 'all'
 
 const rangeLabels: Record<TimeRange, string> = {
-  '1m': '1M',
-  '3m': '3M',
-  '6m': '6M',
-  '1y': '1J',
-  'ly': 'VJ',
-  'all': 'Alles',
-}
-
-const rangeTooltips: Record<TimeRange, string> = {
-  '1m': 'Letzter Monat',
-  '3m': 'Letzte 3 Monate',
-  '6m': 'Letzte 6 Monate',
-  '1y': 'Letztes Jahr (365 Tage)',
-  'ly': `Vorjahr (${new Date().getFullYear() - 1})`,
-  'all': 'Gesamter Zeitraum',
+  '1m': 'analyticsPmc.rangeLabels.1m',
+  '3m': 'analyticsPmc.rangeLabels.3m',
+  '6m': 'analyticsPmc.rangeLabels.6m',
+  '1y': 'analyticsPmc.rangeLabels.1y',
+  'ly': 'analyticsPmc.rangeLabels.ly',
+  'all': 'analyticsPmc.rangeLabels.all',
 }
 
 function getDateRange(range: TimeRange): { from: string; to: string } {
@@ -60,6 +52,7 @@ function getDateRange(range: TimeRange): { from: string; to: string } {
 }
 
 export default function PMCChart() {
+  const { t } = useTranslation()
   const [range, setRange] = useState<TimeRange | null>('3m')
   const today = toLocalISO(new Date())
   const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth() - 3); return toLocalISO(d) })()
@@ -110,6 +103,9 @@ export default function PMCChart() {
       const ctl = data.map(d => d.ctl)
       const atl = data.map(d => d.atl)
       const tsb = data.map(d => d.tsb)
+      const ctlFitnessLabel = t('analyticsPmc.series.ctlFitness')
+      const atlFatigueLabel = t('analyticsPmc.series.atlFatigue')
+      const tsbFormLabel = t('analyticsPmc.series.tsbForm')
 
       return {
         grid: {
@@ -119,7 +115,7 @@ export default function PMCChart() {
           bottom: 60,
         },
         legend: {
-          data: ['CTL (Fitness)', 'ATL (Ermüdung)', 'TSB (Form)'],
+          data: [ctlFitnessLabel, atlFatigueLabel, tsbFormLabel],
           top: 8,
           textStyle: { fontSize: 11, color: '#999' },
         },
@@ -150,7 +146,7 @@ export default function PMCChart() {
         toolbox: {
           feature: {
             brush: { show: false },
-            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+            saveAsImage: { title: t('analyticsPmc.toolbox.savePng'), pixelRatio: 2 },
           },
         },
         xAxis: {
@@ -166,7 +162,7 @@ export default function PMCChart() {
         },
         series: [
           {
-            name: 'TSB (Form)',
+            name: tsbFormLabel,
             type: 'bar',
             data: tsb.map(v => ({
               value: v,
@@ -176,7 +172,7 @@ export default function PMCChart() {
             z: 0,
           },
           {
-            name: 'CTL (Fitness)',
+            name: ctlFitnessLabel,
             type: 'line',
             data: ctl,
             showSymbol: false,
@@ -185,7 +181,7 @@ export default function PMCChart() {
             z: 2,
           },
           {
-            name: 'ATL (Ermüdung)',
+            name: atlFatigueLabel,
             type: 'line',
             data: atl,
             showSymbol: false,
@@ -203,7 +199,7 @@ export default function PMCChart() {
         ],
       } as EChartsCoreOption
     },
-    [data],
+    [data, t],
     (chart) => {
       chartInstanceRef.current = chart
 
@@ -294,13 +290,13 @@ export default function PMCChart() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Performance Management</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('analyticsPmc.title')}</h2>
         <div className="flex items-center gap-2">
           {isZoomed && (
             <button onClick={handleResetZoom}
               className="cursor-pointer text-sm px-3 py-1 rounded-md bg-accent-100 text-orange-700 hover:bg-orange-200
                          dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 transition-colors">
-              Zoom zurücksetzen
+              {t('analyticsPmc.zoomReset')}
             </button>
           )}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -308,14 +304,14 @@ export default function PMCChart() {
               <button
                 key={r}
                 onClick={() => handleRangeClick(r)}
-                title={rangeTooltips[r]}
+                title={t(`analyticsPmc.rangeTooltips.${r}`, { year: new Date().getFullYear() - 1 })}
                 className={
                   r === range
                     ? 'cursor-pointer px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium'
                     : 'cursor-pointer px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors'
                 }
               >
-                {rangeLabels[r]}
+                {t(rangeLabels[r])}
               </button>
             ))}
           </div>
@@ -328,7 +324,7 @@ export default function PMCChart() {
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
           />
-          <span className="text-neutral-400 text-xs">bis</span>
+          <span className="text-neutral-400 text-xs">{t('analyticsPmc.to')}</span>
           <input
             type="date"
             value={dateTo}
@@ -346,15 +342,15 @@ export default function PMCChart() {
       {latest && (
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">CTL (Fitness)</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('analyticsPmc.series.ctlFitness')}</div>
             <div className="text-xl font-semibold text-blue-500 tabular-nums">{latest.ctl.toFixed(1)}</div>
           </div>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">ATL (Ermüdung)</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('analyticsPmc.series.atlFatigue')}</div>
             <div className="text-xl font-semibold text-accent-DEFAULT tabular-nums">{latest.atl.toFixed(1)}</div>
           </div>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">TSB (Form)</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{t('analyticsPmc.series.tsbForm')}</div>
             <div className={`text-xl font-semibold tabular-nums ${latest.tsb >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
               {latest.tsb >= 0 ? '+' : ''}{latest.tsb.toFixed(1)}
             </div>
@@ -366,15 +362,15 @@ export default function PMCChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-neutral-400">
-            Lade PMC-Daten…
+            {t('analyticsPmc.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-neutral-400">
-            Fehler beim Laden der PMC-Daten
+            {t('analyticsPmc.loadFailed')}
           </div>
         ) : data.length === 0 ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-neutral-400">
-            Keine Daten für diesen Zeitraum
+            {t('analyticsPmc.noDataForRange')}
           </div>
         ) : (
           <div ref={containerRef} className="h-[300px] w-full" />

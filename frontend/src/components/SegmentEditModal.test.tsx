@@ -158,4 +158,21 @@ describe('SegmentEditModal', () => {
       }))
     })
   })
+
+  it('does not overwrite unknown segment and climb tokens when saving unchanged metadata', async () => {
+    mocks.updateSegment.mockResolvedValueOnce(segmentFixture())
+    renderModal(segmentFixture({
+      segment_type: 'mystery_type',
+      climb_type: 'mystery_climb',
+    }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      expect(mocks.updateSegment).toHaveBeenCalledWith('seg-1', expect.not.objectContaining({
+        segment_type: expect.anything(),
+        climb_type: expect.anything(),
+      }))
+    })
+  })
 })

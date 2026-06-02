@@ -1,4 +1,7 @@
+import { useTranslation } from 'react-i18next'
 import type { FusionActivityInfo } from '@/pages/FusionPage'
+import type { UnitFormatters } from '@/lib/useUnitFormatters'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // ── Field key constants ────────────────────────────────────────────────────────
 
@@ -32,137 +35,137 @@ type FieldCategory = 'meta' | 'core' | 'running' | 'pedal'
 
 interface FieldDef {
   key: string
-  label: string
+  labelKey: string
   category: FieldCategory
   hasKey: keyof FusionActivityInfo | null
   allowFuse: boolean
-  getDisplay?: (a: FusionActivityInfo) => string
+  getDisplay?: (a: FusionActivityInfo, formatDistance: UnitFormatters['formatDistance']) => string
 }
 
 const FIELDS: FieldDef[] = [
   {
     key: META_TITLE_KEY,
-    label: 'Titel',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.title',
     category: 'meta',
     hasKey: null,
     allowFuse: false,
   },
   {
     key: META_TAGS_KEY,
-    label: 'Tags',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.tags',
     category: 'meta',
     hasKey: null,
     allowFuse: true,
   },
   {
     key: FUSION_FIELDS.GPS,
-    label: 'GPS-Track',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.gpsTrack',
     category: 'core',
     hasKey: 'has_gps',
     allowFuse: true,
-    getDisplay: a => `${Math.round((a.distance_m / 1000) * 10) / 10} km`,
+    getDisplay: (a, formatDistance) => formatDistance(a.distance_m),
   },
   {
     key: FUSION_FIELDS.HR,
-    label: 'Herzfrequenz',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.heartRate',
     category: 'core',
     hasKey: 'has_hr',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.POWER,
-    label: 'Leistung',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.power',
     category: 'core',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.ALTITUDE,
-    label: 'Höhenprofil',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.elevationProfile',
     category: 'core',
     hasKey: 'has_altitude',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.CADENCE,
-    label: 'Kadenz',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.cadence',
     category: 'core',
     hasKey: 'has_cadence',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.TEMPERATURE,
-    label: 'Temperatur',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.temperature',
     category: 'core',
     hasKey: 'has_temperature',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.SPEED,
-    label: 'Geschwindigkeit',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.speed',
     category: 'core',
     hasKey: 'has_gps',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.GCT,
-    label: 'Ground Contact Time',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.groundContactTime',
     category: 'running',
     hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.VERTICAL_OSCILLATION,
-    label: 'Vertical Oscillation',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.verticalOscillation',
     category: 'running',
     hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.STANCE_TIME,
-    label: 'Stance Time',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.stanceTime',
     category: 'running',
     hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.STEP_LENGTH,
-    label: 'Step Length',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.stepLength',
     category: 'running',
     hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.LEFT_RIGHT_BALANCE,
-    label: 'L/R Balance',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.leftRightBalance',
     category: 'running',
     hasKey: 'has_running_dynamics',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.TORQUE_EFFECTIVENESS_L,
-    label: 'Torque Eff. (L)',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.torqueEffectivenessLeft',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.TORQUE_EFFECTIVENESS_R,
-    label: 'Torque Eff. (R)',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.torqueEffectivenessRight',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.PEDAL_SMOOTHNESS_L,
-    label: 'Pedal Smooth. (L)',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.pedalSmoothnessLeft',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
   },
   {
     key: FUSION_FIELDS.PEDAL_SMOOTHNESS_R,
-    label: 'Pedal Smooth. (R)',
+    labelKey: 'workshopOperations.fusion.fieldTable.fields.pedalSmoothnessRight',
     category: 'pedal',
     hasKey: 'has_power',
     allowFuse: false,
@@ -171,11 +174,11 @@ const FIELDS: FieldDef[] = [
 
 // ── Category divider rows ─────────────────────────────────────────────────────
 
-const CATEGORY_LABELS: Record<FieldCategory, string | null> = {
-  meta: 'Metadaten', // divider above the two meta rows (Titel, Tags)
+const CATEGORY_LABEL_KEYS: Record<FieldCategory, string | null> = {
+  meta: 'workshopOperations.fusion.fieldTable.categories.meta',
   core: null, // no divider for core — meta divider separates visually
-  running: 'Running Dynamics',
-  pedal: 'Pedal Analytics',
+  running: 'workshopOperations.fusion.fieldTable.categories.running',
+  pedal: 'workshopOperations.fusion.fieldTable.categories.pedal',
 }
 
 // ── Color pill helper ─────────────────────────────────────────────────────────
@@ -211,6 +214,8 @@ export default function FusionFieldTable({
   tagsSelection,
   onTagsChange,
 }: FusionFieldTableProps) {
+  const { t } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
   const manyColumns = activities.length > 4
 
   // Track which category dividers have been rendered
@@ -229,17 +234,17 @@ export default function FusionFieldTable({
   for (const field of FIELDS) {
     // Insert a category divider on the first field of each category that has a label.
     // Categories without a label (currently: 'core') render no divider.
-    const catLabel = CATEGORY_LABELS[field.category]
-    if (catLabel && !renderedDividers.has(field.category)) {
+    const catLabelKey = CATEGORY_LABEL_KEYS[field.category]
+    if (catLabelKey && !renderedDividers.has(field.category)) {
       renderedDividers.add(field.category)
       const isExpandable = field.category === 'running' || field.category === 'pedal'
       rows.push(
         <tr key={`divider-${field.category}`} className="border-b border-neutral-100 dark:border-neutral-800 bg-blue-50/30 dark:bg-blue-900/10">
           <td className="py-2.5 font-medium text-blue-700 dark:text-blue-400 text-xs">
-            {catLabel}
+            {t(catLabelKey)}
           </td>
           <td colSpan={activities.length + 1} className="py-2.5 text-xs text-blue-600 dark:text-blue-500 text-center">
-            {isExpandable ? '↓ Erweiterte Felder' : ''}
+            {isExpandable ? t('workshopOperations.fusion.fieldTable.advancedFields') : ''}
           </td>
         </tr>
       )
@@ -254,7 +259,7 @@ export default function FusionFieldTable({
         className="border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-colors"
       >
         <td className={`py-2 pr-4 font-medium text-xs ${isCategoryField ? 'pl-4 text-neutral-500 dark:text-neutral-400' : 'text-neutral-700 dark:text-neutral-300'}`}>
-          {field.label}
+          {t(field.labelKey)}
         </td>
         {activities.map(a => {
           const hasData = field.hasKey != null
@@ -279,7 +284,7 @@ export default function FusionFieldTable({
                 />
                 {field.getDisplay && (
                   <span className="text-xs text-neutral-400">
-                    {hasData ? field.getDisplay(a) : '—'}
+                    {hasData ? field.getDisplay(a, formatDistance) : '—'}
                   </span>
                 )}
               </label>
@@ -298,7 +303,7 @@ export default function FusionFieldTable({
                 onChange={() => onChange('fuse')}
                 className="accent-accent-DEFAULT"
               />
-              <span className="text-xs text-accent-DEFAULT font-medium">Fuse</span>
+              <span className="text-xs text-accent-DEFAULT font-medium">{t('workshopOperations.fusion.fieldTable.fuseOption')}</span>
             </label>
           ) : (
             <span className="text-neutral-200 dark:text-neutral-700 text-xs">—</span>
@@ -314,7 +319,7 @@ export default function FusionFieldTable({
         <thead>
           <tr className="border-b border-neutral-200 dark:border-neutral-700">
             <th className="text-left py-2 pr-4 font-medium text-neutral-600 dark:text-neutral-400 w-36 text-xs">
-              Feld
+              {t('workshopOperations.fusion.fieldTable.headers.field')}
             </th>
             {activities.map(a => (
               <th key={a.id} className="text-center py-2 px-2 font-medium">
@@ -334,7 +339,7 @@ export default function FusionFieldTable({
               </th>
             ))}
             <th className="text-center py-2 px-2 font-medium text-neutral-600 dark:text-neutral-400 text-xs w-16">
-              Fuse
+              {t('workshopOperations.fusion.fieldTable.headers.fuse')}
             </th>
           </tr>
         </thead>

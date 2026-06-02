@@ -2,6 +2,10 @@ presets:
   - key: activity_all
     labels:
       de: Aktivitätsfilter
+      en: Activity filters
+      fr: Filtres d'activité
+      it: Filtri attività
+      es: Filtros de actividad
     groups:
       - key: run
         label_ref: category:run
@@ -22,11 +26,11 @@ presets:
             sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
           - sport_type: skiing
       - key: water_swim
-        labels: {de: Schwimmen}
+        labels: {de: Schwimmen, en: Swimming, fr: Natation, it: Nuoto, es: Natación}
         entries:
           - sport_type: swimming
       - key: water_paddle
-        labels: {de: Paddeln}
+        labels: {de: Paddeln, en: Paddling, fr: Pagaie, it: Pagaia, es: Remo}
         entries:
           - sport_type: paddling
           - sport_type: kayaking
@@ -37,7 +41,7 @@ presets:
             label_mode: with_parent
           - sport_type: canoeing
       - key: water_board
-        labels: {de: Surfen/Board}
+        labels: {de: Surfen/Board, en: Surfing/board, fr: Surf/board, it: Surf/board, es: Surf/board}
         entries:
           - sport_type: surfing
           - sport_type: kitesurfing
@@ -47,17 +51,17 @@ presets:
           - sport_type: water_skiing
           - sport_type: water_tubing
       - key: water_boat
-        labels: {de: Segeln/Boot}
+        labels: {de: Segeln/Boot, en: Sailing/boat, fr: Voile/bateau, it: Vela/barca, es: Vela/barco}
         entries:
           - sport_type: boating
           - sport_type: sailing
       - key: water_dive
-        labels: {de: Tauchen/Schnorcheln}
+        labels: {de: Tauchen/Schnorcheln, en: Diving/snorkeling, fr: Plongée/snorkeling, it: Immersioni/snorkeling, es: Buceo/snorkeling}
         entries:
           - sport_type: diving
           - sport_type: snorkeling
       - key: water_other
-        labels: {de: Angeln}
+        labels: {de: Angeln, en: Fishing, fr: Pêche, it: Pesca, es: Pesca}
         entries:
           - sport_type: fishing
       - key: fitness
@@ -95,6 +99,10 @@ presets:
   - key: map_panel_gps
     labels:
       de: Kartenfilter
+      en: Map filters
+      fr: Filtres carte
+      it: Filtri mappa
+      es: Filtros de mapa
     groups:
       - key: run
         label_ref: category:run
@@ -115,11 +123,11 @@ presets:
             sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
           - sport_type: skiing
       - key: water_swim
-        labels: {de: Schwimmen}
+        labels: {de: Schwimmen, en: Swimming, fr: Natation, it: Nuoto, es: Natación}
         entries:
           - sport_type: swimming
       - key: water_paddle
-        labels: {de: Paddeln}
+        labels: {de: Paddeln, en: Paddling, fr: Pagaie, it: Pagaia, es: Remo}
         entries:
           - sport_type: paddling
           - sport_type: kayaking
@@ -130,7 +138,7 @@ presets:
             label_mode: with_parent
           - sport_type: canoeing
       - key: water_board
-        labels: {de: Surfen/Board}
+        labels: {de: Surfen/Board, en: Surfing/board, fr: Surf/board, it: Surf/board, es: Surf/board}
         entries:
           - sport_type: surfing
           - sport_type: kitesurfing
@@ -140,17 +148,17 @@ presets:
           - sport_type: water_skiing
           - sport_type: water_tubing
       - key: water_boat
-        labels: {de: Segeln/Boot}
+        labels: {de: Segeln/Boot, en: Sailing/boat, fr: Voile/bateau, it: Vela/barca, es: Vela/barco}
         entries:
           - sport_type: boating
           - sport_type: sailing
       - key: water_dive
-        labels: {de: Tauchen/Schnorcheln}
+        labels: {de: Tauchen/Schnorcheln, en: Diving/snorkeling, fr: Plongée/snorkeling, it: Immersioni/snorkeling, es: Buceo/snorkeling}
         entries:
           - sport_type: diving
           - sport_type: snorkeling
       - key: water_other
-        labels: {de: Angeln}
+        labels: {de: Angeln, en: Fishing, fr: Pêche, it: Pesca, es: Pesca}
         entries:
           - sport_type: fishing
       - key: climb
@@ -169,7 +177,7 @@ presets:
           - sport_type: multisport
           - sport_type: transition
       - key: fitness_other
-        labels: {de: Fitness & Sonstiges}
+        labels: {de: Fitness & Sonstiges, en: Fitness & other, fr: Fitness et autre, it: Fitness e altro, es: Fitness y otros}
         entries:
           - category_key: fitness
             label_mode: with_parent

@@ -1,7 +1,10 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Check, X } from 'lucide-react'
 import { confirmChatToolCall } from '@/api/chat'
 import { cn } from '@/lib/utils'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 export interface ToolConfirmRequest {
   toolCallID: string
@@ -22,6 +25,8 @@ interface ChatToolConfirmProps {
 }
 
 export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: ChatToolConfirmProps) {
+  const { t } = useTranslation()
+  const { formatDistance } = useUnitFormatters()
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   const [announcement, setAnnouncement] = useState('')
@@ -33,7 +38,7 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
   const remainingSeconds = Math.ceil(remainingMs / 1000)
   const expired = remainingMs <= 0 || effectiveStatus === 'expired'
   const disabled = busy || expired || effectiveStatus === 'confirmed' || effectiveStatus === 'declined'
-  const previewText = useMemo(() => formatPreview(request.preview), [request.preview])
+  const previewText = useMemo(() => formatPreview(request.preview, t, formatDistance), [formatDistance, request.preview, t])
 
   useEffect(() => {
     setLocalStatus(undefined)
@@ -47,9 +52,9 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
 
   useEffect(() => {
     if (remainingSeconds === 60 || remainingSeconds === 30 || remainingSeconds === 10) {
-      setAnnouncement(`Noch ${remainingSeconds} Sekunden`)
+      setAnnouncement(t('chatPage.confirm.remainingAnnouncement', { count: remainingSeconds }))
     }
-  }, [remainingSeconds])
+  }, [remainingSeconds, t])
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'Escape' || disabled) return
@@ -75,7 +80,7 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
         onDeclined('user')
       }
     } catch (err) {
-      setError(errorMessage(err))
+      setError(errorMessage(err, t))
     } finally {
       setBusy(false)
     }
@@ -105,8 +110,8 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
           {error}
         </div>
       )}
-      {effectiveStatus === 'confirmed' && <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">Bestätigt - wird ausgeführt...</div>}
-      {effectiveStatus === 'declined' && <div className="mt-2 text-xs text-neutral-500">Abgelehnt</div>}
+      {effectiveStatus === 'confirmed' && <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{t('chatPage.confirm.confirmedRunning')}</div>}
+      {effectiveStatus === 'declined' && <div className="mt-2 text-xs text-neutral-500">{t('chatPage.confirm.declined')}</div>}
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
@@ -115,7 +120,7 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
           className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-3 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Check className="h-3.5 w-3.5" />
-          Bestätigen
+          {t('chatPage.confirm.confirm')}
         </button>
         <button
           type="button"
@@ -124,10 +129,10 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
           className="inline-flex h-8 items-center gap-1 rounded-md border border-neutral-300 px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
         >
           <X className="h-3.5 w-3.5" />
-          Abbrechen
+          {t('chatPage.confirm.cancel')}
         </button>
         <span className="ml-auto text-xs text-neutral-500">
-          {expired ? 'Bestätigung abgelaufen' : `${remainingSeconds}s`}
+          {expired ? t('chatPage.confirm.expired') : t('chatPage.confirm.remainingShort', { count: remainingSeconds })}
         </span>
       </div>
       <div aria-live="polite" className="sr-only">{announcement}</div>
@@ -135,41 +140,45 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
   )
 }
 
-function formatPreview(preview: unknown): string {
+function formatPreview(
+  preview: unknown,
+  t: TFunction,
+  formatDistance: (meters: number | null | undefined) => string,
+): string {
   if (preview == null) return ''
   if (typeof preview === 'string') return preview
   if (isRecord(preview)) {
     const lines: string[] = []
     const kind = textValue(preview.kind)
     const count = preview.activity_count ?? preview.count ?? preview.affected_count
-    if (kind) lines.push(`Typ: ${kind}`)
-    if (typeof count === 'number') lines.push(`Betroffene Aktivitäten: ${count}`)
+    if (kind) lines.push(`${t('chatPage.confirm.preview.type')}: ${kind}`)
+    if (typeof count === 'number') lines.push(`${t('chatPage.confirm.preview.affectedActivities')}: ${count}`)
     const tagName = textValue(preview.tag_name)
-    if (tagName) lines.push(`Tag: ${tagName}`)
+    if (tagName) lines.push(`${t('chatPage.confirm.preview.tag')}: ${tagName}`)
     const mode = textValue(preview.mode)
-    if (mode) lines.push(`Aktion: ${mode === 'remove' ? 'entfernen' : mode === 'add' ? 'hinzufügen' : mode}`)
+    if (mode) lines.push(`${t('chatPage.confirm.preview.action')}: ${formatMode(mode, t)}`)
     const gearName = textValue(preview.gear_name)
-    if (gearName) lines.push(`Gear: ${gearName}`)
+    if (gearName) lines.push(`${t('chatPage.confirm.preview.gear')}: ${gearName}`)
     const routeName = textValue(preview.name)
-    if (routeName) lines.push(`Name: ${routeName}`)
+    if (routeName) lines.push(`${t('chatPage.confirm.preview.name')}: ${routeName}`)
     const profile = textValue(preview.profile)
-    if (profile) lines.push(`Profil: ${profile}`)
+    if (profile) lines.push(`${t('chatPage.confirm.preview.profile')}: ${profile}`)
     if (typeof preview.total_distance_m === 'number') {
-      lines.push(`Distanz: ${(preview.total_distance_m / 1000).toFixed(1)} km`)
+      lines.push(`${t('chatPage.confirm.preview.distance')}: ${formatDistance(preview.total_distance_m)}`)
     }
     if (isRecord(preview.criteria)) {
-      lines.push('Auswahl:')
+      lines.push(`${t('chatPage.confirm.preview.selection')}:`)
       lines.push(formatObjectLines(preview.criteria, '  '))
     }
     if (Array.isArray(preview.sample_activities) && preview.sample_activities.length > 0) {
-      lines.push('Beispiele:')
-      lines.push(...preview.sample_activities.slice(0, 5).map(item => `  - ${formatActivitySample(item)}`))
+      lines.push(`${t('chatPage.confirm.preview.examples')}:`)
+      lines.push(...preview.sample_activities.slice(0, 5).map(item => `  - ${formatActivitySample(item, t, formatDistance)}`))
     }
     if (Array.isArray(preview.sample_ids) && preview.sample_ids.length > 0) {
-      lines.push(`Beispiel-IDs: ${preview.sample_ids.slice(0, 5).join(', ')}`)
+      lines.push(`${t('chatPage.confirm.preview.sampleIds')}: ${preview.sample_ids.slice(0, 5).join(', ')}`)
     }
     if (isRecord(preview.cap)) {
-      lines.push('Grenzen:')
+      lines.push(`${t('chatPage.confirm.preview.limits')}:`)
       lines.push(formatObjectLines(preview.cap, '  '))
     }
     if (lines.length > 0) return lines.join('\n')
@@ -181,7 +190,13 @@ function formatPreview(preview: unknown): string {
   }
 }
 
-function errorMessage(err: unknown): string {
+function formatMode(mode: string, t: TFunction): string {
+  if (mode === 'remove') return t('chatPage.confirm.preview.mode.remove')
+  if (mode === 'add') return t('chatPage.confirm.preview.mode.add')
+  return mode
+}
+
+function errorMessage(err: unknown, t: TFunction): string {
   if (typeof err === 'string' && err.trim()) return err
   const maybeStructured = err as { json?: Record<string, unknown>; body?: string } | null
   const jsonMessage = maybeStructured?.json?.message
@@ -203,7 +218,7 @@ function errorMessage(err: unknown): string {
   }
 
   if (err instanceof Error && err.message.trim()) return err.message
-  return 'Bestätigung konnte nicht gesendet werden'
+  return t('chatPage.confirm.sendFailed')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -227,17 +242,21 @@ function formatPreviewValue(value: unknown): string {
   return String(value)
 }
 
-function formatActivitySample(value: unknown): string {
+function formatActivitySample(
+  value: unknown,
+  t: TFunction,
+  formatDistance: (meters: number | null | undefined) => string,
+): string {
   if (!isRecord(value)) return String(value)
-  const title = textValue(value.title) || textValue(value.name) || textValue(value.id) || 'Aktivität'
+  const title = textValue(value.title) || textValue(value.name) || textValue(value.id) || t('chatPage.confirm.preview.activityFallback')
   const startedAt = textValue(value.started_at) || textValue(value.date)
   const sportType = textValue(value.sport_type) || textValue(value.sport)
   const distance = typeof value.distance_km === 'number'
-    ? `${value.distance_km.toFixed(1)} km`
+    ? formatDistance(value.distance_km * 1000)
     : typeof value.km === 'number'
-      ? `${value.km.toFixed(1)} km`
+      ? formatDistance(value.km * 1000)
     : typeof value.distance_m === 'number'
-      ? `${(value.distance_m / 1000).toFixed(1)} km`
+      ? formatDistance(value.distance_m)
       : ''
   return [title, startedAt, sportType, distance].filter(Boolean).join(' · ')
 }

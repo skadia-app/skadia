@@ -4,13 +4,29 @@
 // Central source of truth — replaces all duplicated fmtPace/fmtSpeed functions.
 
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
+import {
+  distanceInputUnit,
+  elevationInputUnit,
+  formatDistance as formatUnitDistance,
+  formatElevation as formatUnitElevation,
+  formatPace as formatUnitPace,
+  formatShortLength as formatUnitShortLength,
+  formatSpeed as formatUnitSpeed,
+  formatTemperature as formatUnitTemperature,
+  paceDisplayUnit,
+  speedDisplayUnit,
+  temperatureDisplayUnit,
+  type UnitFormatOptions,
+} from '@/lib/units'
 
 // ── FieldKey ────────────────────────────────────────────────────────────────────
 
 export type FieldKey =
-  // Bestehende Chart-Felder
+  // Existing chart fields
   | 'altitude' | 'heartRate' | 'power' | 'cadence' | 'speed' | 'temperature'
-  // Neue Charts
+  // New charts
   | 'groundContactTime' | 'verticalOscillation' | 'stepLength'
   | 'torqueEffectivenessL' | 'torqueEffectivenessR'
   | 'pedalSmoothnessL' | 'pedalSmoothnessR'
@@ -25,7 +41,7 @@ export type FieldKey =
 
 // ── Pace / Speed Formatter ──────────────────────────────────────────────────────
 
-/** min/km Pace (Laufen, Wandern, Gehen). speedMs=0 → '—' */
+/** min/km pace for foot activities. speedMs=0 returns '—'. */
 export function formatPace(speedMs: number): string {
   if (!speedMs || speedMs <= 0 || !isFinite(speedMs)) return '—'
   const secPerKm = 1000 / speedMs
@@ -34,7 +50,7 @@ export function formatPace(speedMs: number): string {
   return `${min}:${sec.toString().padStart(2, '0')} min/km`
 }
 
-/** min/100m Pace (Schwimmen). speedMs=0 → '—' */
+/** min/100m pace for swimming. speedMs=0 returns '—'. */
 export function formatPace100m(speedMs: number): string {
   if (!speedMs || speedMs <= 0 || !isFinite(speedMs)) return '—'
   const secPer100 = 100 / speedMs
@@ -43,7 +59,7 @@ export function formatPace100m(speedMs: number): string {
   return `${min}:${sec.toString().padStart(2, '0')} min/100m`
 }
 
-/** min/500m Pace (Rudern). speedMs=0 → '—' */
+/** min/500m pace for rowing. speedMs=0 returns '—'. */
 export function formatPace500m(speedMs: number): string {
   if (!speedMs || speedMs <= 0 || !isFinite(speedMs)) return '—'
   const secPer500 = 500 / speedMs
@@ -77,152 +93,198 @@ export function defaultSpeedMode(sportType: string): 'speed' | 'pace' {
 }
 
 /** Format a speed value according to sport type and mode override. */
-export function formatSpeedValue(speedMs: number | null | undefined, sportType: string, mode?: 'speed' | 'pace'): string {
+export function formatSpeedValue(
+  speedMs: number | null | undefined,
+  sportType: string,
+  mode?: 'speed' | 'pace',
+  unitOptions?: UnitFormatOptions,
+): string {
   if (!speedMs || speedMs <= 0 || !isFinite(speedMs)) return '—'
   const fmt = speedFormat(sportType)
   const effectiveMode = mode ?? (fmt === 'decimal' ? 'speed' : 'pace')
 
-  if (effectiveMode === 'speed') return formatSpeedKmh(speedMs)
+  if (effectiveMode === 'speed') {
+    return unitOptions ? formatUnitSpeed(speedMs, unitOptions) : formatSpeedKmh(speedMs)
+  }
 
   // Pace mode — use sport-appropriate pace format
   if (sportType === 'rowing') return formatPace500m(speedMs)
   const g = getSegmentGroup(sportType)
   if (g === 'swim') return formatPace100m(speedMs)
-  return formatPace(speedMs) // foot + all other pace modes
+  const secondsPerKm = 1000 / speedMs
+  return unitOptions ? formatUnitPace(secondsPerKm, unitOptions) : formatPace(speedMs)
 }
 
 // ── Label Maps ──────────────────────────────────────────────────────────────────
 
 interface FieldDef {
-  label: string
+  labels: LocalizedString
   unit: string
 }
 
 type SegmentGroup = 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic'
 
 const CADENCE_LABELS: Record<SegmentGroup, FieldDef> = {
-  bike:    { label: 'Trittfrequenz', unit: 'U/min' },
-  foot:    { label: 'Schrittfrequenz', unit: 'spm' },
-  swim:    { label: 'Zugzahl', unit: '/min' },
-  paddle:  { label: 'Schlagrate', unit: '/min' },
-  ski:     { label: 'Schrittfrequenz', unit: 'spm' },
-  generic: { label: 'Kadenz', unit: 'rpm' },
+  bike:    label('Trittfrequenz', 'Cadence', 'Cadence', 'Cadenza', 'Cadencia', 'U/min'),
+  foot:    label('Schrittfrequenz', 'Step rate', 'Fréquence de pas', 'Frequenza passi', 'Frecuencia de pasos', 'spm'),
+  swim:    label('Zugzahl', 'Stroke rate', 'Fréquence de nage', 'Frequenza bracciate', 'Frecuencia de brazadas', '/min'),
+  paddle:  label('Schlagrate', 'Stroke rate', 'Fréquence de coups', 'Frequenza colpi', 'Frecuencia de paladas', '/min'),
+  ski:     label('Schrittfrequenz', 'Step rate', 'Fréquence de pas', 'Frequenza passi', 'Frecuencia de pasos', 'spm'),
+  generic: label('Kadenz', 'Cadence', 'Cadence', 'Cadenza', 'Cadencia', 'rpm'),
 }
 
 const SPEED_LABELS: Record<SegmentGroup, FieldDef> = {
-  bike:    { label: 'Geschwindigkeit', unit: 'km/h' },
-  foot:    { label: 'Pace', unit: 'min/km' },
-  swim:    { label: 'Pace', unit: 'min/100m' },
-  paddle:  { label: 'Geschwindigkeit', unit: 'km/h' },
-  ski:     { label: 'Geschwindigkeit', unit: 'km/h' },
-  generic: { label: 'Geschwindigkeit', unit: 'km/h' },
+  bike:    label('Geschwindigkeit', 'Speed', 'Vitesse', 'Velocità', 'Velocidad', 'km/h'),
+  foot:    label('Pace', 'Pace', 'Allure', 'Passo', 'Ritmo', 'min/km'),
+  swim:    label('Pace', 'Pace', 'Allure', 'Passo', 'Ritmo', 'min/100m'),
+  paddle:  label('Geschwindigkeit', 'Speed', 'Vitesse', 'Velocità', 'Velocidad', 'km/h'),
+  ski:     label('Geschwindigkeit', 'Speed', 'Vitesse', 'Velocità', 'Velocidad', 'km/h'),
+  generic: label('Geschwindigkeit', 'Speed', 'Vitesse', 'Velocità', 'Velocidad', 'km/h'),
 }
 
 const POWER_LABELS: Record<SegmentGroup, FieldDef> = {
-  bike:    { label: 'Leistung', unit: 'W' },
-  foot:    { label: 'Laufleistung', unit: 'W' },
-  swim:    { label: 'Leistung', unit: 'W' },
-  paddle:  { label: 'Leistung', unit: 'W' },
-  ski:     { label: 'Leistung', unit: 'W' },
-  generic: { label: 'Leistung', unit: 'W' },
+  bike:    label('Leistung', 'Power', 'Puissance', 'Potenza', 'Potencia', 'W'),
+  foot:    label('Laufleistung', 'Running power', 'Puissance de course', 'Potenza di corsa', 'Potencia de carrera', 'W'),
+  swim:    label('Leistung', 'Power', 'Puissance', 'Potenza', 'Potencia', 'W'),
+  paddle:  label('Leistung', 'Power', 'Puissance', 'Potenza', 'Potencia', 'W'),
+  ski:     label('Leistung', 'Power', 'Puissance', 'Potenza', 'Potencia', 'W'),
+  generic: label('Leistung', 'Power', 'Puissance', 'Potenza', 'Potencia', 'W'),
 }
 
 const CYCLES_LABELS: Record<SegmentGroup, FieldDef | null> = {
-  bike:    { label: 'Pedalumdrehungen', unit: '' },
-  foot:    { label: 'Schritte', unit: '' },
-  swim:    { label: 'Züge', unit: '' },
-  paddle:  { label: 'Schläge', unit: '' },
-  ski:     { label: 'Schritte', unit: '' },
+  bike:    label('Pedalumdrehungen', 'Pedal revolutions', 'Tours de pédale', 'Rotazioni pedale', 'Revoluciones de pedal', ''),
+  foot:    label('Schritte', 'Steps', 'Pas', 'Passi', 'Pasos', ''),
+  swim:    label('Züge', 'Strokes', 'Mouvements', 'Bracciate', 'Brazadas', ''),
+  paddle:  label('Schläge', 'Strokes', 'Coups', 'Colpi', 'Paladas', ''),
+  ski:     label('Schritte', 'Steps', 'Pas', 'Passi', 'Pasos', ''),
   generic: null,
 }
 
 // Fixed labels (not segment-group dependent)
 const FIXED_LABELS: Partial<Record<FieldKey, FieldDef>> = {
-  altitude:             { label: 'Höhe', unit: 'm' },
-  heartRate:            { label: 'Herzfrequenz', unit: 'bpm' },
-  temperature:          { label: 'Temperatur', unit: '°C' },
-  groundContactTime:    { label: 'Bodenkontaktzeit', unit: 'ms' },
-  verticalOscillation:  { label: 'Vertikale Bewegung', unit: 'cm' },
-  stepLength:           { label: 'Schrittlänge', unit: 'm' },
-  torqueEffectivenessL: { label: 'Drehmoment-Eff. Links', unit: '%' },
-  torqueEffectivenessR: { label: 'Drehmoment-Eff. Rechts', unit: '%' },
-  pedalSmoothnessL:     { label: 'Tritt-Gleichm. Links', unit: '%' },
-  pedalSmoothnessR:     { label: 'Tritt-Gleichm. Rechts', unit: '%' },
-  motorPower:           { label: 'Motorleistung', unit: 'W' },
-  batteryLevel:         { label: 'Akku-Level', unit: '%' },
-  travelRange:          { label: 'Reichweite', unit: 'km' },
-  coreTemperature:      { label: 'Kerntemperatur', unit: '°C' },
-  depth:                { label: 'Tiefe', unit: 'm' },
-  grit:                 { label: 'MTB Grit', unit: '' },
-  flow:                 { label: 'MTB Flow', unit: '' },
-  potentialStamina:     { label: 'Stamina (Potential)', unit: '%' },
-  staminaCurrent:       { label: 'Stamina (Aktuell)', unit: '%' },
-  pressure:             { label: 'Barometer', unit: 'hPa' },
+  altitude:             label('Höhe', 'Elevation', 'Altitude', 'Altitudine', 'Altitud', 'm'),
+  heartRate:            label('Herzfrequenz', 'Heart rate', 'Fréquence cardiaque', 'Frequenza cardiaca', 'Frecuencia cardiaca', 'bpm'),
+  temperature:          label('Temperatur', 'Temperature', 'Température', 'Temperatura', 'Temperatura', '°C'),
+  groundContactTime:    label('Bodenkontaktzeit', 'Ground contact time', 'Temps de contact au sol', 'Tempo di contatto a terra', 'Tiempo de contacto con el suelo', 'ms'),
+  verticalOscillation:  label('Vertikale Bewegung', 'Vertical oscillation', 'Oscillation verticale', 'Oscillazione verticale', 'Oscilación vertical', 'cm'),
+  stepLength:           label('Schrittlänge', 'Step length', 'Longueur de pas', 'Lunghezza passo', 'Longitud de paso', 'm'),
+  torqueEffectivenessL: label('Drehmoment-Eff. Links', 'Left torque effectiveness', 'Efficacité du couple gauche', 'Efficienza coppia sinistra', 'Efectividad de par izquierda', '%'),
+  torqueEffectivenessR: label('Drehmoment-Eff. Rechts', 'Right torque effectiveness', 'Efficacité du couple droite', 'Efficienza coppia destra', 'Efectividad de par derecha', '%'),
+  pedalSmoothnessL:     label('Tritt-Gleichm. Links', 'Left pedal smoothness', 'Fluidité pédalage gauche', 'Fluidità pedalata sinistra', 'Suavidad de pedaleo izquierda', '%'),
+  pedalSmoothnessR:     label('Tritt-Gleichm. Rechts', 'Right pedal smoothness', 'Fluidité pédalage droite', 'Fluidità pedalata destra', 'Suavidad de pedaleo derecha', '%'),
+  motorPower:           label('Motorleistung', 'Motor power', 'Puissance moteur', 'Potenza motore', 'Potencia del motor', 'W'),
+  batteryLevel:         label('Akku-Level', 'Battery level', 'Niveau de batterie', 'Livello batteria', 'Nivel de batería', '%'),
+  travelRange:          label('Reichweite', 'Range', 'Autonomie', 'Autonomia', 'Autonomía', 'km'),
+  coreTemperature:      label('Kerntemperatur', 'Core temperature', 'Température corporelle', 'Temperatura interna', 'Temperatura central', '°C'),
+  depth:                label('Tiefe', 'Depth', 'Profondeur', 'Profondità', 'Profundidad', 'm'),
+  grit:                 label('MTB Grit', 'MTB Grit', 'MTB Grit', 'MTB Grit', 'MTB Grit', ''),
+  flow:                 label('MTB Flow', 'MTB Flow', 'MTB Flow', 'MTB Flow', 'MTB Flow', ''),
+  potentialStamina:     label('Stamina (Potential)', 'Stamina (potential)', 'Stamina (potentiel)', 'Stamina (potenziale)', 'Stamina (potencial)', '%'),
+  staminaCurrent:       label('Stamina (Aktuell)', 'Stamina (current)', 'Stamina (actuelle)', 'Stamina (attuale)', 'Stamina (actual)', '%'),
+  pressure:             label('Barometer', 'Barometer', 'Baromètre', 'Barometro', 'Barómetro', 'hPa'),
 }
 
-// ── Sonderfälle ─────────────────────────────────────────────────────────────────
+// ── Special Cases ────────────────────────────────────────────────────────────────
+
+function label(de: string, en: string, fr: string, it: string, es: string, unit: string): FieldDef {
+  return { labels: { de, en, fr, it, es }, unit }
+}
+
+function localizedLabel(def: FieldDef, language?: SupportedLanguage): string {
+  return localizeString(def.labels, language)
+}
 
 function getSpeedLabel(sportType: string): FieldDef {
-  if (sportType === 'rowing') return { label: '500-m-Pace', unit: 'min/500m' }
+  if (sportType === 'rowing') return label('500-m-Pace', '500 m pace', 'Allure 500 m', 'Passo 500 m', 'Ritmo 500 m', 'min/500m')
   return SPEED_LABELS[getSegmentGroup(sportType)]
 }
 
 function getCadenceLabel(sportType: string): FieldDef {
-  if (sportType === 'inline_skating') return { label: 'Schrittfrequenz', unit: 'spm' }
+  if (sportType === 'inline_skating') return label('Schrittfrequenz', 'Step rate', 'Fréquence de pas', 'Frequenza passi', 'Frecuencia de pasos', 'spm')
   return CADENCE_LABELS[getSegmentGroup(sportType)]
 }
 
-// ── Exportierte API ─────────────────────────────────────────────────────────────
+// ── Public API ──────────────────────────────────────────────────────────────────
 
-/** Sportspezifisches Label für ein Feld. */
-export function fieldLabel(field: FieldKey, sportType: string): string {
+/** Sport-specific label for a field. */
+export function fieldLabel(field: FieldKey, sportType: string, language?: SupportedLanguage): string {
   const fixed = FIXED_LABELS[field]
-  if (fixed) return fixed.label
+  if (fixed) return localizedLabel(fixed, language)
 
   switch (field) {
-    case 'cadence': return getCadenceLabel(sportType).label
-    case 'speed':   return getSpeedLabel(sportType).label
-    case 'power':   return POWER_LABELS[getSegmentGroup(sportType)].label
+    case 'cadence': return localizedLabel(getCadenceLabel(sportType), language)
+    case 'speed':   return localizedLabel(getSpeedLabel(sportType), language)
+    case 'power':   return localizedLabel(POWER_LABELS[getSegmentGroup(sportType)], language)
     default:        return field
   }
 }
 
-/** Sportspezifische Einheit für ein Feld. */
-export function fieldUnit(field: FieldKey, sportType: string): string {
+function speedUnit(sportType: string, unitOptions?: UnitFormatOptions): string {
+  const unit = getSpeedLabel(sportType).unit
+  if (!unitOptions) return unit
+  if (unit === 'km/h') return speedDisplayUnit(unitOptions.units)
+  if (unit === 'min/km') return paceDisplayUnit(unitOptions.units)
+  return unit
+}
+
+function fixedFieldUnit(field: FieldKey, unit: string, unitOptions?: UnitFormatOptions): string {
+  if (!unitOptions) return unit
+  switch (field) {
+    case 'altitude':
+    case 'stepLength':
+    case 'depth':
+      return elevationInputUnit(unitOptions.units)
+    case 'temperature':
+    case 'coreTemperature':
+      return temperatureDisplayUnit(unitOptions.units)
+    case 'travelRange':
+      return distanceInputUnit(unitOptions.units)
+    default:
+      return unit
+  }
+}
+
+/** Sport-specific unit for a field. */
+export function fieldUnit(field: FieldKey, sportType: string, unitOptions?: UnitFormatOptions): string {
   const fixed = FIXED_LABELS[field]
-  if (fixed) return fixed.unit
+  if (fixed) return fixedFieldUnit(field, fixed.unit, unitOptions)
 
   switch (field) {
     case 'cadence': return getCadenceLabel(sportType).unit
-    case 'speed':   return getSpeedLabel(sportType).unit
+    case 'speed':   return speedUnit(sportType, unitOptions)
     case 'power':   return POWER_LABELS[getSegmentGroup(sportType)].unit
     default:        return ''
   }
 }
 
-/** Formatiert einen Wert sportspezifisch. Für speed: verwendet formatSpeedValue(). */
-export function formatFieldValue(field: FieldKey, value: number, sportType: string): string {
+/** Format a value for the field and sport. Speed uses formatSpeedValue(). */
+export function formatFieldValue(
+  field: FieldKey,
+  value: number | null | undefined,
+  sportType: string,
+  unitOptions?: UnitFormatOptions,
+): string {
   if (value == null || isNaN(value)) return '—'
 
   switch (field) {
-    case 'speed': return formatSpeedValue(value, sportType)
+    case 'speed': return formatSpeedValue(value, sportType, undefined, unitOptions)
     case 'cadence': return `${Math.round(value)} ${fieldUnit('cadence', sportType)}`
     case 'power': return `${Math.round(value)} W`
     case 'heartRate': return `${Math.round(value)} bpm`
-    case 'altitude': return `${Math.round(value)} m`
+    case 'altitude': return unitOptions ? formatUnitElevation(value, unitOptions) : `${Math.round(value)} m`
     case 'temperature':
-    case 'coreTemperature': return `${value.toFixed(1)} °C`
+    case 'coreTemperature': return unitOptions ? formatUnitTemperature(value, unitOptions) : `${value.toFixed(1)} °C`
     case 'groundContactTime': return `${Math.round(value)} ms`
     case 'verticalOscillation': return `${(value / 10).toFixed(1)} cm`
-    case 'stepLength': return `${(value / 1000).toFixed(2)} m`
+    case 'stepLength': return unitOptions ? formatUnitShortLength(value / 1000, unitOptions) : `${(value / 1000).toFixed(2)} m`
     case 'torqueEffectivenessL':
     case 'torqueEffectivenessR':
     case 'pedalSmoothnessL':
     case 'pedalSmoothnessR':
     case 'batteryLevel': return `${value.toFixed(1)} %`
     case 'motorPower': return `${Math.round(value)} W`
-    case 'travelRange': return `${value.toFixed(1)} km`
-    case 'depth': return `${value.toFixed(1)} m`
+    case 'travelRange': return unitOptions ? formatUnitDistance(value * 1000, unitOptions) : `${value.toFixed(1)} km`
+    case 'depth': return unitOptions ? formatUnitShortLength(value, unitOptions) : `${value.toFixed(1)} m`
     case 'grit':
     case 'flow': return value.toFixed(2)
     case 'potentialStamina':
@@ -232,27 +294,28 @@ export function formatFieldValue(field: FieldKey, value: number, sportType: stri
   }
 }
 
-/** Total-Cycles Label für die StatsGrid-Anzeige. Gibt null zurück wenn nicht anwendbar (generic). */
-export function cyclesLabel(sportType: string): string | null {
-  return CYCLES_LABELS[getSegmentGroup(sportType)]?.label ?? null
+/** Total-cycles label for StatsGrid. Returns null when not applicable. */
+export function cyclesLabel(sportType: string, language?: SupportedLanguage): string | null {
+  const def = CYCLES_LABELS[getSegmentGroup(sportType)]
+  return def ? localizedLabel(def, language) : null
 }
 
 // ── Swim Stroke Labels ──────────────────────────────────────────────────────────
 
-const SWIM_STROKE_LABELS: Record<string, string> = {
-  freestyle: 'Kraul',
-  backstroke: 'Rücken',
-  breaststroke: 'Brust',
-  butterfly: 'Schmetterling',
-  drill: 'Technik',
-  mixed: 'Gemischt',
-  im: 'Lagen',
-  im_by_round: 'Lagen (Runde)',
-  rimo: 'Lagen (umgekehrt)',
+const SWIM_STROKE_LABELS: Record<string, LocalizedString> = {
+  freestyle: { de: 'Kraul', en: 'Freestyle', fr: 'Nage libre', it: 'Stile libero', es: 'Crol' },
+  backstroke: { de: 'Rücken', en: 'Backstroke', fr: 'Dos', it: 'Dorso', es: 'Espalda' },
+  breaststroke: { de: 'Brust', en: 'Breaststroke', fr: 'Brasse', it: 'Rana', es: 'Braza' },
+  butterfly: { de: 'Schmetterling', en: 'Butterfly', fr: 'Papillon', it: 'Farfalla', es: 'Mariposa' },
+  drill: { de: 'Technik', en: 'Drill', fr: 'Exercice technique', it: 'Tecnica', es: 'Técnica' },
+  mixed: { de: 'Gemischt', en: 'Mixed', fr: 'Mixte', it: 'Misto', es: 'Mixto' },
+  im: { de: 'Lagen', en: 'Individual medley', fr: '4 nages', it: 'Misti', es: 'Estilos' },
+  im_by_round: { de: 'Lagen (Runde)', en: 'Medley (round)', fr: '4 nages (tour)', it: 'Misti (giro)', es: 'Estilos (vuelta)' },
+  rimo: { de: 'Lagen (umgekehrt)', en: 'Reverse medley', fr: '4 nages inversé', it: 'Misti inversi', es: 'Estilos inversos' },
 }
 
-/** Deutsches Label für einen Schwimm-Stil. Fallback: raw key. */
-export function swimStrokeLabel(stroke?: string): string {
+/** Localized label for a swim stroke. Fallback: raw key. */
+export function swimStrokeLabel(stroke?: string, language?: SupportedLanguage): string {
   if (!stroke) return '--'
-  return SWIM_STROKE_LABELS[stroke] ?? stroke
+  return localizeString(SWIM_STROKE_LABELS[stroke], language) || stroke
 }

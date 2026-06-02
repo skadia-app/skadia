@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchInsightsCorrelations } from '@/api/analytics'
 import type { CorrelationInsight } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
@@ -12,34 +13,45 @@ function correlationColor(r: number): string {
   return '#3b82f6'
 }
 
-function correlationLabel(r: number, direction: CorrelationInsight['direction']): string {
+function correlationLabel(r: number, direction: CorrelationInsight['direction'], t: ReturnType<typeof useTranslation>['t']): string {
   const abs = Math.abs(r)
-  const strength = abs >= 0.7 ? 'stark' : abs >= 0.4 ? 'moderat' : 'schwach'
-  if (direction === 'neutral') return `${strength} (neutral)`
-  return `${strength} ${direction === 'positive' ? 'positiv' : 'negativ'}`
+  const strength = abs >= 0.7
+    ? t('analyticsHealthInsights.correlations.strength.strong')
+    : abs >= 0.4
+      ? t('analyticsHealthInsights.correlations.strength.moderate')
+      : t('analyticsHealthInsights.correlations.strength.weak')
+  if (direction === 'neutral') return t('analyticsHealthInsights.correlations.labelNeutral', { strength })
+  return t('analyticsHealthInsights.correlations.labelDirected', {
+    strength,
+    direction: direction === 'positive'
+      ? t('analyticsHealthInsights.correlations.direction.positive')
+      : t('analyticsHealthInsights.correlations.direction.negative'),
+  })
 }
 
-function formatFactorName(name: string): string {
-  const labels: Record<string, string> = {
-    tss: 'TSS',
-    ctl: 'CTL (Fitness)',
-    atl: 'ATL (Ermüdung)',
-    tsb: 'TSB (Form)',
-    hrv: 'HRV',
-    heart_rate: 'Herzfrequenz',
-    pace: 'Pace',
-    distance: 'Distanz',
-    elevation: 'Höhenmeter',
-    sleep_score: 'Schlaf-Score',
-    sleep_duration: 'Schlafdauer',
-    weight: 'Gewicht',
-    resting_hr: 'Ruhepuls',
-    duration: 'Dauer',
-    cadence: 'Kadenz',
-    power: 'Leistung',
-    temperature: 'Temperatur',
-  }
-  return labels[name.toLowerCase()] ?? name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+export const FACTOR_LABEL_KEYS: Record<string, string> = {
+  tss: 'analyticsHealthInsights.factorNames.tss',
+  ctl: 'analyticsHealthInsights.factorNames.ctl',
+  atl: 'analyticsHealthInsights.factorNames.atl',
+  tsb: 'analyticsHealthInsights.factorNames.tsb',
+  hrv: 'analyticsHealthInsights.factorNames.hrv',
+  heart_rate: 'analyticsHealthInsights.factorNames.heartRate',
+  pace: 'analyticsHealthInsights.factorNames.pace',
+  distance: 'analyticsHealthInsights.factorNames.distance',
+  elevation: 'analyticsHealthInsights.factorNames.elevation',
+  sleep_score: 'analyticsHealthInsights.factorNames.sleepScore',
+  sleep_duration: 'analyticsHealthInsights.factorNames.sleepDuration',
+  weight: 'analyticsHealthInsights.factorNames.weight',
+  resting_hr: 'analyticsHealthInsights.factorNames.restingHr',
+  duration: 'analyticsHealthInsights.factorNames.duration',
+  cadence: 'analyticsHealthInsights.factorNames.cadence',
+  power: 'analyticsHealthInsights.factorNames.power',
+  temperature: 'analyticsHealthInsights.factorNames.temperature',
+}
+
+export function formatFactorName(name: string, t: (key: string) => string): string {
+  const labelKey = FACTOR_LABEL_KEYS[name.toLowerCase()]
+  return t(labelKey ?? 'common.unknown')
 }
 
 function CorrelationBar({ r }: { r: number }) {
@@ -84,6 +96,7 @@ function CorrelationBar({ r }: { r: number }) {
 }
 
 export default function CorrelationsPanel() {
+  const { t } = useTranslation()
   const { toQueryString } = useAnalyticsFilters()
   const queryParams = toQueryString()
 
@@ -118,7 +131,7 @@ export default function CorrelationsPanel() {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Korrelationen</h3>
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">{t('analyticsHealthInsights.correlations.title')}</h3>
         <FilterActiveBadge />
       </div>
 
@@ -128,7 +141,7 @@ export default function CorrelationsPanel() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
           </svg>
-          <span className="text-sm">Keine Korrelationsdaten verfügbar</span>
+          <span className="text-sm">{t('analyticsHealthInsights.correlations.noData')}</span>
         </div>
       )}
 
@@ -146,11 +159,11 @@ export default function CorrelationsPanel() {
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="text-neutral-600 dark:text-neutral-300 font-medium truncate max-w-[45%]">
-                    {formatFactorName(corr.factor_a)}
+                    {formatFactorName(corr.factor_a, t)}
                   </span>
                   <span className="text-neutral-400 flex-shrink-0">&#8596;</span>
                   <span className="text-neutral-600 dark:text-neutral-300 font-medium truncate max-w-[45%] text-right">
-                    {formatFactorName(corr.factor_b)}
+                    {formatFactorName(corr.factor_b, t)}
                   </span>
                 </div>
 
@@ -161,7 +174,7 @@ export default function CorrelationsPanel() {
                     className="text-neutral-500"
                     style={{ color: correlationColor(corr.correlation) }}
                   >
-                    r = {corr.correlation.toFixed(2)} &middot; {correlationLabel(corr.correlation, corr.direction)}
+                    r = {corr.correlation.toFixed(2)} &middot; {correlationLabel(corr.correlation, corr.direction, t)}
                   </span>
                 </div>
 

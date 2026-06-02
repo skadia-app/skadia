@@ -458,7 +458,7 @@ func selectableRuleTupleOptions(taxonomy Taxonomy) []ExpandedRuleTupleOption {
 		if ruleTupleParentSelectable(sport) {
 			out = append(out, ExpandedRuleTupleOption{
 				SportType: sport.SportType,
-				Label:     LocaleMap{"de": sport.Labels["de"]},
+				Label:     cloneLocaleMap(sport.Labels),
 			})
 		}
 		for _, subType := range sport.SubTypes {
@@ -468,7 +468,7 @@ func selectableRuleTupleOptions(taxonomy Taxonomy) []ExpandedRuleTupleOption {
 			out = append(out, ExpandedRuleTupleOption{
 				SportType: sport.SportType,
 				SubType:   subType.SubType,
-				Label:     LocaleMap{"de": ruleTupleSubTypeLabel(sport, subType)},
+				Label:     cloneLocaleMap(subType.Labels),
 			})
 		}
 	}
@@ -480,10 +480,6 @@ func ruleTupleParentSelectable(sport Sport) bool {
 		return true
 	}
 	return sport.Selectable != nil && *sport.Selectable
-}
-
-func ruleTupleSubTypeLabel(sport Sport, subType SubType) string {
-	return subType.Labels["de"]
 }
 
 func modifierApplicabilityForSource(sport Sport, source string) bool {

@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ActivityEvent } from '@/api/types'
 
 interface Props { events: ActivityEvent[] | undefined }
 
 export function RadarSummary({ events }: Props) {
+  const { t } = useTranslation()
   const summary = useMemo(() => {
     if (!events?.length) return null
     const radarEvents = events.filter(e => e.radar_threat_count != null && e.radar_threat_count > 0)
@@ -18,8 +20,10 @@ export function RadarSummary({ events }: Props) {
   return (
     <p className="text-sm text-neutral-600 dark:text-neutral-400 flex items-center gap-1.5">
       <span aria-hidden>&#x1F697;</span>
-      Radar: {summary.totalCount >= 500 ? '500+' : summary.totalCount} Fahrzeuge erkannt
-      {summary.maxThreat > 0 && ` (max. Bedrohungsstufe: ${summary.maxThreat})`}
+      {t('activityDetail.radarSummary.detected', {
+        count: summary.totalCount >= 500 ? '500+' : summary.totalCount,
+      })}
+      {summary.maxThreat > 0 && ` (${t('activityDetail.radarSummary.maxThreat', { level: summary.maxThreat })})`}
     </p>
   )
 }

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skadia-app/skadia/services/api/internal/automation"
-	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // systemSyncHandlerEnv builds a *Handler bound to the per-worktree test DB
@@ -485,5 +485,38 @@ func TestIsSystemNonModifierTagAndGates(t *testing.T) {
 					tc.tag.IsSystem, tc.tag.Name, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTagResponseDoesNotInventSystemDisplayKeysFromMutableName(t *testing.T) {
+	desc := "stored fallback"
+	resp := tagResponseFromModel(model.Tag{
+		Name:        "Indoor",
+		IsSystem:    true,
+		Description: &desc,
+	})
+
+	if resp.DisplayKey != nil {
+		t.Fatalf("DisplayKey = %#v, want nil until tags have stable persisted system codes", resp.DisplayKey)
+	}
+	if resp.DescriptionKey != nil {
+		t.Fatalf("DescriptionKey = %#v, want nil until tags have stable persisted system codes", resp.DescriptionKey)
+	}
+	if resp.Name != "Indoor" || resp.Description == nil || *resp.Description != desc {
+		t.Fatalf("fallback name/description changed: %#v", resp)
+	}
+}
+
+func TestTagResponseOmitsDisplayKeysForCustomTags(t *testing.T) {
+	resp := tagResponseFromModel(model.Tag{
+		Name:     "Indoor",
+		IsSystem: false,
+	})
+
+	if resp.DisplayKey != nil {
+		t.Fatalf("custom tag DisplayKey = %#v, want nil", resp.DisplayKey)
+	}
+	if resp.DescriptionKey != nil {
+		t.Fatalf("custom tag DescriptionKey = %#v, want nil", resp.DescriptionKey)
 	}
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { apiClient } from '@/api/client'
 import { getCapabilities } from '@/api/routes'
 
@@ -53,11 +54,11 @@ const TIME_DOMAIN_KEYS: { key: string; label: string; unit: string }[] = [
   { key: 'cvsd', label: 'CVSD', unit: '' },
 ]
 
-const FREQUENCY_DOMAIN_KEYS: { key: string; label: string; unit: string }[] = [
+const FREQUENCY_DOMAIN_KEYS: { key: string; label?: string; labelKey?: string; unit: string }[] = [
   { key: 'vlf', label: 'VLF', unit: 'ms²' },
   { key: 'lf', label: 'LF', unit: 'ms²' },
   { key: 'hf', label: 'HF', unit: 'ms²' },
-  { key: 'total_power', label: 'Gesamtleistung', unit: 'ms²' },
+  { key: 'total_power', labelKey: 'analyticsHealthInsights.hrvExtended.metrics.totalPower', unit: 'ms²' },
   { key: 'lf_hf_ratio', label: 'LF/HF', unit: '' },
   { key: 'lfnu', label: 'LFnu', unit: 'nu' },
   { key: 'hfnu', label: 'HFnu', unit: 'nu' },
@@ -77,10 +78,10 @@ const NONLINEAR_KEYS: { key: string; label: string; unit: string }[] = [
 
 type Tab = 'time' | 'freq' | 'nonlinear'
 
-const TAB_LABELS: { id: Tab; label: string }[] = [
-  { id: 'time', label: 'Zeit' },
-  { id: 'freq', label: 'Frequenz' },
-  { id: 'nonlinear', label: 'Nichtlinear' },
+const TAB_LABELS: { id: Tab; labelKey: string }[] = [
+  { id: 'time', labelKey: 'analyticsHealthInsights.hrvExtended.tabs.time' },
+  { id: 'freq', labelKey: 'analyticsHealthInsights.hrvExtended.tabs.frequency' },
+  { id: 'nonlinear', labelKey: 'analyticsHealthInsights.hrvExtended.tabs.nonlinear' },
 ]
 
 function MetricCard({ label, value, unit }: { label: string; value: number | undefined; unit: string }) {
@@ -101,21 +102,27 @@ function MetricGrid({
   keys,
   data,
 }: {
-  keys: { key: string; label: string; unit: string }[]
+  keys: { key: string; label?: string; labelKey?: string; unit: string }[]
   data: HRVExtendedResponse
 }) {
+  const { t } = useTranslation()
   const available = keys.filter(k => data[k.key] != null)
   if (available.length === 0) {
     return (
       <p className="text-sm text-neutral-400 text-center py-4">
-        Keine Daten für diesen Bereich verfügbar
+        {t('analyticsHealthInsights.hrvExtended.noDataForSection')}
       </p>
     )
   }
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
       {available.map(k => (
-        <MetricCard key={k.key} label={k.label} value={data[k.key]} unit={k.unit} />
+        <MetricCard
+          key={k.key}
+          label={k.labelKey ? t(k.labelKey) : (k.label ?? k.key)}
+          value={data[k.key]}
+          unit={k.unit}
+        />
       ))}
     </div>
   )
@@ -124,6 +131,7 @@ function MetricGrid({
 // ── All-metrics collapsible table ─────────────────────────────────────────────
 
 function AllMetricsTable({ data }: { data: HRVExtendedResponse }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const entries = Object.entries(data).filter(([, v]) => typeof v === 'number')
   if (entries.length === 0) return null
@@ -140,15 +148,15 @@ function AllMetricsTable({ data }: { data: HRVExtendedResponse }) {
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
-        Alle {entries.length} Metriken anzeigen
+        {t('analyticsHealthInsights.hrvExtended.showAllMetrics', { count: entries.length })}
       </button>
       {open && (
         <div className="mt-2 rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-neutral-100 dark:bg-neutral-800">
               <tr>
-                <th className="text-left px-3 py-2 text-neutral-600 dark:text-neutral-300 font-medium">Metrik</th>
-                <th className="text-right px-3 py-2 text-neutral-600 dark:text-neutral-300 font-medium">Wert</th>
+                <th className="text-left px-3 py-2 text-neutral-600 dark:text-neutral-300 font-medium">{t('analyticsHealthInsights.common.metric')}</th>
+                <th className="text-right px-3 py-2 text-neutral-600 dark:text-neutral-300 font-medium">{t('analyticsHealthInsights.common.value')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -177,6 +185,7 @@ interface Props {
 }
 
 export default function HRVExtendedPanel({ activityId }: Props) {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<Tab>('time')
 
   const { data: capabilities } = useQuery({
@@ -210,15 +219,15 @@ export default function HRVExtendedPanel({ activityId }: Props) {
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5 space-y-4">
       <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-        Erweiterte HRV-Analyse
+        {t('analyticsHealthInsights.hrvExtended.title')}
       </h3>
 
       {!mlAvailable ? (
         <p className="text-sm text-neutral-400 text-center py-4">
-          Dieses Feature benötigt den ML-Service.
+          {t('analyticsHealthInsights.common.mlRequired')}
         </p>
       ) : !activityId ? (
-        <p className="text-sm text-neutral-400 text-center py-4">Aktivität auswählen</p>
+        <p className="text-sm text-neutral-400 text-center py-4">{t('analyticsHealthInsights.hrvExtended.selectActivity')}</p>
       ) : isLoading ? (
         <div className="space-y-2 animate-pulse">
           <div className="h-8 bg-neutral-100 dark:bg-neutral-800 rounded" />
@@ -231,14 +240,14 @@ export default function HRVExtendedPanel({ activityId }: Props) {
       ) : isError || !data ? (
         <p className="text-sm text-neutral-400 text-center py-4">
           {!isError && !data
-            ? 'Noch nicht berechnet. Daten werden beim nächsten Refresh analysiert.'
-            : 'Keine erweiterten HRV-Daten verfügbar'}
+            ? t('analyticsHealthInsights.common.notCalculatedYet')
+            : t('analyticsHealthInsights.hrvExtended.noExtendedData')}
         </p>
       ) : (
         <>
           {/* Tab bar */}
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs w-fit">
-            {TAB_LABELS.map(({ id, label }) => (
+            {TAB_LABELS.map(({ id, labelKey }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
@@ -248,7 +257,7 @@ export default function HRVExtendedPanel({ activityId }: Props) {
                     : 'px-4 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
                 }
               >
-                {label}
+                {t(labelKey)}
               </button>
             ))}
           </div>

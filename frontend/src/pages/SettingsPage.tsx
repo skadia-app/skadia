@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useUser } from '@/providers/UserProvider'
 import { useAccentColor, ACCENT_PALETTE, DEFAULT_ACCENT_COLOR, deriveAccentEntry } from '@/lib/accentColor'
 import { getCapabilities } from '@/api/routes'
@@ -36,10 +38,57 @@ import { SettingsSection } from '@/components/ui/SettingsSection'
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
 import { featureAvailable, featureConfigured } from '@/lib/deploymentCapabilities'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { localizeString } from '@/i18n/localizedString'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceFromDisplayValue,
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationFromDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  type UnitSystem,
+} from '@/lib/units'
+
+function settingsConflictStrategyOptions(t: TFunction): Array<{ value: ConflictStrategy; label: string }> {
+  return [
+    { value: 'enrich_missing', label: t('settingsPage.import.conflict.enrichMissingRecommended') },
+    { value: 'replace_all', label: t('settingsPage.import.conflict.replaceAlways') },
+    { value: 'skip', label: t('settingsPage.import.conflict.skipAlways') },
+  ]
+}
+
+function roundSettingsUnitValue(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function settingDistanceDisplayValue(meters: number, units: UnitSystem): number {
+  return roundSettingsUnitValue(distanceToDisplayValue(meters, units))
+}
+
+function settingDistanceStoredValue(value: string, units: UnitSystem): number | null {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return roundSettingsUnitValue(distanceFromDisplayValue(numeric, units))
+}
+
+function settingElevationDisplayValue(meters: number, units: UnitSystem): number {
+  return roundSettingsUnitValue(elevationToDisplayValue(meters, units))
+}
+
+function settingElevationStoredValue(value: string, units: UnitSystem): number | null {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return roundSettingsUnitValue(elevationFromDisplayValue(numeric, units))
+}
+
+type ThresholdUnitKind = 'fixed' | 'distance' | 'elevation'
 
 export function AutomatischeAnalysenSection() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const { isAdmin } = useUser()
+  const unitFormatters = useUnitFormatters()
 
   const { settings, isLoading, isError, mutation: mut } = useEnrichmentSettings()
 
@@ -70,6 +119,43 @@ export function AutomatischeAnalysenSection() {
   const [backfillResult, setBackfillResult] = useState<{ processed: number; errors: number; error_details?: string } | null>(null)
   const [backfillRunning, setBackfillRunning] = useState(false)
   const geoPOIAvailable = featureAvailable(capabilities, 'geo_poi_enrichment')
+  const thresholdDefinitions: Array<{
+    key: 'climb_min_gradient_pct' | 'climb_min_elevation_m' | 'round_trip_threshold_m'
+    label: string
+    unitKind: ThresholdUnitKind
+    unit: string
+    step: number
+  }> = [
+    { key: 'climb_min_gradient_pct', label: t('settingsPage.analysis.climbMinGradient'), unitKind: 'fixed', unit: '%', step: 0.5 },
+    {
+      key: 'climb_min_elevation_m',
+      label: t('settingsPage.analysis.climbMinElevation'),
+      unitKind: 'elevation',
+      unit: elevationInputUnit(unitFormatters.options.units),
+      step: settingElevationDisplayValue(10, unitFormatters.options.units),
+    },
+    {
+      key: 'round_trip_threshold_m',
+      label: t('settingsPage.analysis.roundTripThreshold'),
+      unitKind: 'distance',
+      unit: distanceInputUnit(unitFormatters.options.units),
+      step: settingDistanceDisplayValue(50, unitFormatters.options.units),
+    },
+  ]
+
+  function thresholdDisplayValue(unitKind: ThresholdUnitKind, metersOrPercent: number | undefined): number | string {
+    if (metersOrPercent == null) return ''
+    if (unitKind === 'distance') return settingDistanceDisplayValue(metersOrPercent, unitFormatters.options.units)
+    if (unitKind === 'elevation') return settingElevationDisplayValue(metersOrPercent, unitFormatters.options.units)
+    return metersOrPercent
+  }
+
+  function thresholdStoredValue(unitKind: ThresholdUnitKind, value: string): number | null {
+    if (unitKind === 'distance') return settingDistanceStoredValue(value, unitFormatters.options.units)
+    if (unitKind === 'elevation') return settingElevationStoredValue(value, unitFormatters.options.units)
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : null
+  }
 
   async function handleBackfillEnrichment() {
     setBackfillRunning(true)
@@ -77,9 +163,13 @@ export function AutomatischeAnalysenSection() {
     try {
       const result = await backfillEnrichment()
       setBackfillResult(result)
-      addToast({ type: 'success', title: 'Enrichment abgeschlossen', message: `${result.processed} verarbeitet, ${result.errors} Fehler` })
+      addToast({
+        type: 'success',
+        title: t('settingsPage.analysis.backfillComplete'),
+        message: t('settingsPage.analysis.backfillResult', { processed: result.processed, errors: result.errors }),
+      })
     } catch {
-      addToast({ type: 'error', title: 'Enrichment konnte nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('settingsPage.analysis.backfillStartFailed'), duration: 0 })
     } finally {
       setBackfillRunning(false)
     }
@@ -87,13 +177,13 @@ export function AutomatischeAnalysenSection() {
 
   return (
     <SettingsSection
-      title="Automatische Analysen"
-      description="Analysen, die nach dem Upload automatisch im Hintergrund durchgeführt werden."
+      title={t('settingsPage.analysis.title')}
+      description={t('settingsPage.analysis.description')}
       className="space-y-6"
     >
       {isError && (
         <p className="text-sm text-red-500 dark:text-red-400">
-          Einstellungen konnten nicht geladen werden.
+          {t('settingsPage.analysis.loadFailed')}
         </p>
       )}
 
@@ -101,21 +191,23 @@ export function AutomatischeAnalysenSection() {
         {ANALYSIS_MODULES.filter(m => !m.parentName && (!m.requiresCapability || featureAvailable(capabilities, m.requiresCapability))).map((module) => {
           const enabled = settings ? (settings[module.field] !== false) : true
           const mlUnavailable = module.requiresML && capabilities !== undefined && !capabilities.ml_service
+          const moduleLabel = t(`settingsPage.analysis.modules.${module.name}.label`)
+          const moduleDescription = t(`settingsPage.analysis.modules.${module.name}.description`)
           // Sub-modules (parentName === module.name) rendered indented below parent
           const children = ANALYSIS_MODULES.filter(m => m.parentName === module.name && (!m.requiresCapability || featureAvailable(capabilities, m.requiresCapability)))
           return (
             <div key={module.field as string}>
               <div className="flex items-start justify-between gap-4 py-1">
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{module.label}</span>
+                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{moduleLabel}</span>
                   {module.requiresML && (
                     <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
                       ML
                     </span>
                   )}
-                  <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {module.description}</span>
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {moduleDescription}</span>
                   {mlUnavailable && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">ML-Service nicht erreichbar</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{t('settingsPage.analysis.mlUnavailable')}</p>
                   )}
                 </div>
                 <Toggle
@@ -133,7 +225,7 @@ export function AutomatischeAnalysenSection() {
                   }}
                   disabled={isLoading || mut.isPending || mlUnavailable}
                   className="mt-0.5"
-                  aria-label={`${module.label} aktivieren`}
+                  aria-label={t('settingsPage.analysis.activateModule', { module: moduleLabel })}
                 />
               </div>
               {children.length > 0 && (
@@ -141,14 +233,16 @@ export function AutomatischeAnalysenSection() {
                   {children.map((child) => {
                     const parentDisabled = !enabled || mlUnavailable
                     const childEnabled = settings ? (settings[child.field] !== false) : true
+                    const childLabel = t(`settingsPage.analysis.modules.${child.name}.label`)
+                    const childDescription = t(`settingsPage.analysis.modules.${child.name}.description`)
                     return (
                       <div
                         key={child.field as string}
                         className={`flex items-start justify-between gap-4 py-1 transition-opacity ${parentDisabled ? 'opacity-60' : ''}`}
                       >
                         <div className="min-w-0 flex-1">
-                          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{child.label}</span>
-                          <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {child.description}</span>
+                          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{childLabel}</span>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {childDescription}</span>
                         </div>
                         <Toggle
                           checked={childEnabled && !parentDisabled}
@@ -163,7 +257,7 @@ export function AutomatischeAnalysenSection() {
                           // individual useMutation hooks per field — tracked as a follow-up task.
                           disabled={isLoading || mut.isPending || parentDisabled}
                           className={`mt-0.5 ${parentDisabled ? 'cursor-not-allowed' : ''}`}
-                          aria-label={`${child.label} aktivieren`}
+                          aria-label={t('settingsPage.analysis.activateModule', { module: childLabel })}
                         />
                       </div>
                     )
@@ -187,8 +281,8 @@ export function AutomatischeAnalysenSection() {
       {settings && geoPOIAvailable && (
         <div className="flex flex-col gap-2 py-2">
           <div className="flex items-center justify-between">
-            <label htmlFor="summit-radius" className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Gipfel-Erkennungs-Radius</label>
-            <span className="tabular-nums text-sm text-neutral-600 dark:text-neutral-400">{settings.summit_detection_radius_m} m</span>
+            <label htmlFor="summit-radius" className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settingsPage.analysis.summitRadius')}</label>
+            <span className="tabular-nums text-sm text-neutral-600 dark:text-neutral-400">{unitFormatters.formatDistanceCompact(settings.summit_detection_radius_m)}</span>
           </div>
           <input
             id="summit-radius"
@@ -203,31 +297,30 @@ export function AutomatischeAnalysenSection() {
             disabled={isLoading || mut.isPending}
           />
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Maximaler Abstand von der Route für Gipfel-/Pass-Erkennung (Enrichment + Route-Planer).
+            {t('settingsPage.analysis.summitRadiusDescription')}
           </p>
         </div>
       )}
 
       {/* Thresholds */}
       <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-4">
-        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Schwellenwerte</h3>
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('settingsPage.analysis.thresholds')}</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { key: 'climb_min_gradient_pct' as const, label: 'Min. Anstiegsgradient', unit: '%', step: 0.5 },
-            { key: 'climb_min_elevation_m' as const,  label: 'Min. Anstiegshöhe',     unit: 'm', step: 10  },
-            { key: 'round_trip_threshold_m' as const, label: 'Rundtour-Schwelle',      unit: 'm', step: 50  },
-          ].map(({ key, label, unit, step }) => (
+          {thresholdDefinitions.map(({ key, label, unitKind, unit, step }) => (
             <div key={key} className="space-y-1">
               <label className="text-xs text-neutral-500 dark:text-neutral-400">{label}</label>
               <div className="flex items-center gap-1">
                 <input
                   type="number"
                   step={step}
-                  value={localThresholds[key] ?? settings?.[key] ?? ''}
-                  onChange={e => setLocalThresholds(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                  value={thresholdDisplayValue(unitKind, localThresholds[key] ?? settings?.[key])}
+                  onChange={e => {
+                    const val = thresholdStoredValue(unitKind, e.target.value)
+                    setLocalThresholds(prev => ({ ...prev, [key]: val ?? 0 }))
+                  }}
                   onBlur={e => {
-                    const val = Number(e.target.value)
-                    if (!isNaN(val) && val !== settings?.[key]) {
+                    const val = thresholdStoredValue(unitKind, e.target.value)
+                    if (val != null && val !== settings?.[key]) {
                       mut.mutate({ [key]: val })
                     }
                     setLocalThresholds(prev => { const next = { ...prev }; delete next[key]; return next })
@@ -243,26 +336,26 @@ export function AutomatischeAnalysenSection() {
 
       {/* Weather note */}
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        Wetter-Einstellungen findest du unter{' '}
-        <Link to="/settings?tab=general" className="text-accent-DEFAULT hover:underline">Allgemein → Wetterdaten</Link>.
+        {t('settingsPage.analysis.weatherHintPrefix')}{' '}
+        <Link to="/settings?tab=general" className="text-accent-DEFAULT hover:underline">{t('settingsPage.analysis.weatherHintLink')}</Link>.
       </p>
 
       {/* Backfill actions — admin only */}
       {isAdmin && (
         <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
-          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Neuberechnung</h3>
+          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('settingsPage.analysis.recompute')}</h3>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleBackfillEnrichment}
               disabled={backfillRunning}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {backfillRunning ? 'Läuft…' : 'Enrichment neu berechnen'}
+              {backfillRunning ? t('settingsPage.analysis.running') : t('settingsPage.analysis.recomputeEnrichment')}
             </button>
           </div>
           {backfillResult && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Ergebnis: {backfillResult.processed} verarbeitet, {backfillResult.errors} Fehler
+              {t('settingsPage.analysis.result', { processed: backfillResult.processed, errors: backfillResult.errors })}
               {backfillResult.error_details && <span className="block text-red-500 dark:text-red-400 mt-0.5">{backfillResult.error_details}</span>}
             </p>
           )}
@@ -270,7 +363,7 @@ export function AutomatischeAnalysenSection() {
       )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
-        Änderungen gelten für neue Aktivitäten sowie bei manueller Neuberechnung.
+        {t('settingsPage.analysis.applyNote')}
       </p>
     </SettingsSection>
   )
@@ -281,12 +374,13 @@ export function AutomatischeAnalysenSection() {
 // -----------------------------------------------------------------------
 
 const PREVIEW_SIZE_OPTIONS = [
-  { value: 'wqhd', label: 'WQHD' },
-  { value: '4k', label: '4K' },
-  { value: 'original', label: 'Original' },
+  { value: 'wqhd', labelKey: 'settingsPage.photo.previewSizes.wqhd' },
+  { value: '4k', labelKey: 'settingsPage.photo.previewSizes.4k' },
+  { value: 'original', labelKey: 'settingsPage.photo.previewSizes.original' },
 ] as const
 
 export function PhotoPreviewSection() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const { isAdmin } = useUser()
   const { data: capabilities } = useCapabilities()
@@ -309,10 +403,10 @@ export function PhotoPreviewSection() {
     const anyFailed = previewResult.status === 'rejected' || thumbResult.status === 'rejected'
     const anyStarted = previewResult.status === 'fulfilled' || thumbResult.status === 'fulfilled'
     if (anyStarted) {
-      addToast({ type: 'info', title: 'Vorschau- und Thumbnail-Generierung gestartet', message: 'Fortschritt im Header-Indikator sichtbar' })
+      addToast({ type: 'info', title: t('settingsPage.photo.previewGenerationStarted'), message: t('settingsPage.import.progressInHeader') })
     }
     if (anyFailed) {
-      addToast({ type: 'error', title: 'Teilweise konnte die Generierung nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('settingsPage.photo.previewGenerationPartialFailure'), duration: 0 })
     }
   }
 
@@ -321,11 +415,11 @@ export function PhotoPreviewSection() {
       const result = await recomputePhotoEmbeddings()
       addToast({
         type: 'info',
-        title: 'Bildsuche-Indexierung gestartet',
-        message: `${result.queued} Fotos werden verarbeitet — Fortschritt im Header-Indikator sichtbar`,
+        title: t('settingsPage.photo.embeddingIndexStarted'),
+        message: t('settingsPage.import.phashBackfillQueued', { count: result.queued }),
       })
     } catch {
-      addToast({ type: 'error', title: 'Indexierung konnte nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('settingsPage.photo.embeddingIndexFailed'), duration: 0 })
     }
   }
 
@@ -335,15 +429,15 @@ export function PhotoPreviewSection() {
 
   return (
     <SettingsSection
-      title="Foto-Vorschaugröße"
-      description="Maximale Auflösung für Galerie-Ansichten. Nur wenn das Original größer ist, wird ein separates Vorschau-Bild erstellt."
+      title={t('settingsPage.photo.title')}
+      description={t('settingsPage.photo.description')}
     >
 
       <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
-        {PREVIEW_SIZE_OPTIONS.map(({ value, label }, idx) => (
+        {PREVIEW_SIZE_OPTIONS.map(({ value, labelKey }, idx) => (
           <button
             key={value}
-            onClick={() => mutation.mutate({ photo_preview_size: value }, { onSuccess: () => addToast({ type: 'success', title: 'Einstellung gespeichert' }) })}
+            onClick={() => mutation.mutate({ photo_preview_size: value }, { onSuccess: () => addToast({ type: 'success', title: t('settingsPage.photo.settingSaved') }) })}
             disabled={isLoading || mutation.isPending}
             className={`px-4 py-1.5 text-sm font-medium whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               idx > 0 ? 'border-l border-neutral-200 dark:border-neutral-700' : ''
@@ -353,7 +447,7 @@ export function PhotoPreviewSection() {
                 : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'
             }`}
           >
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>
@@ -362,10 +456,10 @@ export function PhotoPreviewSection() {
         <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
           <div>
             <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-1">
-              Video-Analyse: Frames für KI-Bildsuche
+              {t('settingsPage.photo.videoFramesTitle')}
             </h3>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-              Anzahl der Frames, die aus einem Video extrahiert werden.
+              {t('settingsPage.photo.videoFramesDescription')}
             </p>
 
             {/* Timeline-Visualisierung */}
@@ -385,8 +479,8 @@ export function PhotoPreviewSection() {
               })}
             </div>
             <div className="flex justify-between text-xs text-neutral-400 dark:text-neutral-500 mb-3">
-              <span>Start</span>
-              <span>Ende</span>
+              <span>{t('settingsPage.photo.timelineStart')}</span>
+              <span>{t('settingsPage.photo.timelineEnd')}</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -414,9 +508,9 @@ export function PhotoPreviewSection() {
       {isAdmin && (
         <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
           {[
-            { label: 'Vorschauen neu erstellen', onClick: handleRecompute, desc: 'Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.' },
+            { label: t('settingsPage.photo.recomputePreviews'), onClick: handleRecompute, desc: t('settingsPage.photo.recomputePreviewsDescription') },
             ...(photoEmbeddingsAvailable
-              ? [{ label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' }]
+              ? [{ label: t('settingsPage.photo.recomputeEmbeddings'), onClick: handleRecomputeEmbeddings, desc: t('settingsPage.photo.recomputeEmbeddingsDescription') }]
               : []),
           ].map(({ label, onClick, desc }) => (
             <div key={label} className="flex items-center gap-3">
@@ -442,9 +536,9 @@ export function PhotoPreviewSection() {
 // -----------------------------------------------------------------------
 
 const GEOCODE_PROVIDER_OPTIONS = [
-  { value: 'off',       label: 'Aus' },
-  { value: 'nominatim', label: 'Nominatim (OpenStreetMap)' },
-  { value: 'photon',    label: 'Photon (Komoot)' },
+  { value: 'off' },
+  { value: 'nominatim' },
+  { value: 'photon' },
 ] as const
 
 type GeocodeProvider = typeof GEOCODE_PROVIDER_OPTIONS[number]['value']
@@ -454,50 +548,8 @@ const GEOCODE_PLACEHOLDERS: Record<Exclude<GeocodeProvider, 'off'>, string> = {
   photon:    'https://photon.komoot.io',
 }
 
-const GEOCODE_PROVIDER_NOTES: Record<Exclude<GeocodeProvider, 'off'>, string> = {
-  nominatim: 'Strenge Rate-Limits (1 Anfrage/Sekunde global). Für gelegentliche Anfragen ausreichend.',
-  photon:    'Community-Dienst ohne offizielle Garantien (Fair-Use).',
-}
-
-const GEOCODE_PROVIDER_SERVICES: Record<Exclude<GeocodeProvider, 'off'>, string> = {
-  nominatim: 'Dienst: OpenStreetMap Foundation.',
-  photon:    'Dienst: Komoot (Photon).',
-}
-
-const GEOCODE_STRINGS = {
-  sectionTitle:       'Standort-Erkennung',
-  sectionDescription: 'Externer Reverse-Geocoding-Dienst als Fallback, wenn lokale OSM-Daten keinen Ortsnamen liefern.',
-  providerLabel:      'Dienst',
-  privacyNotice:      'Wenn aktiviert, werden Start-Koordinaten (auf ca. 75–110 m gerundet) an den externen Dienst übermittelt. Nur bei Aktivitäten, für die lokale OSM-Daten keine Stadt liefern.',
-  urlLabel:           'Server-URL (optional)',
-  urlHelp:            'Leer lassen für den öffentlichen Dienst. Eigener Wert nur bei Reverse-Proxy oder Self-Hosting nötig.',
-  timeoutLabel:       'Zeitüberschreitung',
-  timeoutUnit:        'Sekunden',
-  attribution:        'Daten © OpenStreetMap-Mitwirkende (ODbL).',
-  saved:              'Einstellung gespeichert',
-  invalidTimeout:     'Zeitüberschreitung muss zwischen 1 und 30 Sekunden liegen',
-
-  // "Geocoding nachholen" subsection
-  backfillTitle:       'Ortsnamen nachtragen',
-  backfillDescription: 'Ältere Aktivitäten, die vor dem Aktivieren des Fallbacks importiert wurden, haben möglicherweise noch keinen Ortsnamen.',
-  backfillCountZero:   'Alle Aktivitäten haben einen Ortsnamen.',
-  backfillCountOne:    '1 Aktivität ohne Ortsangabe',
-  backfillCountMany:   (n: number) => `${n} Aktivitäten ohne Ortsangabe`,
-  backfillButton:      'Jetzt nachholen',
-  backfillRunning:     'Läuft …',
-  backfillProgress:    (done: number, total: number) => `${done} / ${total} bearbeitet`,
-  backfillStartError:  'Backfill konnte nicht gestartet werden',
-  backfillStartProviderOff:    'Bitte erst einen Geocoding-Dienst aktivieren',
-  backfillStartProviderOffMsg: 'Wähle oben einen Fallback-Dienst aus, bevor du Ortsnamen nachträgst.',
-  backfillAlreadyRunning:    'Backfill läuft bereits',
-  backfillAlreadyRunningMsg: 'Fortschritt im Header-Indikator sichtbar.',
-  backfillComplete:    'Geocoding abgeschlossen',
-  backfillAbortedProviderOff: 'Geocoding abgebrochen',
-  backfillAbortedProviderOffMsg: 'Der Fallback-Dienst wurde während des Backfills deaktiviert.',
-  backfillFailed:      'Geocoding fehlgeschlagen',
-} as const
-
 function GeocodingFallbackSection() {
+  const { t } = useTranslation()
   const { addToast } = useToast()
   const { settings, isLoading, isError, mutation } = useEnrichmentSettings()
 
@@ -516,7 +568,7 @@ function GeocodingFallbackSection() {
     if (next === provider) return
     mutation.mutate(
       { geocode_fallback_provider: next },
-      { onSuccess: () => addToast({ type: 'success', title: GEOCODE_STRINGS.saved }) },
+      { onSuccess: () => addToast({ type: 'success', title: t('settingsPage.geocoding.saved') }) },
     )
   }
 
@@ -533,7 +585,7 @@ function GeocodingFallbackSection() {
       {
         onSuccess: () => {
           setUrlLocal(null)
-          addToast({ type: 'success', title: GEOCODE_STRINGS.saved })
+          addToast({ type: 'success', title: t('settingsPage.geocoding.saved') })
         },
       },
     )
@@ -543,7 +595,7 @@ function GeocodingFallbackSection() {
     if (!settings) return
     const n = Math.round(timeoutValue)
     if (!Number.isFinite(n) || n < 1 || n > 30) {
-      addToast({ type: 'error', title: GEOCODE_STRINGS.invalidTimeout, duration: 0 })
+      addToast({ type: 'error', title: t('settingsPage.geocoding.invalidTimeout'), duration: 0 })
       setTimeoutLocal(null)
       return
     }
@@ -556,7 +608,7 @@ function GeocodingFallbackSection() {
       {
         onSuccess: () => {
           setTimeoutLocal(null)
-          addToast({ type: 'success', title: GEOCODE_STRINGS.saved })
+          addToast({ type: 'success', title: t('settingsPage.geocoding.saved') })
         },
       },
     )
@@ -566,12 +618,12 @@ function GeocodingFallbackSection() {
 
   return (
     <SettingsSection
-      title={GEOCODE_STRINGS.sectionTitle}
-      description={GEOCODE_STRINGS.sectionDescription}
+      title={t('settingsPage.geocoding.title')}
+      description={t('settingsPage.geocoding.description')}
     >
       {isError && (
         <p className="text-sm text-red-500 dark:text-red-400">
-          Einstellungen konnten nicht geladen werden.
+          {t('settingsPage.geocoding.loadFailed')}
         </p>
       )}
 
@@ -580,7 +632,7 @@ function GeocodingFallbackSection() {
           htmlFor="geocode-provider"
           className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
         >
-          {GEOCODE_STRINGS.providerLabel}
+          {t('settingsPage.geocoding.providerLabel')}
         </label>
         <select
           id="geocode-provider"
@@ -590,7 +642,7 @@ function GeocodingFallbackSection() {
           className="w-64 px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {GEOCODE_PROVIDER_OPTIONS.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>{t(`settingsPage.geocoding.providers.${opt.value}`)}</option>
           ))}
         </select>
       </div>
@@ -600,7 +652,7 @@ function GeocodingFallbackSection() {
         role="note"
         className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
       >
-        {GEOCODE_STRINGS.privacyNotice}
+        {t('settingsPage.geocoding.privacyNotice')}
       </div>
 
       {showDetails && (
@@ -611,7 +663,7 @@ function GeocodingFallbackSection() {
               htmlFor="geocode-url"
               className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
             >
-              {GEOCODE_STRINGS.urlLabel}
+              {t('settingsPage.geocoding.urlLabel')}
             </label>
             <input
               id="geocode-url"
@@ -631,7 +683,7 @@ function GeocodingFallbackSection() {
               className="block w-full max-w-md text-sm bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              {GEOCODE_STRINGS.urlHelp}
+              {t('settingsPage.geocoding.urlHelp')}
             </p>
           </div>
 
@@ -641,7 +693,7 @@ function GeocodingFallbackSection() {
               htmlFor="geocode-timeout"
               className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1"
             >
-              {GEOCODE_STRINGS.timeoutLabel}
+              {t('settingsPage.geocoding.timeoutLabel')}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -663,7 +715,7 @@ function GeocodingFallbackSection() {
                 className="w-24 text-sm bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed tabular-nums"
               />
               <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                {GEOCODE_STRINGS.timeoutUnit}
+                {t('settingsPage.geocoding.timeoutUnit')}
               </span>
             </div>
           </div>
@@ -673,10 +725,10 @@ function GeocodingFallbackSection() {
 
           {/* Provider-specific notes + common attribution */}
           <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
-            <p>{GEOCODE_PROVIDER_NOTES[provider as Exclude<GeocodeProvider, 'off'>]}</p>
+            <p>{t(`settingsPage.geocoding.notes.${provider}`)}</p>
             <p>
-              {GEOCODE_STRINGS.attribution}{' '}
-              {GEOCODE_PROVIDER_SERVICES[provider as Exclude<GeocodeProvider, 'off'>]}
+              {t('settingsPage.geocoding.attribution')}{' '}
+              {t(`settingsPage.geocoding.services.${provider}`)}
             </p>
           </div>
         </div>
@@ -686,14 +738,15 @@ function GeocodingFallbackSection() {
 }
 
 /**
- * "Jetzt nachholen"-Button für Aktivitäten ohne start_city.
+ * "Run now" button for activities without start_city.
  *
- * Sichtbar nur innerhalb des GeocodingFallbackSection, also implizit nur wenn
- * der Provider aktiv ist. Polling des Job-Fortschritts läuft über
- * fetchActiveJobs (dasselbe query-key wie der globale Job-Indikator), mit
- * aktivem 2-Sekunden-Intervall, solange wir eine job_id tracken.
+ * Visible only inside GeocodingFallbackSection, so implicitly only while the
+ * provider is active. Job progress polling runs through fetchActiveJobs (the
+ * same query key as the global job indicator), with an active 2-second interval
+ * while we track a job_id.
  */
 function GeocodingBackfillBlock() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
 
@@ -709,7 +762,7 @@ function GeocodingBackfillBlock() {
 
   // Keep the gap count in sync when new activities appear: the user might
   // import a GPS file elsewhere, which would leave the "0 without start_city"
-  // label stale and the "Jetzt nachholen"-button disabled until staleTime
+  // label stale and the run-now button disabled until staleTime
   // expires + a refetch trigger fires. There is no dedicated "activity_imported"
   // event bus in the frontend; react-query's queryCache is the next-best signal.
   // We mark geocoding-gap stale whenever any ['activities', …] query settles.
@@ -762,7 +815,7 @@ function GeocodingBackfillBlock() {
     queryClient.invalidateQueries({ queryKey: ['activities'] })
 
     if (trackedJob.status === 'completed') {
-      addToast({ type: 'success', title: GEOCODE_STRINGS.backfillComplete })
+      addToast({ type: 'success', title: t('settingsPage.geocoding.backfill.complete') })
       return
     }
 
@@ -776,13 +829,13 @@ function GeocodingBackfillBlock() {
     if (providerOff) {
       addToast({
         type: 'warning',
-        title: GEOCODE_STRINGS.backfillAbortedProviderOff,
-        message: GEOCODE_STRINGS.backfillAbortedProviderOffMsg,
+        title: t('settingsPage.geocoding.backfill.abortedProviderOff'),
+        message: t('settingsPage.geocoding.backfill.abortedProviderOffMessage'),
       })
     } else {
       addToast({
         type: 'error',
-        title: GEOCODE_STRINGS.backfillFailed,
+        title: t('settingsPage.geocoding.backfill.failed'),
         message: errorMessage || undefined,
         duration: 0,
       })
@@ -830,8 +883,8 @@ function GeocodingBackfillBlock() {
         if (code === 'provider_disabled') {
           addToast({
             type: 'warning',
-            title: GEOCODE_STRINGS.backfillStartProviderOff,
-            message: GEOCODE_STRINGS.backfillStartProviderOffMsg,
+            title: t('settingsPage.geocoding.backfill.startProviderOff'),
+            message: t('settingsPage.geocoding.backfill.startProviderOffMessage'),
           })
           return
         }
@@ -843,8 +896,8 @@ function GeocodingBackfillBlock() {
           }
           addToast({
             type: 'info',
-            title: GEOCODE_STRINGS.backfillAlreadyRunning,
-            message: GEOCODE_STRINGS.backfillAlreadyRunningMsg,
+            title: t('settingsPage.geocoding.backfill.alreadyRunning'),
+            message: t('settingsPage.geocoding.backfill.alreadyRunningMessage'),
           })
           return
         }
@@ -852,7 +905,7 @@ function GeocodingBackfillBlock() {
       const message = err instanceof Error ? err.message : String(err)
       addToast({
         type: 'error',
-        title: GEOCODE_STRINGS.backfillStartError,
+        title: t('settingsPage.geocoding.backfill.startError'),
         message,
         duration: 0,
       })
@@ -861,10 +914,10 @@ function GeocodingBackfillBlock() {
 
   const gapLabel =
     count === 0
-      ? GEOCODE_STRINGS.backfillCountZero
+      ? t('settingsPage.geocoding.backfill.countZero')
       : count === 1
-        ? GEOCODE_STRINGS.backfillCountOne
-        : GEOCODE_STRINGS.backfillCountMany(count)
+        ? t('settingsPage.geocoding.backfill.countOne')
+        : t('settingsPage.geocoding.backfill.countMany', { count })
 
   const current = trackedJob?.progress_current ?? 0
   const total = trackedJob?.progress_total ?? 0
@@ -874,10 +927,10 @@ function GeocodingBackfillBlock() {
     <div className="pt-4 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
       <div>
         <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          {GEOCODE_STRINGS.backfillTitle}
+          {t('settingsPage.geocoding.backfill.title')}
         </p>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-          {GEOCODE_STRINGS.backfillDescription}
+          {t('settingsPage.geocoding.backfill.description')}
         </p>
       </div>
 
@@ -891,7 +944,7 @@ function GeocodingBackfillBlock() {
           disabled={running || count === 0 || gapQuery.isLoading}
           className="px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500 dark:disabled:text-neutral-400 disabled:cursor-not-allowed transition-colors"
         >
-          {running ? GEOCODE_STRINGS.backfillRunning : GEOCODE_STRINGS.backfillButton}
+          {running ? t('settingsPage.geocoding.backfill.running') : t('settingsPage.geocoding.backfill.button')}
         </button>
       </div>
 
@@ -904,7 +957,7 @@ function GeocodingBackfillBlock() {
             />
           </div>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
-            {GEOCODE_STRINGS.backfillProgress(current, total)}
+            {t('settingsPage.geocoding.backfill.progress', { current, total })}
           </p>
         </div>
       )}
@@ -916,6 +969,7 @@ type SettingsTab = 'general' | 'import' | 'karte' | 'analysen' | 'ai' | 'konto' 
 const VALID_TABS = new Set<SettingsTab>(['general', 'import', 'karte', 'analysen', 'ai', 'konto', 'admin'])
 
 export default function SettingsPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
   const { isAdmin } = useUser()
@@ -985,24 +1039,24 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Einstellungen</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('settingsPage.title')}</h1>
 
       {/* Tab-Navigation */}
       <div
         ref={tabListRef}
         role="tablist"
-        aria-label="Einstellungen-Kategorien"
+        aria-label={t('settingsPage.tabs.ariaLabel')}
         className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg w-fit flex-wrap"
         onKeyDown={handleTabKeyDown}
       >
         {[
-          { id: 'general' as const,  label: 'Allgemein',          show: true      },
-          { id: 'import' as const,   label: 'Import',             show: true      },
-          { id: 'karte' as const,    label: 'Karte & Geodaten',   show: true      },
-          { id: 'konto' as const,    label: 'Konto',              show: true      },
-          { id: 'analysen' as const, label: 'Analysen',           show: true      },
-          { id: 'ai' as const,       label: 'KI & ML',            show: true      },
-          { id: 'admin' as const,    label: 'Admin',              show: isAdmin   },
+          { id: 'general' as const,  label: t('settingsPage.tabs.general'), show: true },
+          { id: 'import' as const,   label: t('settingsPage.tabs.import'), show: true },
+          { id: 'karte' as const,    label: t('settingsPage.tabs.map'), show: true },
+          { id: 'konto' as const,    label: t('settingsPage.tabs.account'), show: true },
+          { id: 'analysen' as const, label: t('settingsPage.tabs.analysis'), show: true },
+          { id: 'ai' as const,       label: t('settingsPage.tabs.ai'), show: true },
+          { id: 'admin' as const,    label: t('settingsPage.tabs.admin'), show: isAdmin },
         ].filter(tab => tab.show).map(tab => (
           <button
             key={tab.id}
@@ -1054,12 +1108,12 @@ export default function SettingsPage() {
       {activeTab === 'general' && (
       <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className="space-y-8">
       <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-400">
-        Einstellung nicht gefunden? Einstellungen zur Medienverwaltung unter{' '}
-        <Link to="/workshop" className="text-accent-DEFAULT hover:text-accent-600 font-medium">Werkstatt</Link>.
+        {t('settingsPage.general.workshopHintPrefix')}{' '}
+        <Link to="/workshop" className="text-accent-DEFAULT hover:text-accent-600 font-medium">{t('settingsPage.general.workshopLink')}</Link>.
       </div>
 
       {/* Erscheinungsbild */}
-      <SettingsSection title="Erscheinungsbild" description="Wähle eine Akzentfarbe für die Benutzeroberfläche.">
+      <SettingsSection title={t('settingsPage.general.appearanceTitle')} description={t('settingsPage.general.appearanceDescription')}>
         <div className="flex flex-wrap items-center gap-3">
           <ColorPicker
             value={accent.shade500}
@@ -1070,7 +1124,7 @@ export default function SettingsPage() {
               onClick={() => setAccent(ACCENT_PALETTE[0])}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
             >
-              Auf Standard zurücksetzen
+              {t('settingsPage.general.resetAccent')}
             </button>
           )}
         </div>
@@ -1084,23 +1138,23 @@ export default function SettingsPage() {
       {/* Sportarten */}
       <SportSettingsSection />
 
-      {/* Automatisierung */}
-      <SettingsSection title="Automatisierung" description="Regeln für automatische Zuweisungen und Tags.">
+      {/* Automation */}
+      <SettingsSection title={t('settingsPage.general.automationTitle')} description={t('settingsPage.general.automationDescription')}>
         <Link
           to="/settings/rules"
           className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
-          Automatisierungsregeln
+          {t('settingsPage.general.automationRules')}
         </Link>
       </SettingsSection>
 
-      {/* Privatsphäre */}
-      <SettingsSection title="Privatsphäre" description="Definiere Zonen, in denen GPS-Daten automatisch aus öffentlichen Ansichten ausgeblendet werden.">
+      {/* Privacy */}
+      <SettingsSection title={t('settingsPage.general.privacyTitle')} description={t('settingsPage.general.privacyDescription')}>
         <Link
           to="/settings/privacy"
           className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
         >
-          Private Zonen verwalten
+          {t('settingsPage.general.managePrivateZones')}
         </Link>
       </SettingsSection>
 
@@ -1114,9 +1168,9 @@ export default function SettingsPage() {
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-4">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Hotfolder</h2>
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('settingsPage.import.hotfolderTitle')}</h2>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-              Automatischer Import neuer Dateien aus einem Verzeichnis.
+              {t('settingsPage.import.hotfolderDescription')}
             </p>
           </div>
 
@@ -1124,32 +1178,32 @@ export default function SettingsPage() {
             checked={!!settings?.hotfolder_enabled}
             onChange={() => toggleMutation.mutate(!settings?.hotfolder_enabled)}
             disabled={isLoading || toggleMutation.isPending}
-            aria-label="Hotfolder aktivieren"
+            aria-label={t('settingsPage.import.hotfolderToggle')}
           />
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-neutral-400">Lade...</p>
+          <p className="text-sm text-neutral-400">{t('settingsPage.loading')}</p>
         ) : (
           <>
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-neutral-500 dark:text-neutral-400">Pfad:</span>
+              <span className="text-neutral-500 dark:text-neutral-400">{t('settingsPage.import.pathLabel')}</span>
               <span className="font-mono text-neutral-800 dark:text-neutral-200 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 rounded">
-                {settings?.hotfolder_path || '(nicht konfiguriert)'}
+                {settings?.hotfolder_path || t('settingsPage.import.notConfigured')}
               </span>
             </div>
 
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-neutral-500 dark:text-neutral-400">Status:</span>
+              <span className="text-neutral-500 dark:text-neutral-400">{t('settingsPage.import.statusLabel')}</span>
               {settings?.hotfolder_enabled ? (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-emerald-600 dark:text-emerald-400">Aktiv</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">{t('settingsPage.import.active')}</span>
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-neutral-400" />
-                  <span className="text-neutral-500 dark:text-neutral-400">Inaktiv</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">{t('settingsPage.import.inactive')}</span>
                 </span>
               )}
             </div>
@@ -1158,10 +1212,10 @@ export default function SettingsPage() {
 
       </section>
 
-      {/* Dateiablage */}
+      {/* File storage */}
       <FileSchemaSettings />
 
-      {/* Import-Einstellungen */}
+      {/* Import settings */}
       <ImportSettingsSection />
 
       </div>
@@ -1170,24 +1224,24 @@ export default function SettingsPage() {
       {activeTab === 'karte' && (
       <div role="tabpanel" id="settings-panel-karte" aria-labelledby="settings-tab-karte" className="space-y-8">
 
-      {/* Karteneinstellungen */}
+      {/* Map settings */}
       <HeatmapSettingsSection />
 
-      {/* Reverse-Geocoding-Fallback (externer Dienst) */}
+      {/* Reverse-geocoding fallback (external service) */}
       <GeocodingFallbackSection />
 
-      {/* Eigene Karten-Layer (alle User) */}
+      {/* Custom map layers (all users) */}
       <UserCustomLayersSection />
 
-      {/* Admin-Hinweis: DEM, Offline-Karten, OSM jetzt unter Admin → Karten & Tiles */}
+      {/* Admin hint: DEM, offline maps, OSM now live under Admin -> Maps & Tiles */}
       {isAdmin && fullMapAdminConfigured && (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Admin-Optionen (DEM, Offline-Karten, OSM-Regionen, Layer-Verwaltung) jetzt unter{' '}
+          {t('settingsPage.map.adminHintPrefix')}{' '}
           <Link
             to="/settings?tab=admin&section=maps"
             className="text-accent-DEFAULT hover:underline"
           >
-            Settings → Admin → Karten &amp; Tiles
+            {t('settingsPage.map.adminHintLink')}
           </Link>
           .
         </p>
@@ -1200,13 +1254,14 @@ export default function SettingsPage() {
 }
 
 function SportSettingsSection() {
+  const { t } = useTranslation()
   const { getSportColor, setSportColor, resetSportColor, customColors, resetAllColors, hideUnused, setHideUnused } =
     useGlobalSportSettings()
 
-  // Aufgeklappt-Status für die Farbliste
+  // Expanded state for the color list
   const [colorsOpen, setColorsOpen] = useState(false)
 
-  // Vorschau-Farben (noch nicht gespeichert) — key: sportType
+  // Preview colors (not persisted yet) — key: sportType
   const [pendingColors, setPendingColors] = useState<Record<string, string>>({})
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
@@ -1231,23 +1286,23 @@ function SportSettingsSection() {
 
   const hasCustomColors = Object.keys(customColors).length > 0
 
-  // Vorschau-Farbe für einen Sport setzen
+  // Set preview color for a sport
   function previewSport(sportType: string, hex: string) {
     setPendingColors((prev) => ({ ...prev, [sportType]: hex }))
   }
 
-  // Vorschau bestätigen → dauerhaft speichern
+  // Confirm preview and persist it
   function confirmSport(sportType: string, hex: string) {
     setSportColor(sportType, hex)
     setPendingColors((prev) => { const n = { ...prev }; delete n[sportType]; return n })
   }
 
-  // Vorschau verwerfen → Picker auf Originalwert zurück
+  // Discard preview and reset picker to the original value
   function cancelSport(sportType: string) {
     setPendingColors((prev) => { const n = { ...prev }; delete n[sportType]; return n })
   }
 
-  // Kategorie-Farbe vorschau: alle Sports in der Kategorie gleichzeitig
+  // Preview category color: all sports in the category at once
   function previewCategory(catKey: string, hex: string) {
     const sports = SPORT_DEFS.filter((s) => s.categoryKey === catKey)
     setPendingColors((prev) => {
@@ -1278,23 +1333,23 @@ function SportSettingsSection() {
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
-      {/* Header — immer sichtbar, klappt Farbliste auf/zu */}
+      {/* Header — always visible, toggles the color list */}
       <button
         type="button"
         onClick={() => setColorsOpen((o) => !o)}
         className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer transition-colors"
       >
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Sportarten</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('settingsPage.sports.title')}</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Farben pro Sportart, Filtereinstellungen.
+            {t('settingsPage.sports.description')}
           </p>
         </div>
         {/* Chevron */}
         <ChevronDown className={`w-5 h-5 text-neutral-400 flex-shrink-0 transition-transform duration-200 ${colorsOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Ausgeklappter Inhalt */}
+      {/* Expanded content */}
       {colorsOpen && (
         <div className="px-6 pb-6 space-y-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
           {/* Hide unused toggle */}
@@ -1307,31 +1362,31 @@ function SportSettingsSection() {
             />
             <div>
               <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                Nicht vorhandene Sportarten in Filtern ausblenden
+                {t('settingsPage.sports.hideUnused')}
               </span>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                Nur Sportarten anzeigen, für die bereits Aktivitäten hochgeladen wurden.
+                {t('settingsPage.sports.hideUnusedDescription')}
               </p>
             </div>
           </label>
 
-          {/* Ladehinweis nur während des ersten Ladens */}
+          {/* Loading hint only during the initial load */}
           {hideUnused && statsLoading && (
-            <p className="text-xs text-neutral-400">Lade Sportarten-Statistiken…</p>
+            <p className="text-xs text-neutral-400">{t('settingsPage.sports.loadingStats')}</p>
           )}
 
-          {/* Farbliste */}
+          {/* Color list */}
           <div className="space-y-5">
             {categoryGroups.map(({ cat, sports }) => {
-              // Repräsentative Farbe der Kategorie für den Kategorie-Picker:
-              // erster Sport der Kategorie (ggf. mit pending-Vorschau)
+              // Representative category color for the category picker:
+              // first sport in the category (possibly with a pending preview)
               const catPreviewColor = sports.length > 0
                 ? (pendingColors[sports[0].sportType] ?? getSportColor(sports[0].sportType))
                 : cat.color
 
               return (
                 <div key={cat.key}>
-                  {/* Kategorie-Header mit Kategorie-Farbpicker */}
+                  {/* Category header with category color picker */}
                   <div className="flex items-center gap-2 mb-2">
                     <ColorPicker
                       value={catPreviewColor}
@@ -1340,10 +1395,10 @@ function SportSettingsSection() {
                       onCancel={() => cancelCategory(cat.key)}
                     />
                     <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                      {cat.label}
+                      {localizeString(cat.labels)}
                     </span>
                     <span className="text-xs text-neutral-400 dark:text-neutral-600 font-normal normal-case tracking-normal">
-                      — alle auf diese Farbe setzen
+                      {t('settingsPage.sports.applyColorToCategory')}
                     </span>
                   </div>
 
@@ -1363,15 +1418,15 @@ function SportSettingsSection() {
                             onCancel={() => cancelSport(s.sportType)}
                           />
                           <span className={`flex-1 text-sm ${hasPending ? 'text-[color:var(--color-accent-DEFAULT,#F97316)]' : 'text-neutral-800 dark:text-neutral-200'}`}>
-                            {s.label}
-                            {hasPending && <span className="text-xs ml-1 opacity-70">(Vorschau)</span>}
+                            {localizeString(s.labels)}
+                            {hasPending && <span className="text-xs ml-1 opacity-70">{t('settingsPage.sports.previewSuffix')}</span>}
                           </span>
                           {(isCustom && !hasPending) && (
                             <button
                               onClick={() => resetSportColor(s.sportType)}
                               className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors cursor-pointer"
                             >
-                              Zurücksetzen
+                              {t('settingsPage.sports.reset')}
                             </button>
                           )}
                         </div>
@@ -1388,7 +1443,7 @@ function SportSettingsSection() {
               onClick={resetAllColors}
               className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline transition-colors cursor-pointer"
             >
-              Alle Farben zurücksetzen
+              {t('settingsPage.sports.resetAll')}
             </button>
           )}
         </div>
@@ -1399,7 +1454,9 @@ function SportSettingsSection() {
 
 
 function HeatmapSettingsSection() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const unitFormatters = useUnitFormatters()
   const [localRadius, setLocalRadius] = useState<number | null>(null)
   const [localInterval, setLocalInterval] = useState<number | null>(null)
   const [localThreshold, setLocalThreshold] = useState<number | null>(null)
@@ -1458,7 +1515,7 @@ function HeatmapSettingsSection() {
   }
   const currentRadius = localRadius ?? enrichSettings?.terra_incognita_radius_m ?? 1000
   const radiusDirty = localRadius !== null && localRadius !== (enrichSettings?.terra_incognita_radius_m ?? 1000)
-  const fmtRadius = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`
+  const fmtDistance = unitFormatters.formatDistanceCompact
 
   const updateHeatmapMut = useMutation({
     mutationFn: updateHeatmapSettings,
@@ -1483,15 +1540,15 @@ function HeatmapSettingsSection() {
     (localFilterActivity !== null && localFilterActivity !== heatmapSettings?.teleport_filter_activity)
 
   return (
-    <SettingsSection title="Karteneinstellungen" description="Einstellungen für die Heatmap und Kartenansicht.">
+    <SettingsSection title={t('settingsPage.map.title')} description={t('settingsPage.map.description')}>
 
-      {/* Standard-Kartenstil */}
+      {/* Default map style */}
       <div>
         <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block mb-1">
-          Standard-Kartenstil
+          {t('settingsPage.map.defaultStyle')}
         </label>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
-          Wird beim ersten Öffnen verwendet. Während der Sitzung wird der zuletzt verwendete Stil gespeichert.
+          {t('settingsPage.map.defaultStyleDescription')}
         </p>
         <select
           value={defaultBaseStyle}
@@ -1510,7 +1567,7 @@ function HeatmapSettingsSection() {
           ))}
           {disabledLayers.filter(d => d.layer.role === 'base').map(({ layer, missingCapability }) => (
             <option key={layer.key} value={layer.key} disabled>
-              {layer.name} (Fähigkeit fehlt: {missingCapability})
+              {t('settingsPage.map.missingCapability', { name: layer.name, capability: missingCapability })}
             </option>
           ))}
         </select>
@@ -1518,14 +1575,14 @@ function HeatmapSettingsSection() {
 
       {/* ── Heatmap & Terra Incognita ── */}
       <div className="border-t border-neutral-200 dark:border-neutral-700 pt-5 space-y-5">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Heatmap &amp; Terra Incognita</h3>
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('settingsPage.map.heatmapTerra')}</h3>
 
         <div>
           <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Terra Incognita — Sichtweite
+            {t('settingsPage.map.terraRadius')}
           </label>
-          <span className="text-sm text-neutral-500 tabular-nums">{fmtRadius(currentRadius)}</span>
+          <span className="text-sm text-neutral-500 tabular-nums">{fmtDistance(currentRadius)}</span>
         </div>
         <input
           type="range"
@@ -1537,11 +1594,11 @@ function HeatmapSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>100 m (eng am Track)</span>
-          <span>10 km (großzügig)</span>
+          <span>{fmtDistance(100)} ({t('settingsPage.map.radiusMinHint')})</span>
+          <span>{fmtDistance(10000)} ({t('settingsPage.map.radiusMaxHint')})</span>
         </div>
         <p className="text-xs text-neutral-400 mt-2">
-          Bestimmt den Radius um jeden Track, in dem die Karte sichtbar ist. Kleinere Werte erfordern mehr Erkundung.
+          {t('settingsPage.map.radiusDescription')}
         </p>
         {radiusDirty && (
           <button
@@ -1549,7 +1606,7 @@ function HeatmapSettingsSection() {
             disabled={radiusMut.isPending}
             className="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            {radiusMut.isPending ? 'Speichert...' : 'Sichtweite speichern'}
+            {radiusMut.isPending ? t('settingsPage.saving') : t('settingsPage.map.saveRadius')}
           </button>
         )}
       </div>
@@ -1557,9 +1614,9 @@ function HeatmapSettingsSection() {
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Heatmap-Sampling-Intervall
+            {t('settingsPage.map.samplingInterval')}
           </label>
-          <span className="text-sm text-neutral-500 tabular-nums">{currentInterval} m</span>
+          <span className="text-sm text-neutral-500 tabular-nums">{fmtDistance(currentInterval)}</span>
         </div>
         <input
           type="range"
@@ -1571,21 +1628,21 @@ function HeatmapSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>10 m (detailliert)</span>
-          <span>100 m (schnell)</span>
+          <span>{fmtDistance(10)} ({t('settingsPage.map.intervalMinHint')})</span>
+          <span>{fmtDistance(100)} ({t('settingsPage.map.intervalMaxHint')})</span>
         </div>
         <p className="text-xs text-neutral-400 mt-2">
-          Bestimmt den Abstand zwischen den Sampling-Punkten für die Heatmap. Kleinere Werte erzeugen mehr Punkte und eine detailliertere Heatmap, erhöhen aber die Datenmenge.
+          {t('settingsPage.map.intervalDescription')}
         </p>
         </div>
       </div>
 
-      {/* ── Teleportationslücken ── */}
+      {/* ── Teleportation gaps ── */}
       <div className="border-t border-neutral-200 dark:border-neutral-700 pt-5">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">Teleportationslücken</h3>
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('settingsPage.map.teleportGaps')}</h3>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Teleportationslücken ausblenden
+            {t('settingsPage.map.hideTeleportGaps')}
           </p>
           <Toggle
             checked={!!(currentFilterMap || currentFilterActivity)}
@@ -1594,11 +1651,11 @@ function HeatmapSettingsSection() {
               setLocalFilterMap(next)
               setLocalFilterActivity(next)
             }}
-            aria-label="Teleportationslücken ausblenden"
+            aria-label={t('settingsPage.map.hideTeleportGaps')}
           />
         </div>
         <p className="text-xs text-neutral-400 mb-4">
-          Filtert gerade Linien heraus, die entstehen wenn die GPS-Aufzeichnung gestoppt und an einem anderen Ort wieder gestartet wurde.
+          {t('settingsPage.map.teleportDescription')}
         </p>
 
         <div className="space-y-2 mb-4">
@@ -1609,7 +1666,7 @@ function HeatmapSettingsSection() {
               onChange={(e) => setLocalFilterMap(e.target.checked)}
               className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
             />
-            <span className="text-sm text-neutral-700 dark:text-neutral-300">Karte (Heatmap &amp; Tracks)</span>
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">{t('settingsPage.map.mapTracks')}</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -1618,16 +1675,16 @@ function HeatmapSettingsSection() {
               onChange={(e) => setLocalFilterActivity(e.target.checked)}
               className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
             />
-            <span className="text-sm text-neutral-700 dark:text-neutral-300">Aktivitätsdetailansicht</span>
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">{t('settingsPage.map.activityDetailView')}</span>
           </label>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Mindestlückenlänge
+              {t('settingsPage.map.minGapLength')}
             </label>
-            <span className="text-sm text-neutral-500 tabular-nums">{currentThreshold} m</span>
+            <span className="text-sm text-neutral-500 tabular-nums">{fmtDistance(currentThreshold)}</span>
           </div>
           <input
             type="range"
@@ -1639,8 +1696,8 @@ function HeatmapSettingsSection() {
             className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT cursor-pointer"
           />
           <div className="flex justify-between text-xs text-neutral-400 mt-1">
-            <span>100 m</span>
-            <span>10 km</span>
+            <span>{fmtDistance(100)}</span>
+            <span>{fmtDistance(10000)}</span>
           </div>
         </div>
       </div>
@@ -1656,13 +1713,13 @@ function HeatmapSettingsSection() {
           disabled={updateHeatmapMut.isPending}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
-          {updateHeatmapMut.isPending ? 'Speichert...' : 'Speichern'}
+          {updateHeatmapMut.isPending ? t('settingsPage.saving') : t('settingsPage.save')}
         </button>
       )}
 
       {updateHeatmapMut.isError && (
         <p className="text-sm text-rose-500">
-          Fehler: {updateHeatmapMut.error instanceof Error ? updateHeatmapMut.error.message : 'Unbekannt'}
+          {t('settingsPage.errorPrefix')} {updateHeatmapMut.error instanceof Error ? updateHeatmapMut.error.message : t('settingsPage.unknownError')}
         </p>
       )}
     </SettingsSection>
@@ -1670,9 +1727,11 @@ function HeatmapSettingsSection() {
 }
 
 function ImportSettingsSection() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { isAdmin } = useUser()
+  const unitFormatters = useUnitFormatters()
   const { data: settings } = useQuery({
     queryKey: ['import-settings'],
     queryFn: getImportSettings,
@@ -1689,14 +1748,14 @@ function ImportSettingsSection() {
     try {
       const result = await backfillPhash()
       if (result.status === 'already_running') {
-        addToast({ type: 'info', title: 'Backfill läuft bereits', message: 'Fortschritt im Header-Indikator sichtbar' })
+        addToast({ type: 'info', title: t('settingsPage.import.phashAlreadyRunning'), message: t('settingsPage.import.progressInHeader') })
       } else if ((result.queued ?? 0) === 0) {
-        addToast({ type: 'success', title: 'Alle Fotos haben bereits einen pHash' })
+        addToast({ type: 'success', title: t('settingsPage.import.allPhotosHavePhash') })
       } else {
-        addToast({ type: 'info', title: 'pHash-Backfill gestartet', message: `${result.queued} Fotos werden verarbeitet — Fortschritt im Header-Indikator sichtbar` })
+        addToast({ type: 'info', title: t('settingsPage.import.phashBackfillStarted'), message: t('settingsPage.import.phashBackfillQueued', { count: result.queued }) })
       }
     } catch {
-      addToast({ type: 'error', title: 'Backfill konnte nicht gestartet werden', duration: 0 })
+      addToast({ type: 'error', title: t('settingsPage.import.phashBackfillFailed'), duration: 0 })
     } finally {
       setPhashBackfillPending(false)
     }
@@ -1715,6 +1774,7 @@ function ImportSettingsSection() {
   const [localHausdorff, setLocalHausdorff] = useState(hausdorff)
   const [localLengthDiff, setLocalLengthDiff] = useState(lengthDiff)
   const [localPhashBits, setLocalPhashBits] = useState(phashBits)
+  const fmtDistance = unitFormatters.formatDistanceCompact
 
   useEffect(() => {
     setLocalGpsDup(s.gps_duplicate_threshold)
@@ -1725,31 +1785,31 @@ function ImportSettingsSection() {
   }, [s.gps_duplicate_threshold, s.fusion_time_window_min, hausdorff, lengthDiff, phashBits])
 
   return (
-    <SettingsSection title="Import" className="space-y-5">
+    <SettingsSection title={t('settingsPage.import.title')} className="space-y-5">
 
       {/* Konflikt-Strategie */}
       <div>
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-          Standard-Verhalten bei Duplikaten
+          {t('settingsPage.import.defaultDuplicateBehavior')}
         </label>
         <select
           value={s.conflict_strategy}
           onChange={e => mut.mutate({ ...s, conflict_strategy: e.target.value as ConflictStrategy })}
           className="block w-full max-w-xs border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
         >
-          <option value="enrich_missing">Fehlende Felder ergänzen (empfohlen)</option>
-          <option value="replace_all">Immer ersetzen</option>
-          <option value="skip">Immer überspringen</option>
+          {settingsConflictStrategyOptions(t).map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
         </select>
         <p className="text-xs text-neutral-400 mt-1">
-          Gilt für Einzelupload und Hotfolder. Beim Bulk-Import kann pro Import gewählt werden.
+          {t('settingsPage.import.defaultDuplicateDescription')}
         </p>
       </div>
 
       {/* GPS-Duplikat-Schwellwert */}
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          <span>GPS-Duplikat-Schwellwert</span>
+          <span>{t('settingsPage.import.gpsDuplicateThreshold')}</span>
           <span className="tabular-nums font-mono">{localGpsDup} %</span>
         </div>
         <input
@@ -1764,18 +1824,18 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>60 % (mehr Kandidaten)</span>
-          <span>95 % (weniger Kandidaten)</span>
+          <span>{t('settingsPage.import.gpsThresholdMin')}</span>
+          <span>{t('settingsPage.import.gpsThresholdMax')}</span>
         </div>
         <p className="text-xs text-neutral-400 mt-1">
-          Aktivitäten werden als Fusion-Kandidaten vorgeschlagen wenn sie innerhalb des eingestellten Zeitfensters liegen und ihre GPS-Spur mindestens so ähnlich ist. Gleiche Strecken an anderen Tagen werden nicht erkannt.
+          {t('settingsPage.import.gpsDuplicateDescription')}
         </p>
       </div>
 
       {/* Zeitfenster Fusionserkennung */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          <span>Zeitfenster Fusionserkennung</span>
+          <span>{t('settingsPage.import.fusionTimeWindow')}</span>
           <span className="tabular-nums font-mono">{localFusionMin} min</span>
         </div>
         <input
@@ -1790,28 +1850,28 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400">
-          <span>5 min (strenger)</span>
-          <span>120 min (großzügiger)</span>
+          <span>{t('settingsPage.import.fusionWindowMin')}</span>
+          <span>{t('settingsPage.import.fusionWindowMax')}</span>
         </div>
         <p className="text-xs text-neutral-400 mt-1">
-          Maximaler Zeitabstand zwischen zwei Aktivitäten damit sie als Fusionskandidaten erkannt werden. 30 Minuten empfohlen — z.B. für eine Wanderung mit Radcomputer + GPS-Gerät gestartet mit kurzem Versatz.
+          {t('settingsPage.import.fusionTimeDescription')}
         </p>
       </div>
 
       {/* Routen-Duplikaterkennung */}
       <div className="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          Routen-Duplikaterkennung (Komoot / Garmin / Strava)
+          {t('settingsPage.import.routeDuplicateTitle')}
         </h3>
         <p className="text-xs text-neutral-400">
-          Beim Import geplanter Routen werden Duplikate über GPS-Ähnlichkeit erkannt. Zwei Routen gelten als Duplikat wenn ihre maximale Abweichung und Längendifferenz unter den Schwellwerten liegen.
+          {t('settingsPage.import.routeDuplicateDescription')}
         </p>
       </div>
 
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          <span>Max. GPS-Abweichung (Hausdorff)</span>
-          <span className="tabular-nums font-mono">{localHausdorff} m</span>
+          <span>{t('settingsPage.import.maxGpsDeviation')}</span>
+          <span className="tabular-nums font-mono">{fmtDistance(localHausdorff)}</span>
         </div>
         <input
           type="range"
@@ -1825,16 +1885,16 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>10 m (strenger)</span>
-          <span>200 m (großzügiger)</span>
+          <span>{fmtDistance(10)} ({t('settingsPage.import.hausdorffMinHint')})</span>
+          <span>{fmtDistance(200)} ({t('settingsPage.import.hausdorffMaxHint')})</span>
         </div>
       </div>
 
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          <span>Max. Längendifferenz</span>
+          <span>{t('settingsPage.import.maxLengthDifference')}</span>
           <span className="tabular-nums font-mono">
-            {localLengthDiff < 1 ? `${Math.round(localLengthDiff * 1000)} m` : `${Math.round(localLengthDiff * 10) / 10} km`}
+            {fmtDistance(localLengthDiff * 1000)}
           </span>
         </div>
         <input
@@ -1849,26 +1909,24 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>100 m (strenger)</span>
-          <span>2 km (großzügiger)</span>
+          <span>{fmtDistance(100)} ({t('settingsPage.import.lengthDiffMinHint')})</span>
+          <span>{fmtDistance(2000)} ({t('settingsPage.import.lengthDiffMaxHint')})</span>
         </div>
       </div>
 
       {/* Foto-Duplikat-Erkennungsschwelle */}
       <div className="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
         <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          Foto-Duplikat-Erkennung
+          {t('settingsPage.import.photoDuplicateTitle')}
         </h3>
         <p className="text-xs text-neutral-400">
-          Fotos gelten als Duplikat wenn ihr pHash-Hamming-Abstand unter dem Schwellwert liegt.
-          Niedrigere Werte erkennen nur fast identische Fotos; höhere Werte fassen auch leicht
-          bearbeitete oder komprimierte Versionen zusammen.
+          {t('settingsPage.import.photoDuplicateDescription')}
         </p>
       </div>
 
       <div>
         <div className="flex justify-between text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-          <span>Foto-Duplikat-Erkennungsschwelle</span>
+          <span>{t('settingsPage.import.photoDuplicateThreshold')}</span>
           <span className="tabular-nums font-mono">{localPhashBits} Bits</span>
         </div>
         <input
@@ -1883,10 +1941,10 @@ function ImportSettingsSection() {
           className="w-full h-1.5 rounded-full appearance-none bg-neutral-200 dark:bg-neutral-700 accent-accent-DEFAULT"
         />
         <div className="flex justify-between text-xs text-neutral-400 mt-1">
-          <span>1 Bit (strenger)</span>
-          <span>10 Bits (großzügiger)</span>
+          <span>{t('settingsPage.import.phashMin')}</span>
+          <span>{t('settingsPage.import.phashMax')}</span>
         </div>
-        <p className="text-xs text-neutral-400 mt-1">Standard: 3 Bits</p>
+        <p className="text-xs text-neutral-400 mt-1">{t('settingsPage.import.phashDefault')}</p>
       </div>
 
       {/* pHash Backfill — admin only */}
@@ -1898,9 +1956,9 @@ function ImportSettingsSection() {
               disabled={phashBackfillPending}
               className="cursor-pointer whitespace-nowrap px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[200px]"
             >
-              {phashBackfillPending ? 'Startet…' : 'pHash neu berechnen'}
+              {phashBackfillPending ? t('settingsPage.import.starting') : t('settingsPage.import.recomputePhash')}
             </button>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">Geschieht automatisch beim Import. Nur nötig für Fotos, die vor Einführung der Duplikatserkennung importiert wurden.</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('settingsPage.import.phashBackfillDescription')}</p>
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { getChatPreferences, updateChatPreferences, type ChatPreferences } from '@/api/chat'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
@@ -8,66 +9,66 @@ import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabiliti
 import { useToast } from '@/lib/toast'
 
 type ToolGroup = {
-  title: string
-  tools: Array<{ id: string; label: string; requiredCapability?: CapabilityKey }>
+  titleKey: string
+  tools: Array<{ id: string; labelKey: string; requiredCapability?: CapabilityKey }>
 }
 
 const WRITE_TOOL_GROUPS: ToolGroup[] = [
   {
-    title: 'Gear',
+    titleKey: 'components.chatWriteToolSettings.groups.gear',
     tools: [
-      { id: 'create_gear', label: 'Gear anlegen' },
-      { id: 'update_gear_metadata', label: 'Gear-Metadaten ändern' },
-      { id: 'retire_gear', label: 'Gear in den Ruhestand versetzen' },
-      { id: 'set_activity_gear', label: 'Gear einer Aktivität zuweisen' },
-      { id: 'batch_set_activity_gear', label: 'Gear vielen Aktivitäten zuweisen' },
-      { id: 'add_gear_component', label: 'Gear-Komponente anlegen' },
-      { id: 'update_gear_component_status', label: 'Komponentenstatus ändern' },
-      { id: 'record_gear_service_event', label: 'Service-Ereignis erfassen' },
-      { id: 'create_chain_rotation', label: 'Kettenrotation anlegen' },
-      { id: 'update_gear_default_predicates', label: 'Gear-Standards ändern' },
+      { id: 'create_gear', labelKey: 'components.chatWriteToolSettings.tools.create_gear' },
+      { id: 'update_gear_metadata', labelKey: 'components.chatWriteToolSettings.tools.update_gear_metadata' },
+      { id: 'retire_gear', labelKey: 'components.chatWriteToolSettings.tools.retire_gear' },
+      { id: 'set_activity_gear', labelKey: 'components.chatWriteToolSettings.tools.set_activity_gear' },
+      { id: 'batch_set_activity_gear', labelKey: 'components.chatWriteToolSettings.tools.batch_set_activity_gear' },
+      { id: 'add_gear_component', labelKey: 'components.chatWriteToolSettings.tools.add_gear_component' },
+      { id: 'update_gear_component_status', labelKey: 'components.chatWriteToolSettings.tools.update_gear_component_status' },
+      { id: 'record_gear_service_event', labelKey: 'components.chatWriteToolSettings.tools.record_gear_service_event' },
+      { id: 'create_chain_rotation', labelKey: 'components.chatWriteToolSettings.tools.create_chain_rotation' },
+      { id: 'update_gear_default_predicates', labelKey: 'components.chatWriteToolSettings.tools.update_gear_default_predicates' },
     ],
   },
   {
-    title: 'Aktivitäten',
+    titleKey: 'components.chatWriteToolSettings.groups.activities',
     tools: [
-      { id: 'update_activity_metadata', label: 'Aktivitäts-Metadaten ändern' },
-      { id: 'rename_activity', label: 'Aktivität umbenennen' },
-      { id: 'tag_activity', label: 'Aktivität taggen' },
-      { id: 'bulk_tag_activities', label: 'Viele Aktivitäten taggen' },
-      { id: 'start_recompute_activities', label: 'Aktivitäten neu berechnen' },
+      { id: 'update_activity_metadata', labelKey: 'components.chatWriteToolSettings.tools.update_activity_metadata' },
+      { id: 'rename_activity', labelKey: 'components.chatWriteToolSettings.tools.rename_activity' },
+      { id: 'tag_activity', labelKey: 'components.chatWriteToolSettings.tools.tag_activity' },
+      { id: 'bulk_tag_activities', labelKey: 'components.chatWriteToolSettings.tools.bulk_tag_activities' },
+      { id: 'start_recompute_activities', labelKey: 'components.chatWriteToolSettings.tools.start_recompute_activities' },
     ],
   },
   {
-    title: 'Gesundheit',
+    titleKey: 'components.chatWriteToolSettings.groups.health',
     tools: [
-      { id: 'record_health_metric', label: 'Gesundheitswert eintragen' },
+      { id: 'record_health_metric', labelKey: 'components.chatWriteToolSettings.tools.record_health_metric' },
     ],
   },
   {
-    title: 'Tags',
+    titleKey: 'components.chatWriteToolSettings.groups.tags',
     tools: [
-      { id: 'create_tag', label: 'Tag anlegen' },
-      { id: 'update_tag', label: 'Tag ändern' },
-      { id: 'delete_tag', label: 'Tag löschen' },
-      { id: 'merge_tags', label: 'Tags zusammenführen' },
+      { id: 'create_tag', labelKey: 'components.chatWriteToolSettings.tools.create_tag' },
+      { id: 'update_tag', labelKey: 'components.chatWriteToolSettings.tools.update_tag' },
+      { id: 'delete_tag', labelKey: 'components.chatWriteToolSettings.tools.delete_tag' },
+      { id: 'merge_tags', labelKey: 'components.chatWriteToolSettings.tools.merge_tags' },
     ],
   },
   {
-    title: 'Automation',
+    titleKey: 'components.chatWriteToolSettings.groups.automation',
     tools: [
-      { id: 'create_automation_rule', label: 'Regel anlegen' },
-      { id: 'update_automation_rule', label: 'Regel ändern' },
-      { id: 'delete_automation_rule', label: 'Regel löschen' },
-      { id: 'enable_automation_rule', label: 'Regel aktivieren' },
-      { id: 'disable_automation_rule', label: 'Regel deaktivieren' },
-      { id: 'apply_automation_rule_retroactively', label: 'Regel rückwirkend anwenden' },
+      { id: 'create_automation_rule', labelKey: 'components.chatWriteToolSettings.tools.create_automation_rule' },
+      { id: 'update_automation_rule', labelKey: 'components.chatWriteToolSettings.tools.update_automation_rule' },
+      { id: 'delete_automation_rule', labelKey: 'components.chatWriteToolSettings.tools.delete_automation_rule' },
+      { id: 'enable_automation_rule', labelKey: 'components.chatWriteToolSettings.tools.enable_automation_rule' },
+      { id: 'disable_automation_rule', labelKey: 'components.chatWriteToolSettings.tools.disable_automation_rule' },
+      { id: 'apply_automation_rule_retroactively', labelKey: 'components.chatWriteToolSettings.tools.apply_automation_rule_retroactively' },
     ],
   },
   {
-    title: 'Routen',
+    titleKey: 'components.chatWriteToolSettings.groups.routes',
     tools: [
-      { id: 'save_planned_route', label: 'Geplante Route speichern' },
+      { id: 'save_planned_route', labelKey: 'components.chatWriteToolSettings.tools.save_planned_route' },
     ],
   },
 ]
@@ -86,6 +87,7 @@ function samePreferences(a: ChatPreferences, b: ChatPreferences): boolean {
 }
 
 export default function ChatWriteToolSettings() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { data: capabilities, isLoading: capabilitiesLoading } = useCapabilities()
@@ -115,10 +117,10 @@ export default function ChatWriteToolSettings() {
     onSuccess: saved => {
       queryClient.setQueryData(['chat-preferences'], saved)
       setDraft(saved)
-      addToast({ type: 'success', title: 'Agent-Berechtigungen gespeichert' })
+      addToast({ type: 'success', title: t('components.chatWriteToolSettings.toasts.saved') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Agent-Berechtigungen konnten nicht gespeichert werden', duration: 0 })
+      addToast({ type: 'error', title: t('components.chatWriteToolSettings.toasts.saveFailed'), duration: 0 })
     },
   })
 
@@ -147,12 +149,12 @@ export default function ChatWriteToolSettings() {
 
   return (
     <SettingsSection
-      title="AI-Agent-Berechtigungen"
-      description="Steuert, welche sensiblen Dokumentdaten und Änderungsvorschläge der Assistent verwenden darf."
+      title={t('components.chatWriteToolSettings.title')}
+      description={t('components.chatWriteToolSettings.description')}
       className="space-y-6"
     >
       {isError && (
-        <p className="text-sm text-red-500 dark:text-red-400">Agent-Berechtigungen konnten nicht geladen werden.</p>
+        <p className="text-sm text-red-500 dark:text-red-400">{t('components.chatWriteToolSettings.loadError')}</p>
       )}
 
       <div className="space-y-4">
@@ -160,17 +162,17 @@ export default function ChatWriteToolSettings() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                Dokument-OCR-Text dem AI-Agenten zugänglich machen
+                {t('components.chatWriteToolSettings.documentText.label')}
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                OCR-Text kann Adressen, Namen oder Beträge enthalten und wird bei passenden Fragen mit dem konfigurierten LLM-Anbieter geteilt.
+                {t('components.chatWriteToolSettings.documentText.description')}
               </p>
             </div>
             <Toggle
               checked={prefs.chat_expose_document_extracted_data}
               onChange={checked => patchDraft({ chat_expose_document_extracted_data: checked })}
               disabled={controlsDisabled}
-              aria-label="Dokument-OCR-Text dem AI-Agenten zugänglich machen"
+              aria-label={t('components.chatWriteToolSettings.documentText.label')}
             />
           </div>
         )}
@@ -178,17 +180,17 @@ export default function ChatWriteToolSettings() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              AI-Agent darf Änderungen vorschlagen
+              {t('components.chatWriteToolSettings.writeTools.label')}
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Aktivierte Werkzeuge zeigen vor jeder Änderung eine Vorschau und erfordern deine ausdrückliche Bestätigung.
+              {t('components.chatWriteToolSettings.writeTools.description')}
             </p>
           </div>
           <Toggle
             checked={prefs.chat_write_tools_enabled}
             onChange={checked => patchDraft({ chat_write_tools_enabled: checked })}
             disabled={controlsDisabled}
-            aria-label="AI-Agent darf Änderungen vorschlagen"
+            aria-label={t('components.chatWriteToolSettings.writeTools.label')}
           />
         </div>
       </div>
@@ -196,8 +198,8 @@ export default function ChatWriteToolSettings() {
       <div className={writeToolsDisabled ? 'opacity-60' : undefined}>
         <div className="grid gap-4 md:grid-cols-2">
           {visibleToolGroups.map(group => (
-            <fieldset key={group.title} className="space-y-2">
-              <legend className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{group.title}</legend>
+            <fieldset key={group.titleKey} className="space-y-2">
+              <legend className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t(group.titleKey)}</legend>
               <div className="space-y-1.5">
                 {group.tools.map(tool => (
                   <label key={tool.id} className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
@@ -208,7 +210,7 @@ export default function ChatWriteToolSettings() {
                       disabled={writeToolsDisabled}
                       onChange={e => setToolAllowed(tool.id, e.target.checked)}
                     />
-                    <span>{tool.label}</span>
+                    <span>{t(tool.labelKey)}</span>
                   </label>
                 ))}
               </div>
@@ -225,7 +227,7 @@ export default function ChatWriteToolSettings() {
             disabled={mutation.isPending}
             className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
         )}
         <button
@@ -234,7 +236,7 @@ export default function ChatWriteToolSettings() {
           disabled={!isDirty || mutation.isPending}
           className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
-          {mutation.isPending ? 'Speichern…' : 'Speichern'}
+          {mutation.isPending ? t('common.saving') : t('common.save')}
         </button>
       </div>
     </SettingsSection>

@@ -7,10 +7,13 @@ import {
 } from '@/lib/sportTaxonomy'
 import { GENERATED_ACTIVITY_FILTER_PRESETS } from '@/lib/generatedSportFilterProjections'
 import { GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS } from '@/lib/generatedGearDefaultProjections'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 export interface SportOption {
   value: string
   label: string
+  labels?: LocalizedString
   /** sub_type filter value (for sub-categories like cycling:mountain) */
   subType?: string
   children?: SportOption[]
@@ -36,23 +39,25 @@ type GeneratedActivityFilterPreset = (typeof GENERATED_ACTIVITY_FILTER_PRESETS)[
 type GeneratedActivityFilterGroup = GeneratedActivityFilterPreset['groups'][number]
 type GeneratedActivityFilterLeaf = GeneratedActivityFilterGroup['leaves'][number]
 
-function optionFromLeaf(leaf: GeneratedActivityFilterLeaf): SportOption {
+function optionFromLeaf(leaf: GeneratedActivityFilterLeaf, language?: SupportedLanguage): SportOption {
   const subType = 'subType' in leaf ? leaf.subType : undefined
   return {
     value: leaf.sportType,
-    label: leaf.label,
+    label: localizeString(leaf.labels, language),
+    labels: leaf.labels,
     ...(subType ? { subType } : {}),
   }
 }
 
-function optionsForPreset(presetKey: GeneratedActivityFilterPreset['key']): SportOption[] {
+function optionsForPreset(presetKey: GeneratedActivityFilterPreset['key'], language?: SupportedLanguage): SportOption[] {
   const preset = GENERATED_ACTIVITY_FILTER_PRESETS.find((candidate) => candidate.key === presetKey)
   if (!preset) return []
   return preset.groups.map((group) => ({
     value: group.key,
-    label: group.label,
+    label: localizeString(group.labels, language),
+    labels: group.labels,
     groupKey: group.key,
-    children: group.leaves.map(optionFromLeaf),
+    children: group.leaves.map((leaf) => optionFromLeaf(leaf, language)),
   })).filter((group) => group.children.length > 0)
 }
 
@@ -60,15 +65,15 @@ function optionsForPreset(presetKey: GeneratedActivityFilterPreset['key']): Spor
  * Sport filter options for map view.
  * Only includes GPS-relevant categories + a combined "Fitness & Sonstiges" group.
  */
-export function generateMapFilterOptions(): SportOption[] {
-  return optionsForPreset('map_panel_gps')
+export function generateMapFilterOptions(language?: SupportedLanguage): SportOption[] {
+  return optionsForPreset('map_panel_gps', language)
 }
 
 /**
  * Sport filter options for activity list view.
  */
-export function generateActivityFilterOptions(): SportOption[] {
-  return optionsForPreset('activity_all')
+export function generateActivityFilterOptions(language?: SupportedLanguage): SportOption[] {
+  return optionsForPreset('activity_all', language)
 }
 
 // ── Unified filter option generator ─────────────────────────────────────────
@@ -81,11 +86,11 @@ export type FilterMode = 'map' | 'activity' | 'analytics'
  * - 'map': generated map-panel preset.
  * - 'activity' | 'analytics': generated full activity-filter preset.
  */
-export function generateFilterOptions(mode: FilterMode): SportOption[] {
+export function generateFilterOptions(mode: FilterMode, language?: SupportedLanguage): SportOption[] {
   if (mode === 'map') {
-    return generateMapFilterOptions()
+    return generateMapFilterOptions(language)
   }
-  return generateActivityFilterOptions()
+  return generateActivityFilterOptions(language)
 }
 
 // Backwards-compatible static options (uses map filter as default)
@@ -121,20 +126,21 @@ export function getAllSportTypes(): string[] {
 /**
  * Generates sport options for GearForm (flat list of all sports, sorted by label).
  */
-export function generateGearSportOptions(): { value: string; label: string }[] {
+export function generateGearSportOptions(language?: SupportedLanguage): SportOption[] {
   return GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS.map((option) => ({
     value: option.value,
-    label: option.label,
+    label: localizeString(option.labels, language),
+    labels: option.labels,
   }))
 }
 
 /**
- * Filtert Sport-Optionen auf nur vorhandene Sport-Tuples.
- * Kategorie-Gruppen werden entfernt wenn keine ihrer Kinder vorhandene Sport-Tuples enthaelt.
- * Kinder werden gefiltert auf vorhandene Sport-Tuples.
+ * Filters sport options to tuples that exist in the user's data.
+ * Category groups are removed when none of their children exists.
+ * Children are filtered to existing sport tuples.
  *
- * @param options - Alle Sport-Optionen
- * @param existingSportKeys - Set der Sport-Keys die in der DB vorhanden sind
+ * @param options - All sport options
+ * @param existingSportKeys - Sport keys currently present in the DB
  */
 export function filterToExistingSports(
   options: SportOption[],

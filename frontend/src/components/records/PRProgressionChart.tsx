@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import type { ECElementEvent } from 'echarts/core'
@@ -10,6 +11,10 @@ import { useECharts } from '@/hooks/useECharts'
 import { fetchPRHistory, type PRHistoryEntry } from '@/api/bestEfforts'
 import { fmtDuration } from '@/lib/format'
 import { categoryLabel } from '@/lib/bestEffortLabels'
+import { localeForLanguage } from '@/i18n/languages'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
+import { formatPower as formatUnitPower } from '@/lib/units'
 
 echarts.use([ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -25,9 +30,9 @@ function rankColor(rank: number): string {
 
 // ── Value formatting ───────────────────────────────────────────────────────
 
-/** Format a y-axis value for display. Power categories → Watts, otherwise → mm:ss. */
-function formatYValue(category: string, value: number): string {
-  if (category.startsWith('power_')) return `${Math.round(value)} W`
+/** Format a y-axis value for display. Power categories use Watts, otherwise mm:ss. */
+function formatYValue(category: string, value: number, locale: string): string {
+  if (category.startsWith('power_')) return formatUnitPower(value, { locale })
   return fmtDuration(value)
 }
 
@@ -41,6 +46,7 @@ interface PRProgressionChartProps {
   /** Only fetch and render when this is true (lazy loading). */
   isExpanded: boolean
   height?: number
+  language?: SupportedLanguage
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -50,8 +56,11 @@ export function PRProgressionChart({
   sportGroup,
   isExpanded,
   height = 220,
+  language,
 }: PRProgressionChartProps) {
   const navigate = useNavigate()
+  const { i18n, t } = useTranslation()
+  const locale = localeForLanguage(language ?? supportedLanguageFrom(i18n.language))
 
   const { data: history = [], isLoading, isError } = useQuery({
     queryKey: ['pr-history', category, sportGroup],
@@ -83,10 +92,10 @@ export function PRProgressionChart({
         textStyle: { color: '#f3f4f6', fontSize: 11 },
         formatter: (params: { data: [number, number, PRHistoryEntry] }) => {
           const [ts, yVal, entry] = params.data
-          const date = new Date(ts).toLocaleDateString('de-DE', {
+          const date = new Date(ts).toLocaleDateString(locale, {
             day: '2-digit', month: 'short', year: 'numeric',
           })
-          const val = formatYValue(category, yVal)
+          const val = formatYValue(category, yVal, locale)
           const name = entry.activity_name ? `<br/><span style="opacity:0.7">${entry.activity_name}</span>` : ''
           const rankBadge = entry.rank <= 3
             ? `<span style="color:${rankColor(entry.rank)};font-weight:600"> #${entry.rank}</span>`
@@ -101,7 +110,7 @@ export function PRProgressionChart({
           color: theme.textColor,
           fontSize: 10,
           formatter: (val: number) =>
-            new Date(val).toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
+            new Date(val).toLocaleDateString(locale, { month: 'short', year: '2-digit' }),
         },
         axisLine: { lineStyle: { color: '#374151' } },
         splitLine: { show: false },
@@ -112,7 +121,7 @@ export function PRProgressionChart({
         axisLabel: {
           color: theme.textColor,
           fontSize: 10,
-          formatter: (val: number) => formatYValue(category, val),
+          formatter: (val: number) => formatYValue(category, val, locale),
         },
         splitLine: {
           lineStyle: { color: theme.gridLineColor, type: 'dashed' as const },
@@ -131,7 +140,7 @@ export function PRProgressionChart({
         },
       ],
     }),
-    [scatterData, category],
+    [scatterData, category, locale],
     (chart) => {
       const handler = (params: ECElementEvent) => {
         const data = (params.data as [number, number, PRHistoryEntry] | undefined)
@@ -151,7 +160,7 @@ export function PRProgressionChart({
     return (
       <div className="flex items-center justify-center py-8 text-xs text-neutral-400">
         <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-orange-500 mr-2" />
-        Lade Progression…
+        {t('records.chart.loading')}
       </div>
     )
   }
@@ -159,7 +168,7 @@ export function PRProgressionChart({
   if (isError) {
     return (
       <div className="flex items-center justify-center py-6 text-xs text-rose-500 dark:text-rose-400">
-        Fehler beim Laden der Verlaufsdaten
+        {t('records.chart.loadError')}
       </div>
     )
   }
@@ -167,7 +176,7 @@ export function PRProgressionChart({
   if (scatterData.length === 0) {
     return (
       <div className="flex items-center justify-center py-6 text-xs text-neutral-400 dark:text-neutral-600">
-        Keine Verlaufsdaten für {categoryLabel(category)}
+        {t('records.chart.noDataForCategory', { category: categoryLabel(category, language) })}
       </div>
     )
   }
@@ -180,7 +189,7 @@ export function PRProgressionChart({
           { rank: 1, label: '#1' },
           { rank: 2, label: '#2' },
           { rank: 3, label: '#3' },
-          { rank: 4, label: 'Rest' },
+          { rank: 4, label: t('records.chart.rest') },
         ].map(({ rank, label }) => (
           <span key={rank} className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-500">
             <span
@@ -191,7 +200,7 @@ export function PRProgressionChart({
           </span>
         ))}
         <span className="ml-auto text-[10px] text-neutral-400 dark:text-neutral-600">
-          {scatterData.length} Einträge · Klick → Aktivität
+          {t('records.chart.entryHint', { count: scatterData.length })}
         </span>
       </div>
       <div ref={containerRef} style={{ width: '100%', height }} className="cursor-pointer" />

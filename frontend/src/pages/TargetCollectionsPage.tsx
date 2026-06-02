@@ -1,22 +1,14 @@
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import VisibilityAccessField from '@/components/target-objects/VisibilityAccessField'
+import { collectionKindLabel } from '@/components/target-objects/targetLabels'
 import { createTargetCollection, listTargetCollections, type TargetCollectionKind, type TargetVisibility } from '@/api/targetObjects'
 import { useToast } from '@/lib/toast'
 
-const COLLECTION_KIND_LABELS: Record<string, string> = {
-  private_map: 'Private Karte',
-  public_pool: 'Öffentlicher Pool',
-  venue_pool: 'Gelände-Pool',
-  route_set: 'Routen-Set',
-  course_set: 'Kurs-Set',
-  rule_set: 'Regel-Set',
-  privacy_set: 'Privacy-Set',
-  custom: 'Eigene Sammlung',
-}
-
 export default function TargetCollectionsPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [name, setName] = useState('')
@@ -29,16 +21,16 @@ export default function TargetCollectionsPage() {
     onSuccess: () => {
       setName('')
       queryClient.invalidateQueries({ queryKey: ['target-collections'] })
-      addToast({ type: 'success', title: 'Sammlung erstellt' })
+      addToast({ type: 'success', title: t('targetCollections.created') })
     },
-    onError: error => addToast({ type: 'error', title: 'Sammlung konnte nicht erstellt werden', message: errorMessage(error), duration: 0 }),
+    onError: error => addToast({ type: 'error', title: t('targetCollections.createFailed'), message: errorMessage(error, t), duration: 0 }),
   })
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal">Sammlungen</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Gruppen aus Segmenten, Routen, Orten, Bereichen und Referenzen.</p>
+        <h1 className="text-2xl font-semibold tracking-normal">{t('targetCollections.title')}</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('targetCollections.description')}</p>
       </div>
 
       <form
@@ -50,7 +42,7 @@ export default function TargetCollectionsPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label>
-            <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Name</span>
+            <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetCollections.name')}</span>
             <input
               value={name}
               onChange={event => setName(event.target.value)}
@@ -59,13 +51,13 @@ export default function TargetCollectionsPage() {
             />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">Typ</span>
+            <span className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-200">{t('targetCollections.type')}</span>
             <select
               value={kind}
               onChange={event => setKind(event.target.value as TargetCollectionKind)}
               className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
             >
-              {Object.entries(COLLECTION_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {collectionKindValues.map(value => <option key={value} value={value}>{t(`targetCollections.kinds.${value}`)}</option>)}
             </select>
           </label>
         </div>
@@ -82,7 +74,7 @@ export default function TargetCollectionsPage() {
           disabled={createMutation.isPending || !name.trim() || (visibility === 'shared' && !accessScopeID)}
           className="rounded-md bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {createMutation.isPending ? 'Erstellt...' : 'Sammlung erstellen'}
+          {createMutation.isPending ? t('targetCollections.creating') : t('targetCollections.create')}
         </button>
       </form>
 
@@ -92,10 +84,10 @@ export default function TargetCollectionsPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{collection.name}</p>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                {COLLECTION_KIND_LABELS[collection.collection_kind] ?? collection.collection_kind} · {collection.owner_member_count ?? 0} Einträge
+                {collectionKindLabel(collection.collection_kind, t)} · {t('targetCollections.entryCount', { count: collection.owner_member_count ?? 0 })}
               </p>
             </div>
-            <span className="text-sm text-neutral-500">Öffnen</span>
+            <span className="text-sm text-neutral-500">{t('targetCollections.open')}</span>
           </Link>
         ))}
       </div>
@@ -103,6 +95,17 @@ export default function TargetCollectionsPage() {
   )
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Bitte versuche es erneut.'
+const collectionKindValues: TargetCollectionKind[] = [
+  'private_map',
+  'public_pool',
+  'venue_pool',
+  'route_set',
+  'course_set',
+  'rule_set',
+  'privacy_set',
+  'custom',
+]
+
+function errorMessage(error: unknown, t: ReturnType<typeof useTranslation>['t']): string {
+  return error instanceof Error ? error.message : t('targetCollections.tryAgain')
 }

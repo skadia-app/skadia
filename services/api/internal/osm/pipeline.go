@@ -47,6 +47,17 @@ type ProgressReporter interface {
 	Complete()
 }
 
+type structuredProgressReporter interface {
+	SetMessageCode(code string, params map[string]any)
+}
+
+func reportPipelineFailure(reporter ProgressReporter, code string, params map[string]any, legacyMessage string) {
+	if structured, ok := reporter.(structuredProgressReporter); ok {
+		structured.SetMessageCode(code, params)
+	}
+	reporter.Fail(legacyMessage)
+}
+
 // osm2pgsql 2.x Fortschritts-Pattern: "Processing: Node(12345k 1500.0/s) Way(0k 0.00/s) Relation(0 0.00/s)"
 var osmProgressNodeRe = regexp.MustCompile(`Node\((\d+)k`)
 var osmProgressWayRe = regexp.MustCompile(`Way\((\d+)k`)
@@ -247,7 +258,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 
 	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
-		reporter.Fail("Datenverzeichnis konnte nicht erstellt werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.data_dir_create_failed", map[string]any{
+			"error": err.Error(),
+		}, "Datenverzeichnis konnte nicht erstellt werden: "+err.Error())
 		return false
 	}
 
@@ -255,13 +268,17 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	luaTmp, err := os.CreateTemp("", "skadia-osm-*.lua")
 	if err != nil {
 		slog.Error("osm import: failed to write lua tmp", "error", err)
-		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.lua_write_failed", map[string]any{
+			"error": err.Error(),
+		}, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return false
 	}
 	defer os.Remove(luaTmp.Name())
 	if _, err := luaTmp.Write(LuaScript); err != nil {
 		slog.Error("osm import: failed to write lua content", "error", err)
-		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.lua_write_failed", map[string]any{
+			"error": err.Error(),
+		}, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return false
 	}
 	luaTmp.Close()
@@ -300,9 +317,13 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 						"free_mb", freeBytes/1024/1024,
 						"required_mb", requiredBytes/1024/1024,
 						"region", reg.ID)
-					reporter.Fail(fmt.Sprintf(
-						"Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
-						freeBytes/1024/1024, requiredBytes/1024/1024))
+					freeMB := freeBytes / 1024 / 1024
+					requiredMB := requiredBytes / 1024 / 1024
+					reportPipelineFailure(reporter, "osm.import.insufficient_disk_space", map[string]any{
+						"free_mb":     freeMB,
+						"required_mb": requiredMB,
+						"region_id":   reg.ID,
+					}, fmt.Sprintf("Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt", freeMB, requiredMB))
 					return false
 				}
 			}
@@ -315,7 +336,11 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 				}
 			}); err != nil {
 				slog.Error("osm import: download failed", "region", reg.ID, "error", err)
-				reporter.Fail(fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
+				reportPipelineFailure(reporter, "osm.import.download_failed", map[string]any{
+					"region_id": reg.ID,
+					"label":     reg.Label,
+					"error":     err.Error(),
+				}, fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
 				return false
 			}
 			if info, err := os.Stat(pbfPath); err == nil {
@@ -331,7 +356,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	mergedPBF, osmErr := OsmiumPreprocess(ctx, p.DataDir, pbfPaths, reporter)
 	if osmErr != nil {
 		slog.Error("osm import: osmium preprocessing failed", "error", osmErr)
-		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
+		reportPipelineFailure(reporter, "osm.import.osmium_preprocess_failed", map[string]any{
+			"error": osmErr.Error(),
+		}, "osmium Preprocessing fehlgeschlagen: "+osmErr.Error())
 		return false
 	}
 	if mergedPBF != "" {
@@ -355,7 +382,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	// Gewählte Kategorien EINMAL leeren (vor dem einzigen osm2pgsql-Lauf)
 	if err := p.clearOSMData(ctx, categories); err != nil {
 		slog.Error("osm import: clearOSMData failed", "error", err)
-		reporter.Fail("Datenlöschung fehlgeschlagen: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.clear_data_failed", map[string]any{
+			"error": err.Error(),
+		}, "Datenlöschung fehlgeschlagen: "+err.Error())
 		return false
 	}
 
@@ -429,7 +458,9 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 	importStart := time.Now()
 	if err := cmd.Start(); err != nil {
 		slog.Error("osm import: osm2pgsql start failed", "error", err)
-		reporter.Fail("osm2pgsql konnte nicht gestartet werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.osm2pgsql_start_failed", map[string]any{
+			"error": err.Error(),
+		}, "osm2pgsql konnte nicht gestartet werden: "+err.Error())
 		return false
 	}
 
@@ -479,7 +510,10 @@ func (p *Pipeline) Run(ctx context.Context, regions []Region, config PipelineCon
 		errDetail := strings.Join(lastLines, "\n")
 		lastLinesMu.Unlock()
 		slog.Error("osm import: osm2pgsql failed", "error", err, "last_output", errDetail)
-		reporter.Fail(fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
+		reportPipelineFailure(reporter, "osm.import.osm2pgsql_failed", map[string]any{
+			"error":       err.Error(),
+			"last_output": errDetail,
+		}, fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
 		return false
 	}
 	slog.Info("osm import: osm2pgsql completed", "regions", len(regions))
@@ -727,7 +761,9 @@ func (p *Pipeline) RunEnrichmentAndSplitting(ctx context.Context,
 		reporter.SetProgress(current)
 	}); err != nil {
 		slog.Error("osm enrichment: spatial enrichment failed", "error", err)
-		reporter.Fail("Spatial Enrichment fehlgeschlagen: " + err.Error())
+		reportPipelineFailure(reporter, "osm.enrichment.spatial_failed", map[string]any{
+			"error": err.Error(),
+		}, "Spatial Enrichment fehlgeschlagen: "+err.Error())
 		return
 	}
 
@@ -1339,7 +1375,10 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 
 	lockConn, err := p.Pool.Acquire(ctx)
 	if err != nil {
-		reporter.Fail("Lock-Connection nicht verfügbar: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.lock_connection_unavailable", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "Lock-Connection nicht verfügbar: "+err.Error())
 		return false
 	}
 	defer lockConn.Release()
@@ -1347,19 +1386,27 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	var acquired bool
 	if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&acquired); err != nil {
 		slog.Error("osm import: advisory lock query failed", "region", regionID, "error", err)
-		reporter.Fail("Advisory Lock fehlgeschlagen: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.advisory_lock_failed", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "Advisory Lock fehlgeschlagen: "+err.Error())
 		return false
 	}
 	if !acquired {
 		slog.Warn("osm import: region already being imported", "region", regionID)
-		reporter.Fail("Region wird bereits importiert")
+		reportPipelineFailure(reporter, "osm.import.region_already_running", map[string]any{
+			"region_id": regionID,
+		}, "Region wird bereits importiert")
 		return false
 	}
 	defer lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
 
 	if err := os.MkdirAll(p.DataDir, 0755); err != nil {
 		slog.Error("osm import: failed to create data dir", "error", err)
-		reporter.Fail("Datenverzeichnis konnte nicht erstellt werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.data_dir_create_failed", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "Datenverzeichnis konnte nicht erstellt werden: "+err.Error())
 		return false
 	}
 
@@ -1367,13 +1414,19 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	luaTmp, err := os.CreateTemp("", "skadia-osm-*.lua")
 	if err != nil {
 		slog.Error("osm import: failed to write lua tmp", "error", err)
-		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.lua_write_failed", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return false
 	}
 	defer os.Remove(luaTmp.Name())
 	if _, err := luaTmp.Write(LuaScript); err != nil {
 		slog.Error("osm import: failed to write lua content", "error", err)
-		reporter.Fail("Lua-Script konnte nicht geschrieben werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.lua_write_failed", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "Lua-Script konnte nicht geschrieben werden: "+err.Error())
 		return false
 	}
 	luaTmp.Close()
@@ -1406,9 +1459,13 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 					"free_mb", freeBytes/1024/1024,
 					"required_mb", requiredBytes/1024/1024,
 					"region", reg.ID)
-				reporter.Fail(fmt.Sprintf(
-					"Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt",
-					freeBytes/1024/1024, requiredBytes/1024/1024))
+				freeMB := freeBytes / 1024 / 1024
+				requiredMB := requiredBytes / 1024 / 1024
+				reportPipelineFailure(reporter, "osm.import.insufficient_disk_space", map[string]any{
+					"free_mb":     freeMB,
+					"required_mb": requiredMB,
+					"region_id":   reg.ID,
+				}, fmt.Sprintf("Zu wenig Speicherplatz: %d MB frei, ~%d MB benötigt", freeMB, requiredMB))
 				return false
 			}
 		}
@@ -1420,7 +1477,11 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 			}
 		}); err != nil {
 			slog.Error("osm import: download failed", "region", reg.ID, "error", err)
-			reporter.Fail(fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
+			reportPipelineFailure(reporter, "osm.import.download_failed", map[string]any{
+				"region_id": reg.ID,
+				"label":     reg.Label,
+				"error":     err.Error(),
+			}, fmt.Sprintf("Download fehlgeschlagen (%s): %s", reg.Label, err.Error()))
 			return false
 		}
 	}
@@ -1429,7 +1490,10 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	filteredPBF, osmErr := OsmiumPreprocess(ctx, p.DataDir, []string{pbfPath}, reporter)
 	if osmErr != nil {
 		slog.Error("osm import: osmium preprocessing failed", "error", osmErr)
-		reporter.Fail("osmium Preprocessing fehlgeschlagen: " + osmErr.Error())
+		reportPipelineFailure(reporter, "osm.import.osmium_preprocess_failed", map[string]any{
+			"region_id": regionID,
+			"error":     osmErr.Error(),
+		}, "osmium Preprocessing fehlgeschlagen: "+osmErr.Error())
 		return false
 	}
 	importPBF := pbfPath
@@ -1452,7 +1516,10 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	stagingSchema := "staging_" + strings.ReplaceAll(regionID, "-", "_")
 	// [I5] Validate schema name
 	if !validSchemaRe.MatchString(stagingSchema) {
-		reporter.Fail(fmt.Sprintf("Ungültiger Staging-Schema-Name: %q", stagingSchema))
+		reportPipelineFailure(reporter, "osm.import.invalid_staging_schema", map[string]any{
+			"region_id":      regionID,
+			"staging_schema": stagingSchema,
+		}, fmt.Sprintf("Ungültiger Staging-Schema-Name: %q", stagingSchema))
 		return false
 	}
 
@@ -1460,7 +1527,11 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	reporter.SetProgress(0)
 
 	if _, err := p.Pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+stagingSchema); err != nil {
-		reporter.Fail("Staging-Schema konnte nicht erstellt werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.staging_schema_create_failed", map[string]any{
+			"region_id":      regionID,
+			"staging_schema": stagingSchema,
+			"error":          err.Error(),
+		}, "Staging-Schema konnte nicht erstellt werden: "+err.Error())
 		return false
 	}
 	defer func() {
@@ -1527,7 +1598,10 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 	importStart := time.Now()
 	if err := cmd.Start(); err != nil {
 		slog.Error("osm import: osm2pgsql start failed", "error", err)
-		reporter.Fail("osm2pgsql konnte nicht gestartet werden: " + err.Error())
+		reportPipelineFailure(reporter, "osm.import.osm2pgsql_start_failed", map[string]any{
+			"region_id": regionID,
+			"error":     err.Error(),
+		}, "osm2pgsql konnte nicht gestartet werden: "+err.Error())
 		return false
 	}
 
@@ -1570,7 +1644,12 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 		errDetail := strings.Join(lastLines, "\n")
 		lastLinesMu.Unlock()
 		slog.Error("osm import: osm2pgsql failed", "error", err, "last_output", errDetail)
-		reporter.Fail(fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
+		reportPipelineFailure(reporter, "osm.import.osm2pgsql_failed", map[string]any{
+			"region_id":      regionID,
+			"error":          err.Error(),
+			"last_output":    errDetail,
+			"staging_schema": stagingSchema,
+		}, fmt.Sprintf("osm2pgsql fehlgeschlagen: %s\n%s", err.Error(), errDetail))
 		return false
 	}
 	slog.Info("osm import: osm2pgsql completed", "region", regionID,
@@ -1695,7 +1774,10 @@ func (p *Pipeline) RunPerRegion(ctx context.Context, reg Region, config Pipeline
 				table, regionID, mergeErr.Error())
 		}
 		slog.Error("osm import: merge failed", "region", regionID, "error", mergeErr)
-		reporter.Fail(msg)
+		reportPipelineFailure(reporter, "osm.import.merge_failed", map[string]any{
+			"region_id": regionID,
+			"error":     mergeErr.Error(),
+		}, msg)
 		return false
 	}
 

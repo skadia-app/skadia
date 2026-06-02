@@ -1,27 +1,23 @@
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { Sensor } from '@/api/types'
+import { batteryStatusLabel, connectionTypeLabel } from '@/lib/deviceUtils'
 
 interface SensorListProps {
   sensors: Sensor[]
 }
 
-function sensorSourceLabel(sourceType: string): string {
-  switch (sourceType) {
-    case 'antplus': return 'ANT+'
-    case 'bluetooth': return 'BT'
-    case 'app': return ''
-    default: return sourceType
-  }
-}
-
 export function SensorList({ sensors }: SensorListProps) {
+  const { t } = useTranslation()
+
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Sensoren</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('activityTables.sensors.title')}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {sensors.map(sensor => {
           const isInvalidManufacturer = !sensor.manufacturer || sensor.manufacturer.includes('ManufacturerInvalid')
-          const title = sensor.product_name || sensor.primary_type_label || sensor.primary_type || 'Unbekannt'
+          const title = sensor.product_name || sensor.primary_type_label || sensor.primary_type || t('common.unknown')
+          const sourceLabel = connectionTypeLabel(sensor.source_type)
           const cardContent = (
             <>
               {/* Header: product name + connection type badge */}
@@ -29,9 +25,9 @@ export function SensorList({ sensors }: SensorListProps) {
                 <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
                   {title}
                 </span>
-                {sensorSourceLabel(sensor.source_type) && (
+                {sourceLabel && (
                   <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
-                    {sensorSourceLabel(sensor.source_type)}
+                    {sourceLabel}
                   </span>
                 )}
               </div>
@@ -70,7 +66,7 @@ export function SensorList({ sensors }: SensorListProps) {
 
               {/* Battery status */}
               {sensor.battery_status && sensor.battery_status !== 'unknown' && (
-                <div className="text-xs text-neutral-400">Batterie: {sensor.battery_status}</div>
+                <div className="text-xs text-neutral-400">{t('activityTables.sensors.battery')}: {batteryStatusLabel(sensor.battery_status, t)}</div>
               )}
             </>
           )

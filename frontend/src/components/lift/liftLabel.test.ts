@@ -42,6 +42,11 @@ describe('liftDisplayLabel', () => {
     expect(liftDisplayLabel(c)).toEqual({ name: 'example chairlift', type: 'Sessellift' })
   })
 
+  it('localizes whitelisted aerialway labels for the active UI language', () => {
+    const c = makeCandidate({ osm_name: null, osm_aerialway: 'chair_lift' })
+    expect(liftDisplayLabel(c, 'en')).toEqual({ type: 'Chairlift' })
+  })
+
   it('uses Seilbahn (not Pendelbahn) for cable_car', () => {
     const c = makeCandidate({ osm_name: null, osm_aerialway: 'cable_car' })
     expect(liftDisplayLabel(c)).toEqual({ type: 'Seilbahn' })

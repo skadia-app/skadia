@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router-dom'
 import { fetchWorkout } from '@/api/workouts'
 import { WorkoutOverview } from '@/components/activity/WorkoutOverview'
@@ -6,12 +7,13 @@ import type { WorkoutStep } from '@/api/types'
 import { fmtDuration, fmtDateCompact } from '@/lib/format'
 import type { WorkoutActivityRef } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
-const INTENSITY_LABELS: Record<number, string> = {
-  0: 'Intervall',
-  1: 'Aufwärmen',
-  2: 'Abkühlen',
-  3: 'Pause',
+const INTENSITY_LABEL_KEYS: Record<number, string> = {
+  0: 'workoutDetail.intensities.interval',
+  1: 'workoutDetail.intensities.warmup',
+  2: 'workoutDetail.intensities.cooldown',
+  3: 'workoutDetail.intensities.rest',
 }
 
 const INTENSITY_BADGE: Record<number, string> = {
@@ -21,7 +23,11 @@ const INTENSITY_BADGE: Record<number, string> = {
   3: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
 }
 
-function formatDuration(step: WorkoutStep): string {
+function formatStepDuration(
+  step: WorkoutStep,
+  t: ReturnType<typeof useTranslation>['t'],
+  formatDistance: (meters: number | null | undefined) => string,
+): string {
   const dt = step.duration_type
   const dv = step.duration_value
 
@@ -32,18 +38,20 @@ function formatDuration(step: WorkoutStep): string {
   }
   if (dt === 1) {
     // Distance-based: value in m
-    if (dv != null) return `${(dv / 1000).toFixed(2)} km`
+    if (dv != null) return formatDistance(dv)
     return '—'
   }
   if (dt >= 14 && dt <= 19) {
     // Repeat step
-    if (dv != null) return `${dv}× wiederholen`
-    return 'Wiederholung'
+    if (dv != null) return t('workoutDetail.repeatTimes', { count: dv })
+    return t('workoutDetail.repeat')
   }
   return '—'
 }
 
 export default function WorkoutDetailPage() {
+  const { t } = useTranslation()
+  const { formatDistance, formatDistanceCompact } = useUnitFormatters()
   const { id } = useParams<{ id: string }>()
   const { data: workout, isLoading, isError } = useQuery({
     queryKey: ['workout', id],
@@ -52,15 +60,15 @@ export default function WorkoutDetailPage() {
   })
 
   if (isLoading) {
-    return <div className="p-6 text-neutral-500">Lade Workout...</div>
+    return <div className="p-6 text-neutral-500">{t('workoutDetail.loading')}</div>
   }
 
   if (isError || !workout) {
     return (
       <div className="p-6">
-        <p className="text-red-500">Workout konnte nicht geladen werden.</p>
+        <p className="text-red-500">{t('workoutDetail.loadFailed')}</p>
         <Link to="/workouts" className="text-sm text-neutral-500 hover:underline mt-2 inline-block">
-          Zurück zur Übersicht
+          {t('workoutDetail.backToOverview')}
         </Link>
       </div>
     )
@@ -74,18 +82,18 @@ export default function WorkoutDetailPage() {
           to="/workouts"
           className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 mb-3 inline-flex items-center gap-1"
         >
-          <span aria-hidden="true">←</span> Alle Workouts
+          <span aria-hidden="true">←</span> {t('workoutDetail.allWorkouts')}
         </Link>
         <h1 className="text-2xl font-bold">
-          {workout.name || 'Unbenanntes Workout'}
+          {workout.name || t('workoutDetail.unnamed')}
         </h1>
         {workout.description && (
           <p className="text-neutral-500 mt-1">{workout.description}</p>
         )}
         <div className="flex gap-4 mt-2 text-sm text-neutral-400">
-          <span>{workout.num_valid_steps ?? 0} Schritte</span>
+          <span>{t('workoutDetail.stepCount', { count: workout.num_valid_steps ?? 0 })}</span>
           {workout.pool_length_m != null && (
-            <span>Bahn: {workout.pool_length_m} m</span>
+            <span>{t('activityStats.poolLength')}: {formatDistanceCompact(workout.pool_length_m)}</span>
           )}
         </div>
       </div>
@@ -98,7 +106,7 @@ export default function WorkoutDetailPage() {
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
           <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800">
             <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-              Schritte
+              {t('workoutDetail.steps')}
             </h2>
           </div>
           <div className="overflow-x-auto">
@@ -106,15 +114,15 @@ export default function WorkoutDetailPage() {
               <thead>
                 <tr className="border-b border-neutral-200 dark:border-neutral-800 text-neutral-500 text-xs">
                   <th className="px-4 py-2 text-left w-10">#</th>
-                  <th className="px-4 py-2 text-left">Name</th>
-                  <th className="px-4 py-2 text-left">Dauer / Distanz</th>
-                  <th className="px-4 py-2 text-left">Intensität</th>
+                  <th className="px-4 py-2 text-left">{t('workoutDetail.table.name')}</th>
+                  <th className="px-4 py-2 text-left">{t('workoutDetail.table.durationDistance')}</th>
+                  <th className="px-4 py-2 text-left">{t('workoutDetail.table.intensity')}</th>
                 </tr>
               </thead>
               <tbody>
                 {workout.steps.map((step, i) => {
                   const intensityLabel = step.intensity != null
-                    ? (INTENSITY_LABELS[step.intensity] ?? String(step.intensity))
+                    ? (INTENSITY_LABEL_KEYS[step.intensity] ? t(INTENSITY_LABEL_KEYS[step.intensity]) : String(step.intensity))
                     : '—'
                   const badgeClass = step.intensity != null
                     ? (INTENSITY_BADGE[step.intensity] ?? 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400')
@@ -133,7 +141,7 @@ export default function WorkoutDetailPage() {
                         )}
                       </td>
                       <td className="px-4 py-2 tabular-nums text-neutral-600 dark:text-neutral-400">
-                        {formatDuration(step)}
+                        {formatStepDuration(step, t, formatDistance)}
                       </td>
                       <td className="px-4 py-2">
                         {step.intensity != null ? (
@@ -154,14 +162,14 @@ export default function WorkoutDetailPage() {
       )}
 
       {workout.steps.length === 0 && (
-        <p className="text-neutral-400 text-sm">Keine Schritte vorhanden.</p>
+        <p className="text-neutral-400 text-sm">{t('workoutDetail.noSteps')}</p>
       )}
 
-      {/* Absolvierte Aktivitäten */}
+      {/* Completed activities */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
         <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900/60 border-b border-neutral-200 dark:border-neutral-800 flex items-center gap-2">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            Absolviert
+            {t('workoutDetail.completed')}
           </h2>
           {(workout.activities?.length ?? 0) > 0 && (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
@@ -170,7 +178,7 @@ export default function WorkoutDetailPage() {
           )}
         </div>
         {(workout.activities?.length ?? 0) === 0 ? (
-          <p className="px-4 py-3 text-sm text-neutral-400">Noch nicht absolviert.</p>
+          <p className="px-4 py-3 text-sm text-neutral-400">{t('workoutDetail.notCompletedYet')}</p>
         ) : (
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
             {workout.activities!.map((a: WorkoutActivityRef) => (
@@ -189,7 +197,7 @@ export default function WorkoutDetailPage() {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-neutral-400 shrink-0 tabular-nums">
                   {a.distance_m != null && (
-                    <span>{(a.distance_m / 1000).toFixed(1)} km</span>
+                    <span>{formatDistance(a.distance_m)}</span>
                   )}
                   {a.elapsed_time_s != null && (
                     <span>{fmtDuration(a.elapsed_time_s, 'short')}</span>

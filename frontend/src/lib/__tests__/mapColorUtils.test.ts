@@ -60,6 +60,20 @@ describe('resolveScale — linear', () => {
       expect(scale.stops[scale.stops.length - 1].value).toBe(530)
     }
   })
+
+  it('keeps display-convertible scale units in the internal metric contract', () => {
+    const motion = { speed: 'running' as const, pace: 'running' as const, cadence: 'foot_running' as const }
+
+    const speed = resolveScale('speed', motion, [], null, 'linear')
+    const pace = resolveScale('pace', motion, [], null, 'linear')
+    const altitude = resolveScale('altitude', motion, [], null, 'linear')
+    const temperature = resolveScale('temperature', motion, [], null, 'linear')
+
+    expect(speed.type === 'linear' && speed.unit).toBe('km/h')
+    expect(pace.type === 'linear' && pace.unit).toBe('min/km')
+    expect(altitude.type === 'linear' && altitude.unit).toBe('m')
+    expect(temperature.type === 'linear' && temperature.unit).toBe('°C')
+  })
 })
 
 describe('resolveScale — sport default (constant)', () => {

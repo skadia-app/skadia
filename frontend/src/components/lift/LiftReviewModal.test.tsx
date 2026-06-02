@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
+import { i18n } from '@/i18n/i18n'
 import LiftReviewModal, { nextLiftJobPhase } from './LiftReviewModal'
 import { ToastProvider } from '@/lib/toast'
 import { ToastContainer } from '@/components/Toast'
 import type { Activity, LiftCandidate } from '@/api/types'
+
+const mockUserPrefs = vi.hoisted((): { locale: 'de' | 'en'; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 // ResizeObserver and matchMedia are not available in jsdom.
 global.ResizeObserver = class {
@@ -91,6 +97,7 @@ vi.mock('@/lib/theme', () => ({
 }))
 
 vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
   useCurrentUserId: vi.fn(() => 'user-abc'),
 }))
 
@@ -104,6 +111,12 @@ import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>
 const mockFetchStreams = fetchActivityStreams as ReturnType<typeof vi.fn>
+
+beforeEach(async () => {
+  mockUserPrefs.locale = 'de'
+  mockUserPrefs.units = 'metric'
+  await i18n.changeLanguage('de')
+})
 
 function makeActivity(overrides: Partial<Activity> = {}): Pick<Activity, 'id' | 'lifts_acknowledged_at'> {
   return {
@@ -220,6 +233,37 @@ describe('LiftReviewModal', () => {
 
     expect(screen.getByText('1 offen')).toBeTruthy()
     expect(screen.queryByText(/Bereits bestätigt/)).toBeNull()
+  })
+
+  it('formats lift distance and elevation summaries with selected user units', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    await i18n.changeLanguage('en')
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={makeCandidates([
+          { id: 'imperial-a', distance_m: 1609.344, ascent_m: 100, descent_m: 50 },
+          { id: 'imperial-b', distance_m: 804.672, ascent_m: 50, descent_m: 25 },
+        ])}
+      />,
+      { wrapper },
+    )
+
+    expect(screen.getByText('+492 ft')).toBeTruthy()
+    expect(screen.getByText('246 ft')).toBeTruthy()
+    expect(screen.queryByText('+150 m')).toBeNull()
+    expect(screen.queryByText('75 m')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+
+    expect(await screen.findByText('1.0 mi')).toBeTruthy()
+    expect(screen.getByText('+328 ft')).toBeTruthy()
+    expect(screen.getByText('−164 ft')).toBeTruthy()
+    expect(screen.queryByText('+100 m')).toBeNull()
   })
 
   it('uses compact plural title as Liftfahrten erkannt', () => {
@@ -1240,7 +1284,7 @@ describe('LiftReviewModal — F9: recalcMutation 409 error handling', () => {
     fireEvent.click(screen.getByText(/Ja, neu erkennen/))
 
     await waitFor(() => {
-      expect(screen.getByText(/Fehler beim Neuberechnen/)).toBeTruthy()
+      expect(screen.getByText(i18n.t('lift.review.toasts.recalculateFailed'))).toBeTruthy()
     })
   })
 })

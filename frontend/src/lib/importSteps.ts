@@ -14,9 +14,11 @@ export function activeImportStepFromSteps(rawSteps: unknown): { current: number;
   if (steps.length === 0) return null
   const activeIndex = steps.findIndex(step => !terminalStepStatuses.has(step.status ?? ''))
   if (activeIndex < 0) return null
+  const activeStep = steps[activeIndex]
+  if (!activeStep?.label) return null
   return {
     current: activeIndex + 1,
     total: steps.length,
-    label: steps[activeIndex].label ?? 'Import',
+    label: activeStep.label,
   }
 }

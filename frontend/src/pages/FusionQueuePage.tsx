@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchRecordingGroups } from '@/api/recordingGroups'
 import { type RecordingGroup } from '@/api/types'
 import { getFusionQueue, dismissFusionCandidate, type FusionQueueEntry } from '@/api/importWizard'
@@ -9,15 +10,14 @@ import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
 import FusionGroupContextDialog from '@/components/fusion/FusionGroupContextDialog'
 import { fmtDateCompact } from '@/lib/format'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
-import { activityModifierLabels } from '@/lib/activityModifierLabels'
-
-function fmtDist(m: number): string {
-  if (m < 1000) return `${Math.round(m)} m`
-  return `${Math.round((m / 1000) * 10) / 10} km`
-}
+import { isSupportedLanguage } from '@/i18n/languages'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: () => void }) {
   const { addToast } = useToast()
+  const { t, i18n } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
   const navigate = useNavigate()
   const [showGroupDialog, setShowGroupDialog] = useState(false)
 
@@ -28,13 +28,17 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
       await dismissFusionCandidate(c.activity_id_a, c.activity_id_b)
       onDismissed()
     } catch {
-      addToast({ type: 'error', title: 'Dismiss fehlgeschlagen', message: 'Kandidat konnte nicht ignoriert werden.', duration: 0 })
+      addToast({ type: 'error', title: t('workshopOperations.fusionQueue.toasts.dismissFailedTitle'), message: t('workshopOperations.fusionQueue.toasts.dismissFailedMessage'), duration: 0 })
     }
   }
 
   function sportMeta(sportType: string, subType: string, isElectric: boolean, isIndoor: boolean, isVirtual: boolean) {
-    const modifiers = activityModifierLabels({ isElectric, isIndoor, isVirtual })
-    return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
+    const modifiers = [
+      isElectric ? t('workshopOperations.activityModifiers.electric') : '',
+      isIndoor ? t('workshopOperations.activityModifiers.indoor') : '',
+      isVirtual ? t('workshopOperations.activityModifiers.virtual') : '',
+    ].filter(Boolean)
+    return [sportDetailLabel(sportType, subType || null, language), ...modifiers].join(' · ')
   }
 
   function handleFusionClick() {
@@ -52,30 +56,33 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{c.title_a || 'Ohne Titel'}</p>
+                <p className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{c.title_a || t('workshopOperations.common.untitled')}</p>
                 {(c.group_id_a ?? null) !== null && (
                   <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
-                    Gruppe
+                    {t('workshopOperations.fusionQueue.groupBadge')}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {fmtDist(c.distance_m_a)} · {sportMeta(c.sport_type_a, c.sub_type_a, c.is_electric_a, c.is_indoor_a, c.is_virtual_a)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {formatDistanceCompact(c.distance_m_a)} · {sportMeta(c.sport_type_a, c.sub_type_a, c.is_electric_a, c.is_indoor_a, c.is_virtual_a)}</p>
             </div>
             <div className="text-neutral-400 self-center text-xs">↔</div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{c.title_b || 'Ohne Titel'}</p>
+                <p className="font-medium text-neutral-900 dark:text-neutral-100 truncate">{c.title_b || t('workshopOperations.common.untitled')}</p>
                 {(c.group_id_b ?? null) !== null && (
                   <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
-                    Gruppe
+                    {t('workshopOperations.fusionQueue.groupBadge')}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {fmtDist(c.distance_m_b)} · {sportMeta(c.sport_type_b, c.sub_type_b, c.is_electric_b, c.is_indoor_b, c.is_virtual_b)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {formatDistanceCompact(c.distance_m_b)} · {sportMeta(c.sport_type_b, c.sub_type_b, c.is_electric_b, c.is_indoor_b, c.is_virtual_b)}</p>
             </div>
           </div>
           <p className="text-xs text-neutral-400 mt-1">
-            {Math.round(c.overlap_percent * 10) / 10}% Überlappung · {Math.round(Math.abs(c.time_diff_sec) / 60)} min Zeitdifferenz
+            {t('workshopOperations.fusionQueue.candidateMeta', {
+              overlap: Math.round(c.overlap_percent * 10) / 10,
+              minutes: Math.round(Math.abs(c.time_diff_sec) / 60),
+            })}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -83,14 +90,14 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
             onClick={handleFusionClick}
             className="cursor-pointer px-3 py-1.5 text-xs rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 transition-colors"
           >
-            Fusionieren
+            {t('workshopOperations.fusionQueue.merge')}
           </button>
           <button
             onClick={handleDismiss}
             className="cursor-pointer px-3 py-1.5 text-xs rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
-            title="Dieses Paar nicht mehr vorschlagen"
+            title={t('workshopOperations.fusionQueue.dismissTitle')}
           >
-            Nicht fusionieren
+            {t('workshopOperations.fusionQueue.dismiss')}
           </button>
         </div>
       </div>
@@ -111,6 +118,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
 }
 
 export default function FusionQueuePage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   const { data, isLoading, refetch } = useQuery<RecordingGroup[]>({
@@ -134,23 +142,21 @@ export default function FusionQueuePage() {
     <div className="max-w-5xl mx-auto space-y-6 py-8 px-6">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-          Fusionskandidaten
+          {t('workshopOperations.fusionQueue.title')}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Aktivitäten die möglicherweise mit mehreren Geräten aufgezeichnet wurden.
+          {t('workshopOperations.fusionQueue.description')}
         </p>
         {!isLoading && groups.length > 0 && (
           <p className="mt-0.5 text-sm text-neutral-400 dark:text-neutral-500">
-            {groups.length === 1
-              ? '1 Aufnahmegruppe erkannt.'
-              : `${groups.length} Aufnahmegruppen erkannt.`}{' '}
-            Wähle für jede Gruppe ob die Aktivitäten zusammengehören.
+            {t('workshopOperations.duplicateReview.groupCount', { count: groups.length })}{' '}
+            {t('workshopOperations.duplicateReview.reviewInstruction')}
           </p>
         )}
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-neutral-400 text-sm">Lade…</div>
+        <div className="flex items-center justify-center py-12 text-neutral-400 text-sm">{t('common.loading')}</div>
       ) : (
         <DuplicateReviewPanel
           groups={groups}
@@ -158,22 +164,22 @@ export default function FusionQueuePage() {
         />
       )}
 
-      {/* Tier-2: GPS-Ähnlichkeits-Kandidaten */}
+      {/* Tier 2: GPS similarity candidates */}
       {(queueLoading || queueItems.length > 0 || queueComputing) && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-              GPS-Ähnlichkeitspaare
+              {t('workshopOperations.fusionQueue.gpsSimilarityPairs')}
             </h2>
             {queueComputing && (
-              <span className="text-xs text-neutral-400 animate-pulse">Berechne…</span>
+              <span className="text-xs text-neutral-400 animate-pulse">{t('workshopOperations.fusionQueue.computing')}</span>
             )}
           </div>
 
           {queueLoading ? (
-            <p className="text-xs text-neutral-400">Lade…</p>
+            <p className="text-xs text-neutral-400">{t('common.loading')}</p>
           ) : queueItems.length === 0 ? (
-            <p className="text-xs text-neutral-400">Keine GPS-Ähnlichkeitspaare erkannt.</p>
+            <p className="text-xs text-neutral-400">{t('workshopOperations.fusionQueue.noGpsPairs')}</p>
           ) : (
             <div>
               {queueItems.map(c => (

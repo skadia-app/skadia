@@ -8,9 +8,15 @@ import GearWearTab from './GearWearTab'
 import { listServiceEvents, listServiceIntervals } from '@/api/gear'
 import type { Gear, GearComponent } from '@/api/types'
 
+const userPrefs = vi.hoisted(() => ({ locale: 'en', units: 'imperial' as 'metric' | 'imperial' }))
+
 vi.mock('@/api/gear', () => ({
   listServiceEvents: vi.fn(),
   listServiceIntervals: vi.fn(),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => userPrefs,
 }))
 
 function makeGear(overrides: Partial<Gear> = {}): Gear {
@@ -79,9 +85,9 @@ describe('GearWearTab', () => {
     expect(screen.getByText(/Zeit/i)).toBeInTheDocument()
     expect(screen.getByText(/Aktivitäten/i)).toBeInTheDocument()
 
-    expect(screen.getByTestId('service-interval-overview')).toHaveTextContent('Aktive Wartungsintervalle')
-    expect(screen.getByTestId('service-events-overview')).toHaveTextContent('Letzte Serviceeinträge')
-    expect(await screen.findByText('Keine aktiven Wartungsintervalle.')).toBeInTheDocument()
+    expect(screen.getByTestId('service-interval-overview')).toHaveTextContent('Aktive Service-Intervalle')
+    expect(screen.getByTestId('service-events-overview')).toHaveTextContent('Letzte Service-Ereignisse')
+    expect(await screen.findByText('Keine aktiven Service-Intervalle.')).toBeInTheDocument()
     expect(screen.queryByText(/zukünftigen Version/i)).not.toBeInTheDocument()
   })
 
@@ -128,7 +134,7 @@ describe('GearWearTab', () => {
     }))
 
     expect(await screen.findByText('Kette - Tauschen')).toBeInTheDocument()
-    expect(screen.getByText('450 km / 500 km')).toBeInTheDocument()
+    expect(screen.getByText('279.6 mi / 310.7 mi')).toBeInTheDocument()
     expect(screen.getByText('90%')).toBeInTheDocument()
     expect(screen.getByText('Kette gewechselt')).toBeInTheDocument()
   })

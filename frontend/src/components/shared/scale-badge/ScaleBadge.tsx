@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SAC_BADGE_COLORS, MTB_BADGE_COLORS } from '@/lib/scaleColors'
 import type { ScaleBadgeLevel } from '@/lib/scaleAggregation'
-import { scaleMaxLabel, scaleAriaLabel } from '@/lib/strings/suggest-routes'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   kind: 'sac' | 'mtb' | 'vf'
@@ -12,10 +13,9 @@ interface Props {
   onHover: (active: boolean) => void
 }
 
-// DAV-Bayern-Konvention (blau/rot/schwarz) für SAC + MTB — konsistent mit
-// Segment-Editor (via_ferrata_scale/constants.ts deriveTrailDifficultyColor).
-// Via-Ferrata hat keine etablierte Farb-Konvention auf derselben Skala, deshalb
-// kein Dot (null → Badge rendert ohne Farb-Indikator, nur mit Label).
+// Blue/red/black convention for SAC + MTB, consistent with SegmentEditor.
+// Via Ferrata has no established color convention on the same scale, so it
+// renders without a dot.
 function colorFor(kind: 'sac' | 'mtb' | 'vf', level: string): string | null {
   if (kind === 'vf') return null
   const src = kind === 'sac' ? SAC_BADGE_COLORS : MTB_BADGE_COLORS
@@ -23,6 +23,8 @@ function colorFor(kind: 'sac' | 'mtb' | 'vf', level: string): string | null {
 }
 
 export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, onHover }: Props) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
   const [open, setOpen] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -41,8 +43,11 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
-  const label = scaleMaxLabel(maxLevel)
-  const ariaLabel = scaleAriaLabel(kind, maxLevel)
+  const label = t('routePlanner.profileChart.scaleMax', { level: maxLevel })
+  const ariaLabel = t('routePlanner.profileChart.scaleAria', {
+    kind: t(`routePlanner.profileChart.scaleKind.${kind}`),
+    level: maxLevel,
+  })
 
   return (
     <div className="relative inline-block">
@@ -84,7 +89,7 @@ export function ScaleBadge({ kind, breakdown, maxLevel, isPinned, onTogglePin, o
                 )}
                 <span className="font-medium">{b.level}</span>
                 <span className="ml-auto tabular-nums text-neutral-600 dark:text-neutral-400">
-                  {b.km < 0.1 ? `${Math.round(b.km * 1000)} m` : `${b.km.toFixed(2)} km`}
+                  {formatDistanceCompact(b.km * 1000)}
                 </span>
               </div>
             )

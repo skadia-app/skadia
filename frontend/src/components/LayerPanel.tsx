@@ -1,4 +1,5 @@
 import { useState, useId, useCallback, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router-dom'
 import type { MapOverlayState } from '@/pages/MapPage'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
@@ -100,9 +101,10 @@ function OpacityRow({
   labelId: string
   disabled?: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-2 pl-7 pr-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-      <span id={labelId} className="whitespace-nowrap">Deckkraft</span>
+      <span id={labelId} className="whitespace-nowrap">{t('map.layers.opacity')}</span>
       <input
         type="range"
         min={0}
@@ -255,6 +257,7 @@ function SummitsRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   return (
     <div>
@@ -272,7 +275,7 @@ function SummitsRow({
         </label>
         <button
           onClick={() => setExpanded(e => !e)}
-          aria-label={expanded ? 'Optionen einklappen' : 'Optionen ausklappen'}
+          aria-label={expanded ? t('map.layers.collapseOptions') : t('map.layers.expandOptions')}
           aria-expanded={expanded}
           className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 cursor-pointer"
         >
@@ -289,14 +292,14 @@ function SummitsRow({
                 onChange={e => onOverlayChange('summitsOnlyVisited', e.target.checked)}
                 className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 accent-accent-DEFAULT cursor-pointer"
               />
-              <span>Nur besuchte</span>
+              <span>{t('map.layers.summits.onlyVisited')}</span>
             </label>
           )}
           <button
             onClick={() => navigate('/map/summits')}
             className="text-[11px] text-neutral-600 dark:text-neutral-300 hover:text-accent-DEFAULT hover:underline cursor-pointer"
           >
-            Gipfelsammlung öffnen →
+            {t('map.layers.summits.openCollection')}
           </button>
         </div>
       )}
@@ -311,24 +314,33 @@ const COVERAGE_ENTRY_MAP: Record<string, keyof CoverageOverlayState> = {
 }
 
 const COVERAGE_META: Record<keyof CoverageOverlayState, {
-  label: string
+  labelKey: string
   dot: string
-  layerLabels: Record<string, string>
+  layerLabelKeys: Record<string, string>
 }> = {
   nature: {
-    label: 'Natur',
+    labelKey: 'map.layers.coverage.nature',
     dot: 'bg-green-500',
-    layerLabels: { forest: 'Wald', water: 'Gewässer', riverProximity: 'Fluss-Nähe', protected: 'Schutzgebiete', landuse: 'Landnutzung' },
+    layerLabelKeys: {
+      forest: 'map.layers.coverage.forest',
+      water: 'map.layers.coverage.water',
+      riverProximity: 'map.layers.coverage.riverProximity',
+      protected: 'map.layers.coverage.protected',
+      landuse: 'map.layers.coverage.landuse',
+    },
   },
   noise: {
-    label: 'Lärm',
+    labelKey: 'map.layers.coverage.noise',
     dot: 'bg-purple-500',
-    layerLabels: {},
+    layerLabelKeys: {},
   },
   trafficUrban: {
-    label: 'Verkehr & Urbanisierung',
+    labelKey: 'map.layers.coverage.trafficUrban',
     dot: 'bg-orange-500',
-    layerLabels: { traffic: 'Verkehr', urbanization: 'Urbanisierung' },
+    layerLabelKeys: {
+      traffic: 'map.layers.coverage.traffic',
+      urbanization: 'map.layers.coverage.urbanization',
+    },
   },
 }
 
@@ -346,8 +358,9 @@ function CoverageRow({
   onToggleLayer: (composite: keyof CoverageOverlayState, layer: string, enabled: boolean) => void
 }) {
   const meta = COVERAGE_META[compositeKey]
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
-  const sublayerKeys = Object.keys(meta.layerLabels)
+  const sublayerKeys = Object.keys(meta.layerLabelKeys)
   const enabledSublayerCount = sublayerKeys.filter(k => state.layers[k] ?? true).length
   const sublabelId = useId()
 
@@ -364,7 +377,7 @@ function CoverageRow({
             className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 accent-accent-DEFAULT cursor-pointer"
           />
           <span className="truncate text-neutral-700 dark:text-neutral-200">
-            {meta.label}
+            {t(meta.labelKey)}
             {sublayerKeys.length > 0 && (
               <span className="ml-1.5 text-neutral-400 dark:text-neutral-500 tabular-nums">
                 ({enabledSublayerCount}/{sublayerKeys.length})
@@ -377,7 +390,7 @@ function CoverageRow({
         </span>
         <button
           onClick={() => setExpanded(e => !e)}
-          aria-label={expanded ? 'Optionen einklappen' : 'Optionen ausklappen'}
+          aria-label={expanded ? t('map.layers.collapseOptions') : t('map.layers.expandOptions')}
           aria-expanded={expanded}
           className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 cursor-pointer"
         >
@@ -394,7 +407,7 @@ function CoverageRow({
           />
           {sublayerKeys.length > 0 && (
             <div className="ml-9 mr-2 border-l border-neutral-200 dark:border-neutral-700 pl-3 py-1 space-y-1">
-              {Object.entries(meta.layerLabels).map(([key, name]) => (
+              {Object.entries(meta.layerLabelKeys).map(([key, labelKey]) => (
                 <label key={key} className="flex items-center gap-2 text-[11px] cursor-pointer text-neutral-600 dark:text-neutral-300">
                   <input
                     type="checkbox"
@@ -403,7 +416,7 @@ function CoverageRow({
                     className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 accent-accent-DEFAULT cursor-pointer"
                     disabled={!state.enabled}
                   />
-                  <span>{name}</span>
+                  <span>{t(labelKey)}</span>
                 </label>
               ))}
             </div>
@@ -425,6 +438,7 @@ function UserLayerRow({
   onPatch: (id: number, patch: Partial<Pick<UserMapLayer, 'enabled' | 'default_opacity'>>) => void
   onLiveOpacity?: (id: number, opacity: number) => void
 }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const opacityId = useId()
   const externalOpacity = layer.default_opacity ?? 100
@@ -481,7 +495,7 @@ function UserLayerRow({
         <span className="text-[10px] text-neutral-400 tabular-nums w-7 text-right">{opacityLocal}%</span>
         <button
           onClick={() => setExpanded(e => !e)}
-          aria-label={expanded ? 'Optionen einklappen' : 'Optionen ausklappen'}
+          aria-label={expanded ? t('map.layers.collapseOptions') : t('map.layers.expandOptions')}
           aria-expanded={expanded}
           className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 cursor-pointer"
         >
@@ -516,6 +530,7 @@ function SystemRasterRow({
   onToggle: (key: string, enabled: boolean) => void
   onSetOpacity: (key: string, opacity: number) => void
 }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const opacityId = useId()
   const isVectorStyle = layer.source_kind === 'vector_style'
@@ -540,19 +555,19 @@ function SystemRasterRow({
                 ? 'text-neutral-400 dark:text-neutral-500 line-through'
                 : 'text-neutral-700 dark:text-neutral-200'
             }`}
-            title={isVectorStyle ? 'Nur als Basiskarte verfügbar' : undefined}
+            title={isVectorStyle ? t('map.layers.baseMapOnly') : undefined}
           >
             {layer.name}
           </span>
         </label>
         {isVectorStyle ? (
-          <span className="text-[10px] text-neutral-400 italic">Karte</span>
+          <span className="text-[10px] text-neutral-400 italic">{t('navigation.map')}</span>
         ) : (
           <>
             <span className="text-[10px] text-neutral-400 tabular-nums w-7 text-right">{opacity}%</span>
             <button
               onClick={() => setExpanded(e => !e)}
-              aria-label={expanded ? 'Optionen einklappen' : 'Optionen ausklappen'}
+              aria-label={expanded ? t('map.layers.collapseOptions') : t('map.layers.expandOptions')}
               aria-expanded={expanded}
               className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-200/70 dark:hover:bg-neutral-700/60 cursor-pointer"
             >
@@ -597,12 +612,12 @@ function ZoneHeader({ icon, label }: { icon: 'above' | 'below'; label: string })
 const SYSTEM_ABOVE_KEYS = ['summits', 'waters', 'forests', 'visitedPois', 'amenities'] as const
 type SystemAboveKey = typeof SYSTEM_ABOVE_KEYS[number]
 
-const SYSTEM_ABOVE_META: Record<SystemAboveKey, { fallbackLabel: string; visKey: string; flag: keyof MapOverlayState }> = {
-  summits:     { fallbackLabel: 'Gipfel',          visKey: 'summits',         flag: 'showSummits' },
-  waters:      { fallbackLabel: 'Gewässer',        visKey: 'waters',          flag: 'showWaters' },
-  forests:     { fallbackLabel: 'Wälder',          visKey: 'forests',         flag: 'showForests' },
-  visitedPois: { fallbackLabel: 'Besuchte Einkehr',visKey: 'visited_pois',    flag: 'showVisitedPois' },
-  amenities:   { fallbackLabel: 'Einkehr (Tiles)', visKey: 'amenities_tiles', flag: 'showAmenities' },
+const SYSTEM_ABOVE_META: Record<SystemAboveKey, { fallbackKey: string; visKey: string; flag: keyof MapOverlayState }> = {
+  summits:     { fallbackKey: 'map.layers.system.summits',     visKey: 'summits',         flag: 'showSummits' },
+  waters:      { fallbackKey: 'map.layers.system.waters',      visKey: 'waters',          flag: 'showWaters' },
+  forests:     { fallbackKey: 'map.layers.system.forests',     visKey: 'forests',         flag: 'showForests' },
+  visitedPois: { fallbackKey: 'map.layers.system.visitedPois', visKey: 'visited_pois',    flag: 'showVisitedPois' },
+  amenities:   { fallbackKey: 'map.layers.system.amenities',   visKey: 'amenities_tiles', flag: 'showAmenities' },
 }
 
 type LayerDragApi = ReturnType<typeof useLayerDrag>
@@ -627,6 +642,7 @@ function renderLayerRow(
     'userOverlays' | 'onPatchUserLayer' | 'onLiveOpacityPreview'
   >,
   visibility: (key: string) => { enabled: boolean; label: string | null },
+  t: (key: string) => string,
 ): React.ReactNode {
   if ((SYSTEM_ABOVE_KEYS as readonly string[]).includes(entry.key)) {
     const meta = SYSTEM_ABOVE_META[entry.key as SystemAboveKey]
@@ -639,7 +655,7 @@ function renderLayerRow(
           drag={drag}
           overlayState={rest.overlayState}
           onOverlayChange={rest.onOverlayChange}
-          label={vis.label ?? meta.fallbackLabel}
+          label={vis.label ?? t(meta.fallbackKey)}
         />
       )
     }
@@ -649,7 +665,7 @@ function renderLayerRow(
         drag={drag}
         checked={Boolean(rest.overlayState[meta.flag])}
         onChange={v => rest.onOverlayChange(meta.flag, v)}
-        label={vis.label ?? meta.fallbackLabel}
+        label={vis.label ?? t(meta.fallbackKey)}
       />
     )
   }
@@ -709,14 +725,15 @@ function AboveZone(props: Pick<LayerPanelProps,
   'userOverlays' | 'onPatchUserLayer' | 'onLiveOpacityPreview'
 > & { dnd: LayerDragApi }) {
   const { visibility } = useSystemLayerVisibility()
+  const { t } = useTranslation()
   const dnd = props.dnd
 
   const aboveEntries = props.layerEntries.filter(e => e.zone === 'above')
 
   return (
     <div className="space-y-0.5">
-      <ZoneHeader icon="above" label="Über Aktivitäten" />
-      {aboveEntries.map(entry => renderLayerRow(entry, buildRowDrag(entry.key, dnd), props, visibility))}
+      <ZoneHeader icon="above" label={t('map.layers.aboveActivities')} />
+      {aboveEntries.map(entry => renderLayerRow(entry, buildRowDrag(entry.key, dnd), props, visibility, t))}
       <div
         onDragOver={e => dnd.onDragOverZone(e, 'above')}
         onDrop={e => dnd.onDropZone(e, 'above')}
@@ -740,14 +757,15 @@ function BelowZone(props: Pick<LayerPanelProps,
   'onToggleSystemOverlay' | 'onSetSystemOverlayOpacity'
 > & { dnd: LayerDragApi }) {
   const { visibility } = useSystemLayerVisibility()
+  const { t } = useTranslation()
   const dnd = props.dnd
 
   const belowEntries = props.layerEntries.filter(e => e.zone === 'below')
 
   return (
     <div className="space-y-0.5 bg-neutral-50/60 dark:bg-neutral-900/30 rounded -mx-1 px-1 pt-1 pb-1">
-      <ZoneHeader icon="below" label="Unter Aktivitäten" />
-      {belowEntries.map(entry => renderLayerRow(entry, buildRowDrag(entry.key, dnd), props, visibility))}
+      <ZoneHeader icon="below" label={t('map.layers.belowActivities')} />
+      {belowEntries.map(entry => renderLayerRow(entry, buildRowDrag(entry.key, dnd), props, visibility, t))}
       <div
         onDragOver={e => dnd.onDragOverZone(e, 'below')}
         onDrop={e => dnd.onDropZone(e, 'below')}
@@ -782,6 +800,7 @@ function BelowZone(props: Pick<LayerPanelProps,
 // ---------- Panel ----------
 
 export function LayerPanel(props: LayerPanelProps & { panelAlign?: 'left' | 'right'; buttonRounded?: boolean }) {
+  const { t } = useTranslation()
   const [localOpen, setLocalOpen] = useState(false)
   const open = props.open !== undefined ? props.open : localOpen
   const setOpen = props.onOpenChange ?? setLocalOpen
@@ -809,11 +828,11 @@ export function LayerPanel(props: LayerPanelProps & { panelAlign?: 'left' | 'rig
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">
             <span id={titleId} className="text-xs font-semibold text-neutral-600 dark:text-neutral-300 uppercase tracking-wide">
-              Ebenen
+              {t('map.layers.title')}
             </span>
             <button
               onClick={() => setOpen(false)}
-              aria-label="Ebenen schließen"
+              aria-label={t('map.layers.close')}
               className="p-1 rounded text-neutral-400 hover:text-neutral-700 hover:bg-neutral-200/70 dark:hover:text-neutral-200 dark:hover:bg-neutral-700/60 cursor-pointer transition-colors"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -858,16 +877,16 @@ export function LayerPanel(props: LayerPanelProps & { panelAlign?: 'left' | 'rig
               to="/settings?tab=karte"
               className="text-[11px] text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
             >
-              Layer verwalten →
+              {t('map.layers.manageLayers')}
             </Link>
           </div>
         </div>
       )}
       <button
         onClick={() => setOpen(!open)}
-        aria-label={open ? 'Ebenen schließen' : 'Ebenen öffnen'}
+        aria-label={open ? t('map.layers.close') : t('map.layers.open')}
         aria-expanded={open}
-        title="Ebenen"
+        title={t('map.layers.title')}
         className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer flex-shrink-0 ${
           buttonRounded
             ? 'rounded-lg border border-neutral-300 dark:border-neutral-600 shadow-md backdrop-blur-sm'
@@ -883,7 +902,7 @@ export function LayerPanel(props: LayerPanelProps & { panelAlign?: 'left' | 'rig
           <polyline points="2 17 12 22 22 17" />
           <polyline points="2 12 12 17 22 12" />
         </svg>
-        Ebenen
+        {t('map.layers.title')}
       </button>
     </div>
   )

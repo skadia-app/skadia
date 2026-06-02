@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { fetchSegments, type FetchSegmentsOpts, type Segment, type SegmentsResponse } from '@/api/segments'
 import { enforceRouteLayersOnTop } from '@/lib/mapRouteLayers'
 
@@ -90,12 +91,13 @@ interface SegmentsOverlayProps {
 
 export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersion }: SegmentsOverlayProps) {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const popupRef = useRef<maplibregl.Popup | null>(null)
 
   const mergedFilters: SegmentsOverlayFilters = { ...DEFAULT_SEGMENT_FILTERS, ...filters }
   const colors: SegmentColorConfig = { ...DEFAULT_SEGMENT_COLORS, ...colorConfig }
 
-  // Viewport-bbox für räumlichen Filter — nur Segmente im sichtbaren Bereich laden
+  // Viewport bbox for the spatial filter: load only segments in the visible area.
   const [bbox, setBbox] = useState('')
   const updateBbox = useCallback(() => {
     if (!map) return
@@ -204,6 +206,16 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       return colors.standard
     }
 
+    function segmentTypeLabel(segType: string, courseKind?: string): string {
+      if (courseKind === 'checkpoint_sequence') return t('mapEditor.segmentsOverlay.checkpointCourse')
+      if (segType === 'trail') return t('mapEditor.segmentsOverlay.segmentTypes.trail')
+      if (segType === 'lap') return t('mapEditor.segmentsOverlay.segmentTypes.lap')
+      if (segType === 'lift') return t('mapEditor.segmentsOverlay.segmentTypes.lift')
+      if (segType === 'wintersport') return t('mapEditor.segmentsOverlay.segmentTypes.wintersport')
+      if (segType === 'wassersport') return t('mapEditor.segmentsOverlay.segmentTypes.wassersport')
+      return t('mapEditor.segmentsOverlay.segmentTypes.standard')
+    }
+
     // Features aus Segmenten mit track_geojson aufbauen
     const lineFeatures: GeoJSON.Feature[] = segments.reduce<GeoJSON.Feature[]>((acc, seg) => {
       if (!seg.track_geojson) return acc
@@ -222,7 +234,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
           name: seg.name,
           course_kind: seg.course_kind ?? 'line',
           segment_type: seg.segment_type || 'standard',
-          type_label: isCheckpoint ? 'Checkpoint-Kurs' : undefined,
+          type_label: isCheckpoint ? t('mapEditor.segmentsOverlay.checkpointCourse') : undefined,
           sport_group: seg.sport_group,
           effort_count: seg.effort_count ?? 0,
           ridden_count: seg.ridden_count ?? 0,
@@ -236,7 +248,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       return acc
     }, [])
 
-    // Dot-Features für Segmente ohne GeoJSON (nur Startpunkt aus segment_type_meta)
+    // Dot features for segments without GeoJSON, using only the start point from segment_type_meta.
     const dotFeatures: GeoJSON.Feature[] = segments
       .filter(seg => !seg.track_geojson && seg.course_kind !== 'checkpoint_sequence')
       .reduce<GeoJSON.Feature[]>((acc, seg) => {
@@ -269,15 +281,15 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       if (seg.course_kind !== 'checkpoint_sequence') return []
       return (seg.control_map_features ?? []).flatMap((control): GeoJSON.Feature[] => {
         const label = control.role === 'start'
-          ? 'Start'
+          ? t('mapEditor.segmentsOverlay.start')
           : control.role === 'finish'
-            ? 'Ziel'
+            ? t('mapEditor.segmentsOverlay.finish')
             : String(control.sequence_index + 1)
         const baseProperties = {
           id: seg.id,
           name: seg.name,
           course_kind: 'checkpoint_sequence',
-          type_label: 'Checkpoint-Kurs',
+          type_label: t('mapEditor.segmentsOverlay.checkpointCourse'),
           effort_count: seg.effort_count ?? 0,
           ridden_count: seg.ridden_count ?? 0,
           visibility: seg.visibility,
@@ -335,12 +347,14 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Standard-Linie-Layer (alle außer Trails, Wintersport und Wassersport) — unter den spezialisierten Typen.
-    // 'lift' ist hier BEWUSST nicht ausgeschlossen: es gibt keinen eigenen Lift-Layer.
-    // resolveColor() gibt colors.lift (#6366F1 Indigo) zurück — der generic-Layer rendert
-    // Lifte also einmal mit der korrekten Farbe. Kein Double-Render, nur Architektur-Asymmetrie
-    // gegenüber trail/wintersport/wassersport. Einen eigenen lift-Layer anlegen ist
-    // möglich aber derzeit unnötig (keine lift-spezifischen paint-Eigenschaften benötigt).
+    // Standard line layer (everything except trails, winter sports, and water sports)
+    // below the specialized types. `lift` is intentionally not excluded here:
+    // there is no dedicated lift layer. resolveColor() returns colors.lift
+    // (#6366F1 indigo), so the generic layer renders lifts once with the correct
+    // color. This avoids double rendering; it is only an architectural asymmetry
+    // compared with trail/winter-sport/water-sport layers. A dedicated lift layer
+    // is possible but currently unnecessary because no lift-specific paint
+    // properties are needed.
     map.addLayer({
       id: lineLayerId,
       type: 'line',
@@ -442,7 +456,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       },
     })
 
-    // Trail-Layer: gestrichelte Linien — über Standard-Linien
+    // Trail layer: dashed lines above standard lines.
     map.addLayer({
       id: trailLayerId,
       type: 'line',
@@ -468,7 +482,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Wintersport-Layer: gestrichelte Linien mit Schwierigkeitsfarbe — über Trail-Linien
+    // Winter-sport layer: dashed lines with difficulty color above trail lines.
     map.addLayer({
       id: wintersportLayerId,
       type: 'line',
@@ -513,7 +527,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
 
-    // Punkt-Layer für Segmente ohne Track
+    // Point layer for segments without a track.
     map.addLayer({
       id: dotLayerId,
       type: 'circle',
@@ -528,11 +542,11 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       },
     })
 
-    // Wave 3, Fix 5: Route + Wegpunkte wieder ans Stack-Ende holen,
-    // damit dieser Overlay sie nicht überdeckt.
+    // Wave 3, Fix 5: move route and waypoints back to the top of the stack so
+    // this overlay does not cover them.
     enforceRouteLayersOnTop(map)
 
-    // Hover-Tooltip
+    // Hover tooltip.
     const popup = new maplibregl.Popup({
       closeButton: false,
       closeOnClick: false,
@@ -548,14 +562,8 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       const name = feature.properties?.name ?? ''
       const effortCount = feature.properties?.effort_count ?? 0
       const segType = feature.properties?.segment_type ?? 'standard'
-      const typeLabel = feature.properties?.course_kind === 'checkpoint_sequence' ? 'Checkpoint-Kurs' :
-        segType === 'trail' ? 'Trail' :
-        segType === 'lap' ? 'Runde' :
-        segType === 'lift' ? 'Lift' :
-        segType === 'wintersport' ? 'Wintersport' :
-        segType === 'wassersport' ? 'Wassersport' :
-        'Standard'
-      const effortLabel = effortCount > 0 ? ` · ${effortCount}× gefahren` : ''
+      const typeLabel = segmentTypeLabel(segType, feature.properties?.course_kind)
+      const effortLabel = effortCount > 0 ? t('mapEditor.segmentsOverlay.effortsRidden', { count: effortCount }) : ''
       const favLabel = feature.properties?.is_favorite ? ' \u2605' : ''
       const coords = e.lngLat
       popup
@@ -573,12 +581,12 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       if (!feature) return
       const name = feature.properties?.name ?? ''
       const effortCount = feature.properties?.effort_count ?? 0
-      const effortLabel = effortCount > 0 ? ` · ${effortCount}× gefahren` : ''
+      const effortLabel = effortCount > 0 ? t('mapEditor.segmentsOverlay.effortsRidden', { count: effortCount }) : ''
       popup
         .setLngLat(e.lngLat)
         .setHTML(
           `<span style="font-size:12px;font-weight:500">${name}</span>` +
-          `<span style="font-size:11px;color:#9ca3af;margin-left:6px">Checkpoint-Kurs${effortLabel}</span>`,
+          `<span style="font-size:11px;color:#9ca3af;margin-left:6px">${t('mapEditor.segmentsOverlay.checkpointCourse')}${effortLabel}</span>`,
         )
         .addTo(map)
     }
@@ -659,7 +667,7 @@ export function SegmentsOverlay({ map, enabled, filters, colorConfig, styleVersi
       map.off('click', checkpointLineLayerId, onClickLine)
       cleanup()
     }
-  }, [map, enabled, segmentData, navigate, styleVersion, filters, colorConfig]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map, enabled, segmentData, navigate, styleVersion, filters, colorConfig, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return null
 }

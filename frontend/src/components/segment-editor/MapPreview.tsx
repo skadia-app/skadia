@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { buildLayerStyle } from '@/lib/mapStyles'
@@ -17,6 +18,7 @@ interface MapPreviewProps {
 }
 
 export function MapPreview({ geojsonTrack, height = '200px', className }: MapPreviewProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
 
@@ -98,7 +100,7 @@ export function MapPreview({ geojsonTrack, height = '200px', className }: MapPre
   if (!geojsonTrack) {
     return (
       <div className={`flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-500 text-sm rounded-lg ${className}`} style={{ height }}>
-        Kartenvorschau nicht verfügbar
+        {t('segmentEditor.mapPreviewUnavailable')}
       </div>
     )
   }

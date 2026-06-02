@@ -1,14 +1,16 @@
+import { useTranslation } from 'react-i18next'
 import type { ClimbProEvent } from '@/api/types'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   events: ClimbProEvent[]
 }
 
-function eventLabel(event: string): string {
+function eventLabel(event: string, t: (key: string) => string): string {
   const labels: Record<string, string> = {
-    approach: 'Anfahrt',
-    start: 'Start',
-    complete: 'Gipfel',
+    approach: t('activityTables.climbPro.events.approach'),
+    start: t('activityTables.climbPro.events.start'),
+    complete: t('activityTables.climbPro.events.complete'),
   }
   return labels[event] ?? event
 }
@@ -35,13 +37,10 @@ function categoryLabel(cat?: number): string | null {
   return labels[cat] ?? null
 }
 
-function fmtDist(m?: number): string {
-  if (m == null) return ''
-  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`
-  return `${Math.round(m)} m`
-}
-
 export default function ClimbProChart({ events }: Props) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">ClimbPro</h2>
@@ -58,7 +57,7 @@ export default function ClimbProChart({ events }: Props) {
                   <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">#{ev.climb_number}</span>
                 )}
                 <span className={`text-xs px-1.5 py-0.5 rounded ${eventColor(ev.climb_pro_event)}`}>
-                  {eventLabel(ev.climb_pro_event)}
+                  {eventLabel(ev.climb_pro_event, t)}
                 </span>
                 {cat && (
                   <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
@@ -68,7 +67,7 @@ export default function ClimbProChart({ events }: Props) {
               </div>
               {ev.current_dist_m != null && (
                 <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                  {fmtDist(ev.current_dist_m)}
+                  {formatDistanceCompact(ev.current_dist_m)}
                 </div>
               )}
             </div>

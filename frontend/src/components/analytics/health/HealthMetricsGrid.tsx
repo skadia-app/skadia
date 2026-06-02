@@ -4,10 +4,13 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHealthMetrics } from '@/api/analytics'
 import type { HealthMetric } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { weightInputUnit, weightToDisplayValue, type UnitFormatOptions } from '@/lib/units'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -50,18 +53,19 @@ function trendIndicator(trend: number): { symbol: string; color: string } {
   return { symbol: '→', color: 'text-neutral-400' }
 }
 
-function metricNameLabel(name: string): string {
+function metricNameLabel(name: string, t: ReturnType<typeof useTranslation>['t']): string {
   const labels: Record<string, string> = {
-    rhr: 'Ruhepuls',
-    hrv_rmssd: 'HRV (RMSSD)',
-    sleep_duration: 'Schlafdauer',
-    sleep_score: 'Schlafqualität',
-    weight: 'Gewicht',
-    steps: 'Schritte',
-    stress: 'Stresslevel',
-    body_battery: 'Body Battery',
+    rhr: 'analyticsHealthInsights.healthMetrics.metrics.rhr',
+    hrv_rmssd: 'analyticsHealthInsights.healthMetrics.metrics.hrvRmssd',
+    sleep_duration: 'analyticsHealthInsights.healthMetrics.metrics.sleepDuration',
+    sleep_score: 'analyticsHealthInsights.healthMetrics.metrics.sleepScore',
+    weight: 'analyticsHealthInsights.healthMetrics.metrics.weight',
+    steps: 'analyticsHealthInsights.healthMetrics.metrics.steps',
+    stress: 'analyticsHealthInsights.healthMetrics.metrics.stress',
+    body_battery: 'analyticsHealthInsights.healthMetrics.metrics.bodyBattery',
   }
-  return labels[name.toLowerCase()] ?? name
+  const label = labels[name.toLowerCase()]
+  return label ? t(label) : name
 }
 
 function metricColor(name: string): string {
@@ -81,12 +85,39 @@ function metricColor(name: string): string {
 
 interface MetricCardProps {
   metric: HealthMetric
+  unitOptions: UnitFormatOptions
 }
 
-function MetricCard({ metric }: MetricCardProps) {
+function formatMetricCurrent(metric: HealthMetric, unitOptions: UnitFormatOptions): string {
+  if (metric.unit === 'kg') {
+    return new Intl.NumberFormat(unitOptions.locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(weightToDisplayValue(metric.current, unitOptions.units))
+  }
+
+  return typeof metric.current === 'number' ? metric.current.toFixed(metric.current < 10 ? 1 : 0) : String(metric.current)
+}
+
+function metricDisplayUnit(metric: HealthMetric, unitOptions: UnitFormatOptions): string {
+  if (metric.unit === 'kg') return weightInputUnit(unitOptions.units)
+  return metric.unit
+}
+
+function metricDisplayPoints(metric: HealthMetric, unitOptions: UnitFormatOptions): HealthMetric['points'] {
+  if (metric.unit !== 'kg') return metric.points
+  return metric.points.map(point => ({
+    ...point,
+    value: weightToDisplayValue(point.value, unitOptions.units),
+  }))
+}
+
+function MetricCard({ metric, unitOptions }: MetricCardProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const trend = trendIndicator(metric.trend)
   const color = metricColor(metric.name)
+  const points = useMemo(() => metricDisplayPoints(metric, unitOptions), [metric, unitOptions])
 
   return (
     <button
@@ -95,7 +126,7 @@ function MetricCard({ metric }: MetricCardProps) {
     >
       <div className="flex items-start justify-between mb-1">
         <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium truncate pr-2">
-          {metricNameLabel(metric.name)}
+          {metricNameLabel(metric.name, t)}
         </div>
         <span className={`text-xs font-bold flex-shrink-0 ${trend.color}`}>
           {trend.symbol}
@@ -103,22 +134,22 @@ function MetricCard({ metric }: MetricCardProps) {
       </div>
       <div className="flex items-baseline gap-1 mb-2">
         <span className="text-xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
-          {typeof metric.current === 'number' ? metric.current.toFixed(metric.current < 10 ? 1 : 0) : metric.current}
+          {formatMetricCurrent(metric, unitOptions)}
         </span>
-        <span className="text-xs text-neutral-400">{metric.unit}</span>
+        <span className="text-xs text-neutral-400">{metricDisplayUnit(metric, unitOptions)}</span>
       </div>
 
       {/* Mini chart — always visible */}
-      {metric.points.length > 0 && (
+      {points.length > 0 && (
         <div className="h-[80px]">
-          <MiniChart points={metric.points} color={color} />
+          <MiniChart points={points} color={color} />
         </div>
       )}
 
       {/* Expanded: larger chart area */}
-      {expanded && metric.points.length > 0 && (
+      {expanded && points.length > 0 && (
         <div className="mt-2 h-[120px] border-t border-neutral-100 dark:border-neutral-800 pt-2">
-          <MiniChart points={metric.points} color={color} />
+          <MiniChart points={points} color={color} />
         </div>
       )}
     </button>
@@ -126,7 +157,9 @@ function MetricCard({ metric }: MetricCardProps) {
 }
 
 export default function HealthMetricsGrid() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const { options: unitOptions } = useUnitFormatters()
 
   const queryParams = useMemo(() => {
     const params = new URLSearchParams()
@@ -159,7 +192,7 @@ export default function HealthMetricsGrid() {
   if (isError) {
     return (
       <div className="text-sm text-neutral-400 text-center py-4">
-        Fehler beim Laden der Gesundheitsmetriken
+        {t('analyticsHealthInsights.healthMetrics.loadFailed')}
       </div>
     )
   }
@@ -171,7 +204,7 @@ export default function HealthMetricsGrid() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
             d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
-        <span className="text-sm">Keine Gesundheitsmetriken verfügbar</span>
+        <span className="text-sm">{t('analyticsHealthInsights.healthMetrics.noData')}</span>
       </div>
     )
   }
@@ -179,11 +212,11 @@ export default function HealthMetricsGrid() {
   return (
     <div>
       <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-        Gesundheitsmetriken
+        {t('analyticsHealthInsights.healthMetrics.title')}
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {data.map(metric => (
-          <MetricCard key={metric.name} metric={metric} />
+          <MetricCard key={metric.name} metric={metric} unitOptions={unitOptions} />
         ))}
       </div>
     </div>

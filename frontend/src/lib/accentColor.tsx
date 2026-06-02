@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import { i18n } from '@/i18n/i18n'
 
 export interface AccentEntry {
   label: string
@@ -9,15 +10,15 @@ export interface AccentEntry {
 }
 
 export const ACCENT_PALETTE: AccentEntry[] = [
-  { label: 'Orange',   shade500: '#F97316', shade600: '#EA580C', shade400: '#FB923C', shade100: '#FFEDD5' },
-  { label: 'Bernstein', shade500: '#F59E0B', shade600: '#D97706', shade400: '#FCD34D', shade100: '#FEF3C7' },
-  { label: 'Grün',     shade500: '#22C55E', shade600: '#16A34A', shade400: '#4ADE80', shade100: '#DCFCE7' },
-  { label: 'Cyan',     shade500: '#06B6D4', shade600: '#0891B2', shade400: '#22D3EE', shade100: '#CFFAFE' },
-  { label: 'Blau',     shade500: '#3B82F6', shade600: '#2563EB', shade400: '#60A5FA', shade100: '#DBEAFE' },
-  { label: 'Indigo',   shade500: '#6366F1', shade600: '#4F46E5', shade400: '#818CF8', shade100: '#E0E7FF' },
-  { label: 'Violett',  shade500: '#8B5CF6', shade600: '#7C3AED', shade400: '#A78BFA', shade100: '#EDE9FE' },
-  { label: 'Rosa',     shade500: '#EC4899', shade600: '#DB2777', shade400: '#F472B6', shade100: '#FCE7F3' },
-  { label: 'Rot',      shade500: '#EF4444', shade600: '#DC2626', shade400: '#F87171', shade100: '#FEE2E2' },
+  { get label() { return i18n.t('accentColors.orange') }, shade500: '#F97316', shade600: '#EA580C', shade400: '#FB923C', shade100: '#FFEDD5' },
+  { get label() { return i18n.t('accentColors.amber') }, shade500: '#F59E0B', shade600: '#D97706', shade400: '#FCD34D', shade100: '#FEF3C7' },
+  { get label() { return i18n.t('accentColors.green') }, shade500: '#22C55E', shade600: '#16A34A', shade400: '#4ADE80', shade100: '#DCFCE7' },
+  { get label() { return i18n.t('accentColors.cyan') }, shade500: '#06B6D4', shade600: '#0891B2', shade400: '#22D3EE', shade100: '#CFFAFE' },
+  { get label() { return i18n.t('accentColors.blue') }, shade500: '#3B82F6', shade600: '#2563EB', shade400: '#60A5FA', shade100: '#DBEAFE' },
+  { get label() { return i18n.t('accentColors.indigo') }, shade500: '#6366F1', shade600: '#4F46E5', shade400: '#818CF8', shade100: '#E0E7FF' },
+  { get label() { return i18n.t('accentColors.violet') }, shade500: '#8B5CF6', shade600: '#7C3AED', shade400: '#A78BFA', shade100: '#EDE9FE' },
+  { get label() { return i18n.t('accentColors.pink') }, shade500: '#EC4899', shade600: '#DB2777', shade400: '#F472B6', shade100: '#FCE7F3' },
+  { get label() { return i18n.t('accentColors.red') }, shade500: '#EF4444', shade600: '#DC2626', shade400: '#F87171', shade100: '#FEE2E2' },
 ]
 
 export const DEFAULT_ACCENT_COLOR = '#F97316'
@@ -58,7 +59,7 @@ function hslToHex(h: number, s: number, l: number): string {
 export function deriveAccentEntry(hex500: string): AccentEntry {
   const [h, s, l] = hexToHsl(hex500)
   return {
-    label: 'Benutzerdefiniert',
+    get label() { return i18n.t('accentColors.custom') },
     shade500: hex500,
     // shade600: darker hover shade — capped to max 65% lightness so it stays visible on white backgrounds
     shade600: hslToHex(h, Math.min(s + 5, 100), Math.min(Math.max(l - 12, 5), 65)),

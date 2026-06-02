@@ -1,3 +1,7 @@
+import { useTranslation } from 'react-i18next'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { elevationInputUnit, elevationToDisplayValue, type UnitFormatOptions } from '@/lib/units'
+
 interface Summit {
   elevation_m: number | null
   name: string
@@ -9,18 +13,18 @@ interface SummitBadgesProps {
 }
 
 const HEIGHT_CLASSES = [
-  { label: '1000er', min: 1000, max: 1999, color: '#22C55E' },
-  { label: '2000er', min: 2000, max: 2999, color: '#3B82F6' },
-  { label: '3000er', min: 3000, max: 3999, color: '#8B5CF6' },
-  { label: '4000er', min: 4000, max: 99999, color: '#EF4444' },
+  { min: 1000, max: 1999, color: '#22C55E' },
+  { min: 2000, max: 2999, color: '#3B82F6' },
+  { min: 3000, max: 3999, color: '#8B5CF6' },
+  { min: 4000, max: null, color: '#EF4444' },
 ]
 
 const MILESTONES = [
-  { count: 10, label: '10 Gipfel' },
-  { count: 25, label: '25 Gipfel' },
-  { count: 50, label: '50 Gipfel' },
-  { count: 100, label: '100 Gipfel' },
-  { count: 250, label: '250 Gipfel' },
+  { count: 10 },
+  { count: 25 },
+  { count: 50 },
+  { count: 100 },
+  { count: 250 },
 ]
 
 function MountainIcon({ color }: { color: string }) {
@@ -31,27 +35,43 @@ function MountainIcon({ color }: { color: string }) {
   )
 }
 
+function formatHeightClassLabel(
+  min: number,
+  max: number | null,
+  options: UnitFormatOptions,
+): string {
+  const formatter = new Intl.NumberFormat(options.locale, { maximumFractionDigits: 0 })
+  const unit = elevationInputUnit(options.units)
+  const minDisplay = formatter.format(Math.round(elevationToDisplayValue(min, options.units)))
+  if (max == null) return `${minDisplay}+ ${unit}`
+  const maxDisplay = formatter.format(Math.round(elevationToDisplayValue(max, options.units)))
+  return `${minDisplay}-${maxDisplay} ${unit}`
+}
+
 export default function SummitBadges({ summits }: SummitBadgesProps) {
+  const { t } = useTranslation()
+  const { options } = useUnitFormatters()
   const total = summits.length
 
   if (total === 0) return null
 
   return (
     <div className="space-y-4">
-      {/* Höhenklassen-Badges */}
+      {/* Elevation class badges */}
       <div>
         <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-          Höhenklassen
+          {t('summitCollection.badges.elevationClasses')}
         </p>
         <div className="flex flex-wrap gap-3">
           {HEIGHT_CLASSES.map(cls => {
             const count = summits.filter(
-              s => s.elevation_m != null && s.elevation_m >= cls.min && s.elevation_m <= cls.max
+              s => s.elevation_m != null && s.elevation_m >= cls.min && (cls.max == null || s.elevation_m <= cls.max)
             ).length
             const achieved = count > 0
+            const label = formatHeightClassLabel(cls.min, cls.max, options)
             return (
               <div
-                key={cls.label}
+                key={label}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
                   achieved ? '' : 'opacity-40'
                 }`}
@@ -67,10 +87,10 @@ export default function SummitBadges({ summits }: SummitBadgesProps) {
                     className="text-sm font-semibold leading-tight"
                     style={{ color: achieved ? cls.color : '#9ca3af' }}
                   >
-                    {cls.label}
+                    {label}
                   </p>
                   <p className="text-xs text-neutral-500">
-                    {count} {count === 1 ? 'Gipfel' : 'Gipfel'}
+                    {t('summitCollection.badges.summitCount', { count })}
                   </p>
                 </div>
               </div>
@@ -79,10 +99,10 @@ export default function SummitBadges({ summits }: SummitBadgesProps) {
         </div>
       </div>
 
-      {/* Meilenstein-Badges */}
+      {/* Milestone badges */}
       <div>
         <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-          Meilensteine — {total} Gipfel gesamt
+          {t('summitCollection.badges.milestones', { total })}
         </p>
         <div className="flex flex-wrap gap-2">
           {MILESTONES.map(ms => {
@@ -105,7 +125,7 @@ export default function SummitBadges({ summits }: SummitBadgesProps) {
                     <circle cx="12" cy="12" r="9" />
                   </svg>
                 )}
-                {ms.label}
+                {t('summitCollection.badges.milestoneLabel', { count: ms.count })}
               </span>
             )
           })}

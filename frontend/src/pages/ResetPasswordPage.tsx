@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { resetPassword } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 
 export default function ResetPasswordPage() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') ?? ''
 
@@ -19,15 +21,15 @@ export default function ResetPasswordPage() {
     setError(null)
 
     if (password.length < 10) {
-      setError('Das Passwort muss mindestens 10 Zeichen lang sein.')
+      setError(t('auth.errors.password_too_short'))
       return
     }
     if (password !== confirmPassword) {
-      setError('Die Passwörter stimmen nicht überein.')
+      setError(t('auth.errors.password_mismatch'))
       return
     }
     if (!token) {
-      setError('Ungültiger oder fehlender Token.')
+      setError(t('auth.errors.missing_token'))
       return
     }
 
@@ -36,7 +38,7 @@ export default function ResetPasswordPage() {
       await resetPassword(token, password)
       setSuccess(true)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Zurücksetzen fehlgeschlagen'
+      const msg = err instanceof Error ? err.message : 'reset_failed'
       setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
@@ -52,15 +54,15 @@ export default function ResetPasswordPage() {
           </div>
           <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
             <p className="text-sm text-green-700 dark:text-green-400 font-medium">
-              Passwort erfolgreich zurückgesetzt.
+              {t('auth.reset.successTitle')}
             </p>
             <p className="text-sm text-green-600 dark:text-green-500 mt-1">
-              Du kannst dich jetzt mit deinem neuen Passwort anmelden.
+              {t('auth.reset.successDescription')}
             </p>
           </div>
           <div className="text-center">
             <Link to="/login" className="text-sm text-accent-DEFAULT hover:underline">
-              Zur Anmeldung
+              {t('auth.common.toLogin')}
             </Link>
           </div>
         </div>
@@ -73,13 +75,13 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-accent-DEFAULT tracking-tight">skadia</h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Neues Passwort festlegen</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('auth.reset.title')}</p>
         </div>
 
         {!token && (
           <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
             <p className="text-sm text-red-600 dark:text-red-400">
-              Ungültiger oder fehlender Reset-Link.
+              {t('auth.reset.invalidLink')}
             </p>
           </div>
         )}
@@ -95,7 +97,7 @@ export default function ResetPasswordPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Neues Passwort (min. 10 Zeichen)"
+            placeholder={t('auth.fields.newPasswordMin')}
             required
             minLength={10}
             autoComplete="new-password"
@@ -105,7 +107,7 @@ export default function ResetPasswordPage() {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Passwort bestätigen"
+            placeholder={t('auth.fields.confirmPassword')}
             required
             autoComplete="new-password"
             className={AUTH_INPUT_CLASS}
@@ -118,13 +120,13 @@ export default function ResetPasswordPage() {
                        hover:bg-neutral-800 dark:hover:bg-neutral-200
                        transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Wird gespeichert…' : 'Passwort zurücksetzen'}
+            {loading ? t('auth.common.saving') : t('auth.reset.submit')}
           </button>
         </form>
 
         <div className="text-center">
           <Link to="/login" className="text-sm text-accent-DEFAULT hover:underline">
-            Zurück zur Anmeldung
+            {t('auth.common.backToLogin')}
           </Link>
         </div>
       </div>

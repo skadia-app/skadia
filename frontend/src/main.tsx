@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import 'maplibre-gl-draw/dist/mapbox-gl-draw.css'
 import App from './App'
+import { I18nProvider } from './i18n/I18nProvider'
 import { initVisibilityRefresh, initAuthSync } from './lib/auth'
 import { queryClient } from './lib/queryClient'
 
@@ -19,7 +20,9 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        <I18nProvider>
+          <App />
+        </I18nProvider>
       </BrowserRouter>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>

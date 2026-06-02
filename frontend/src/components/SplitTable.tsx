@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { Split, SplitSummary } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
-import { formatSpeedKmh, formatSpeedValue } from '@/lib/sportFieldLabels'
+import { formatSpeedValue } from '@/lib/sportFieldLabels'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   splits: Split[]
@@ -11,28 +14,24 @@ interface Props {
   activityId: string
 }
 
-function fmtDist(m?: number): string {
-  if (m == null || isNaN(m)) return '--'
-  if (m >= 1000) return `${(m / 1000).toFixed(2)} km`
-  return `${Math.round(m)} m`
-}
-
 const thClass = 'px-2 py-1.5 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap'
 const tdClass = 'px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 whitespace-nowrap'
 
-function splitTypeLabel(type: string, subType?: string): string {
+function splitTypeLabel(type: string, t: TFunction, subType?: string): string {
   if (type === 'climb_active') {
-    return subType === 'bouldering' ? 'Bouldern' : 'Klettern'
+    return subType === 'bouldering'
+      ? t('activityTables.splits.types.bouldering')
+      : t('activityTables.splits.types.climbing')
   }
   const labels: Record<string, string> = {
-    climb_rest: 'Pause',
-    ski_run: 'Abfahrt',
-    ski_lift: 'Lift',
-    ascent: 'Aufstieg',
-    descent: 'Abstieg',
-    flat: 'Flach',
+    climb_rest: t('activityTables.splits.types.rest'),
+    ski_run: t('activityTables.splits.types.skiRun'),
+    ski_lift: t('activityTables.splits.types.skiLift'),
+    ascent: t('activityTables.splits.types.ascent'),
+    descent: t('activityTables.splits.types.descent'),
+    flat: t('activityTables.splits.types.flat'),
   }
-  return labels[type] ?? type
+  return labels[type] ?? t('activityTables.splits.types.unknown')
 }
 
 function splitTypeBadgeColor(type: string): string {
@@ -47,8 +46,8 @@ function splitTypeBadgeColor(type: string): string {
   }
 }
 
-/** Inline-Edit-Zelle für Kletter-Schwierigkeitsgrade */
 function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; activityId: string; initialGrade?: string }) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(initialGrade ?? '')
   const [saving, setSaving] = useState(false)
@@ -70,7 +69,7 @@ function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; act
         body: JSON.stringify({ climbing_grade: value.trim() || null }),
       })
     } catch {
-      // Fehler still ignorieren — Wert bleibt im State
+      // Ignore save failures silently; the edited value remains in local state.
     } finally {
       setSaving(false)
       setEditing(false)
@@ -94,7 +93,7 @@ function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; act
         onBlur={save}
         onKeyDown={handleKeyDown}
         disabled={saving}
-        placeholder="z.B. 6b"
+        placeholder={t('activityTables.splits.gradePlaceholder')}
         className="w-16 px-1 py-0.5 text-xs border border-accent-DEFAULT rounded bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
       />
     )
@@ -103,7 +102,7 @@ function GradeCell({ splitId, activityId, initialGrade }: { splitId: string; act
   return (
     <button
       onClick={() => setEditing(true)}
-      title="Schwierigkeitsgrad bearbeiten"
+      title={t('activityTables.splits.editGradeTitle')}
       className="group flex items-center gap-1 text-left cursor-pointer"
     >
       {value ? (
@@ -128,16 +127,21 @@ export default function SplitTable({ splits, summaries, sportType, subType, acti
 }
 
 function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Split[]; summaries: SplitSummary[]; subType?: string; activityId: string }) {
+  const { t } = useTranslation()
   const isBouldering = subType === 'bouldering'
   const activeSplits = splits.filter(s => s.split_type === 'climb_active')
   const totalActiveTime = activeSplits.reduce((sum, s) => sum + (s.timer_time_s ?? s.elapsed_time_s ?? 0), 0)
   const totalCalories = splits.reduce((sum, s) => sum + (s.total_calories ?? 0), 0)
 
   const summaryForClimb = summaries.find(s => s.split_type === 'climb_active')
-  const routenVerb = isBouldering ? 'gebouldert' : 'geklettert'
-  const sectionTitle = isBouldering ? 'Boulder-Routen' : 'Routen'
+  const routeVerb = isBouldering
+    ? t('activityTables.splits.climbingSummary.bouldered')
+    : t('activityTables.splits.climbingSummary.climbed')
+  const sectionTitle = isBouldering
+    ? t('activityTables.splits.boulderRoutesTitle')
+    : t('activityTables.splits.routesTitle')
 
-  // Nur climb_active-Splits numerieren (separate Route-Zählung)
+  // Number climb_active splits separately from rest periods.
   let routeCounter = 0
 
   return (
@@ -147,10 +151,10 @@ function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Sp
       {/* Summary card */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span className="text-neutral-700 dark:text-neutral-300">
-          <span className="font-medium">{summaryForClimb?.num_splits ?? activeSplits.length}</span> Routen {routenVerb}
+          <span className="font-medium">{summaryForClimb?.num_splits ?? activeSplits.length}</span> {t('activityTables.splits.climbingSummary.routes')} {routeVerb}
         </span>
         <span className="text-neutral-700 dark:text-neutral-300">
-          <span className="font-medium">{fmtDuration(totalActiveTime)}</span> aktiv
+          <span className="font-medium">{fmtDuration(totalActiveTime)}</span> {t('activityTables.splits.climbingSummary.active')}
         </span>
         {totalCalories > 0 && (
           <span className="text-neutral-700 dark:text-neutral-300">
@@ -165,11 +169,11 @@ function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Sp
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
               <th className={thClass}>#</th>
-              <th className={thClass}>Typ</th>
-              <th className={thClass}>Grad</th>
-              <th className={thClass}>Dauer</th>
+              <th className={thClass}>{t('activityTables.splits.headers.type')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.grade')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.duration')}</th>
               <th className={thClass}>HR</th>
-              <th className={thClass}>kcal</th>
+              <th className={thClass}>{t('activityStats.calories')} (kcal)</th>
             </tr>
           </thead>
           <tbody>
@@ -185,7 +189,7 @@ function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Sp
                   <td className={`${tdClass} text-neutral-400`}>{routeNum ?? ''}</td>
                   <td className={tdClass}>
                     <span className={`text-xs px-1.5 py-0.5 rounded ${splitTypeBadgeColor(s.split_type)}`}>
-                      {splitTypeLabel(s.split_type, subType)}
+                      {splitTypeLabel(s.split_type, t, subType)}
                     </span>
                   </td>
                   <td className={tdClass}>
@@ -205,29 +209,31 @@ function ClimbingSplits({ splits, summaries, subType, activityId }: { splits: Sp
         </table>
       </div>
       <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-600">
-        Grad-Spalte: Klicken zum Eintragen (z.B. 6b, V4, 7A+)
+        {t('activityTables.splits.gradeHint')}
       </p>
     </div>
   )
 }
 
 function SkiSplits({ splits }: { splits: Split[] }) {
+  const { t } = useTranslation()
+  const { options, formatDistance, formatElevation } = useUnitFormatters()
   const showElevation = splits.some(s => s.total_ascent_m != null || s.total_descent_m != null)
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Splits</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('activityTables.splits.title')}</h2>
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
               <th className={thClass}>#</th>
-              <th className={thClass}>Typ</th>
-              <th className={thClass}>Dauer</th>
-              <th className={thClass}>Distanz</th>
-              <th className={thClass}>Geschw.</th>
-              {showElevation && <th className={thClass}>Aufstieg</th>}
-              {showElevation && <th className={thClass}>Abstieg</th>}
+              <th className={thClass}>{t('activityTables.splits.headers.type')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.duration')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.distance')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.speed')}</th>
+              {showElevation && <th className={thClass}>{t('activityTables.splits.headers.ascent')}</th>}
+              {showElevation && <th className={thClass}>{t('activityTables.splits.headers.descent')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -239,14 +245,14 @@ function SkiSplits({ splits }: { splits: Split[] }) {
                 <td className={tdClass}>{s.split_index + 1}</td>
                 <td className={tdClass}>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${splitTypeBadgeColor(s.split_type)}`}>
-                    {splitTypeLabel(s.split_type)}
+                    {splitTypeLabel(s.split_type, t)}
                   </span>
                 </td>
                 <td className={tdClass}>{fmtDuration(s.timer_time_s ?? s.elapsed_time_s)}</td>
-                <td className={tdClass}>{fmtDist(s.distance_m)}</td>
-                <td className={tdClass}>{formatSpeedKmh(s.avg_speed_ms ?? 0)}</td>
-                {showElevation && <td className={tdClass}>{s.total_ascent_m != null ? `+${Math.round(s.total_ascent_m)} m` : '--'}</td>}
-                {showElevation && <td className={tdClass}>{s.total_descent_m != null ? `-${Math.round(s.total_descent_m)} m` : '--'}</td>}
+                <td className={tdClass}>{formatDistance(s.distance_m)}</td>
+                <td className={tdClass}>{formatSpeedValue(s.avg_speed_ms ?? 0, 'skiing', 'speed', options)}</td>
+                {showElevation && <td className={tdClass}>{s.total_ascent_m != null ? `+${formatElevation(s.total_ascent_m)}` : '--'}</td>}
+                {showElevation && <td className={tdClass}>{s.total_descent_m != null ? `-${formatElevation(s.total_descent_m)}` : '--'}</td>}
               </tr>
             ))}
           </tbody>
@@ -257,24 +263,26 @@ function SkiSplits({ splits }: { splits: Split[] }) {
 }
 
 function GenericSplits({ splits, sportType }: { splits: Split[]; sportType: string }) {
+  const { t } = useTranslation()
+  const { options, formatDistance, formatElevation } = useUnitFormatters()
   const showHR = splits.some(s => s.avg_hr != null)
   const showElevation = splits.some(s => s.total_ascent_m != null || s.total_descent_m != null)
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Splits</h2>
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('activityTables.splits.title')}</h2>
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
               <th className={thClass}>#</th>
-              <th className={thClass}>Typ</th>
-              <th className={thClass}>Dauer</th>
-              <th className={thClass}>Distanz</th>
-              <th className={thClass}>Geschw.</th>
+              <th className={thClass}>{t('activityTables.splits.headers.type')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.duration')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.distance')}</th>
+              <th className={thClass}>{t('activityTables.splits.headers.speed')}</th>
               {showHR && <th className={thClass}>HR</th>}
-              {showElevation && <th className={thClass}>Aufstieg</th>}
-              {showElevation && <th className={thClass}>Abstieg</th>}
+              {showElevation && <th className={thClass}>{t('activityTables.splits.headers.ascent')}</th>}
+              {showElevation && <th className={thClass}>{t('activityTables.splits.headers.descent')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -286,15 +294,15 @@ function GenericSplits({ splits, sportType }: { splits: Split[]; sportType: stri
                 <td className={tdClass}>{s.split_index + 1}</td>
                 <td className={tdClass}>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${splitTypeBadgeColor(s.split_type)}`}>
-                    {splitTypeLabel(s.split_type)}
+                    {splitTypeLabel(s.split_type, t)}
                   </span>
                 </td>
                 <td className={tdClass}>{fmtDuration(s.timer_time_s ?? s.elapsed_time_s)}</td>
-                <td className={tdClass}>{fmtDist(s.distance_m)}</td>
-                <td className={tdClass}>{formatSpeedValue(s.avg_speed_ms ?? 0, sportType)}</td>
+                <td className={tdClass}>{formatDistance(s.distance_m)}</td>
+                <td className={tdClass}>{formatSpeedValue(s.avg_speed_ms ?? 0, sportType, undefined, options)}</td>
                 {showHR && <td className={tdClass}>{s.avg_hr != null ? `${Math.round(s.avg_hr)} bpm` : '--'}</td>}
-                {showElevation && <td className={tdClass}>{s.total_ascent_m != null ? `+${Math.round(s.total_ascent_m)} m` : '--'}</td>}
-                {showElevation && <td className={tdClass}>{s.total_descent_m != null ? `-${Math.round(s.total_descent_m)} m` : '--'}</td>}
+                {showElevation && <td className={tdClass}>{s.total_ascent_m != null ? `+${formatElevation(s.total_ascent_m)}` : '--'}</td>}
+                {showElevation && <td className={tdClass}>{s.total_descent_m != null ? `-${formatElevation(s.total_descent_m)}` : '--'}</td>}
               </tr>
             ))}
           </tbody>

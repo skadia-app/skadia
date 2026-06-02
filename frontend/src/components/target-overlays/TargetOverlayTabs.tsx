@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Activity, AlertTriangle, CheckCircle2, MessageSquare } from 'lucide-react'
 import {
   addTargetReportStatus,
@@ -10,6 +11,10 @@ import {
   type OverlaySubjectKind,
   type TargetReport,
 } from '@/api/targetOverlays'
+import {
+  reportStatusLabel as formatReportStatusLabel,
+  reportTypeLabel as formatReportTypeLabel,
+} from '@/components/target-objects/targetLabels'
 import ObservationList from './ObservationList'
 import ReportComposer from './ReportComposer'
 import UserContentPanel from './UserContentPanel'
@@ -24,13 +29,14 @@ type TargetOverlayTabsProps = {
 
 type TabKey = 'activity' | 'reports' | 'content'
 
-const TABS: Array<{ key: TabKey; label: string; icon: typeof Activity }> = [
-  { key: 'activity', label: 'Aktivität', icon: Activity },
-  { key: 'reports', label: 'Meldungen', icon: AlertTriangle },
-  { key: 'content', label: 'Kommentare', icon: MessageSquare },
+const TABS: Array<{ key: TabKey; labelKey: string; icon: typeof Activity }> = [
+  { key: 'activity', labelKey: 'targetOverlays.tabs.activity', icon: Activity },
+  { key: 'reports', labelKey: 'targetOverlays.tabs.reports', icon: AlertTriangle },
+  { key: 'content', labelKey: 'targetOverlays.tabs.content', icon: MessageSquare },
 ]
 
 export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersionId, canWrite = false, canManageReports = false }: TargetOverlayTabsProps) {
+  const { i18n, t } = useTranslation()
   const [activeTab, setActiveTab] = useState<TabKey>('activity')
   const queryClient = useQueryClient()
   const baseQuery = useMemo(() => ({
@@ -77,14 +83,14 @@ export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersio
     <section className="space-y-4">
       <div className="flex flex-col gap-3 border-b border-neutral-200 pb-3 dark:border-neutral-800 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Aktivität und Meldungen</h2>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('targetOverlays.title')}</h2>
           {overlaySummary && (
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-              <SummaryChip label="Offen" value={overlaySummary.public_open_report_count} />
-              <SummaryChip label="Aktivität" value={overlaySummary.public_recent_observation_count_30d} />
-              <SummaryChip label="Kommentare" value={overlaySummary.public_comment_count} />
+              <SummaryChip label={t('targetOverlays.summary.open')} value={overlaySummary.public_open_report_count} />
+              <SummaryChip label={t('targetOverlays.summary.activity')} value={overlaySummary.public_recent_observation_count_30d} />
+              <SummaryChip label={t('targetOverlays.summary.comments')} value={overlaySummary.public_comment_count} />
               {overlaySummary.public_rating_count > 0 && (
-                <SummaryChip label="Bewertung" value={overlaySummary.public_rating_mean?.toFixed(1) ?? String(overlaySummary.public_rating_count)} />
+                <SummaryChip label={t('targetOverlays.summary.rating')} value={overlaySummary.public_rating_mean?.toFixed(1) ?? String(overlaySummary.public_rating_count)} />
               )}
             </div>
           )}
@@ -105,7 +111,7 @@ export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersio
                 }`}
               >
                 <Icon size={15} />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             )
           })}
@@ -120,24 +126,24 @@ export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersio
         <div className="space-y-4">
           {canWrite && <ReportComposer subjectKind={subjectKind} subjectId={subjectId} targetVersionId={targetVersionId} onCreated={refresh} />}
           {reports.isLoading ? (
-            <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">Meldungen werden geladen...</p>
+            <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">{t('targetOverlays.reports.loading')}</p>
           ) : (reports.data?.reports ?? []).length === 0 ? (
-            <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">Keine sichtbaren Meldungen.</p>
+            <p className="py-4 text-sm text-neutral-500 dark:text-neutral-400">{t('targetOverlays.reports.empty')}</p>
           ) : (
             <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
               {(reports.data?.reports ?? []).map(report => (
                 <div key={report.id} className="flex items-start justify-between gap-3 py-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{reportTypeLabel(report.report_type)}</p>
+                      <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{formatReportTypeLabel(report.report_type, t)}</p>
                       {report.latest_status && (
                         <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                          {statusLabel(report.latest_status)}
+                          {formatReportStatusLabel(report.latest_status, t)}
                         </span>
                       )}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm text-neutral-700 dark:text-neutral-300">{report.description}</p>
-                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(report.observed_at)}</p>
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{formatDateTime(report.observed_at, i18n.language)}</p>
                   </div>
                   {canManageReports && report.latest_status === 'open' && (
                     <button
@@ -147,7 +153,7 @@ export default function TargetOverlayTabs({ subjectKind, subjectId, targetVersio
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
                     >
                       <CheckCircle2 size={14} />
-                      Erledigt
+                      {t('targetOverlays.reports.resolve')}
                     </button>
                   )}
                 </div>
@@ -176,30 +182,10 @@ function SummaryChip({ label, value }: { label: string; value: string | number }
   return <span className="rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">{label}: {value}</span>
 }
 
-function reportTypeLabel(value: string): string {
-  return ({
-    condition: 'Zustand',
-    issue: 'Problem',
-    warning: 'Warnung',
-    trail_work: 'Arbeit',
-    closure: 'Sperrung',
-    metadata: 'Daten',
-  } as Record<string, string>)[value] ?? value
-}
+export { reportStatusLabel, reportTypeLabel } from '@/components/target-objects/targetLabels'
 
-function statusLabel(value: string): string {
-  return ({
-    open: 'Offen',
-    resolved: 'Erledigt',
-    rejected: 'Abgelehnt',
-    superseded: 'Ersetzt',
-    informational: 'Info',
-    redacted: 'Redigiert',
-  } as Record<string, string>)[value] ?? value
-}
-
-function formatDateTime(value: string): string {
+function formatDateTime(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+  return date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
 }

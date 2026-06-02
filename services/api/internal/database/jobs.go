@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -10,24 +11,49 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// BackgroundJob repräsentiert eine laufende oder abgeschlossene Hintergrundberechnung.
+// BackgroundJob represents a running or completed background job.
 type BackgroundJob struct {
-	ID              string     `json:"id"`
-	UserID          string     `json:"user_id"`
-	JobType         string     `json:"job_type"`
-	EntityID        *string    `json:"entity_id,omitempty"`
-	EntityName      *string    `json:"entity_name,omitempty"`
-	Status          string     `json:"status"`
-	Phase           *string    `json:"phase,omitempty"` // "download" | "import" | "index" | "optimize" | "topology" | "enrichment" | "splitting"
-	ProgressCurrent int64      `json:"progress_current"`
-	ProgressTotal   int64      `json:"progress_total"`
-	StartedAt       time.Time  `json:"started_at"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Error           *string    `json:"error,omitempty"`
-	Metadata        []byte     `json:"-"`
+	ID              string         `json:"id"`
+	UserID          string         `json:"user_id"`
+	JobType         string         `json:"job_type"`
+	EntityID        *string        `json:"entity_id,omitempty"`
+	EntityName      *string        `json:"entity_name,omitempty"`
+	Status          string         `json:"status"`
+	Phase           *string        `json:"phase,omitempty"` // "download" | "import" | "index" | "optimize" | "topology" | "enrichment" | "splitting"
+	ProgressCurrent int64          `json:"progress_current"`
+	ProgressTotal   int64          `json:"progress_total"`
+	StartedAt       time.Time      `json:"started_at"`
+	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
+	Error           *string        `json:"error,omitempty"`
+	MessageCode     string         `json:"message_code,omitempty"`
+	StatusCode      string         `json:"status_code,omitempty"`
+	EntityKey       string         `json:"entity_key,omitempty"`
+	Params          map[string]any `json:"params,omitempty"`
+	Metadata        []byte         `json:"-"`
 }
 
-// InsertBackgroundJob schreibt einen neuen Job-Eintrag und gibt die generierte ID zurück.
+type backgroundJobI18nMetadata struct {
+	MessageCode string         `json:"message_code"`
+	StatusCode  string         `json:"status_code"`
+	EntityKey   string         `json:"entity_key"`
+	Params      map[string]any `json:"params"`
+}
+
+func applyBackgroundJobI18nMetadata(job *BackgroundJob) {
+	if job == nil || len(job.Metadata) == 0 {
+		return
+	}
+	var meta backgroundJobI18nMetadata
+	if err := json.Unmarshal(job.Metadata, &meta); err != nil {
+		return
+	}
+	job.MessageCode = meta.MessageCode
+	job.StatusCode = meta.StatusCode
+	job.EntityKey = meta.EntityKey
+	job.Params = meta.Params
+}
+
+// InsertBackgroundJob writes a new job row and returns the generated ID.
 func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, entityID, entityName *string, total int64) (string, error) {
 	id := uuid.New().String()
 	return id, db.InsertBackgroundJobWithID(ctx, id, userID, jobType, entityID, entityName, total)
@@ -76,7 +102,7 @@ func (db *DB) InsertBackgroundJobGuarded(ctx context.Context, userID, jobType st
 	return id, true, nil
 }
 
-// UpdateBackgroundJobPhase setzt die aktuelle Phase eines Jobs ("download", "import", "index").
+// UpdateBackgroundJobPhase sets the current phase of a job.
 func (db *DB) UpdateBackgroundJobPhase(ctx context.Context, jobID, phase string) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE background_jobs SET phase = $1 WHERE id = $2`,
@@ -85,7 +111,7 @@ func (db *DB) UpdateBackgroundJobPhase(ctx context.Context, jobID, phase string)
 	return err
 }
 
-// UpdateBackgroundJobProgress aktualisiert den Fortschritts-Zähler eines Jobs.
+// UpdateBackgroundJobProgress updates the progress counter for a job.
 func (db *DB) UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int64) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE background_jobs SET progress_current = $1 WHERE id = $2`,
@@ -111,8 +137,8 @@ func (db *DB) UpdateBackgroundJobMetadata(ctx context.Context, jobID string, met
 	return err
 }
 
-// CompleteBackgroundJob setzt status auf 'completed' oder 'failed' und trägt finished_at ein.
-// Erzeugt zusätzlich eine Notification für den User (best-effort).
+// CompleteBackgroundJob sets status to 'completed' or 'failed' and records finished_at.
+// It also creates a best-effort notification for the user.
 func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool, errorText string) error {
 	status := "completed"
 	if failed {
@@ -136,13 +162,17 @@ func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bo
 	}
 
 	title := jobCompletionTitle(jobType, entityName, failed)
+	payload, err := jobCompletionNotificationData(jobType, entityName, failed)
+	if err != nil {
+		return nil
+	}
 	category := "job"
 	if failed {
 		category = "job_error"
 	}
 	if _, err := db.Pool.Exec(ctx,
-		"INSERT INTO notifications (user_id, category, title, body) VALUES ($1, $2, $3, '')",
-		userID, category, title,
+		"INSERT INTO notifications (user_id, category, title, body, data) VALUES ($1, $2, $3, '', $4)",
+		userID, category, title, payload,
 	); err != nil {
 		// Best-effort: log but don't fail
 		return nil
@@ -150,73 +180,13 @@ func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bo
 	return nil
 }
 
-// jobTypeLabels maps job_type values to German display labels for notifications.
-// SYNC: keep in sync with frontend/src/lib/jobLabels.ts (JOB_TYPE_LABELS).
-// When adding a new job type, add it here AND in the frontend map.
-var jobTypeLabels = map[string]string{
-	"osm_import":                    "OSM-Import",
-	"osm_enrichment":                "OSM-Anreicherung",
-	"osm_update":                    "OSM-Region aktualisieren",
-	"osm_update_all":                "Alle OSM-Regionen aktualisieren",
-	"garmin_import":                 "Garmin-Import",
-	"strava_import":                 "Strava-Import",
-	"komoot_import":                 "Komoot-Import",
-	"data_import":                   "Datenimport",
-	"data_import_enrichment":        "Import-Enrichment",
-	"gdpr_export":                   "Datenexport",
-	"gdpr_purge":                    "DSGVO-Datenlöschung",
-	"segment_recompute":             "Segmente neu berechnen",
-	"segment_recalculation":         "Segment-Neuberechnung",
-	"segment_publish":               "Segment veröffentlichen",
-	"segment_matching":              "Segment-Matching",
-	"activity_recompute":            "Aktivität neu berechnen",
-	"activity_recompute_all":        "Alle Aktivitäten neu berechnen",
-	"activity_re_enrich":            "Enrichment-Update",
-	"backfill_activity_enrichments": "Track-Anreicherungen nachfüllen",
-	"recompute_multisport":          "Multisport neu berechnen",
-	"photo_preview_recompute":       "Foto-Vorschaubilder neu erstellen",
-	"photo_thumb_recompute":         "Foto-Thumbnails neu erstellen",
-	"photo_clip_embed":              "Foto-Indexierung",
-	"photo_embed_backfill":          "Foto-Einbettungen berechnen",
-	"phash_backfill":                "Foto-Duplikaterkennung berechnen",
-	"thumbnail_backfill":            "Thumbnails regenerieren",
-	"meta_backfill":                 "Meta-Sidecars erstellen",
-	"elevation_reset":               "Höhenkorrektur zurücksetzen",
-	"elevation_correction":          "Höhenkorrektur anwenden",
-	"distance_correction":           "Distanzkorrektur anwenden",
-	"distance_reset":                "Distanzkorrektur zurücksetzen",
-	"dem_import":                    "Höhenmodell importieren",
-	"dem_download":                  "Höhenmodell herunterladen",
-	"apply_rules":                   "Regeln anwenden",
-	"rule_apply":                    "Regel anwenden",
-	"routing_graph_build":           "Routing-Graph erstellen",
-	"tile_build":                    "Routing-Tiles erstellen",
-	"brouter_segment_build":         "BRouter-Segmente erstellen",
-	"brouter_segment_download":      "BRouter-Segmente herunterladen",
-	"coverage_build":                "Coverage-Grids erstellen",
-	"weather_backfill":              "Wetter-Daten nachfüllen",
-	"geocoding_backfill":            "Ortsnamen nachtragen",
-	"heatmap_rebuild":               "Heatmap aktualisieren",
-	"pmc_recalc":                    "PMC neu berechnen",
-	"recalc_best_efforts":           "Bestleistungen neu berechnen",
-	"recalc_best_efforts_all":       "Bestleistungen neu berechnen (global)",
-	"best_efforts_recalc":           "Bestleistungen berechnen",
-	"recompute_all_tss":             "TSS neu berechnen",
-	"fusion_queue_compute":          "Fusionskandidaten berechnen",
-	"shadowfs_reconcile":            "Dateispeicher-Konsistenzprüfung",
-	"shadowfs_rename":               "Dateispeicher-Umbenennung",
-	"compression_toggle":            "Datenkompression umschalten",
-	"device_orphan_cleanup":         "Verwaiste Geräte bereinigen",
-	"lift_recompute":                "Lift-Erkennung neu berechnen",
-}
-
-func jobCompletionTitle(jobType string, entityName *string, failed bool) string {
-	label := jobTypeLabels[jobType]
-	if label == "" {
-		label = jobType
-	}
+// jobCompletionTitle returns the legacy stored title for clients that do not
+// render structured notification data. Job-specific labels are resolved from
+// the job_type carried in jobCompletionNotificationData.
+func jobCompletionTitle(_ string, entityName *string, failed bool) string {
+	label := "Hintergrundjob"
 	if entityName != nil && *entityName != "" {
-		label += " — " + *entityName
+		label += " - " + *entityName
 	}
 	if failed {
 		return label + " fehlgeschlagen"
@@ -224,12 +194,27 @@ func jobCompletionTitle(jobType string, entityName *string, failed bool) string 
 	return label + " abgeschlossen"
 }
 
-// ListActiveBackgroundJobs gibt alle running Jobs (max. 2h alt) + kürzlich abgeschlossene Jobs
-// (finished_at in den letzten 5 Minuten) für einen User zurück.
+func jobCompletionNotificationData(jobType string, entityName *string, failed bool) ([]byte, error) {
+	key := "notifications.jobs.completed"
+	if failed {
+		key = "notifications.jobs.failed"
+	}
+	params := map[string]any{"jobType": jobType}
+	if entityName != nil && *entityName != "" {
+		params["entityName"] = *entityName
+	}
+	return json.Marshal(map[string]any{
+		"key":    key,
+		"params": params,
+	})
+}
+
+// ListActiveBackgroundJobs returns running jobs plus recently completed jobs for one user.
 func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]BackgroundJob, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, job_type, entity_id, entity_name, status, phase,
-		       progress_current, progress_total, started_at, finished_at, error
+		       progress_current, progress_total, started_at, finished_at, error,
+		       COALESCE(metadata, '{}'::jsonb)
 		FROM background_jobs
 		WHERE user_id = $1
 		  AND (
@@ -251,9 +236,11 @@ func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]Ba
 			&j.ID, &j.UserID, &j.JobType, &j.EntityID, &j.EntityName,
 			&j.Status, &j.Phase,
 			&j.ProgressCurrent, &j.ProgressTotal, &j.StartedAt, &j.FinishedAt, &j.Error,
+			&j.Metadata,
 		); err != nil {
 			return nil, err
 		}
+		applyBackgroundJobI18nMetadata(&j)
 		jobs = append(jobs, j)
 	}
 	if jobs == nil {
@@ -287,6 +274,7 @@ func (db *DB) ListStaleRunningJobs(ctx context.Context) ([]BackgroundJob, error)
 		); err != nil {
 			return nil, err
 		}
+		applyBackgroundJobI18nMetadata(&j)
 		jobs = append(jobs, j)
 	}
 	return jobs, rows.Err()

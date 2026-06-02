@@ -3,18 +3,31 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { I18nProvider } from '@/i18n/I18nProvider'
+import { i18n } from '@/i18n/i18n'
 
 const apiMock = vi.hoisted(() => ({
   getLatestDataExport: vi.fn(),
   createDataExportDownloadSession: vi.fn(),
   triggerNativeDownload: vi.fn(),
+  deleteAccount: vi.fn(),
   createMultipartDataImport: vi.fn(),
   uploadMultipartDataImportPart: vi.fn(),
   startMultipartDataImport: vi.fn(),
+  setUnits: vi.fn(),
+  setLocale: vi.fn(),
+  hasPassword: true,
 }))
 
 vi.mock('@/providers/UserProvider', () => ({
-  useUser: () => ({ user: { username: 'test', display_name: 'Test', email: 't@example.com', has_password: true } }),
+  useUser: () => ({
+    user: { username: 'test', display_name: 'Test', email: 't@example.com', has_password: apiMock.hasPassword, locale: 'de', units: 'metric' },
+    locale: 'de',
+    units: 'metric',
+    hasPassword: apiMock.hasPassword,
+    setUnits: apiMock.setUnits,
+    setLocale: apiMock.setLocale,
+  }),
 }))
 
 vi.mock('@/lib/toast', () => ({
@@ -33,6 +46,7 @@ vi.mock('@/api/auth', async () => {
     uploadMultipartDataImportPart: apiMock.uploadMultipartDataImportPart,
     startMultipartDataImport: apiMock.startMultipartDataImport,
     cancelMultipartDataImport: vi.fn(),
+    deleteAccount: apiMock.deleteAccount,
   }
 })
 
@@ -44,22 +58,25 @@ vi.mock('@/api/client', async () => {
   }
 })
 
-import AccountSettingsTab from './AccountSettingsTab'
+import AccountSettingsTab, { formatDataImportProgressMessage } from './AccountSettingsTab'
 
 function renderSettings() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter>
-      <QueryClientProvider client={queryClient}>
-        <AccountSettingsTab />
-      </QueryClientProvider>
-    </MemoryRouter>,
+    <I18nProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AccountSettingsTab />
+        </QueryClientProvider>
+      </MemoryRouter>
+    </I18nProvider>,
   )
 }
 
 describe('AccountSettingsTab GDPR export downloads', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.hasPassword = true
   })
 
   it('requests a download session and triggers a native download', async () => {
@@ -123,9 +140,56 @@ describe('AccountSettingsTab GDPR export downloads', () => {
   })
 })
 
+describe('AccountSettingsTab preferences', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.hasPassword = true
+    apiMock.getLatestDataExport.mockResolvedValue(null)
+    apiMock.setUnits.mockResolvedValue(undefined)
+    apiMock.setLocale.mockResolvedValue(undefined)
+  })
+
+  it('persists the selected language from account preferences', async () => {
+    renderSettings()
+
+    await userEvent.click(await screen.findByRole('button', { name: /English/ }))
+
+    await waitFor(() => {
+      expect(apiMock.setLocale).toHaveBeenCalledWith('en')
+    })
+  })
+
+  it('persists the selected unit system', async () => {
+    renderSettings()
+
+    await userEvent.click(await screen.findByRole('button', { name: /Imperial/ }))
+
+    await waitFor(() => {
+      expect(apiMock.setUnits).toHaveBeenCalledWith('imperial')
+    })
+  })
+
+  it('shows localized unit details for distance, weight, temperature, speed, and pace', async () => {
+    renderSettings()
+
+    expect(await screen.findByText('Distanz/Höhe: km, m')).toBeTruthy()
+    expect(screen.getByText('Gewicht: kg')).toBeTruthy()
+    expect(screen.getByText('Temperatur: °C')).toBeTruthy()
+    expect(screen.getByText('Geschwindigkeit: km/h')).toBeTruthy()
+    expect(screen.getByText('Pace: min/km')).toBeTruthy()
+
+    expect(screen.getByText('Distanz/Höhe: mi, ft')).toBeTruthy()
+    expect(screen.getByText('Gewicht: lb')).toBeTruthy()
+    expect(screen.getByText('Temperatur: °F')).toBeTruthy()
+    expect(screen.getByText('Geschwindigkeit: mph')).toBeTruthy()
+    expect(screen.getByText('Pace: min/mi')).toBeTruthy()
+  })
+})
+
 describe('AccountSettingsTab multipart GDPR import', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.hasPassword = true
     apiMock.getLatestDataExport.mockResolvedValue(null)
   })
 
@@ -159,5 +223,53 @@ describe('AccountSettingsTab multipart GDPR import', () => {
       expect(apiMock.uploadMultipartDataImportPart).toHaveBeenNthCalledWith(2, 'import-1', files)
       expect(apiMock.startMultipartDataImport).toHaveBeenCalledWith('import-1')
     })
+  })
+
+  it('localizes import progress without exposing backend message text', () => {
+    const message = formatDataImportProgressMessage({
+      job_id: 'import-1',
+      status: 'running',
+      phase_name: 'files',
+      message: 'Importing files...',
+    }, i18n.t)
+
+    expect(message).toBe('Importiere Dateien...')
+    expect(message).not.toBe('Importing files...')
+    expect(formatDataImportProgressMessage({
+      job_id: 'import-1',
+      status: 'running',
+      message: 'backend raw message',
+    }, i18n.t)).toBeNull()
+  })
+})
+
+describe('AccountSettingsTab account deletion confirmation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.hasPassword = false
+    apiMock.getLatestDataExport.mockResolvedValue(null)
+    apiMock.deleteAccount.mockResolvedValue({ status: 'deletion_scheduled' })
+  })
+
+  it('accepts the localized confirmation phrase but sends the backend confirmation token', async () => {
+    const originalPhrase = i18n.t('account.delete.confirmationPhrase')
+    const originalPlaceholder = i18n.t('account.delete.confirmationPlaceholder')
+    i18n.addResource('de', 'translation', 'account.delete.confirmationPhrase', 'DELETE MY ACCOUNT')
+    i18n.addResource('de', 'translation', 'account.delete.confirmationPlaceholder', 'DELETE MY ACCOUNT')
+
+    try {
+      renderSettings()
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Account löschen' }))
+      await userEvent.type(screen.getByPlaceholderText('DELETE MY ACCOUNT'), 'DELETE MY ACCOUNT')
+      await userEvent.click(screen.getByRole('button', { name: 'Unwiderruflich löschen' }))
+
+      await waitFor(() => {
+        expect(apiMock.deleteAccount.mock.calls[0]?.[0]).toEqual({ confirmation: 'ACCOUNT LÖSCHEN' })
+      })
+    } finally {
+      i18n.addResource('de', 'translation', 'account.delete.confirmationPhrase', originalPhrase)
+      i18n.addResource('de', 'translation', 'account.delete.confirmationPlaceholder', originalPlaceholder)
+    }
   })
 })

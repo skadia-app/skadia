@@ -1,7 +1,7 @@
-// Globale Sport-Einstellungen: Farben + "nicht vorhandene ausblenden"
+// Global sport settings: colors and hiding unused sports.
 // localStorage keys:
-// - 'skadia-sport-colors-global': { [sportType: string]: string } — Hex-Farben pro Sport
-// - 'skadia-hide-unused-sports': boolean — Standard: true
+// - 'skadia-sport-colors-global': { [sportType: string]: string } — hex colors by sport.
+// - 'skadia-hide-unused-sports': boolean — default: true.
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { sportColor } from './sportTaxonomy'
@@ -9,17 +9,17 @@ import { sportColor } from './sportTaxonomy'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface GlobalSportSettings {
-  /** Gibt die effektive Farbe fuer einen Sport-Type zurueck (Custom > Default) */
+  /** Returns the effective color for a sport type (custom > default). */
   getSportColor: (sportType: string) => string
-  /** Setzt die Farbe fuer einen Sport-Type */
+  /** Sets the color for a sport type. */
   setSportColor: (sportType: string, color: string) => void
-  /** Setzt Farbe auf Standard zurueck */
+  /** Resets a sport type to its default color. */
   resetSportColor: (sportType: string) => void
-  /** Alle gesetzten Custom-Farben */
+  /** All custom colors currently set. */
   customColors: Record<string, string>
-  /** Alle Custom-Farben zuruecksetzen */
+  /** Resets all custom colors. */
   resetAllColors: () => void
-  /** "Nicht vorhandene ausblenden" Setting */
+  /** Whether unused sports are hidden. */
   hideUnused: boolean
   setHideUnused: (value: boolean) => void
 }

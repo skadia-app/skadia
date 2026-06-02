@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { getUserProfile, updateUserProfile } from '@/api/settings'
 import type { UserProfile } from '@/api/types'
 import { fetchTrainingZones } from '@/api/trainingZones'
 import ZoneEditorCard from '@/components/zones/ZoneEditor'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { weightFromDisplayValue, weightInputUnit, weightToDisplayValue } from '@/lib/units'
 
 export default function PhysiologicalProfilePage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { options: unitOptions } = useUnitFormatters()
 
   const { data: profile } = useQuery({
     queryKey: ['user-profile'],
@@ -52,32 +57,40 @@ export default function PhysiologicalProfilePage() {
     },
   })
 
+  const weightUnit = weightInputUnit(unitOptions.units)
+  const displayedWeight = profileForm.weight_kg == null
+    ? ''
+    : weightToDisplayValue(profileForm.weight_kg, unitOptions.units).toFixed(1)
+  const displayWeightMin = weightToDisplayValue(20, unitOptions.units).toFixed(1)
+  const displayWeightMax = weightToDisplayValue(300, unitOptions.units).toFixed(1)
+  const weightPlaceholder = unitOptions.units === 'imperial' ? '154.0' : '70.0'
+
   return (
     <div className="space-y-6">
       <div>
         <Link to="/workshop" className="text-sm text-accent-DEFAULT hover:text-accent-600 transition-colors">
-          ← Werkstatt
+          {t('physiologicalProfile.backToWorkshop')}
         </Link>
       </div>
 
-      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Physiologisches Profil</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('physiologicalProfile.title')}</h1>
 
       <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-        Werte aus deinen Garmin-Dateien werden automatisch vorgeschlagen (nur wenn das Feld noch leer ist).
+        {t('physiologicalProfile.garminHint')}
       </div>
 
       <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Körperdaten &amp; Leistungswerte</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('physiologicalProfile.bodyPerformanceTitle')}</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Für genaue Leistungszonen, TRIMP und Intensitäts-Auswertung
+            {t('physiologicalProfile.bodyPerformanceDescription')}
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Geburtsdatum */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Geburtsdatum</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.birthDate')}</label>
             <input
               type="date"
               value={profileForm.birth_date ?? ''}
@@ -86,49 +99,50 @@ export default function PhysiologicalProfilePage() {
             />
             {profileForm.birth_date && (
               <p className="text-xs text-neutral-500">
-                Alter: {calcAge(profileForm.birth_date)} Jahre · Tanaka-Formel: {tanakaFormula(profileForm.birth_date)} bpm
+                {t('physiologicalProfile.ageFormula', { age: calcAge(profileForm.birth_date), bpm: tanakaFormula(profileForm.birth_date) })}
               </p>
             )}
           </div>
 
           {/* Geschlecht */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Geschlecht</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.gender')}</label>
             <select
               value={profileForm.gender ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, gender: e.target.value as any }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
             >
-              <option value="">Keine Angabe</option>
-              <option value="M">Männlich</option>
-              <option value="F">Weiblich</option>
-              <option value="O">Divers</option>
+              <option value="">{t('physiologicalProfile.genderOptions.unspecified')}</option>
+              <option value="M">{t('physiologicalProfile.genderOptions.male')}</option>
+              <option value="F">{t('physiologicalProfile.genderOptions.female')}</option>
+              <option value="O">{t('physiologicalProfile.genderOptions.diverse')}</option>
             </select>
           </div>
 
-          {/* Gewicht */}
+          {/* Weight */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Gewicht (kg)</label>
+            <label htmlFor="physiological-weight" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.weightKg', { unit: weightUnit })}</label>
             <input
+              id="physiological-weight"
               type="number"
-              min="20" max="300" step="0.1"
-              value={profileForm.weight_kg ?? ''}
-              onChange={e => setProfileForm(f => ({ ...f, weight_kg: e.target.value ? parseFloat(e.target.value) : undefined }))}
+              min={displayWeightMin} max={displayWeightMax} step="0.1"
+              value={displayedWeight}
+              onChange={e => setProfileForm(f => ({ ...f, weight_kg: e.target.value ? weightFromDisplayValue(parseFloat(e.target.value), unitOptions.units) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 72.5"
+              placeholder={t('physiologicalProfile.weightPlaceholder', { value: weightPlaceholder })}
             />
           </div>
 
-          {/* Größe */}
+          {/* Height */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Größe (cm)</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.heightCm')}</label>
             <input
               type="number"
               min="100" max="250"
               value={profileForm.height_cm ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, height_cm: e.target.value ? parseInt(e.target.value) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 178"
+              placeholder={t('physiologicalProfile.heightPlaceholder')}
             />
           </div>
 
@@ -136,14 +150,14 @@ export default function PhysiologicalProfilePage() {
           <div className="space-y-1">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
               FTP (Watt)
-              <span className="ml-1 text-xs text-neutral-400 font-normal">Functional Threshold Power (~1h Max-Dauerleistung)</span>
+              <span className="ml-1 text-xs text-neutral-400 font-normal">{t('physiologicalProfile.ftpDescription')}</span>
             </label>
             <input
               type="number" min="0" max="1000"
               value={profileForm.ftp_w ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, ftp_w: e.target.value ? parseInt(e.target.value) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 280"
+              placeholder={t('physiologicalProfile.ftpPlaceholder')}
             />
           </div>
 
@@ -151,43 +165,43 @@ export default function PhysiologicalProfilePage() {
           <div className="space-y-1">
             <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
               LTHR (bpm)
-              <span className="ml-1 text-xs text-neutral-400 font-normal">Laktatschwellen-Herzfrequenz</span>
+              <span className="ml-1 text-xs text-neutral-400 font-normal">{t('physiologicalProfile.lthrDescription')}</span>
             </label>
             <input
               type="number" min="0" max="250"
               value={profileForm.lthr_bpm ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, lthr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 165"
+              placeholder={t('physiologicalProfile.lthrPlaceholder')}
             />
           </div>
 
           {/* HR-Max */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">HR-Max Override (bpm)</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.hrMaxOverride')}</label>
             <input
               type="number" min="0" max="250"
               value={profileForm.max_hr_bpm ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, max_hr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="Optional"
+              placeholder={t('physiologicalProfile.optional')}
             />
             <div className="text-xs text-neutral-400 space-x-3">
-              {profile?.max_hr_formula && <span>Formel: {profile.max_hr_formula} bpm</span>}
-              {profile?.max_hr_detected && <span>Erkannt: {profile.max_hr_detected} bpm</span>}
-              <span className="font-medium text-neutral-600 dark:text-neutral-300">Effektiv: {profile?.effective_max_hr ?? 220} bpm</span>
+              {profile?.max_hr_formula && <span>{t('physiologicalProfile.formulaBpm', { value: profile.max_hr_formula })}</span>}
+              {profile?.max_hr_detected && <span>{t('physiologicalProfile.detectedBpm', { value: profile.max_hr_detected })}</span>}
+              <span className="font-medium text-neutral-600 dark:text-neutral-300">{t('physiologicalProfile.effectiveBpm', { value: profile?.effective_max_hr ?? 220 })}</span>
             </div>
           </div>
 
           {/* Ruhepuls */}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Ruhepuls (bpm)</label>
+            <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('physiologicalProfile.restingHr')}</label>
             <input
               type="number" min="0" max="120"
               value={profileForm.resting_hr_bpm ?? ''}
               onChange={e => setProfileForm(f => ({ ...f, resting_hr_bpm: e.target.value ? parseInt(e.target.value) : undefined }))}
               className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
-              placeholder="z.B. 52"
+              placeholder={t('physiologicalProfile.restingHrPlaceholder')}
             />
           </div>
         </div>
@@ -198,7 +212,7 @@ export default function PhysiologicalProfilePage() {
             disabled={profileMutation.isPending}
             className="cursor-pointer px-4 py-2 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {profileMutation.isPending ? 'Speichern...' : 'Profil speichern'}
+            {profileMutation.isPending ? t('physiologicalProfile.saving') : t('physiologicalProfile.saveProfile')}
           </button>
         </div>
       </div>
@@ -206,19 +220,19 @@ export default function PhysiologicalProfilePage() {
       {/* Training Zones */}
       <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Trainingszonen</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">{t('physiologicalProfile.trainingZonesTitle')}</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Sportartspezifische HF-, Power- und Geschwindigkeitszonen. Werden automatisch aus FIT-Dateien importiert oder können manuell bearbeitet werden.
+            {t('physiologicalProfile.trainingZonesDescription')}
           </p>
         </div>
 
         {zonesLoading && (
-          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">Lade Zonen…</div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">{t('physiologicalProfile.loadingZones')}</div>
         )}
 
         {!zonesLoading && (!zonesData?.sports || zonesData.sports.length === 0) && (
           <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">
-            Keine Trainingszonen gefunden. Importiere eine FIT-Datei mit Zonendaten, um diesen Bereich zu befüllen.
+            {t('physiologicalProfile.noZones')}
           </div>
         )}
 

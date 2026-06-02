@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react'
 
 function formatJson(value: string): string {
@@ -17,6 +18,7 @@ interface ToolCallCardProps {
 }
 
 export default function ToolCallCard({ toolName, args, result }: ToolCallCardProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const isDryRun = toolName === 'dry_run_rule'
   return (
@@ -29,7 +31,7 @@ export default function ToolCallCard({ toolName, args, result }: ToolCallCardPro
         <span className="font-mono text-xs">{toolName}</span>
         {isDryRun && (
           <span className="rounded border border-sky-300 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-700 dark:text-sky-300">
-            Vorschau
+            {t('chatPage.toolCard.preview')}
           </span>
         )}
         {open ? <ChevronDown className="w-3 h-3 ml-auto" /> : <ChevronRight className="w-3 h-3 ml-auto" />}
@@ -38,13 +40,13 @@ export default function ToolCallCard({ toolName, args, result }: ToolCallCardPro
         <div className="px-3 py-2 space-y-2 bg-neutral-50 dark:bg-neutral-900/50 border-t border-neutral-200 dark:border-neutral-700">
           {args && (
             <div>
-              <div className="text-xs font-semibold text-neutral-400 dark:text-neutral-500 mb-0.5">Args</div>
+              <div className="text-xs font-semibold text-neutral-400 dark:text-neutral-500 mb-0.5">{t('chatPage.toolCard.args')}</div>
               <pre className="text-xs text-neutral-500 whitespace-pre-wrap break-all">{formatJson(args)}</pre>
             </div>
           )}
           {result && (
             <div>
-              <div className="text-xs font-semibold text-neutral-400 dark:text-neutral-500 mb-0.5">Result</div>
+              <div className="text-xs font-semibold text-neutral-400 dark:text-neutral-500 mb-0.5">{t('chatPage.toolCard.result')}</div>
               <pre className="text-xs text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap break-all">{formatJson(result)}</pre>
             </div>
           )}

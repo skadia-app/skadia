@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { listActivityPhotos, uploadActivityPhoto, deleteActivityPhoto, isVideoPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import { fetchActivityStreams } from '@/api/activities'
 import { useModal } from '@/lib/modal'
@@ -9,14 +10,22 @@ import AuthenticatedMedia from '@/components/AuthenticatedMedia'
 import PhotoGeoAssignmentOverlay from '@/components/PhotoGeoAssignmentOverlay'
 import type { StreamPoint } from '@/api/types'
 import { fmtDuration } from '@/lib/format'
+import { isSupportedLanguage, localeForLanguage, type SupportedLanguage } from '@/i18n/languages'
 
 interface Props {
   activityId: string
 }
 
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
+}
+
 export default function ActivityPhotoSection({ activityId }: Props) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { t, i18n } = useTranslation()
+  const locale = localeForLanguage(currentLanguage(i18n.language))
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
@@ -68,13 +77,13 @@ export default function ActivityPhotoSection({ activityId }: Props) {
     mutationFn: (file: File) => uploadActivityPhoto(activityId, file),
     onSuccess: (result) => {
       if (result.status === 'duplicate') {
-        addToast({ type: 'warning', title: 'Foto bereits vorhanden', message: 'Dieses Foto wurde bereits hochgeladen.' })
+        addToast({ type: 'warning', title: t('activityPhotos.toasts.duplicateTitle'), message: t('activityPhotos.toasts.duplicateMessage') })
       } else {
         queryClient.invalidateQueries({ queryKey: ['activity-photos', activityId] })
       }
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Upload fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('activityPhotos.toasts.uploadFailed'), duration: 0 })
     },
   })
 
@@ -93,17 +102,18 @@ export default function ActivityPhotoSection({ activityId }: Props) {
   }
 
   function handleDeletePhoto(photo: ActivityPhoto) {
+    const mediaKind = isVideoPhoto(photo) ? t('activityPhotos.media.video') : t('activityPhotos.media.photo')
     openModal({
-      title: `${isVideoPhoto(photo) ? 'Video' : 'Foto'} "${photo.original_filename}" löschen?`,
-      message: 'Löschen ist nicht rückgängig zu machen.',
+      title: t('activityPhotos.delete.title', { media: mediaKind, filename: photo.original_filename }),
+      message: t('activityPhotos.delete.message'),
       buttons: [
         {
-          label: 'Abbrechen',
+          label: t('common.cancel'),
           variant: 'default',
           onClick: () => {}
         },
         {
-          label: 'Löschen',
+          label: t('common.delete'),
           variant: 'destructive',
           onClick: async () => {
             deleteMutation.mutate(photo.id)
@@ -125,7 +135,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
         onClick={() => setCollapsed(!isCollapsed)}
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
       >
-        <span>Fotos &amp; Videos {photos.length > 0 && <span className="text-neutral-400">({photos.length})</span>}</span>
+        <span>{t('activityPhotos.title')} {photos.length > 0 && <span className="text-neutral-400">({photos.length})</span>}</span>
         <svg
           className={`w-4 h-4 text-neutral-400 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
           viewBox="0 0 20 20"
@@ -173,7 +183,8 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                     <button
                       onClick={() => handleDeletePhoto(photo)}
                       className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-sm"
-                      title={isVid ? 'Video löschen' : 'Foto löschen'}
+                      title={isVid ? t('activityPhotos.delete.video') : t('activityPhotos.delete.photo')}
+                      aria-label={isVid ? t('activityPhotos.delete.video') : t('activityPhotos.delete.photo')}
                     >
                       <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -195,7 +206,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 onClick={() => setShowGeoAssign(true)}
                 className="text-xs text-amber-500 hover:text-amber-400 cursor-pointer transition-colors text-left"
               >
-                {photosWithoutPosition.length} {photosWithoutPosition.length === 1 ? 'Medium' : 'Medien'} ohne Position — Auf Karte zuweisen
+                {t('activityPhotos.unpositioned', { count: photosWithoutPosition.length })}
               </button>
             </div>
           ) : photosWithPosition.length > 0 ? (
@@ -204,7 +215,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 onClick={() => setShowGeoAssign(true)}
                 className="text-xs text-neutral-400 hover:text-neutral-300 cursor-pointer transition-colors"
               >
-                Positionen bearbeiten
+                {t('activityPhotos.editPositions')}
               </button>
             </div>
           ) : null}
@@ -224,7 +235,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
               disabled={uploadMutation.isPending}
               className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {uploadMutation.isPending ? 'Wird hochgeladen...' : '+ Fotos / Videos hochladen'}
+              {uploadMutation.isPending ? t('activityPhotos.uploading') : t('activityPhotos.upload')}
             </button>
           </div>
         </div>
@@ -236,7 +247,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-neutral-950/95">
             <div className="flex flex-col items-center gap-3 text-neutral-400">
               <div className="w-6 h-6 border-2 border-neutral-500 border-t-accent-DEFAULT rounded-full animate-spin" />
-              <span className="text-sm">Track wird geladen…</span>
+              <span className="text-sm">{t('activityPhotos.loadingTrack')}</span>
             </div>
           </div>
         ) : (() => {
@@ -271,7 +282,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
               {selectedPhoto.original_filename}
               {selectedPhoto.taken_at && (
                 <span className="ml-2 text-neutral-500">
-                  {new Date(selectedPhoto.taken_at).toLocaleString('de-DE')}
+                  {new Date(selectedPhoto.taken_at).toLocaleString(locale)}
                 </span>
               )}
             </div>
@@ -284,7 +295,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
               <button
                 onClick={() => setSelectedIndex(null)}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                aria-label="Schließen"
+                aria-label={t('common.close')}
               >
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -317,7 +328,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 <button
                   onClick={(e) => { e.stopPropagation(); goToPrev() }}
                   className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
-                  aria-label="Vorheriges Foto"
+                  aria-label={t('activityPhotos.previous')}
                 >
                   <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
@@ -326,7 +337,7 @@ export default function ActivityPhotoSection({ activityId }: Props) {
                 <button
                   onClick={(e) => { e.stopPropagation(); goToNext() }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors cursor-pointer"
-                  aria-label="Nächstes Foto"
+                  aria-label={t('activityPhotos.next')}
                 >
                   <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />

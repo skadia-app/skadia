@@ -1,10 +1,13 @@
 import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Gear, GearDefaultSportPredicate, GearDefaultModifiers } from '@/api/types'
 import { GearApplicableModifierKeys } from '@/lib/generatedGearApplicableModifiers'
 import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
 import { defaultSportsForSubcategory } from '@/lib/gearSchemaHelpers'
 import { GENERATED_SPORT_MODIFIERS } from '@/lib/generatedSportModifiers'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -136,17 +139,35 @@ function rowsFromGear(gear: Gear): PredicateRow[] {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const strings = {
+    title: t('gearZones.sportsTab.title'),
+    empty: t('gearZones.sportsTab.empty'),
+    sportLabel: (index: number) => t('gearZones.sportsTab.sportLabel', { index }),
+    removeSportAria: (index: number) => t('gearZones.sportsTab.removeSportAria', { index }),
+    remove: t('gearZones.sportsTab.remove'),
+    addSport: t('gearZones.sportsTab.addSport'),
+    save: t('gearZones.sportsTab.save'),
+    modifiers: {
+      any: t('gearZones.sportsTab.modifiers.any'),
+      yes: t('gearZones.sportsTab.modifiers.yes'),
+      no: t('gearZones.sportsTab.modifiers.no'),
+      recommended: t('gearZones.sportsTab.modifiers.recommended'),
+      unusual: t('gearZones.sportsTab.modifiers.unusual'),
+    },
+  }
   const [rows, setRows] = useState<PredicateRow[]>(() => rowsFromGear(item))
   // Resolve gear type: explicit prop wins; fall back to item.type.
   const resolvedGearType = gearType ?? item.type ?? ''
 
   const sportOptions = useMemo(
     () =>
-      selectableSportTupleOptions().map((opt) => ({
+      selectableSportTupleOptions(language).map((opt) => ({
         value: sportTupleKey(opt.value, opt.subType),
-        label: opt.subType ? sportDetailLabel(opt.value, opt.subType) : opt.label,
+        label: opt.subType ? sportDetailLabel(opt.value, opt.subType, language) : opt.label,
       })),
-    [],
+    [language],
   )
 
   function addRow() {
@@ -178,12 +199,12 @@ export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabP
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-        Standard-Sportarten
+        {strings.title}
       </h3>
 
       {rows.length === 0 && (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Noch keine Sportart-Zuordnung festgelegt.
+          {strings.empty}
         </p>
       )}
 
@@ -197,11 +218,11 @@ export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabP
               htmlFor={`sport-${index}`}
               className="text-xs font-medium text-neutral-600 dark:text-neutral-400 shrink-0"
             >
-              {`Sportart ${index + 1}`}
+              {strings.sportLabel(index + 1)}
             </label>
             <select
               id={`sport-${index}`}
-              aria-label={`Sportart ${index + 1}`}
+              aria-label={strings.sportLabel(index + 1)}
               value={row.sportKey}
               onChange={(e) => updateRow(index, { sportKey: e.target.value })}
               className="flex-1 rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-2 py-1 text-sm text-neutral-900 dark:text-neutral-100"
@@ -216,9 +237,9 @@ export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabP
               type="button"
               onClick={() => removeRow(index)}
               className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
-              aria-label={`Sportart ${index + 1} entfernen`}
+              aria-label={strings.removeSportAria(index + 1)}
             >
-              Entfernen
+              {strings.remove}
             </button>
           </div>
 
@@ -228,8 +249,10 @@ export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabP
                 key={key}
                 modifierKey={key}
                 value={row.modifiers[key] ?? 'any'}
-                ariaLabel={`${modifierLabel(key)} ${index + 1}`}
+                ariaLabel={`${modifierLabel(key, language)} ${index + 1}`}
                 gearType={resolvedGearType}
+                language={language}
+                strings={strings.modifiers}
                 onChange={(choice) =>
                   updateRow(index, {
                     modifiers: { ...row.modifiers, [key]: choice },
@@ -247,14 +270,14 @@ export default function GearSportsTab({ item, onSave, gearType }: GearSportsTabP
           onClick={addRow}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
         >
-          Sportart hinzufügen
+          {strings.addSport}
         </button>
         <button
           type="button"
           onClick={handleSave}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
         >
-          Speichern
+          {strings.save}
         </button>
       </div>
     </div>
@@ -268,6 +291,8 @@ function ModifierSelect({
   value,
   ariaLabel,
   gearType,
+  language,
+  strings,
   onChange,
 }: {
   modifierKey: SportModifierKey
@@ -275,9 +300,17 @@ function ModifierSelect({
   ariaLabel: string
   /** Gear type key used to derive recommendedFor / notRecommendedFor hints. */
   gearType: string
+  language?: SupportedLanguage
+  strings: {
+    any: string
+    yes: string
+    no: string
+    recommended: string
+    unusual: string
+  }
   onChange: (choice: ModifierChoice) => void
 }) {
-  const label = modifierLabel(modifierKey)
+  const label = modifierLabel(modifierKey, language)
   const id = `modifier-${ariaLabel.replace(/\s+/g, '-').toLowerCase()}`
   const hint = modifierHint(modifierKey, value, gearType)
   return (
@@ -292,15 +325,15 @@ function ModifierSelect({
         onChange={(e) => onChange(e.target.value as ModifierChoice)}
         className="rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-2 py-1 text-sm text-neutral-900 dark:text-neutral-100"
       >
-        <option value="any">Beliebig</option>
-        <option value="true">Ja</option>
-        <option value="false">Nein</option>
+        <option value="any">{strings.any}</option>
+        <option value="true">{strings.yes}</option>
+        <option value="false">{strings.no}</option>
       </select>
       {hint === 'recommended' && (
-        <span className="text-xs text-green-600 dark:text-green-400">✓ empfohlen</span>
+        <span className="text-xs text-green-600 dark:text-green-400">✓ {strings.recommended}</span>
       )}
       {hint === 'unusual' && (
-        <span className="text-xs text-amber-500 dark:text-amber-400">⚠ ungewöhnlich</span>
+        <span className="text-xs text-amber-500 dark:text-amber-400">⚠ {strings.unusual}</span>
       )}
     </div>
   )

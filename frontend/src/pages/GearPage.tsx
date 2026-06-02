@@ -1,29 +1,25 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Bike, CircleGauge, Footprints, Mountain, Package, Radio, Shirt, Smartphone, Snowflake, Waves } from 'lucide-react'
 import { fetchGear, createGear, fetchGearDocuments, downloadGearDocumentBlob } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
-import { formatElevationGain } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { getActiveSchema } from '@/lib/gearSchema'
 import { gearMatchesCategoryScope, gearTypeLabel } from '@/lib/gearSchemaHelpers'
 import {
-  GEAR_CATEGORY_LABELS,
+  gearCategoryLabel,
   isGearCategoryScope,
   type GearCategoryScope,
 } from '@/lib/gearSchemaTypes'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 import GearMergePanel from '@/components/GearMergePanel'
-
-const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
-  { value: undefined, label: 'Alle' },
-  { value: 'active', label: 'Aktiv' },
-  { value: 'stored', label: 'Gelagert' },
-  { value: 'retired', label: 'Ausgemustert' },
-]
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 function parseGearScope(raw: string | null): GearCategoryScope | null {
   return isGearCategoryScope(raw) ? raw : null
@@ -32,6 +28,14 @@ function parseGearScope(raw: string | null): GearCategoryScope | null {
 export default function GearPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
+  const statusChips: { value: GearStatus | undefined; label: string }[] = [
+    { value: undefined, label: t('gearPages.status.all') },
+    { value: 'active', label: t('gearPages.status.active') },
+    { value: 'stored', label: t('gearPages.status.stored') },
+    { value: 'retired', label: t('gearPages.status.retired') },
+  ]
   const typeFilter = searchParams.get('type')
   const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>('active')
   const [showForm, setShowForm] = useState(false)
@@ -73,11 +77,11 @@ export default function GearPage() {
     }) ?? []
 
     const titleLabel = categoryScope
-      ? GEAR_CATEGORY_LABELS[categoryScope]
+      ? gearCategoryLabel(categoryScope, language)
       : typeFilter
 
     if (gearLoading) {
-      return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
+      return <div className="flex items-center justify-center h-64 text-neutral-400">{t('gearPages.common.loadingGear')}</div>
     }
 
     return (
@@ -88,7 +92,7 @@ export default function GearPage() {
               to="/gear"
               className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
             >
-              ← Ausrüstung
+              {t('gearPages.common.backToGear')}
             </Link>
             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
               {titleLabel}
@@ -96,7 +100,7 @@ export default function GearPage() {
           </div>
           <div className="flex items-center gap-3">
             <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700">
-              {STATUS_CHIPS.map(({ value, label }) => (
+              {statusChips.map(({ value, label }) => (
                 <button
                   key={label}
                   onClick={() => setStatusFilter(value)}
@@ -114,13 +118,13 @@ export default function GearPage() {
               onClick={() => setShowMerge(s => !s)}
               className="text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer"
             >
-              Duplikate zusammenführen
+              {t('gearPages.actions.mergeDuplicates')}
             </button>
             <button
               onClick={() => setShowForm(true)}
               className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors cursor-pointer"
             >
-              Ausrüstung hinzufügen
+              {t('gearPages.actions.addGear')}
             </button>
           </div>
         </div>
@@ -130,7 +134,7 @@ export default function GearPage() {
         {showMerge && (
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Ausrüstungs-Duplikate</h2>
+              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{t('gearPages.gearPage.duplicateTitle')}</h2>
             </div>
             <GearMergePanel onClose={() => setShowMerge(false)} />
           </div>
@@ -138,7 +142,7 @@ export default function GearPage() {
 
         {showForm && (
           <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausrüstung</h2>
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">{t('gearPages.gearPage.newGear')}</h2>
             <GearForm
               categoryScope={categoryScope ?? 'other'}
               onSave={(data) => createMutation.mutate(data)}
@@ -147,7 +151,7 @@ export default function GearPage() {
             />
             {createMutation.isError && (
               <p className="text-sm text-rose-500 mt-2">
-                Fehler beim Erstellen: {createMutation.error instanceof Error ? createMutation.error.message : 'Unbekannt'}
+                {t('gearPages.errors.createFailed', { message: createMutation.error instanceof Error ? createMutation.error.message : t('gearPages.common.unknown') })}
               </p>
             )}
           </div>
@@ -156,12 +160,12 @@ export default function GearPage() {
         {filtered.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((item) => (
-              <GearCard key={item.id} gear={item} />
+              <GearCard key={item.id} gear={item} language={language} />
             ))}
           </div>
         ) : (
           <div className="text-center py-16 text-neutral-400">
-            Noch keine Ausrüstung in dieser Kategorie.
+            {t('gearPages.gearPage.emptyCategory')}
           </div>
         )}
       </div>
@@ -178,73 +182,73 @@ export default function GearPage() {
   const categories = [
     {
       to: '/gear?type=bike',
-      title: GEAR_CATEGORY_LABELS.bike,
-      description: 'Fahrräder, Rennräder, Gravelbikes und MTBs',
+      title: gearCategoryLabel('bike', language),
+      description: t('gearPages.gearPage.categories.bike'),
       icon: Bike,
       count: scopeCount('bike'),
     },
     {
       to: '/gear?type=shoes',
-      title: GEAR_CATEGORY_LABELS.shoes,
-      description: 'Laufschuhe, Trailschuhe und Sportschuhe',
+      title: gearCategoryLabel('shoes', language),
+      description: t('gearPages.gearPage.categories.shoes'),
       icon: Footprints,
       count: scopeCount('shoes'),
     },
     {
       to: '/gear?type=winter',
-      title: GEAR_CATEGORY_LABELS.winter,
-      description: 'Ski, Snowboards, Stöcke und Schneeschuhe',
+      title: gearCategoryLabel('winter', language),
+      description: t('gearPages.gearPage.categories.winter'),
       icon: Snowflake,
       count: scopeCount('winter'),
     },
     {
       to: '/gear?type=water',
-      title: GEAR_CATEGORY_LABELS.water,
-      description: 'SUP, Boards, Boote, Paddel und Segel',
+      title: gearCategoryLabel('water', language),
+      description: t('gearPages.gearPage.categories.water'),
       icon: Waves,
       count: scopeCount('water'),
     },
     {
       to: '/gear?type=diving',
-      title: GEAR_CATEGORY_LABELS.diving,
-      description: 'Tauchcomputer, Flaschen, Atemregler und Anzüge',
+      title: gearCategoryLabel('diving', language),
+      description: t('gearPages.gearPage.categories.diving'),
       icon: CircleGauge,
       count: scopeCount('diving'),
     },
     {
       // climb scope — items added in Phase 9; tile visible now, count = 0 until then
       to: '/gear?type=climb',
-      title: GEAR_CATEGORY_LABELS.climb,
-      description: 'Kletterausrüstung, Gurte, Helme und Seile',
+      title: gearCategoryLabel('climb', language),
+      description: t('gearPages.gearPage.categories.climb'),
       icon: Mountain,
       count: scopeCount('climb'),
     },
     {
       // apparel scope — items added in Phase 9; tile visible now, count = 0 until then
       to: '/gear?type=apparel',
-      title: GEAR_CATEGORY_LABELS.apparel,
-      description: 'Trikots, Hosen, Jacken und Sportbekleidung',
+      title: gearCategoryLabel('apparel', language),
+      description: t('gearPages.gearPage.categories.apparel'),
       icon: Shirt,
       count: scopeCount('apparel'),
     },
     {
       to: '/gear?type=other',
-      title: GEAR_CATEGORY_LABELS.other,
-      description: 'Weitere Ausrüstung ohne eigene Kategorie',
+      title: gearCategoryLabel('other', language),
+      description: t('gearPages.gearPage.categories.other'),
       icon: Package,
       count: scopeCount('other'),
     },
     {
       to: '/hardware/recorder',
-      title: 'Aufzeichnungsgeräte',
-      description: 'Garmin, Wahoo, Apple Watch und andere Aufzeichnungsgeräte',
+      title: t('gearPages.gearPage.recorders'),
+      description: t('gearPages.gearPage.categories.recorders'),
       icon: Smartphone,
       count: recorderCount,
     },
     {
       to: '/hardware/sensor',
-      title: 'Sensoren',
-      description: 'Herzfrequenzsensoren, Powermeter, Trittfrequenzsensoren und mehr',
+      title: t('gearPages.gearPage.sensors'),
+      description: t('gearPages.gearPage.categories.sensors'),
       icon: Radio,
       count: sensorCount,
     },
@@ -253,9 +257,9 @@ export default function GearPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausrüstung</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('gearPages.gearPage.title')}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Ausrüstung, Geräte und Sensoren verwalten.
+          {t('gearPages.gearPage.subtitle')}
         </p>
       </div>
 
@@ -293,6 +297,7 @@ export default function GearPage() {
 }
 
 function GearCardImage({ gearId }: { gearId: string }) {
+  const { t } = useTranslation()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const { data: docs } = useQuery({
@@ -342,7 +347,7 @@ function GearCardImage({ gearId }: { gearId: string }) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
         {loadFailed ? (
-          <span className="text-xs">Bild nicht geladen</span>
+          <span className="text-xs">{t('gearPages.gearPage.imageLoadFailed')}</span>
         ) : (
           <svg className="animate-spin h-5 w-5 text-neutral-300" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -363,13 +368,15 @@ function GearCardImage({ gearId }: { gearId: string }) {
   )
 }
 
-function GearCard({ gear }: { gear: Gear }) {
+function GearCard({ gear, language }: { gear: Gear; language?: SupportedLanguage }) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevationGain } = useUnitFormatters()
   const schema = getActiveSchema()
   const elevGain = formatElevationGain(gear.total_elevation_gain_m)
 
   // Use schema path label when available; fall back to hardcoded label.
   const typeDisplay = (() => {
-    return gearTypeLabel(schema, gear.type)
+    return gearTypeLabel(schema, gear.type, language)
   })()
 
   return (
@@ -398,39 +405,39 @@ function GearCard({ gear }: { gear: Gear }) {
 
         <div className="grid grid-cols-4 gap-2 mt-3">
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Distanz</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.metrics.distance')}</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatGearCardDistance(gear.total_distance_m)}
+              {formatDistanceCompact(gear.total_distance_m)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Höhe</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.metrics.elevationShort')}</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
               {elevGain ?? '—'}
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Zeit</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.metrics.time')}</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
               {formatGearCardDuration(gear.total_time_s)}
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Aktivitäten</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">{t('gearPages.metrics.activities')}</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
               {gear.total_activities}
             </div>
           </div>
         </div>
 
-        <SportBadges predicates={gear.applicable_sport_predicates} />
+        <SportBadges predicates={gear.applicable_sport_predicates} language={language} />
       </div>
     </Link>
   )
 }
 
 // Schema covers all legacy gear type keys (bike, shoes, goggles, ski, paddle, other) — no fallback needed.
-function SportBadges({ predicates }: { predicates: import('@/api/types').GearDefaultSportPredicate[] }) {
+function SportBadges({ predicates, language }: { predicates: import('@/api/types').GearDefaultSportPredicate[]; language?: SupportedLanguage }) {
   if (!predicates || predicates.length === 0) return null
 
   // Deduplicate by sport_type; preserve insertion order.
@@ -455,7 +462,7 @@ function SportBadges({ predicates }: { predicates: import('@/api/types').GearDef
           key={s}
           className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
         >
-          {sportLabel(s)}
+          {sportLabel(s, undefined, { language })}
         </span>
       ))}
       {overflow > 0 && (
@@ -467,12 +474,6 @@ function SportBadges({ predicates }: { predicates: import('@/api/types').GearDef
   )
 }
 
-function formatGearCardDistance(meters: number | null | undefined): string {
-  if (meters == null || isNaN(meters)) return '—'
-  if (meters >= 1000) return `${Math.round(meters / 1000)} km`
-  return `${Math.round(meters)} m`
-}
-
 function formatGearCardDuration(seconds: number | null | undefined): string {
   if (seconds == null || isNaN(seconds)) return '—'
   if (seconds >= 3600) return `${Math.round(seconds / 3600)} h`
@@ -480,18 +481,19 @@ function formatGearCardDuration(seconds: number | null | undefined): string {
 }
 
 function StatusBadge({ status }: { status: GearStatus }) {
+  const { t } = useTranslation()
   if (status === 'active') return null
   const styles: Record<string, string> = {
     stored: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     retired: 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
   }
   const labels: Record<string, string> = {
-    stored: 'Gelagert',
-    retired: 'Ausgemustert',
+    stored: t('gearPages.status.stored'),
+    retired: t('gearPages.status.retired'),
   }
   return (
-    <span className={`flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? ''}`}>
-      {labels[status] ?? status}
+    <span className={`flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}>
+      {labels[status] ?? t('gearPages.status.unknown')}
     </span>
   )
 }

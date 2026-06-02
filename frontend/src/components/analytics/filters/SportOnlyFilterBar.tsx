@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SportFilter } from '@/components/sport/SportFilter'
 import type { SportFilterValue } from '@/components/sport/SportFilter'
 import RangePresetBar from './RangePresetBar'
@@ -17,12 +18,6 @@ interface Props {
   onChange: (value: SportOnlyFilterValue) => void
   rangePresets?: Preset[]
 }
-
-const DEFAULT_PRESETS: Preset[] = [
-  { value: '1y', label: '1 Jahr' },
-  { value: 'all', label: 'Alles' },
-  { value: 'custom', label: 'Benutzerdefiniert' },
-]
 
 /**
  * Expands a mixed list of sport tokens (bare-category, sport:subtype, sport) into
@@ -71,7 +66,13 @@ function sportFilterValueFromSelected(selected: string[] | null): SportFilterVal
 }
 
 export default function SportOnlyFilterBar({ value, onChange, rangePresets }: Props) {
-  const presets = rangePresets ?? DEFAULT_PRESETS
+  const { t } = useTranslation()
+  const defaultPresets: Preset[] = [
+    { value: '1y', label: t('analyticsTrainingStats.filters.ranges.year1') },
+    { value: 'all', label: t('common.all') },
+    { value: 'custom', label: t('analyticsTrainingStats.filters.ranges.custom') },
+  ]
+  const presets = rangePresets ?? defaultPresets
   const [rangePreset, setRangePreset] = useState<PresetValue>('all')
 
   function handleSportChange(sfv: SportFilterValue) {

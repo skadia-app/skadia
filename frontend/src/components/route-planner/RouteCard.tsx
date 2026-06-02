@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,10 +15,11 @@ import {
   MoreVertical,
 } from 'lucide-react'
 import { deleteRoute, exportRouteGPX, type PlannedRoute } from '@/api/routes'
-import { fmtDist } from '@/lib/format'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { useToast } from '@/lib/toast'
 import { useModal } from '@/lib/modal'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { triggerBlobDownload } from '@/lib/utils'
 
 // ── Mini-map SVG ──────────────────────────────────────────────────────────────
@@ -92,17 +94,18 @@ function RoutePreviewSVG({ segments, color }: RoutePreviewProps) {
 
 // ── Difficulty Badge ──────────────────────────────────────────────────────────
 
-const DIFFICULTY_CONFIG: Record<string, { label: string; className: string }> = {
-  easy:     { label: 'Leicht',       className: 'bg-green-500/15 text-green-400 border border-green-500/30' },
-  moderate: { label: 'Mittel',       className: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30' },
-  hard:     { label: 'Schwer',       className: 'bg-orange-500/15 text-orange-400 border border-orange-500/30' },
-  expert:   { label: 'Experte',      className: 'bg-red-500/15 text-red-400 border border-red-500/30' },
+const DIFFICULTY_CONFIG: Record<string, { labelKey: string; className: string }> = {
+  easy:     { labelKey: 'routePlanner.routeCard.difficulty.easy',       className: 'bg-green-500/15 text-green-400 border border-green-500/30' },
+  moderate: { labelKey: 'routePlanner.routeCard.difficulty.moderate',   className: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30' },
+  hard:     { labelKey: 'routePlanner.routeCard.difficulty.hard',       className: 'bg-orange-500/15 text-orange-400 border border-orange-500/30' },
+  expert:   { labelKey: 'routePlanner.routeCard.difficulty.expert',     className: 'bg-red-500/15 text-red-400 border border-red-500/30' },
 }
 
 function RouteDifficultyBadge({ difficulty }: { difficulty?: string }) {
+  const { t } = useTranslation()
   if (!difficulty) return null
   const cfg = DIFFICULTY_CONFIG[difficulty]
-  const label = cfg?.label ?? difficulty
+  const label = cfg ? t(cfg.labelKey) : difficulty
   const className = cfg?.className ?? 'bg-neutral-500/15 text-neutral-400 border border-neutral-500/30'
 
   return (
@@ -122,15 +125,15 @@ function fmtMinutes(min?: number): string {
   return `${h}:${m.toString().padStart(2, '0')} h`
 }
 
-function fmtRelative(dateStr: string): string {
+function fmtRelative(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const days = Math.floor(diff / 86_400_000)
-  if (days === 0) return 'Heute'
-  if (days === 1) return 'Gestern'
-  if (days < 7) return `vor ${days} Tagen`
-  if (days < 30) return `vor ${Math.floor(days / 7)} Wo.`
-  if (days < 365) return `vor ${Math.floor(days / 30)} Mo.`
-  return `vor ${Math.floor(days / 365)} J.`
+  if (days === 0) return t('routePlanner.routeCard.relative.today')
+  if (days === 1) return t('routePlanner.routeCard.relative.yesterday')
+  if (days < 7) return t('routePlanner.routeCard.relative.daysAgo', { count: days })
+  if (days < 30) return t('routePlanner.routeCard.relative.weeksAgo', { count: Math.floor(days / 7) })
+  if (days < 365) return t('routePlanner.routeCard.relative.monthsAgo', { count: Math.floor(days / 30) })
+  return t('routePlanner.routeCard.relative.yearsAgo', { count: Math.floor(days / 365) })
 }
 
 // ── RouteCard ─────────────────────────────────────────────────────────────────
@@ -141,15 +144,18 @@ interface RouteCardProps {
 }
 
 export default function RouteCard({ route, onDeleted }: RouteCardProps) {
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const { openModal } = useModal()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const color = sportColor(route.sport_type)
-  const label = sportLabel(route.sport_type)
+  const language = supportedLanguageFrom(i18n.language)
+  const label = sportLabel(route.sport_type, route.sub_type, { language })
 
   // Close menu on outside click
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen)
@@ -160,10 +166,10 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] })
       onDeleted?.(route.id)
-      addToast({ type: 'success', title: 'Route gelöscht' })
+      addToast({ type: 'success', title: t('routePlanner.routeCard.deleted') })
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fehler beim Löschen', duration: 0 })
+      addToast({ type: 'error', title: t('routePlanner.routeCard.deleteFailed'), duration: 0 })
     },
   })
 
@@ -175,22 +181,22 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
       const { blob, filename } = await exportRouteGPX(route.id)
       triggerBlobDownload(blob, filename ?? `route-${route.id}.gpx`)
     } catch {
-      addToast({ type: 'error', title: 'GPX-Export fehlgeschlagen', duration: 0 })
+      addToast({ type: 'error', title: t('routePlanner.routeCard.gpxExportFailed'), duration: 0 })
     }
-  }, [route.id, addToast])
+  }, [route.id, addToast, t])
 
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuOpen(false)
     openModal({
-      title: 'Route löschen?',
-      message: `Route "${route.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`,
+      title: t('routePlanner.routeCard.deleteConfirmTitle'),
+      message: t('routePlanner.routeCard.deleteConfirmMessage', { name: route.name }),
       buttons: [
-        { label: 'Abbrechen', variant: 'default', onClick: () => {} },
-        { label: 'Löschen', variant: 'destructive', onClick: () => deleteMutation.mutate() },
+        { label: t('routePlanner.routeCard.cancel'), variant: 'default', onClick: () => {} },
+        { label: t('routePlanner.routeCard.delete'), variant: 'destructive', onClick: () => deleteMutation.mutate() },
       ],
     })
-  }, [route.name, deleteMutation, openModal])
+  }, [route.name, deleteMutation, openModal, t])
 
   const handleOpenPlanner = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -202,7 +208,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
       className="group relative flex flex-col overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm hover:shadow-md hover:border-neutral-300 dark:hover:border-neutral-700 transition-all duration-200 cursor-pointer"
       onClick={() => navigate('/map', { state: { editRouteId: route.id } })}
       role="article"
-      aria-label={`Route: ${route.name}`}
+      aria-label={t('routePlanner.routeCard.routeAria', { name: route.name })}
     >
       {/* Mini-map area */}
       <div
@@ -230,15 +236,15 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
           <button
             onClick={handleOpenPlanner}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-            title="Im Planer öffnen"
+            title={t('routePlanner.routeCard.openInPlanner')}
           >
             <ArrowUpRight className="w-3.5 h-3.5" />
-            Öffnen
+            {t('routePlanner.routeCard.open')}
           </button>
           <button
             onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-xs font-medium shadow-md hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-            title="GPX exportieren"
+            title={t('routePlanner.routeCard.exportGpx')}
           >
             <Download className="w-3.5 h-3.5" />
             GPX
@@ -265,7 +271,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
               </span>
               <span className="text-[11px] text-neutral-400 dark:text-neutral-600">·</span>
               <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                {fmtRelative(route.updated_at)}
+                {fmtRelative(route.updated_at, t)}
               </span>
             </div>
           </div>
@@ -275,7 +281,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
             <button
               onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
               className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
-              aria-label="Mehr Optionen"
+              aria-label={t('routePlanner.routeCard.moreOptions')}
             >
               <MoreVertical className="w-4 h-4" />
             </button>
@@ -286,14 +292,14 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                 >
                   <ArrowUpRight className="w-3.5 h-3.5" />
-                  Im Planer öffnen
+                  {t('routePlanner.routeCard.openInPlanner')}
                 </button>
                 <button
                   onClick={handleExport}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  GPX exportieren
+                  {t('routePlanner.routeCard.exportGpx')}
                 </button>
                 <div className="my-1 h-px bg-neutral-100 dark:bg-neutral-700" />
                 <button
@@ -302,7 +308,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Löschen
+                  {t('routePlanner.routeCard.delete')}
                 </button>
               </div>
             )}
@@ -314,14 +320,14 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
           {/* Distance */}
           <span className="flex items-center gap-1">
             <MapIcon className="w-3 h-3 flex-shrink-0 text-neutral-400" />
-            {fmtDist(route.total_distance_m)}
+            {formatDistance(route.total_distance_m)}
           </span>
 
           {/* Elevation gain */}
           {route.total_elevation_gain != null && route.total_elevation_gain > 0 && (
             <span className="flex items-center gap-0.5">
               <TrendingUp className="w-3 h-3 flex-shrink-0 text-green-500" />
-              {Math.round(route.total_elevation_gain)} m
+              {formatElevation(route.total_elevation_gain)}
             </span>
           )}
 
@@ -329,7 +335,7 @@ export default function RouteCard({ route, onDeleted }: RouteCardProps) {
           {route.total_elevation_loss != null && route.total_elevation_loss > 0 && (
             <span className="flex items-center gap-0.5">
               <TrendingDown className="w-3 h-3 flex-shrink-0 text-red-400" />
-              {Math.round(route.total_elevation_loss)} m
+              {formatElevation(route.total_elevation_loss)}
             </span>
           )}
 

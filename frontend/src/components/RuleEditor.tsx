@@ -1,15 +1,32 @@
 import { useRef, useEffect, useState } from 'react'
 import { HelpCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
 import { fetchSegments, type Segment } from '@/api/segments'
 import type { AutomationRule, Gear, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
-import { SPORT_DEFS, getSportDef, normalizeSportTuple } from '@/lib/sportTaxonomy'
+import { SPORT_DEFS, getSportDef, normalizeSportTuple, sportLabel } from '@/lib/sportTaxonomy'
 import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOptions } from '@/lib/ruleSportProjection'
 import { GEAR_RULE_CONDITION_CATEGORY } from '@/lib/ruleGearProjection'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
+import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceFromDisplayValue,
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationFromDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+  formatDistanceCompact as formatUnitDistanceCompact,
+  formatElevation as formatUnitElevation,
+  type UnitFormatOptions,
+  type UnitSystem,
+} from '@/lib/units'
 import {
   modifierActionName,
   modifierActionParam,
@@ -34,41 +51,29 @@ const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
   category: d.categoryKey,
 }))
 
-const SEGMENT_TYPE_LABELS: Record<string, string> = {
-  standard: 'Standard',
-  trail: 'Trail',
-  lap: 'Runde',
-  lift: 'Lift',
-  wintersport: 'Wintersport',
-  wassersport: 'Wassersport',
-}
-const SEGMENT_SPORT_GROUP_LABELS: Record<string, string> = {
-  bike: 'Radfahren',
-  foot: 'Laufsport',
-  swim: 'Schwimmen',
-  ski: 'Wintersport',
-  paddle: 'Wassersport',
-  generic: 'Sonstiges',
-}
-const SEGMENT_VISIBILITY_LABELS: Record<string, string> = {
-  public: 'Öffentlich',
-  private: 'Privat',
-  shared: 'Geteilt',
-}
+const METERS_PER_MILE = 1609.344
+const SEGMENT_PREVIEW_TYPES = new Set(['standard', 'trail', 'lap', 'lift', 'wintersport', 'wassersport'])
+const SEGMENT_PREVIEW_SPORT_GROUPS = new Set(['bike', 'foot', 'swim', 'ski', 'paddle', 'generic'])
+const SEGMENT_PREVIEW_VISIBILITY = new Set(['public', 'private', 'shared'])
 
-function formatSegmentDistance(m?: number): string | null {
+function formatSegmentDistance(m: number | undefined, unitOptions: UnitFormatOptions): string | null {
   if (m == null) return null
-  if (m >= 1000) return `${(m / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km`
-  return `${Math.round(m)} m`
+  return formatUnitDistanceCompact(m, unitOptions)
 }
 
-function segmentPreview(segment: Segment): string {
+function segmentPreview(segment: Segment, t: TFunction, unitOptions: UnitFormatOptions): string {
   return [
-    SEGMENT_TYPE_LABELS[segment.segment_type] ?? segment.segment_type,
-    SEGMENT_SPORT_GROUP_LABELS[segment.sport_group] ?? segment.sport_group,
-    formatSegmentDistance(segment.distance_m),
-    segment.elevation_gain_m != null ? `${Math.round(segment.elevation_gain_m)} hm` : null,
-    SEGMENT_VISIBILITY_LABELS[segment.visibility] ?? segment.visibility,
+    SEGMENT_PREVIEW_TYPES.has(segment.segment_type)
+      ? t(`ruleEditor.segmentPreview.types.${segment.segment_type}`)
+      : t('ruleEditor.segmentPreview.types.unknown'),
+    SEGMENT_PREVIEW_SPORT_GROUPS.has(segment.sport_group)
+      ? t(`ruleEditor.segmentPreview.sportGroups.${segment.sport_group}`)
+      : t('ruleEditor.segmentPreview.sportGroups.unknown'),
+    formatSegmentDistance(segment.distance_m, unitOptions),
+    segment.elevation_gain_m != null ? formatUnitElevation(segment.elevation_gain_m, unitOptions) : null,
+    SEGMENT_PREVIEW_VISIBILITY.has(segment.visibility)
+      ? t(`ruleEditor.segmentPreview.visibility.${segment.visibility}`)
+      : t('ruleEditor.segmentPreview.visibility.unknown'),
   ].filter(Boolean).join(' · ')
 }
 
@@ -100,14 +105,14 @@ const SOURCE_OPTIONS = [
   { value: 'komoot', label: 'Komoot' },
   { value: 'endomondo', label: 'Endomondo' },
   { value: 'osmtracker', label: 'OSMTracker' },
-  { value: 'manual', label: 'Manuell' },
+  { value: 'manual', label: 'manual' },
 ]
 
 const SEASON_OPTIONS = [
-  { value: 'spring', label: 'Frühling (Mär–Mai)' },
-  { value: 'summer', label: 'Sommer (Jun–Aug)' },
-  { value: 'autumn', label: 'Herbst (Sep–Nov)' },
-  { value: 'winter', label: 'Winter (Dez–Feb)' },
+  { value: 'spring', label: 'spring' },
+  { value: 'summer', label: 'summer' },
+  { value: 'autumn', label: 'autumn' },
+  { value: 'winter', label: 'winter' },
 ]
 
 const WEEKDAY_OPTIONS = [
@@ -121,23 +126,26 @@ const WEEKDAY_OPTIONS = [
 ]
 
 const VISIBILITY_OPTIONS = [
-  { value: 'private',    label: 'Privat' },
-  { value: 'bekannte',   label: 'Bekannte' },
-  { value: 'instanz',    label: 'Instanz' },
+  { value: 'private',    label: 'private' },
+  { value: 'bekannte',   label: 'bekannte' },
+  { value: 'instanz',    label: 'instanz' },
   { value: 'federation', label: 'Federation' },
-  { value: 'public',     label: 'Öffentlich' },
+  { value: 'public',     label: 'public' },
 ]
 
 // Field definitions: each entry tells the editor how to render the value input
 interface ConditionField {
   field: string
   label: string
+  labels?: LocalizedString
   inputType: 'number' | 'text' | 'bool' | 'enum' | 'tag' | 'segment' | 'geofence' | 'sportTupleList'
-  unit?: string
+  unit?: RuleUnit
   options?: { value: string; label: string }[]
   /** Override available operators for this specific field */
   operators?: string[]
 }
+
+type RuleUnit = 'seconds' | 'distance' | 'length' | 'speed' | 'pace' | 'temperature' | 'percent' | 'degrees' | 'bpm' | 'rpm' | 'watts'
 
 interface ConditionCategory {
   key: string
@@ -146,240 +154,241 @@ interface ConditionCategory {
 }
 
 const MONTH_OPTIONS = [
-  { value: '1', label: 'Januar' }, { value: '2', label: 'Februar' },
-  { value: '3', label: 'März' }, { value: '4', label: 'April' },
-  { value: '5', label: 'Mai' }, { value: '6', label: 'Juni' },
-  { value: '7', label: 'Juli' }, { value: '8', label: 'August' },
-  { value: '9', label: 'September' }, { value: '10', label: 'Oktober' },
-  { value: '11', label: 'November' }, { value: '12', label: 'Dezember' },
+  { value: '1', label: '1' }, { value: '2', label: '2' },
+  { value: '3', label: '3' }, { value: '4', label: '4' },
+  { value: '5', label: '5' }, { value: '6', label: '6' },
+  { value: '7', label: '7' }, { value: '8', label: '8' },
+  { value: '9', label: '9' }, { value: '10', label: '10' },
+  { value: '11', label: '11' }, { value: '12', label: '12' },
 ]
 const INTENSITY_OPTIONS = [
-  { value: 'locker', label: 'Locker' },
-  { value: 'moderat', label: 'Moderat' },
-  { value: 'intensiv', label: 'Intensiv' },
+  { value: 'locker', label: 'locker' },
+  { value: 'moderat', label: 'moderat' },
+  { value: 'intensiv', label: 'intensiv' },
 ]
 const TIME_OF_DAY_OPTIONS = [
-  { value: 'nacht', label: 'Nacht' },
-  { value: 'frueh', label: 'Früh' },
-  { value: 'morgen', label: 'Morgen' },
-  { value: 'mittag', label: 'Mittag' },
-  { value: 'nachmittag', label: 'Nachmittag' },
-  { value: 'abend', label: 'Abend' },
+  { value: 'nacht', label: 'nacht' },
+  { value: 'frueh', label: 'frueh' },
+  { value: 'morgen', label: 'morgen' },
+  { value: 'mittag', label: 'mittag' },
+  { value: 'nachmittag', label: 'nachmittag' },
+  { value: 'abend', label: 'abend' },
 ]
 
 const CONDITION_CATEGORIES: ConditionCategory[] = [
-  { key: 'title', label: 'Titel', fields: [{ field: 'title', label: 'Titel', inputType: 'text' }] },
-  { key: 'description', label: 'Beschreibung', fields: [{ field: 'description', label: 'Beschreibung', inputType: 'text' }] },
-  { key: 'sport', label: 'Sportart', fields: [
-    { field: 'sport_type', label: 'Sportart', inputType: 'enum', options: SPORT_OPTIONS },
-    { field: 'sport_tuple', label: 'Sportauswahl', inputType: 'sportTupleList', operators: ['in'] },
+  { key: 'title', label: 'title', fields: [{ field: 'title', label: 'title', inputType: 'text' }] },
+  { key: 'description', label: 'description', fields: [{ field: 'description', label: 'description', inputType: 'text' }] },
+  { key: 'sport', label: 'sport', fields: [
+    { field: 'sport_type', label: 'sport_type', inputType: 'enum', options: SPORT_OPTIONS },
+    { field: 'sport_tuple', label: 'sport_tuple', inputType: 'sportTupleList', operators: ['in'] },
   ]},
-  { key: 'taxonomy', label: 'Taxonomie', fields: RULE_TRAIT_CONDITION_FIELDS.map((field) => ({
+  { key: 'taxonomy', label: 'taxonomy', fields: RULE_TRAIT_CONDITION_FIELDS.map((field) => ({
     field: field.field,
     label: field.label,
+    labels: field.labels,
     inputType: 'enum',
-    options: field.options,
+    options: field.options.map((option) => ({ ...option, label: option.value })),
     operators: ['in'],
   })) },
   { key: 'modifiers', label: 'Modifier', fields: RulesApplicableModifierKeys.map((key) => ({
     field: key,
-    label: modifierLabel(key),
+    label: key,
     inputType: 'bool',
   })) },
-  { key: 'activity', label: 'Aktivität', fields: [
-    { field: 'source', label: 'Quelle', inputType: 'enum', options: SOURCE_OPTIONS },
-    { field: 'intensity', label: 'Intensität', inputType: 'enum', options: INTENSITY_OPTIONS },
-    { field: 'has_gps', label: 'Hat GPS', inputType: 'bool' },
-    { field: 'detected_lap_count', label: 'Anzahl Runden', inputType: 'number' },
+  { key: 'activity', label: 'activity', fields: [
+    { field: 'source', label: 'source', inputType: 'enum', options: SOURCE_OPTIONS },
+    { field: 'intensity', label: 'intensity', inputType: 'enum', options: INTENSITY_OPTIONS },
+    { field: 'has_gps', label: 'has_gps', inputType: 'bool' },
+    { field: 'detected_lap_count', label: 'detected_lap_count', inputType: 'number' },
   ]},
-  { key: 'time', label: 'Zeit', fields: [
-    { field: 'elapsed_time_s', label: 'Gesamtzeit', inputType: 'number', unit: 's' },
-    { field: 'moving_time_s', label: 'Bewegungszeit', inputType: 'number', unit: 's' },
-    { field: 'weekday', label: 'Wochentag', inputType: 'enum', options: WEEKDAY_OPTIONS },
-    { field: 'month', label: 'Monat', inputType: 'enum', options: MONTH_OPTIONS },
-    { field: 'season', label: 'Jahreszeit', inputType: 'enum', options: SEASON_OPTIONS },
-    { field: 'time_of_day', label: 'Tageszeit', inputType: 'enum', options: TIME_OF_DAY_OPTIONS },
-    { field: 'sun_elevation', label: 'Sonnenstand', inputType: 'number', unit: '°' },
+  { key: 'time', label: 'time', fields: [
+    { field: 'elapsed_time_s', label: 'elapsed_time_s', inputType: 'number', unit: 'seconds' },
+    { field: 'moving_time_s', label: 'moving_time_s', inputType: 'number', unit: 'seconds' },
+    { field: 'weekday', label: 'weekday', inputType: 'enum', options: WEEKDAY_OPTIONS },
+    { field: 'month', label: 'month', inputType: 'enum', options: MONTH_OPTIONS },
+    { field: 'season', label: 'season', inputType: 'enum', options: SEASON_OPTIONS },
+    { field: 'time_of_day', label: 'time_of_day', inputType: 'enum', options: TIME_OF_DAY_OPTIONS },
+    { field: 'sun_elevation', label: 'sun_elevation', inputType: 'number', unit: 'degrees' },
   ]},
-  { key: 'distance', label: 'Distanz', fields: [
-    { field: 'distance_m', label: 'Distanz', inputType: 'number', unit: 'm' },
-    { field: 'start_end_distance_m', label: 'Start-End-Abstand', inputType: 'number', unit: 'm' },
+  { key: 'distance', label: 'distance', fields: [
+    { field: 'distance_m', label: 'distance_m', inputType: 'number', unit: 'distance' },
+    { field: 'start_end_distance_m', label: 'start_end_distance_m', inputType: 'number', unit: 'distance' },
   ]},
-  { key: 'speed', label: 'Geschwindigkeit', fields: [
-    { field: 'avg_speed_ms', label: 'Ø Geschwindigkeit', inputType: 'number', unit: 'km/h' },
-    { field: 'max_speed_ms', label: 'Max. Geschwindigkeit', inputType: 'number', unit: 'km/h' },
-    { field: 'min_speed_ms', label: 'Min. Geschwindigkeit', inputType: 'number', unit: 'km/h' },
+  { key: 'speed', label: 'speed', fields: [
+    { field: 'avg_speed_ms', label: 'avg_speed_ms', inputType: 'number', unit: 'speed' },
+    { field: 'max_speed_ms', label: 'max_speed_ms', inputType: 'number', unit: 'speed' },
+    { field: 'min_speed_ms', label: 'min_speed_ms', inputType: 'number', unit: 'speed' },
   ]},
-  { key: 'pace', label: 'Tempo', fields: [
-    { field: 'avg_pace_min_km', label: 'Ø Tempo', inputType: 'number', unit: 'min/km' },
-    { field: 'min_pace_min_km', label: 'Bestes Tempo', inputType: 'number', unit: 'min/km' },
-    { field: 'max_pace_min_km', label: 'Langsamstes Tempo', inputType: 'number', unit: 'min/km' },
+  { key: 'pace', label: 'pace', fields: [
+    { field: 'avg_pace_min_km', label: 'avg_pace_min_km', inputType: 'number', unit: 'pace' },
+    { field: 'min_pace_min_km', label: 'min_pace_min_km', inputType: 'number', unit: 'pace' },
+    { field: 'max_pace_min_km', label: 'max_pace_min_km', inputType: 'number', unit: 'pace' },
   ]},
-  { key: 'elevation', label: 'Anstiege', fields: [
-    { field: 'elevation_gain_m', label: 'Höhenmeter aufwärts', inputType: 'number', unit: 'm' },
-    { field: 'elevation_loss_m', label: 'Höhenmeter abwärts', inputType: 'number', unit: 'm' },
-    { field: 'max_elevation_m', label: 'Max. Höhe', inputType: 'number', unit: 'm' },
-    { field: 'min_elevation_m', label: 'Min. Höhe', inputType: 'number', unit: 'm' },
-    { field: 'climb_count', label: 'Anzahl Anstiege', inputType: 'number' },
-    { field: 'climb_category_max', label: 'Härteste Kategorie', inputType: 'number' },
+  { key: 'elevation', label: 'elevation', fields: [
+    { field: 'elevation_gain_m', label: 'elevation_gain_m', inputType: 'number', unit: 'length' },
+    { field: 'elevation_loss_m', label: 'elevation_loss_m', inputType: 'number', unit: 'length' },
+    { field: 'max_elevation_m', label: 'max_elevation_m', inputType: 'number', unit: 'length' },
+    { field: 'min_elevation_m', label: 'min_elevation_m', inputType: 'number', unit: 'length' },
+    { field: 'climb_count', label: 'climb_count', inputType: 'number' },
+    { field: 'climb_category_max', label: 'climb_category_max', inputType: 'number' },
   ]},
-  { key: 'heartrate', label: 'Herzfrequenz', fields: [
-    { field: 'avg_heart_rate', label: 'Ø HF', inputType: 'number', unit: 'bpm' },
-    { field: 'max_heart_rate', label: 'Max. HF', inputType: 'number', unit: 'bpm' },
-    { field: 'min_heart_rate', label: 'Min. HF', inputType: 'number', unit: 'bpm' },
+  { key: 'heartrate', label: 'heartrate', fields: [
+    { field: 'avg_heart_rate', label: 'avg_heart_rate', inputType: 'number', unit: 'bpm' },
+    { field: 'max_heart_rate', label: 'max_heart_rate', inputType: 'number', unit: 'bpm' },
+    { field: 'min_heart_rate', label: 'min_heart_rate', inputType: 'number', unit: 'bpm' },
   ]},
-  { key: 'cadence', label: 'Kadenz', fields: [
-    { field: 'avg_cadence', label: 'Ø Kadenz', inputType: 'number', unit: 'rpm' },
-    { field: 'max_cadence', label: 'Max. Kadenz', inputType: 'number', unit: 'rpm' },
+  { key: 'cadence', label: 'cadence', fields: [
+    { field: 'avg_cadence', label: 'avg_cadence', inputType: 'number', unit: 'rpm' },
+    { field: 'max_cadence', label: 'max_cadence', inputType: 'number', unit: 'rpm' },
   ]},
-  { key: 'power', label: 'Leistung', fields: [
-    { field: 'avg_power_w', label: 'Ø Leistung', inputType: 'number', unit: 'W' },
-    { field: 'max_power_w', label: 'Max. Leistung', inputType: 'number', unit: 'W' },
-    { field: 'min_power_w', label: 'Min. Leistung', inputType: 'number', unit: 'W' },
-    { field: 'normalized_power_w', label: 'Normalisierte Leistung', inputType: 'number', unit: 'W' },
+  { key: 'power', label: 'power', fields: [
+    { field: 'avg_power_w', label: 'avg_power_w', inputType: 'number', unit: 'watts' },
+    { field: 'max_power_w', label: 'max_power_w', inputType: 'number', unit: 'watts' },
+    { field: 'min_power_w', label: 'min_power_w', inputType: 'number', unit: 'watts' },
+    { field: 'normalized_power_w', label: 'normalized_power_w', inputType: 'number', unit: 'watts' },
     { field: 'tss', label: 'TSS', inputType: 'number' },
     { field: 'trimp', label: 'TRIMP', inputType: 'number' },
   ]},
-  { key: 'sensor_temp', label: 'Sensor-Temperatur', fields: [
-    { field: 'avg_temperature_c', label: 'Ø Temperatur', inputType: 'number', unit: '°C' },
-    { field: 'min_temperature_c', label: 'Min. Temperatur', inputType: 'number', unit: '°C' },
-    { field: 'max_temperature_c', label: 'Max. Temperatur', inputType: 'number', unit: '°C' },
+  { key: 'sensor_temp', label: 'sensor_temp', fields: [
+    { field: 'avg_temperature_c', label: 'avg_temperature_c', inputType: 'number', unit: 'temperature' },
+    { field: 'min_temperature_c', label: 'min_temperature_c', inputType: 'number', unit: 'temperature' },
+    { field: 'max_temperature_c', label: 'max_temperature_c', inputType: 'number', unit: 'temperature' },
   ]},
-  { key: 'weather', label: 'Wetter', fields: [
-    { field: 'weather_temp_c', label: 'Wetter-Temperatur', inputType: 'number', unit: '°C' },
-    { field: 'weather_temp_min_c', label: 'Min. Wetter-Temp.', inputType: 'number', unit: '°C' },
-    { field: 'weather_temp_max_c', label: 'Max. Wetter-Temp.', inputType: 'number', unit: '°C' },
-    { field: 'weather_condition', label: 'Wetterlage', inputType: 'text' },
-    { field: 'weather_humidity', label: 'Luftfeuchtigkeit', inputType: 'number', unit: '%' },
-    { field: 'weather_wind_speed_ms', label: 'Windgeschwindigkeit', inputType: 'number', unit: 'm/s' },
-    { field: 'weather_wind_gusts_ms', label: 'Windböen', inputType: 'number', unit: 'm/s' },
+  { key: 'weather', label: 'weather', fields: [
+    { field: 'weather_temp_c', label: 'weather_temp_c', inputType: 'number', unit: 'temperature' },
+    { field: 'weather_temp_min_c', label: 'weather_temp_min_c', inputType: 'number', unit: 'temperature' },
+    { field: 'weather_temp_max_c', label: 'weather_temp_max_c', inputType: 'number', unit: 'temperature' },
+    { field: 'weather_condition', label: 'weather_condition', inputType: 'text' },
+    { field: 'weather_humidity', label: 'weather_humidity', inputType: 'number', unit: 'percent' },
+    { field: 'weather_wind_speed_ms', label: 'weather_wind_speed_ms', inputType: 'number', unit: 'speed' },
+    { field: 'weather_wind_gusts_ms', label: 'weather_wind_gusts_ms', inputType: 'number', unit: 'speed' },
   ]},
-  { key: 'location', label: 'Ort', fields: [
-    { field: 'start_city', label: 'Startort', inputType: 'text' },
-    { field: 'start_state', label: 'Bundesland/Region', inputType: 'text' },
-    { field: 'start_country', label: 'Land', inputType: 'text' },
-    { field: 'start_country_code', label: 'Ländercode', inputType: 'text' },
-    { field: 'end_city', label: 'Endort', inputType: 'text' },
+  { key: 'location', label: 'location', fields: [
+    { field: 'start_city', label: 'start_city', inputType: 'text' },
+    { field: 'start_state', label: 'start_state', inputType: 'text' },
+    { field: 'start_country', label: 'start_country', inputType: 'text' },
+    { field: 'start_country_code', label: 'start_country_code', inputType: 'text' },
+    { field: 'end_city', label: 'end_city', inputType: 'text' },
     { field: 'geofence', label: 'Geofence', inputType: 'geofence' },
   ]},
   GEAR_RULE_CONDITION_CATEGORY,
   { key: 'tags', label: 'Tags', fields: [
-    { field: 'has_tag', label: 'Hat Tag', inputType: 'tag' },
+    { field: 'has_tag', label: 'has_tag', inputType: 'tag' },
   ]},
-  { key: 'media', label: 'Medien', fields: [
-    { field: 'photo_count', label: 'Anzahl Fotos', inputType: 'number' },
+  { key: 'media', label: 'media', fields: [
+    { field: 'photo_count', label: 'photo_count', inputType: 'number' },
   ]},
-  { key: 'visibility', label: 'Sichtbarkeit', fields: [
-    { field: 'visibility', label: 'Sichtbarkeit', inputType: 'enum', options: VISIBILITY_OPTIONS },
-    { field: 'hide_map', label: 'Karte verborgen', inputType: 'bool' },
+  { key: 'visibility', label: 'visibility', fields: [
+    { field: 'visibility', label: 'visibility', inputType: 'enum', options: VISIBILITY_OPTIONS },
+    { field: 'hide_map', label: 'hide_map', inputType: 'bool' },
   ]},
   { key: 'lift', label: 'Lift', fields: [
-    { field: 'has_lift', label: 'Lift erkannt', inputType: 'bool' },
-    { field: 'lift_count', label: 'Anzahl Liftfahrten', inputType: 'number' },
-    { field: 'lift_ascent_m', label: 'Lift-Aufstieg', inputType: 'number', unit: 'm' },
-    { field: 'lift_descent_m', label: 'Lift-Abstieg', inputType: 'number', unit: 'm' },
-    { field: 'lift_distance_m', label: 'Lift-Distanz', inputType: 'number', unit: 'm' },
-    { field: 'lift_duration_s', label: 'Lift-Dauer', inputType: 'number', unit: 's' },
-    { field: 'net_ascent_m', label: 'Netto-Aufstieg', inputType: 'number', unit: 'm' },
-    { field: 'net_descent_m', label: 'Netto-Abstieg', inputType: 'number', unit: 'm' },
-    { field: 'net_distance_m', label: 'Netto-Distanz', inputType: 'number', unit: 'm' },
+    { field: 'has_lift', label: 'has_lift', inputType: 'bool' },
+    { field: 'lift_count', label: 'lift_count', inputType: 'number' },
+    { field: 'lift_ascent_m', label: 'lift_ascent_m', inputType: 'number', unit: 'length' },
+    { field: 'lift_descent_m', label: 'lift_descent_m', inputType: 'number', unit: 'length' },
+    { field: 'lift_distance_m', label: 'lift_distance_m', inputType: 'number', unit: 'distance' },
+    { field: 'lift_duration_s', label: 'lift_duration_s', inputType: 'number', unit: 'seconds' },
+    { field: 'net_ascent_m', label: 'net_ascent_m', inputType: 'number', unit: 'length' },
+    { field: 'net_descent_m', label: 'net_descent_m', inputType: 'number', unit: 'length' },
+    { field: 'net_distance_m', label: 'net_distance_m', inputType: 'number', unit: 'distance' },
   ]},
-  { key: 'segments', label: 'Segmente', fields: [
-    { field: 'has_segment_effort', label: 'Segment gefahren', inputType: 'segment' },
-    { field: 'segment_effort_rank', label: 'Segment-Platzierung', inputType: 'segment' },
-    { field: 'segment_effort_time_s', label: 'Segment-Zeit', inputType: 'segment' },
+  { key: 'segments', label: 'segments', fields: [
+    { field: 'has_segment_effort', label: 'has_segment_effort', inputType: 'segment' },
+    { field: 'segment_effort_rank', label: 'segment_effort_rank', inputType: 'segment' },
+    { field: 'segment_effort_time_s', label: 'segment_effort_time_s', inputType: 'segment' },
   ]},
-  { key: 'device', label: 'Geräte & Sensoren', fields: [
+  { key: 'device', label: 'device', fields: [
     {
       field: 'recording_device_id',
-      label: 'Aufzeichnungsgerät',
+      label: 'recording_device_id',
       inputType: 'enum',
       options: [], // dynamically filled via devices query in RuleEditor
     },
-    { field: 'recording_device_product_name', label: 'Gerätename', inputType: 'text' },
-    { field: 'recording_device_manufacturer', label: 'Hersteller', inputType: 'text' },
+    { field: 'recording_device_product_name', label: 'recording_device_product_name', inputType: 'text' },
+    { field: 'recording_device_manufacturer', label: 'recording_device_manufacturer', inputType: 'text' },
     {
       field: 'has_sensor_type',
-      label: 'Sensortyp vorhanden',
+      label: 'has_sensor_type',
       inputType: 'enum',
       options: [
-        { value: 'heart_rate', label: 'Herzfrequenz' },
-        { value: 'bike_power', label: 'Leistungsmesser' },
-        { value: 'bike_cadence', label: 'Trittfrequenz' },
-        { value: 'bike_speed', label: 'Geschwindigkeit' },
-        { value: 'bike_speed_cadence', label: 'Geschwindigkeit/Trittfrequenz' },
-        { value: 'stride_speed_distance', label: 'Laufpod' },
-        { value: 'bike_radar', label: 'Rückwärtsradar' },
-        { value: 'shifting', label: 'Schaltung (Di2/eTap)' },
-        { value: 'env_sensor', label: 'Umgebungssensor' },
-        { value: 'muscle_oxygen', label: 'Muskel-Sauerstoff' },
+        { value: 'heart_rate', label: 'heart_rate' },
+        { value: 'bike_power', label: 'bike_power' },
+        { value: 'bike_cadence', label: 'bike_cadence' },
+        { value: 'bike_speed', label: 'bike_speed' },
+        { value: 'bike_speed_cadence', label: 'bike_speed_cadence' },
+        { value: 'stride_speed_distance', label: 'stride_speed_distance' },
+        { value: 'bike_radar', label: 'bike_radar' },
+        { value: 'shifting', label: 'shifting' },
+        { value: 'env_sensor', label: 'env_sensor' },
+        { value: 'muscle_oxygen', label: 'muscle_oxygen' },
       ],
       operators: ['contains', 'not_contains'],
     },
     {
       field: 'sensor_device_ids',
-      label: 'Konkreter Sensor',
+      label: 'sensor_device_ids',
       inputType: 'enum',
       options: [], // dynamically filled via devices query in RuleEditor
       operators: ['contains'],
     },
   ]},
   { key: 'enrichment', label: 'Enrichment', fields: [
-    { field: 'has_summit', label: 'Gipfel erkannt', inputType: 'bool' },
-    { field: 'summit_count', label: 'Anzahl Gipfel', inputType: 'number' },
-    { field: 'has_pass', label: 'Pass erkannt', inputType: 'bool' },
-    { field: 'border_crossing_count', label: 'Ländergrenzquerungen', inputType: 'number' },
-    { field: 'has_gastronomy_stop', label: 'Einkehr erkannt', inputType: 'bool' },
-    { field: 'stop_count', label: 'Anzahl POI-Stops', inputType: 'number' },
-    { field: 'commute_detected', label: 'Ist Pendeln', inputType: 'bool' },
-    { field: 'has_structured_intervals', label: 'Intervalle erkannt', inputType: 'bool' },
-    { field: 'interval_count', label: 'Anzahl Intervalle', inputType: 'number' },
-    { field: 'has_hc_climb', label: 'HC-Anstieg', inputType: 'bool' },
+    { field: 'has_summit', label: 'has_summit', inputType: 'bool' },
+    { field: 'summit_count', label: 'summit_count', inputType: 'number' },
+    { field: 'has_pass', label: 'has_pass', inputType: 'bool' },
+    { field: 'border_crossing_count', label: 'border_crossing_count', inputType: 'number' },
+    { field: 'has_gastronomy_stop', label: 'has_gastronomy_stop', inputType: 'bool' },
+    { field: 'stop_count', label: 'stop_count', inputType: 'number' },
+    { field: 'commute_detected', label: 'commute_detected', inputType: 'bool' },
+    { field: 'has_structured_intervals', label: 'has_structured_intervals', inputType: 'bool' },
+    { field: 'interval_count', label: 'interval_count', inputType: 'number' },
+    { field: 'has_hc_climb', label: 'has_hc_climb', inputType: 'bool' },
   ]},
-  { key: 'surface', label: 'Oberfläche', fields: [
-    { field: 'surface_paved_pct', label: 'Asphalt-Anteil', inputType: 'number', unit: '%' },
-    { field: 'surface_gravel_pct', label: 'Gravel-Anteil', inputType: 'number', unit: '%' },
-    { field: 'surface_trail_pct', label: 'Trail-Anteil', inputType: 'number', unit: '%' },
-    { field: 'surface_unknown_pct', label: 'Unbekannt-Anteil', inputType: 'number', unit: '%' },
+  { key: 'surface', label: 'surface', fields: [
+    { field: 'surface_paved_pct', label: 'surface_paved_pct', inputType: 'number', unit: 'percent' },
+    { field: 'surface_gravel_pct', label: 'surface_gravel_pct', inputType: 'number', unit: 'percent' },
+    { field: 'surface_trail_pct', label: 'surface_trail_pct', inputType: 'number', unit: 'percent' },
+    { field: 'surface_unknown_pct', label: 'surface_unknown_pct', inputType: 'number', unit: 'percent' },
   ]},
-  { key: 'swimming', label: 'Schwimmen', fields: [
-    { field: 'swim_stroke', label: 'Schwimmstil', inputType: 'enum', options: [
-      { value: 'freestyle', label: 'Kraul' },
-      { value: 'backstroke', label: 'Rücken' },
-      { value: 'breaststroke', label: 'Brust' },
-      { value: 'butterfly', label: 'Schmetterling' },
-      { value: 'mixed', label: 'Gemischt' },
+  { key: 'swimming', label: 'swimming', fields: [
+    { field: 'swim_stroke', label: 'swim_stroke', inputType: 'enum', options: [
+      { value: 'freestyle', label: 'freestyle' },
+      { value: 'backstroke', label: 'backstroke' },
+      { value: 'breaststroke', label: 'breaststroke' },
+      { value: 'butterfly', label: 'butterfly' },
+      { value: 'mixed', label: 'mixed' },
     ]},
-    { field: 'pool_length_m', label: 'Bahnlänge', inputType: 'number', unit: 'm' },
-    { field: 'num_active_lengths', label: 'Aktive Bahnen', inputType: 'number' },
+    { field: 'pool_length_m', label: 'pool_length_m', inputType: 'number', unit: 'length' },
+    { field: 'num_active_lengths', label: 'num_active_lengths', inputType: 'number' },
   ]},
-  { key: 'diving', label: 'Tauchen', fields: [
-    { field: 'max_depth_m', label: 'Max. Tiefe', inputType: 'number', unit: 'm' },
-    { field: 'avg_depth_m', label: 'Ø Tiefe', inputType: 'number', unit: 'm' },
-    { field: 'end_cns_pct', label: 'End-CNS', inputType: 'number', unit: '%' },
+  { key: 'diving', label: 'diving', fields: [
+    { field: 'max_depth_m', label: 'max_depth_m', inputType: 'number', unit: 'length' },
+    { field: 'avg_depth_m', label: 'avg_depth_m', inputType: 'number', unit: 'length' },
+    { field: 'end_cns_pct', label: 'End-CNS', inputType: 'number', unit: 'percent' },
   ]},
   { key: 'mtb', label: 'MTB', fields: [
-    { field: 'jump_count', label: 'Sprünge', inputType: 'number' },
+    { field: 'jump_count', label: 'jump_count', inputType: 'number' },
     { field: 'total_grit', label: 'Grit (Garmin)', inputType: 'number' },
     { field: 'avg_flow', label: 'Flow (Garmin)', inputType: 'number' },
   ]},
   { key: 'ebike', label: 'E-Bike', fields: [
-    { field: 'avg_lev_motor_power_w', label: 'Ø Motorleistung', inputType: 'number', unit: 'W' },
-    { field: 'lev_battery_consumption_pct', label: 'Batterieverbrauch', inputType: 'number', unit: '%' },
+    { field: 'avg_lev_motor_power_w', label: 'avg_lev_motor_power_w', inputType: 'number', unit: 'watts' },
+    { field: 'lev_battery_consumption_pct', label: 'lev_battery_consumption_pct', inputType: 'number', unit: 'percent' },
   ]},
   { key: 'multisport', label: 'Multisport', fields: [
-    { field: 'is_multisport_child', label: 'Ist Sub-Session', inputType: 'bool' },
-    { field: 'is_multisport_parent', label: 'Ist Multisport-Event', inputType: 'bool' },
+    { field: 'is_multisport_child', label: 'is_multisport_child', inputType: 'bool' },
+    { field: 'is_multisport_parent', label: 'is_multisport_parent', inputType: 'bool' },
   ]},
-  { key: 'training', label: 'Training-Metriken', fields: [
-    { field: 'aerobic_training_effect', label: 'Aerobes TE', inputType: 'number' },
-    { field: 'anaerobic_training_effect', label: 'Anaerobes TE', inputType: 'number' },
-    { field: 'aerobic_decoupling', label: 'Aerobic Decoupling', inputType: 'number', unit: '%' },
+  { key: 'training', label: 'training', fields: [
+    { field: 'aerobic_training_effect', label: 'aerobic_training_effect', inputType: 'number' },
+    { field: 'anaerobic_training_effect', label: 'anaerobic_training_effect', inputType: 'number' },
+    { field: 'aerobic_decoupling', label: 'Aerobic Decoupling', inputType: 'number', unit: 'percent' },
     { field: 'variability_index', label: 'Variability Index', inputType: 'number' },
     { field: 'efficiency_factor', label: 'Efficiency Factor', inputType: 'number' },
     { field: 'intensity_factor', label: 'Intensity Factor', inputType: 'number' },
-    { field: 'workout_rpe', label: 'RPE (subjektiv)', inputType: 'number' },
-    { field: 'workout_feel', label: 'Gefühl (subjektiv)', inputType: 'number' },
+    { field: 'workout_rpe', label: 'workout_rpe', inputType: 'number' },
+    { field: 'workout_feel', label: 'workout_feel', inputType: 'number' },
   ]},
 ]
 
@@ -425,30 +434,82 @@ function defaultValueForField(field: ConditionField): unknown {
 
 const OP_LABELS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=',
-  contains: 'enthält', not_contains: 'enthält nicht',
-  starts_with: 'beginnt mit', ends_with: 'endet mit', in: 'in',
-  between: 'zwischen',
+  contains: 'contains', not_contains: 'notContains',
+  starts_with: 'startsWith', ends_with: 'endsWith', in: 'in',
+  between: 'between',
+}
+
+function operatorLabel(op: string, t: TFunction): string {
+  const label = OP_LABELS[op]
+  if (!label) return op
+  if (['=', '!=', '>', '<', '>=', '<='].includes(label)) return label
+  return t(`ruleEditor.operators.${label}`)
+}
+
+function currentLanguage(language: string): SupportedLanguage {
+  const code = language.split('-')[0]
+  return isSupportedLanguage(code) ? code : 'de'
+}
+
+function conditionCategoryLabel(category: ConditionCategory, t: TFunction): string {
+  return t(`ruleEditor.conditionCategories.${category.key}`)
+}
+
+function conditionFieldLabel(field: ConditionField, t: TFunction, language: SupportedLanguage): string {
+  if ((RulesApplicableModifierKeys as readonly string[]).includes(field.field)) {
+    return modifierLabel(field.field as SportModifierKey, language)
+  }
+  if (RULE_TRAIT_CONDITION_FIELD_KEYS.has(field.field) && field.labels) {
+    return localizeString(field.labels, language)
+  }
+  return t(`automationRules.summary.fields.${field.field}`)
+}
+
+function optionLabel(field: string, option: { value: string; label: string; labels?: LocalizedString }, t: TFunction, language: SupportedLanguage): string {
+  if (field === 'sport_type') return sportLabel(option.value, null, { language })
+  if (RULE_TRAIT_CONDITION_FIELD_KEYS.has(field)) {
+    return localizeString(option.labels, language) || option.label
+  }
+  if (field === 'source') return option.value === 'manual' ? t('ruleEditor.optionLabels.sources.manual') : option.label
+  if (field === 'season') return t(`ruleEditor.optionLabels.seasons.${option.value}`)
+  if (field === 'weekday') return t(`ruleEditor.optionLabels.weekdays.${option.value}`)
+  if (field === 'month') return t(`ruleEditor.optionLabels.months.${option.value}`)
+  if (field === 'visibility') return t(`ruleEditor.optionLabels.visibility.${option.value}`)
+  if (field === 'intensity') return t(`ruleEditor.optionLabels.intensity.${option.value}`)
+  if (field === 'time_of_day') return t(`ruleEditor.optionLabels.timeOfDay.${option.value}`)
+  if (field === 'has_sensor_type') return t(`ruleEditor.optionLabels.sensorTypes.${option.value}`)
+  if (field === 'swim_stroke') return t(`ruleEditor.optionLabels.swimStrokes.${option.value}`)
+  return option.label
 }
 
 const MODIFIER_ACTION_TYPES = RulesApplicableModifierKeys.map((key) => ({
   value: modifierActionName(key),
-  label: `${modifierLabel(key)} setzen`,
+  modifierKey: key,
 }))
 
 const ACTION_TYPES = [
-  { value: 'set_gear',        label: 'Ausrüstung zuweisen' },
-  { value: 'add_tag',         label: 'Tag hinzufügen' },
-  { value: 'remove_tag',      label: 'Tag entfernen' },
-  { value: 'set_visibility',  label: 'Sichtbarkeit setzen' },
-  { value: 'set_sport_type',  label: 'Sportart setzen' },
+  { value: 'set_gear',        labelKey: 'ruleEditor.actionTypes.setGear' },
+  { value: 'add_tag',         labelKey: 'ruleEditor.actionTypes.addTag' },
+  { value: 'remove_tag',      labelKey: 'ruleEditor.actionTypes.removeTag' },
+  { value: 'set_visibility',  labelKey: 'ruleEditor.actionTypes.setVisibility' },
+  { value: 'set_sport_type',  labelKey: 'ruleEditor.actionTypes.setSportType' },
   ...MODIFIER_ACTION_TYPES,
-  { value: 'set_name',        label: 'Titel setzen' },
-  { value: 'set_intensity',   label: 'Intensität setzen' },
-  { value: 'set_exclude_from_stats',   label: 'Aus Statistiken ausschließen' },
-  { value: 'set_exclude_from_heatmap', label: 'Aus Heatmap ausschließen' },
-  { value: 'set_hide_map',             label: 'Karte verstecken' },
+  { value: 'set_name',        labelKey: 'ruleEditor.actionTypes.setName' },
+  { value: 'set_intensity',   labelKey: 'ruleEditor.actionTypes.setIntensity' },
+  { value: 'set_exclude_from_stats',   labelKey: 'ruleEditor.actionTypes.setExcludeFromStats' },
+  { value: 'set_exclude_from_heatmap', labelKey: 'ruleEditor.actionTypes.setExcludeFromHeatmap' },
+  { value: 'set_hide_map',             labelKey: 'ruleEditor.actionTypes.setHideMap' },
 ]
-const ACTION_LABEL_BY_VALUE = new Map(ACTION_TYPES.map((action) => [action.value, action.label]))
+
+function actionTypeLabel(action: (typeof ACTION_TYPES)[number] | undefined, t: TFunction, language: SupportedLanguage): string {
+  if (!action) return ''
+  if ('modifierKey' in action) return t('ruleEditor.actionTypes.setModifier', { label: modifierLabel(action.modifierKey, language) })
+  return t(action.labelKey)
+}
+
+function actionLabelByValue(value: string, t: TFunction, language: SupportedLanguage): string {
+  return actionTypeLabel(ACTION_TYPES.find((action) => action.value === value), t, language) || value
+}
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -665,12 +726,12 @@ function findDuplicateSportTupleGroup(groups: RuleConditionGroup[]): number | nu
   return null
 }
 
-function validateConditionGroupsForSubmit(groups: RuleConditionGroup[]) {
+function validateConditionGroupsForSubmit(groups: RuleConditionGroup[], t: TFunction) {
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     for (const condition of groups[groupIndex].conditions) {
       if (!RULE_TRAIT_CONDITION_FIELD_KEYS.has(condition.field)) continue
       if (!Array.isArray(condition.value) || condition.value.length === 0) {
-        throw new Error(`Taxonomie-Bedingung braucht mindestens einen Wert in Gruppe ${groupIndex + 1}`)
+        throw new Error(t('ruleEditor.validation.taxonomyConditionValueRequired', { index: groupIndex + 1 }))
       }
     }
   }
@@ -693,6 +754,8 @@ function SportTupleListConditionControl({
   onChange: (conditions: RuleCondition[]) => void
   onRemove: () => void
 }) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const rows = sportTupleRowsFromConditions(conditions)
 
   function updateRows(nextRows: SportTupleListRow[]) {
@@ -727,9 +790,9 @@ function SportTupleListConditionControl({
         return (
           <div key={index} className="flex items-end gap-2 flex-wrap">
             <label className="text-xs text-neutral-500 dark:text-neutral-400 w-44">
-              <span className="block mb-1">Sportart</span>
+              <span className="block mb-1">{t('ruleEditor.conditionControls.sportType')}</span>
               <select
-                aria-label="Sportart"
+                aria-label={t('ruleEditor.conditionControls.sportType')}
                 value={row.sport_type}
                 onChange={(e) => {
                   const sportType = e.target.value
@@ -737,38 +800,39 @@ function SportTupleListConditionControl({
                 }}
                 className={inputClass + ' w-full'}
               >
-                {RULE_TUPLE_SPORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {RULE_TUPLE_SPORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{sportLabel(s.value, null, { language })}</option>)}
               </select>
             </label>
             <label className="text-xs text-neutral-500 dark:text-neutral-400 w-40">
-              <span className="block mb-1">Sub-Sportart</span>
+              <span className="block mb-1">{t('ruleEditor.conditionControls.subSportType')}</span>
               <select
-                aria-label="Sub-Sportart"
+                aria-label={t('ruleEditor.conditionControls.subSportType')}
                 value={row.sub_type ?? ''}
                 onChange={(e) => patchRow(index, { sub_type: e.target.value || undefined }, true)}
                 className={inputClass + ' w-full'}
               >
-                {ruleTupleHasParentOption(row.sport_type) && <option value="">beliebig</option>}
-                {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
+                {ruleTupleHasParentOption(row.sport_type) && <option value="">{t('ruleEditor.choices.any')}</option>}
+                {subTypes.map((s) => <option key={s.subType} value={s.subType}>{sportLabel(s.sportType, s.subType, { language })}</option>)}
               </select>
             </label>
             {controls.map((control) => {
               const key = control.key as RuleTupleModifierKey
               const hasStoredValue = row[key] !== undefined
+              const label = modifierLabel(key, language)
               if (!control.conditionApplicable && !(hasStoredValue && control.renderExisting)) return null
               return (
                 <label key={control.key} className="text-xs text-neutral-500 dark:text-neutral-400 w-32">
-                  <span className="block mb-1">{control.label}</span>
+                  <span className="block mb-1">{label}</span>
                   <select
-                    aria-label={control.label}
+                    aria-label={label}
                     value={tupleModifierChoice(row, key)}
                     disabled={!control.conditionApplicable}
                     onChange={(e) => patchRow(index, patchTupleModifier(row, key, e.target.value as ModifierChoice))}
                     className={inputClass + ' w-full'}
                   >
-                    <option value="">egal</option>
-                    <option value="true">Ja</option>
-                    <option value="false">Nein</option>
+                    <option value="">{t('ruleEditor.choices.any')}</option>
+                    <option value="true">{t('ruleEditor.choices.yes')}</option>
+                    <option value="false">{t('ruleEditor.choices.no')}</option>
                   </select>
                 </label>
               )
@@ -786,7 +850,7 @@ function SportTupleListConditionControl({
         )
       })}
       <button type="button" onClick={addRow} className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer">
-        Sportart hinzufügen
+        {t('ruleEditor.conditionControls.addSportType')}
       </button>
     </div>
   )
@@ -816,36 +880,93 @@ function HelpHint({ text }: { text: string }) {
   )
 }
 
-const KPH_DISPLAY_SPEED_FIELDS = new Set(['avg_speed_ms', 'max_speed_ms', 'min_speed_ms'])
+const SPEED_INPUT_FIELDS = new Set(['avg_speed_ms', 'max_speed_ms', 'min_speed_ms', 'weather_wind_speed_ms', 'weather_wind_gusts_ms'])
+const PACE_INPUT_FIELDS = new Set(['avg_pace_min_km', 'min_pace_min_km', 'max_pace_min_km'])
+const TEMPERATURE_INPUT_FIELDS = new Set(['avg_temperature_c', 'min_temperature_c', 'max_temperature_c', 'weather_temp_c', 'weather_temp_min_c', 'weather_temp_max_c'])
 
 function roundRuleNumber(value: number): number {
   return Number(value.toFixed(3))
 }
 
-function displayNumberValue(field: string, value: unknown): number | string {
+function speedToDisplayValue(metersPerSecond: number, units: UnitSystem): number {
+  const display = units === 'imperial'
+    ? (metersPerSecond * 3600) / METERS_PER_MILE
+    : metersPerSecond * 3.6
+  return roundRuleNumber(display)
+}
+
+function speedFromDisplayValue(value: number, units: UnitSystem): number {
+  const stored = units === 'imperial'
+    ? (value * METERS_PER_MILE) / 3600
+    : value / 3.6
+  return roundRuleNumber(stored)
+}
+
+function paceToDisplayValue(minutesPerKm: number, units: UnitSystem): number {
+  return roundRuleNumber(units === 'imperial' ? minutesPerKm * (METERS_PER_MILE / 1000) : minutesPerKm)
+}
+
+function paceFromDisplayValue(value: number, units: UnitSystem): number {
+  return roundRuleNumber(units === 'imperial' ? value / (METERS_PER_MILE / 1000) : value)
+}
+
+function temperatureToDisplayValue(celsius: number, units: UnitSystem): number {
+  return roundRuleNumber(units === 'imperial' ? (celsius * 9) / 5 + 32 : celsius)
+}
+
+function temperatureFromDisplayValue(value: number, units: UnitSystem): number {
+  return roundRuleNumber(units === 'imperial' ? ((value - 32) * 5) / 9 : value)
+}
+
+function displayNumberValue(fieldDef: ConditionField, value: unknown, unitOptions: UnitFormatOptions): number | string {
   if (value === '' || value == null) return ''
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return ''
-  if (KPH_DISPLAY_SPEED_FIELDS.has(field)) return roundRuleNumber(numeric * 3.6)
+  if (fieldDef.unit === 'distance') return roundRuleNumber(distanceToDisplayValue(numeric, unitOptions.units))
+  if (fieldDef.unit === 'length') return roundRuleNumber(elevationToDisplayValue(numeric, unitOptions.units))
+  if (SPEED_INPUT_FIELDS.has(fieldDef.field)) return speedToDisplayValue(numeric, unitOptions.units)
+  if (PACE_INPUT_FIELDS.has(fieldDef.field)) return paceToDisplayValue(numeric, unitOptions.units)
+  if (TEMPERATURE_INPUT_FIELDS.has(fieldDef.field)) return temperatureToDisplayValue(numeric, unitOptions.units)
   return numeric
 }
 
-function storedNumberValue(field: string, value: string): number | string {
+function storedNumberValue(fieldDef: ConditionField, value: string, unitOptions: UnitFormatOptions): number | string {
   if (value === '') return ''
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return ''
-  if (KPH_DISPLAY_SPEED_FIELDS.has(field)) return roundRuleNumber(numeric / 3.6)
+  if (fieldDef.unit === 'distance') return roundRuleNumber(distanceFromDisplayValue(numeric, unitOptions.units))
+  if (fieldDef.unit === 'length') return roundRuleNumber(elevationFromDisplayValue(numeric, unitOptions.units))
+  if (SPEED_INPUT_FIELDS.has(fieldDef.field)) return speedFromDisplayValue(numeric, unitOptions.units)
+  if (PACE_INPUT_FIELDS.has(fieldDef.field)) return paceFromDisplayValue(numeric, unitOptions.units)
+  if (TEMPERATURE_INPUT_FIELDS.has(fieldDef.field)) return temperatureFromDisplayValue(numeric, unitOptions.units)
   return numeric
 }
 
-function displayRangePart(field: string, value: string): string {
-  const display = displayNumberValue(field, value)
+function displayRangePart(fieldDef: ConditionField, value: string, unitOptions: UnitFormatOptions): string {
+  const display = displayNumberValue(fieldDef, value, unitOptions)
   return display === '' ? '' : String(display)
 }
 
-function storedRangePart(field: string, value: string): string {
-  const stored = storedNumberValue(field, value)
+function storedRangePart(fieldDef: ConditionField, value: string, unitOptions: UnitFormatOptions): string {
+  const stored = storedNumberValue(fieldDef, value, unitOptions)
   return stored === '' ? '' : String(stored)
+}
+
+function unitLabel(unit: RuleUnit | undefined, unitOptions: UnitFormatOptions): string | null {
+  switch (unit) {
+    case 'seconds': return 's'
+    case 'distance': return distanceInputUnit(unitOptions.units)
+    case 'length': return elevationInputUnit(unitOptions.units)
+    case 'speed': return unitOptions.units === 'imperial' ? 'mph' : 'km/h'
+    case 'pace': return unitOptions.units === 'imperial' ? 'min/mi' : 'min/km'
+    case 'temperature': return unitOptions.units === 'imperial' ? '°F' : '°C'
+    case 'percent': return '%'
+    case 'degrees': return '°'
+    case 'bpm': return 'bpm'
+    case 'rpm': return 'rpm'
+    case 'watts': return 'W'
+    default: return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +995,8 @@ function CircleGeofenceInner({
   radiusM: number
   onChange: (lat: number, lon: number, radiusM: number) => void
 }) {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -983,14 +1106,19 @@ function CircleGeofenceInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [radiusM])
 
-  const radiusDisplay = radiusM >= 1000 ? `${(radiusM / 1000).toFixed(1)} km` : `${radiusM} m`
+  const radiusDisplay = unitFormatters.formatDistanceCompact(radiusM)
+  const radiusInputValue = roundRuleNumber(distanceToDisplayValue(radiusM, unitFormatters.options.units))
+  const radiusInputStep = unitFormatters.options.units === 'imperial'
+    ? roundRuleNumber(50 / METERS_PER_MILE)
+    : 0.05
+  const radiusInputUnit = distanceInputUnit(unitFormatters.options.units)
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-1 min-w-[260px]">
           <label className="text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
-            Radius: <span className="font-medium text-neutral-900 dark:text-neutral-100">{radiusDisplay}</span>
+            {t('ruleEditor.geofence.radius')} <span className="font-medium text-neutral-900 dark:text-neutral-100">{radiusDisplay}</span>
           </label>
           <input
             type="range"
@@ -1003,26 +1131,28 @@ function CircleGeofenceInner({
           />
           <input
             type="number"
-            min={50}
-            step={50}
-            value={radiusM}
+            min={radiusInputStep}
+            step={radiusInputStep}
+            value={radiusInputValue}
             onChange={(e) => {
-              const v = Math.max(50, Number(e.target.value) || 1000)
+              const fallback = distanceToDisplayValue(1000, unitFormatters.options.units)
+              const rawValue = Number(e.target.value) || fallback
+              const v = Math.max(50, Math.round(distanceFromDisplayValue(rawValue, unitFormatters.options.units)))
               onChange(lat, lon, v)
             }}
             className={inputClass + ' w-24 py-1 text-xs'}
-            title="Radius in Metern"
+            title={t('ruleEditor.geofence.radius')}
           />
-          <span className="text-xs text-neutral-400">m</span>
+          <span className="text-xs text-neutral-400">{radiusInputUnit}</span>
         </div>
         <div className="flex items-center gap-1 text-xs text-neutral-500">
-          <span>Lat:</span>
+          <span>{t('ruleEditor.geofence.latitude')}</span>
           <span className="font-mono tabular-nums">{lat ? lat.toFixed(5) : '—'}</span>
-          <span className="ml-2">Lon:</span>
+          <span className="ml-2">{t('ruleEditor.geofence.longitude')}</span>
           <span className="font-mono tabular-nums">{lon ? lon.toFixed(5) : '—'}</span>
         </div>
       </div>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">Klicke auf die Karte oder ziehe den Pin um den Mittelpunkt zu setzen.</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('ruleEditor.geofence.setCenterHint')}</p>
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height: 260 }} />
     </div>
   )
@@ -1074,43 +1204,44 @@ function UnifiedGeofenceEditor({
   value: UnifiedGeofenceValue
   onChange: (v: UnifiedGeofenceValue) => void
 }) {
+  const { t } = useTranslation()
   const selectClass = 'text-xs border border-neutral-300 dark:border-neutral-600 rounded px-1.5 py-1 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100'
 
   return (
     <div className="space-y-3 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 bg-neutral-50 dark:bg-neutral-800/30">
       <div className="flex gap-2 flex-wrap">
         <label className="flex items-center gap-1 text-xs text-neutral-500">
-          Prüfe:
+          {t('ruleEditor.geofence.check')}
           <select
             value={value.check}
             onChange={(e) => onChange({ ...value, check: e.target.value as 'start' | 'end' | 'track' })}
             className={selectClass}
           >
-            <option value="start">Startpunkt</option>
-            <option value="end">Endpunkt</option>
-            <option value="track">Track</option>
+            <option value="start">{t('ruleEditor.geofence.start')}</option>
+            <option value="end">{t('ruleEditor.geofence.end')}</option>
+            <option value="track">{t('ruleEditor.geofence.track')}</option>
           </select>
         </label>
         <label className="flex items-center gap-1 text-xs text-neutral-500">
-          Modus:
+          {t('ruleEditor.geofence.mode')}
           <select
             value={value.mode}
             onChange={(e) => onChange({ ...value, mode: e.target.value as 'inside' | 'outside' })}
             className={selectClass}
           >
-            <option value="inside">innerhalb</option>
-            <option value="outside">außerhalb</option>
+            <option value="inside">{t('ruleEditor.geofence.inside')}</option>
+            <option value="outside">{t('ruleEditor.geofence.outside')}</option>
           </select>
         </label>
         <label className="flex items-center gap-1 text-xs text-neutral-500">
-          Form:
+          {t('ruleEditor.geofence.shape')}
           <select
             value={value.shape}
             onChange={(e) => onChange({ ...value, shape: e.target.value as 'circle' | 'polygon' })}
             className={selectClass}
           >
-            <option value="circle">Kreis</option>
-            <option value="polygon">Polygon</option>
+            <option value="circle">{t('ruleEditor.geofence.circle')}</option>
+            <option value="polygon">{t('ruleEditor.geofence.polygon')}</option>
           </select>
         </label>
       </div>
@@ -1152,6 +1283,9 @@ function ConditionValueEditor({
   recorders?: Device[]
   sensors?: Device[]
 }) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
+  const unitFormatters = useUnitFormatters()
   const { inputType } = fieldDef
   const segmentQuery = useQuery({
     queryKey: ['rule-editor-segments'],
@@ -1175,7 +1309,7 @@ function ConditionValueEditor({
     for (const value of selected) {
       const id = String(value)
       if (!id || known.has(id)) continue
-      options.push({ value: id, label: `Nicht gelistete Ausrüstung (${id})` })
+      options.push({ value: id, label: t('ruleEditor.conditionControls.unlistedGear', { id }) })
       known.add(id)
     }
     return options
@@ -1216,8 +1350,8 @@ function ConditionValueEditor({
         onChange={(e) => onChange({ value: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja</option>
-        <option value="false">Nein</option>
+        <option value="true">{t('ruleEditor.choices.yes')}</option>
+        <option value="false">{t('ruleEditor.choices.no')}</option>
       </select>
     )
   }
@@ -1244,7 +1378,7 @@ function ConditionValueEditor({
                   : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:border-accent-400'
               }`}
             >
-              {s.label}
+              {optionLabel(cond.field, s, t, language)}
             </button>
           ))}
         </div>
@@ -1256,41 +1390,43 @@ function ConditionValueEditor({
         onChange={(e) => onChange({ value: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Wählen...</option>
-        {effectiveOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        <option value="">{t('ruleEditor.conditionControls.choose')}</option>
+        {effectiveOptions.map(s => <option key={s.value} value={s.value}>{optionLabel(cond.field, s, t, language)}</option>)}
       </select>
     )
   }
 
   if (inputType === 'number' && cond.op === 'between') {
     const parts = typeof cond.value === 'string' ? cond.value.split(',') : ['', '']
-    const from = displayRangePart(fieldDef.field, parts[0] ?? '')
-    const to = displayRangePart(fieldDef.field, parts[1] ?? '')
+    const from = displayRangePart(fieldDef, parts[0] ?? '', unitFormatters.options)
+    const to = displayRangePart(fieldDef, parts[1] ?? '', unitFormatters.options)
+    const displayUnit = unitLabel(fieldDef.unit, unitFormatters.options)
     return (
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <input type="number" placeholder="von" value={from}
-          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef.field, e.target.value)},${storedRangePart(fieldDef.field, to)}` })}
+        <input type="number" placeholder={t('ruleEditor.conditionControls.from')} value={from}
+          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef, e.target.value, unitFormatters.options)},${storedRangePart(fieldDef, to, unitFormatters.options)}` })}
           className={inputClass + ' w-24'}
         />
         <span className="text-neutral-500 text-xs">–</span>
-        <input type="number" placeholder="bis" value={to}
-          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef.field, from)},${storedRangePart(fieldDef.field, e.target.value)}` })}
+        <input type="number" placeholder={t('ruleEditor.conditionControls.to')} value={to}
+          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef, from, unitFormatters.options)},${storedRangePart(fieldDef, e.target.value, unitFormatters.options)}` })}
           className={inputClass + ' w-24'}
         />
-        {fieldDef.unit && <span className="text-xs text-neutral-400">{fieldDef.unit}</span>}
+        {displayUnit && <span className="text-xs text-neutral-400">{displayUnit}</span>}
       </div>
     )
   }
 
   if (inputType === 'number') {
+    const displayUnit = unitLabel(fieldDef.unit, unitFormatters.options)
     return (
       <div className="flex items-center gap-1 flex-1 min-w-0">
-        <input type="number" value={displayNumberValue(fieldDef.field, cond.value)}
-          onChange={(e) => onChange({ value: storedNumberValue(fieldDef.field, e.target.value) })}
-          placeholder="Wert"
+        <input type="number" value={displayNumberValue(fieldDef, cond.value, unitFormatters.options)}
+          onChange={(e) => onChange({ value: storedNumberValue(fieldDef, e.target.value, unitFormatters.options) })}
+          placeholder={t('ruleEditor.conditionControls.valuePlaceholder')}
           className={inputClass + ' flex-1 min-w-0'}
         />
-        {fieldDef.unit && <span className="text-xs text-neutral-400">{fieldDef.unit}</span>}
+        {displayUnit && <span className="text-xs text-neutral-400">{displayUnit}</span>}
       </div>
     )
   }
@@ -1300,7 +1436,7 @@ function ConditionValueEditor({
       <select value={String(cond.value ?? '')} onChange={(e) => onChange({ value: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Tag wählen...</option>
+        <option value="">{t('ruleEditor.conditionControls.chooseTag')}</option>
         {tags.map(t => (
           <option key={t.id} value={t.name}>
             {t.name}
@@ -1314,22 +1450,22 @@ function ConditionValueEditor({
     return (
       <div className="flex-1 min-w-0 space-y-1">
         <select
-          aria-label="Segment wählen"
+          aria-label={t('ruleEditor.conditionControls.chooseSegment')}
           value={String(cond.value ?? '')}
           onChange={(e) => onChange({ value: e.target.value })}
           className={inputClass + ' w-full min-w-0'}
         >
-          <option value="">Segment wählen...</option>
+          <option value="">{t('ruleEditor.conditionControls.chooseSegmentWithDots')}</option>
           {segmentOptions.map(segment => (
             <option key={segment.id} value={segment.id}>{segment.name}</option>
           ))}
           {cond.value && !selectedSegment && (
-            <option value={String(cond.value)}>Nicht gelistetes Segment ({String(cond.value)})</option>
+            <option value={String(cond.value)}>{t('ruleEditor.conditionControls.unlistedSegment', { id: String(cond.value) })}</option>
           )}
         </select>
         {selectedSegment && (
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-            {segmentPreview(selectedSegment)}
+            {segmentPreview(selectedSegment, t, unitFormatters.options)}
           </p>
         )}
       </div>
@@ -1354,7 +1490,7 @@ function ConditionValueEditor({
   return (
     <input type="text" value={cond.value ?? ''}
       onChange={(e) => onChange({ value: e.target.value })}
-      placeholder="Wert"
+      placeholder={t('ruleEditor.conditionControls.valuePlaceholder')}
       className={inputClass + ' flex-1 min-w-0'}
     />
   )
@@ -1381,6 +1517,8 @@ function ConditionRow({
   recorders?: Device[]
   sensors?: Device[]
 }) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const currentCat = findCategory(cond.field)
   const currentField = findFieldDef(cond.field)
   const isInternalField = !currentCat  // geofence, is_round_trip etc.
@@ -1389,11 +1527,11 @@ function ConditionRow({
   if (isInternalField && currentField) {
     return (
       <div className={currentField.inputType === 'geofence' ? 'space-y-2' : 'flex items-center gap-2 flex-wrap'}>
-        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{currentField.label}</span>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{conditionFieldLabel(currentField, t, language)}</span>
         <ConditionValueEditor fieldDef={currentField} cond={cond} onChange={onUpdate} tags={tags} gearList={gearList} recorders={recorders} sensors={sensors} />
         <button type="button" onClick={onRemove}
           className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
-          title="Bedingung entfernen"
+          title={t('ruleEditor.conditionControls.removeCondition')}
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1432,7 +1570,7 @@ function ConditionRow({
           className={inputClass}
         >
           {CONDITION_CATEGORIES.map(cat => (
-            <option key={cat.key} value={cat.key}>{cat.label}</option>
+            <option key={cat.key} value={cat.key}>{conditionCategoryLabel(cat, t)}</option>
           ))}
         </select>
 
@@ -1444,7 +1582,7 @@ function ConditionRow({
             className={inputClass}
           >
             {safeCat.fields.map(f => (
-              <option key={f.field} value={f.field}>{f.label}</option>
+              <option key={f.field} value={f.field}>{conditionFieldLabel(f, t, language)}</option>
             ))}
           </select>
         )}
@@ -1457,7 +1595,7 @@ function ConditionRow({
             className={inputClass}
           >
             {ops.map(op => (
-              <option key={op} value={op}>{OP_LABELS[op] ?? op}</option>
+              <option key={op} value={op}>{operatorLabel(op, t)}</option>
             ))}
           </select>
         )}
@@ -1468,7 +1606,7 @@ function ConditionRow({
             type="button"
             onClick={onRemove}
             className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer ml-auto"
-            title="Bedingung entfernen"
+            title={t('ruleEditor.conditionControls.removeCondition')}
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1486,7 +1624,7 @@ function ConditionRow({
           type="button"
           onClick={onRemove}
           className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
-          title="Bedingung entfernen"
+          title={t('ruleEditor.conditionControls.removeCondition')}
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1522,6 +1660,7 @@ function ConditionGroupBlock({
   recorders?: Device[]
   sensors?: Device[]
 }) {
+  const { t } = useTranslation()
   function addCondition() {
     onChange({ ...group, conditions: [...group.conditions, defaultCondition()] })
   }
@@ -1544,7 +1683,7 @@ function ConditionGroupBlock({
     <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Gruppe {groupIndex + 1}</span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">{t('ruleEditor.conditionControls.groupLabel', { index: groupIndex + 1 })}</span>
           {/* AND / OR toggle within this group */}
           <div className="flex rounded overflow-hidden border border-neutral-200 dark:border-neutral-700">
             {(['and', 'or'] as const).map(l => (
@@ -1558,18 +1697,18 @@ function ConditionGroupBlock({
                     : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 }`}
               >
-                {l === 'and' ? 'UND' : 'ODER'}
+                {l === 'and' ? t('ruleEditor.logic.and') : t('ruleEditor.logic.or')}
               </button>
             ))}
           </div>
-          <span className="text-xs text-neutral-400">(innerhalb Gruppe)</span>
+          <span className="text-xs text-neutral-400">{t('ruleEditor.conditionControls.withinGroup')}</span>
         </div>
         {totalGroups > 1 && (
           <button type="button" onClick={onRemove}
             className="text-xs text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
-            title="Gruppe entfernen"
+            title={t('ruleEditor.conditionControls.removeGroup')}
           >
-            Gruppe entfernen
+            {t('ruleEditor.conditionControls.removeGroup')}
           </button>
         )}
       </div>
@@ -1589,7 +1728,7 @@ function ConditionGroupBlock({
             {(hasSportTuple || visibleIndex > 0) && (
               <div className="flex items-center gap-2 my-1">
                 <span className="text-xs font-semibold text-accent-DEFAULT uppercase tracking-wide px-1">
-                  {group.logic === 'and' ? 'UND' : 'ODER'}
+                  {group.logic === 'and' ? t('ruleEditor.logic.and') : t('ruleEditor.logic.or')}
                 </span>
               </div>
             )}
@@ -1611,7 +1750,7 @@ function ConditionGroupBlock({
         onClick={addCondition}
         className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
       >
-        + Bedingung hinzufügen
+        {t('ruleEditor.conditionControls.addCondition')}
       </button>
     </div>
   )
@@ -1627,12 +1766,16 @@ function ActionParams({
   gearList,
   tags,
   onChange,
+  t,
+  language,
 }: {
   action: string
   params: Record<string, any>
   gearList: any[]
   tags: Array<{ id: string; name: string; color: string }>
   onChange: (params: Record<string, any>) => void
+  t: TFunction
+  language: SupportedLanguage
 }) {
   if (action === 'set_gear') {
     return (
@@ -1641,7 +1784,7 @@ function ActionParams({
         onChange={(e) => onChange({ gear_id: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Ausrüstung wählen...</option>
+        <option value="">{t('ruleEditor.actionParams.chooseGear')}</option>
         {gearList.filter((g) => !g.is_retired).map((g) => (
           <option key={g.id} value={g.id}>{g.name}</option>
         ))}
@@ -1655,7 +1798,7 @@ function ActionParams({
         onChange={(e) => onChange({ tag_id: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Tag wählen...</option>
+        <option value="">{t('ruleEditor.actionParams.chooseTag')}</option>
         {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     )
@@ -1667,7 +1810,7 @@ function ActionParams({
         onChange={(e) => onChange({ tag_id: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Tag wählen...</option>
+        <option value="">{t('ruleEditor.actionParams.chooseTag')}</option>
         {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     )
@@ -1679,9 +1822,9 @@ function ActionParams({
         onChange={(e) => onChange({ visibility: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Sichtbarkeit wählen...</option>
-        {VISIBILITY_OPTIONS.map(({ value, label }) => (
-          <option key={value} value={value}>{label}</option>
+        <option value="">{t('ruleEditor.actionParams.chooseVisibility')}</option>
+        {VISIBILITY_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{optionLabel('visibility', option, t, language)}</option>
         ))}
       </select>
     )
@@ -1696,9 +1839,9 @@ function ActionParams({
       <div className="space-y-2 flex-1 min-w-0">
         <div className="flex items-end gap-2 flex-wrap">
           <label className="text-xs text-neutral-500 dark:text-neutral-400 flex-1 min-w-48">
-            <span className="block mb-1">Sportart setzen</span>
+            <span className="block mb-1">{t('ruleEditor.actionParams.setSportType')}</span>
             <select
-              aria-label="Sportart setzen"
+              aria-label={t('ruleEditor.actionParams.setSportType')}
               value={sportType}
               onChange={(e) => {
                 const nextSport = e.target.value
@@ -1706,20 +1849,20 @@ function ActionParams({
               }}
               className={inputClass + ' w-full'}
             >
-              <option value="">Sportart wählen...</option>
-              {RULE_TUPLE_SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              <option value="">{t('ruleEditor.actionParams.chooseSport')}</option>
+              {RULE_TUPLE_SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{sportLabel(s.value, null, { language })}</option>)}
             </select>
           </label>
           <label className="text-xs text-neutral-500 dark:text-neutral-400">
-            <span className="block mb-1">Sub-Sportart setzen</span>
+            <span className="block mb-1">{t('ruleEditor.actionParams.setSubSportType')}</span>
             <select
-              aria-label="Sub-Sportart setzen"
+              aria-label={t('ruleEditor.actionParams.setSubSportType')}
               value={subType}
               onChange={(e) => onChange(sanitizeSportActionParams({ ...params, sport_type: sportType, sub_type: e.target.value }))}
               className={inputClass + ' w-40'}
             >
-              {ruleTupleHasParentOption(sportType) && <option value="">keine Sub-Sportart</option>}
-              {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
+              {ruleTupleHasParentOption(sportType) && <option value="">{t('ruleEditor.actionParams.noSubSport')}</option>}
+              {subTypes.map((s) => <option key={s.subType} value={s.subType}>{sportLabel(s.sportType, s.subType, { language })}</option>)}
             </select>
           </label>
         </div>
@@ -1728,12 +1871,13 @@ function ActionParams({
             const key = control.key as RuleTupleModifierKey
             const paramKey = ACTION_MODIFIER_PARAM_BY_KEY[key]
             const hasStoredValue = params[paramKey] !== undefined
+            const label = modifierLabel(key, language)
             if (!control.actionApplicable && !(hasStoredValue && control.renderExisting)) return null
             return (
               <label key={control.key} className="text-xs text-neutral-500 dark:text-neutral-400">
-                <span className="block mb-1">{control.label} setzen</span>
+                <span className="block mb-1">{t('ruleEditor.actionParams.setModifierLabel', { label })}</span>
                 <select
-                  aria-label={`${control.label} setzen`}
+                  aria-label={t('ruleEditor.actionParams.setModifierLabel', { label })}
                   value={modifierChoiceFromActionParams(params, sportType, subType, key)}
                   disabled={!control.actionApplicable}
                   onChange={(e) => onChange(sanitizeSportActionParams({
@@ -1743,9 +1887,9 @@ function ActionParams({
                   }))}
                   className={inputClass + ' w-36'}
                 >
-                  <option value="">egal</option>
-                  <option value="true">Ja</option>
-                  <option value="false">Nein</option>
+                  <option value="">{t('ruleEditor.choices.any')}</option>
+                  <option value="true">{t('ruleEditor.choices.yes')}</option>
+                  <option value="false">{t('ruleEditor.choices.no')}</option>
                 </select>
               </label>
             )
@@ -1756,7 +1900,7 @@ function ActionParams({
   }
   const modifierActionKey = modifierKeyForAction(action)
   if (modifierActionKey) {
-    const label = modifierLabel(modifierActionKey)
+    const label = modifierLabel(modifierActionKey, language)
     const paramKey = modifierActionParam(modifierActionKey)
     return (
       <select
@@ -1764,8 +1908,8 @@ function ActionParams({
         onChange={(e) => onChange({ [paramKey]: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja ({label})</option>
-        <option value="false">Nein (kein {label})</option>
+        <option value="true">{t('ruleEditor.actionParams.yesWithLabel', { label })}</option>
+        <option value="false">{t('ruleEditor.actionParams.noWithoutLabel', { label })}</option>
       </select>
     )
   }
@@ -1776,10 +1920,10 @@ function ActionParams({
           type="text"
           value={params.template ?? ''}
           onChange={(e) => onChange({ template: e.target.value })}
-          placeholder="Neuer Titel"
+          placeholder={t('ruleEditor.actionParams.newTitle')}
           className={inputClass + ' w-full'}
         />
-        <span className="text-xs text-neutral-400">Platzhalter: {'{city}'}, {'{distance_km}'}, {'{sport}'}</span>
+        <span className="text-xs text-neutral-400">{t('ruleEditor.actionParams.templateHelp')}</span>
       </div>
     )
   }
@@ -1790,9 +1934,9 @@ function ActionParams({
         onChange={(e) => onChange({ intensity: e.target.value })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="">Intensität wählen...</option>
-        {INTENSITY_OPTIONS.map(({ value, label }) => (
-          <option key={value} value={value}>{label}</option>
+        <option value="">{t('ruleEditor.actionParams.chooseIntensity')}</option>
+        {INTENSITY_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{optionLabel('intensity', option, t, language)}</option>
         ))}
       </select>
     )
@@ -1804,8 +1948,8 @@ function ActionParams({
         onChange={(e) => onChange({ value: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja (ausschließen)</option>
-        <option value="false">Nein (einschließen)</option>
+        <option value="true">{t('ruleEditor.actionParams.yesExclude')}</option>
+        <option value="false">{t('ruleEditor.actionParams.noInclude')}</option>
       </select>
     )
   }
@@ -1816,8 +1960,8 @@ function ActionParams({
         onChange={(e) => onChange({ value: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja (ausschließen)</option>
-        <option value="false">Nein (einschließen)</option>
+        <option value="true">{t('ruleEditor.actionParams.yesExclude')}</option>
+        <option value="false">{t('ruleEditor.actionParams.noInclude')}</option>
       </select>
     )
   }
@@ -1829,11 +1973,11 @@ function ActionParams({
           onChange={(e) => onChange({ value: e.target.value === 'true' })}
           className={inputClass + ' w-full'}
         >
-          <option value="true">Ja (Karte verstecken)</option>
-          <option value="false">Nein (Karte anzeigen)</option>
+          <option value="true">{t('ruleEditor.actionParams.yesHideMap')}</option>
+          <option value="false">{t('ruleEditor.actionParams.noShowMap')}</option>
         </select>
         <p className="text-xs text-amber-600 mt-1">
-          Achtung: Diese Aktion versteckt die Karte dauerhaft. Prüfe ob die Bedingungen korrekt sind.
+          {t('ruleEditor.actionParams.hideMapWarning')}
         </p>
       </div>
     )
@@ -1895,7 +2039,7 @@ function denormaliseActions(raw: RuleAction[]): RuleAction[] {
   return out
 }
 
-function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action: RuleAction) => string | undefined): RuleAction[] {
+function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action: RuleAction) => string | undefined, t: TFunction): RuleAction[] {
   const out: RuleAction[] = []
   const modifierState = new Map<string, boolean>()
   const specs = MODIFIER_ACTION_SPECS
@@ -1924,9 +2068,9 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
         if (existing.action === 'add_tag' && value === true) {
           out.splice(i, 1)
         } else if (existing.action === 'add_tag' && value === false) {
-          throw new Error(`${spec.action}(false) widerspricht Tag ${spec.tag}`)
+          throw new Error(t('ruleEditor.errors.actionConflictsTag', { action: `${spec.action}(false)`, tag: spec.tag }))
         } else if (existing.action === 'remove_tag' && value === true) {
-          throw new Error(`${spec.action}(true) widerspricht Tag ${spec.tag} entfernen`)
+          throw new Error(t('ruleEditor.errors.actionConflictsTagRemoval', { action: `${spec.action}(true)`, tag: spec.tag }))
         }
       }
       modifierState.set(spec.action, value === true)
@@ -1943,10 +2087,10 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
           continue
         }
         if (action.action === 'add_tag' && state === false) {
-          throw new Error(`${matchingSpec.action}(false) widerspricht Tag ${matchingSpec.tag}`)
+          throw new Error(t('ruleEditor.errors.actionConflictsTag', { action: `${matchingSpec.action}(false)`, tag: matchingSpec.tag }))
         }
         if (action.action === 'remove_tag' && state === true) {
-          throw new Error(`${matchingSpec.action}(true) widerspricht Tag ${matchingSpec.tag} entfernen`)
+          throw new Error(t('ruleEditor.errors.actionConflictsTagRemoval', { action: `${matchingSpec.action}(true)`, tag: matchingSpec.tag }))
         }
       }
     }
@@ -1961,37 +2105,37 @@ function nonEmptyParam(params: Record<string, any> | undefined, key: string): bo
   return typeof value === 'string' ? value.trim() !== '' : value !== undefined && value !== null
 }
 
-function validateRuleActionForSubmit(action: RuleAction): string | null {
+function validateRuleActionForSubmit(action: RuleAction, t: TFunction): string | null {
   switch (action.action) {
     case 'set_gear':
-      return nonEmptyParam(action.params, 'gear_id') ? null : 'Ausrüstung wählen'
+      return nonEmptyParam(action.params, 'gear_id') ? null : t('ruleEditor.validation.chooseGear')
     case 'add_tag':
     case 'remove_tag':
-      return nonEmptyParam(action.params, 'tag_id') ? null : 'Tag wählen'
+      return nonEmptyParam(action.params, 'tag_id') ? null : t('ruleEditor.validation.chooseTag')
     case 'set_visibility':
-      return nonEmptyParam(action.params, 'visibility') ? null : 'Sichtbarkeit wählen'
+      return nonEmptyParam(action.params, 'visibility') ? null : t('ruleEditor.validation.chooseVisibility')
     case 'set_sport_type':
-      return nonEmptyParam(action.params, 'sport_type') ? null : 'Sportart wählen'
+      return nonEmptyParam(action.params, 'sport_type') ? null : t('ruleEditor.validation.chooseSport')
     case 'set_name':
-      return nonEmptyParam(action.params, 'template') ? null : 'Titel-Template eintragen'
+      return nonEmptyParam(action.params, 'template') ? null : t('ruleEditor.validation.enterTitleTemplate')
     case 'set_intensity':
-      return nonEmptyParam(action.params, 'intensity') ? null : 'Intensität wählen'
+      return nonEmptyParam(action.params, 'intensity') ? null : t('ruleEditor.validation.chooseIntensity')
     case 'set_exclude_from_stats':
     case 'set_exclude_from_heatmap':
     case 'set_hide_map':
-      return action.params?.value === true || action.params?.value === false ? null : 'Ja/Nein wählen'
+      return action.params?.value === true || action.params?.value === false ? null : t('ruleEditor.validation.chooseYesNo')
     default:
       return null
   }
 }
 
-function validateRuleActionsForSubmit(actions: RuleAction[], surface = 'Aktion') {
+function validateRuleActionsForSubmit(actions: RuleAction[], t: TFunction, language: SupportedLanguage, surface = t('ruleEditor.validation.actionSurface')) {
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]
-    const missing = validateRuleActionForSubmit(action)
+    const missing = validateRuleActionForSubmit(action, t)
     if (!missing) continue
-    const label = ACTION_LABEL_BY_VALUE.get(action.action) ?? action.action
-    throw new Error(`${surface} "${label}" ist unvollständig: ${missing}`)
+    const label = actionLabelByValue(action.action, t, language)
+    throw new Error(t('ruleEditor.validation.incompleteAction', { surface, label, missing }))
   }
 }
 
@@ -2009,6 +2153,8 @@ interface RuleEditorProps {
 }
 
 export default function RuleEditor({ rule, initialData, onSave, onCancel, isSaving }: RuleEditorProps) {
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const seed = rule ?? initialData
   const [name, setName] = useState(seed?.name ?? '')
   const [priority, setPriority] = useState(seed?.priority ?? 0)
@@ -2173,7 +2319,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       }
       normalized.push(a)
     }
-    return dedupeSystemTagActions(normalized, tagNameForAction)
+    return dedupeSystemTagActions(normalized, tagNameForAction, t)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -2183,13 +2329,13 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
     let normalizedActions: RuleAction[]
     let normalizedBranches: RuleBranch[] | undefined
     try {
-      validateRuleActionsForSubmit(actions)
+      validateRuleActionsForSubmit(actions, t, language)
       normalizedActions = normaliseActions(actions)
       const normalizedGroups = groups.map(normaliseSportTupleConditionGroup)
-      validateConditionGroupsForSubmit(normalizedGroups)
+      validateConditionGroupsForSubmit(normalizedGroups, t)
       const duplicateGroup = findDuplicateSportTupleGroup(normalizedGroups)
       if (duplicateGroup !== null) {
-        throw new Error(`Sportauswahl enthält Duplikate in Gruppe ${duplicateGroup + 1}`)
+        throw new Error(t('ruleEditor.validation.duplicateSportSelection', { index: duplicateGroup + 1 }))
       }
       normalizedBranches = branches.length > 0 ? [
         { type: 'if' as const, condition_groups: normalizedGroups, actions: normalizedActions },
@@ -2197,7 +2343,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           ...b,
           condition_groups: b.condition_groups.map(normaliseSportTupleConditionGroup),
           actions: (() => {
-            validateRuleActionsForSubmit(b.actions, 'Branch-Aktion')
+            validateRuleActionsForSubmit(b.actions, t, language, t('ruleEditor.validation.branchActionSurface'))
             return normaliseActions(b.actions)
           })(),
         })),
@@ -2217,7 +2363,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
         branches: normalizedBranches,
       })
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Aktionen widersprechen sich')
+      setActionError(err instanceof Error ? err.message : t('ruleEditor.errors.actionsConflict'))
       return
     }
   }
@@ -2227,20 +2373,20 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       {/* Name & Priority */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="sm:col-span-2">
-          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Name *</label>
+          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('ruleEditor.nameRequiredLabel')}</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             className={inputClass + ' w-full'}
-            placeholder="z.B. MTB-Rides automatisch taggen"
+            placeholder={t('ruleEditor.namePlaceholder')}
           />
         </div>
         <div>
           <label className="flex items-center gap-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-            Priorität
-            <HelpHint text="Höhere Werte werden zuerst ausgeführt. Bei gleicher Priorität entscheidet die Reihenfolge in der Liste. Mit 'Weitere Regeln stoppen' kannst du verhindern, dass nachfolgende Regeln greifen." />
+            {t('ruleEditor.priority')}
+            <HelpHint text={t('ruleEditor.priorityHelp')} />
           </label>
           <input
             type="number"
@@ -2255,16 +2401,16 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       {/* Trigger Event & Stop-on-Match */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Auslöser</label>
+          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">{t('ruleEditor.trigger')}</label>
           <select
             value={triggerEvent}
             onChange={e => setTriggerEvent(e.target.value as typeof triggerEvent)}
             className={inputClass + ' w-full'}
           >
-            <option value="on_import">Beim Import</option>
-            <option value="on_enrichment_complete">Nach Enrichment</option>
-            <option value="on_manual_apply">Nur manuell</option>
-            <option value="on_gear_usage_update">Bei Ausrüstungsnutzung</option>
+            <option value="on_import">{t('ruleEditor.triggers.onImport')}</option>
+            <option value="on_enrichment_complete">{t('ruleEditor.triggers.onEnrichmentComplete')}</option>
+            <option value="on_manual_apply">{t('ruleEditor.triggers.onManualApply')}</option>
+            <option value="on_gear_usage_update">{t('ruleEditor.triggers.onGearUsageUpdate')}</option>
           </select>
         </div>
         <div className="flex items-end pb-1">
@@ -2275,7 +2421,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
               onChange={e => setStopOnMatch(e.target.checked)}
               className="rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
             />
-            Weitere Regeln stoppen
+            {t('ruleEditor.stopFurtherRules')}
           </label>
         </div>
       </div>
@@ -2284,9 +2430,9 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       <div>
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Bedingungen *</h3>
+            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('ruleEditor.conditionsRequired')}</h3>
             {groups.length > 1 && (
-              <p className="text-xs text-neutral-400 mt-0.5">Gruppen werden mit UND verknüpft</p>
+              <p className="text-xs text-neutral-400 mt-0.5">{t('ruleEditor.groupsAndHint')}</p>
             )}
           </div>
           <button
@@ -2294,11 +2440,11 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             onClick={addGroup}
             className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
           >
-            + Gruppe hinzufügen
+            {t('ruleEditor.addGroup')}
           </button>
         </div>
         {totalConditions === 0 && (
-          <p className="text-sm text-neutral-400 py-2">Mindestens eine Bedingung erforderlich.</p>
+          <p className="text-sm text-neutral-400 py-2">{t('ruleEditor.minConditionRequired')}</p>
         )}
         <div className="space-y-3">
           {groups.map((g, i) => (
@@ -2306,7 +2452,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
               {i > 0 && (
                 <div className="flex items-center gap-2 my-2">
                   <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
-                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide px-2">UND</span>
+                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide px-2">{t('ruleEditor.logic.and')}</span>
                   <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
                 </div>
               )}
@@ -2330,10 +2476,10 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
 
       {/* Actions */}
       <div>
-        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">Aktionen *</h3>
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">{t('ruleEditor.actionsRequired')}</h3>
         <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">
         {actions.length === 0 && (
-          <p className="text-sm text-neutral-400 py-2">Mindestens eine Aktion erforderlich.</p>
+          <p className="text-sm text-neutral-400 py-2">{t('ruleEditor.minActionRequired')}</p>
         )}
         <div className="space-y-2">
           {actions.map((act, idx) => (
@@ -2344,7 +2490,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 className={inputClass}
               >
                 {ACTION_TYPES.map(a => (
-                  <option key={a.value} value={a.value}>{a.label}</option>
+                  <option key={a.value} value={a.value}>{actionTypeLabel(a, t, language)}</option>
                 ))}
               </select>
               <ActionParams
@@ -2353,12 +2499,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 gearList={gearList ?? []}
                 tags={tags}
                 onChange={(params) => updateAction(idx, act.action, params)}
+                t={t}
+                language={language}
               />
               <button
                 type="button"
                 onClick={() => removeAction(idx)}
                 className="text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
-                title="Aktion entfernen"
+                title={t('ruleEditor.removeAction')}
               >
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -2372,7 +2520,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           onClick={addAction}
           className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
         >
-          + Aktion
+          {t('ruleEditor.addAction')}
         </button>
         </div>
       </div>
@@ -2383,14 +2531,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           {/* Branch header */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-              {branch.type === 'else' ? 'Sonst' : 'Sonst wenn'}
+              {branch.type === 'else' ? t('ruleEditor.branches.else') : t('ruleEditor.branches.elseIf')}
             </span>
             <button
               type="button"
               onClick={() => removeBranch(branchIdx)}
               className="ml-auto text-xs text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 cursor-pointer"
             >
-              Zweig entfernen
+              {t('ruleEditor.branches.removeBranch')}
             </button>
           </div>
 
@@ -2398,17 +2546,17 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           {branch.type === 'else_if' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Bedingungen</span>
+                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('ruleEditor.conditions')}</span>
                 <button
                   type="button"
                   onClick={() => addBranchGroup(branchIdx)}
                   className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
                 >
-                  + Gruppe
+                  {t('ruleEditor.addGroup')}
                 </button>
               </div>
               {branch.condition_groups.length === 0 && (
-                <p className="text-xs text-neutral-400 italic">Keine Bedingungen — Zweig greift immer.</p>
+                <p className="text-xs text-neutral-400 italic">{t('ruleEditor.noBranchConditions')}</p>
               )}
               <div className="space-y-2">
                 {branch.condition_groups.map((g, gi) => (
@@ -2416,7 +2564,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                     {gi > 0 && (
                       <div className="flex items-center gap-2 my-1">
                         <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
-                        <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide px-2">UND</span>
+                        <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide px-2">{t('ruleEditor.logic.and')}</span>
                         <div className="flex-1 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
                       </div>
                     )}
@@ -2439,9 +2587,9 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
 
           {/* Actions for this branch */}
           <div className="space-y-2">
-            <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Dann</span>
+            <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('ruleEditor.branches.then')}</span>
             {branch.actions.length === 0 && (
-              <p className="text-xs text-neutral-400 italic">Keine Aktionen.</p>
+              <p className="text-xs text-neutral-400 italic">{t('ruleEditor.noActions')}</p>
             )}
             <div className="space-y-2">
               {branch.actions.map((act, actionIdx) => (
@@ -2452,7 +2600,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                     className={inputClass}
                   >
                     {ACTION_TYPES.map(a => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
+                      <option key={a.value} value={a.value}>{actionTypeLabel(a, t, language)}</option>
                     ))}
                   </select>
                   <ActionParams
@@ -2461,12 +2609,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                     gearList={gearList ?? []}
                     tags={tags}
                     onChange={(params) => updateBranchAction(branchIdx, actionIdx, act.action, params)}
+                    t={t}
+                    language={language}
                   />
                   <button
                     type="button"
                     onClick={() => removeBranchAction(branchIdx, actionIdx)}
                     className="text-neutral-400 hover:text-rose-500 transition-colors cursor-pointer"
-                    title="Aktion entfernen"
+                    title={t('ruleEditor.removeAction')}
                   >
                     <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -2480,7 +2630,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
               onClick={() => addBranchAction(branchIdx)}
               className="mt-1 text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
             >
-              + Aktion
+              {t('ruleEditor.addAction')}
             </button>
           </div>
         </div>
@@ -2493,7 +2643,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           onClick={() => addBranch('else_if')}
           className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
         >
-          + Sonst wenn
+          {t('ruleEditor.addElseIf')}
         </button>
         {!branches.some(b => b.type === 'else') && (
           <button
@@ -2501,7 +2651,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             onClick={() => addBranch('else')}
             className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
           >
-            + Sonst
+            {t('ruleEditor.addElse')}
           </button>
         )}
       </div>
@@ -2510,7 +2660,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       <div className="flex flex-col items-end gap-1 pt-2">
         {(!name.trim() || totalConditions === 0 || actions.length === 0) && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            {!name.trim() ? 'Name ist erforderlich' : totalConditions === 0 ? 'Mindestens eine Bedingung erforderlich' : 'Mindestens eine Aktion erforderlich'}
+            {!name.trim() ? t('ruleEditor.nameRequired') : totalConditions === 0 ? t('ruleEditor.minConditionRequired') : t('ruleEditor.minActionRequired')}
           </p>
         )}
         {actionError && (
@@ -2524,14 +2674,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             onClick={onCancel}
             className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={isSaving || !name.trim() || totalConditions === 0 || actions.length === 0}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            {isSaving ? 'Speichert...' : 'Speichern'}
+            {isSaving ? t('ruleEditor.saving') : t('account.actions.save')}
           </button>
         </div>
       </div>

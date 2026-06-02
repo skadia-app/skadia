@@ -9,6 +9,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchSleepAnalysis } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
@@ -31,14 +32,25 @@ function trendArrow(trend: string): { arrow: string; color: string } {
   }
 }
 
-function fmtMinutes(min: number): string {
+function fmtMinutes(min: number, t: ReturnType<typeof useTranslation>['t']): string {
   const h = Math.floor(min / 60)
   const m = Math.round(min % 60)
-  return `${h}h ${m.toString().padStart(2, '0')}m`
+  if (h > 0) {
+    return t('analyticsHealthInsights.sleep.durationHoursMinutes', { hours: h, minutes: m })
+  }
+  return t('analyticsHealthInsights.sleep.durationMinutes', { minutes: m })
 }
 
 export default function SleepAnalysisChart() {
+  const { t, i18n } = useTranslation()
   const { from, to } = useHealthRange()
+  const locale = i18n.language || 'de'
+  const formatInteger = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }), [locale])
+  const deepSleepLabel = t('analyticsHealthInsights.sleep.series.deep')
+  const remLabel = t('analyticsHealthInsights.sleep.series.rem')
+  const otherLabel = t('analyticsHealthInsights.sleep.series.other')
+  const scoreLabel = t('analyticsHealthInsights.common.score')
+  const minutesLabel = t('analyticsHealthInsights.common.minutes')
 
   const queryParams = useMemo(() => {
     const params = new URLSearchParams()
@@ -84,7 +96,7 @@ export default function SleepAnalysisChart() {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 52, top: 44, bottom: 40 },
         legend: {
-          data: ['Tiefschlaf', 'REM', 'Sonstig', 'Score'],
+          data: [deepSleepLabel, remLabel, otherLabel, scoreLabel],
           top: 8,
           textStyle: { fontSize: 10, color: '#9ca3af' },
           itemHeight: 8,
@@ -108,9 +120,9 @@ export default function SleepAnalysisChart() {
             let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
             for (const p of items) {
               if (p.value == null) continue
-              const displayVal = p.seriesName === 'Score'
-                ? `${p.value}`
-                : `${p.value} min`
+              const displayVal = p.seriesName === scoreLabel
+                ? formatInteger.format(p.value)
+                : t('analyticsHealthInsights.sleep.minutesValue', { value: formatInteger.format(p.value) })
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
@@ -130,18 +142,18 @@ export default function SleepAnalysisChart() {
         yAxis: [
           {
             type: 'value',
-            name: 'Minuten',
+            name: minutesLabel,
             nameTextStyle: { fontSize: 10, color: '#6b7280' },
             axisLabel: {
               fontSize: 10,
               color: '#6b7280',
-              formatter: (v: number) => `${Math.floor(v / 60)}h`,
+              formatter: (v: number) => t('analyticsHealthInsights.sleep.axisHours', { value: formatInteger.format(Math.floor(v / 60)) }),
             },
             splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
           },
           {
             type: 'value',
-            name: 'Score',
+            name: scoreLabel,
             nameTextStyle: { fontSize: 10, color: '#6b7280' },
             min: 0,
             max: 100,
@@ -151,7 +163,7 @@ export default function SleepAnalysisChart() {
         ],
         series: [
           {
-            name: 'Tiefschlaf',
+            name: deepSleepLabel,
             type: 'bar',
             stack: 'sleep',
             yAxisIndex: 0,
@@ -160,7 +172,7 @@ export default function SleepAnalysisChart() {
             barMaxWidth: 20,
           },
           {
-            name: 'REM',
+            name: remLabel,
             type: 'bar',
             stack: 'sleep',
             yAxisIndex: 0,
@@ -169,7 +181,7 @@ export default function SleepAnalysisChart() {
             barMaxWidth: 20,
           },
           {
-            name: 'Sonstig',
+            name: otherLabel,
             type: 'bar',
             stack: 'sleep',
             yAxisIndex: 0,
@@ -178,7 +190,7 @@ export default function SleepAnalysisChart() {
             barMaxWidth: 20,
           },
           {
-            name: 'Score',
+            name: scoreLabel,
             type: 'line',
             yAxisIndex: 1,
             data: scoreData,
@@ -191,7 +203,7 @@ export default function SleepAnalysisChart() {
         ],
       }
     },
-    [data],
+    [data, deepSleepLabel, remLabel, otherLabel, scoreLabel, minutesLabel, formatInteger, t],
   )
 
   const trend = data ? trendArrow(data.trend) : null
@@ -201,7 +213,7 @@ export default function SleepAnalysisChart() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Schlaf-Analyse
+          {t('analyticsHealthInsights.sleep.title')}
         </h2>
       </div>
 
@@ -209,14 +221,14 @@ export default function SleepAnalysisChart() {
       {data && (
         <div className="flex items-center gap-3 flex-wrap text-xs">
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 font-medium">
-            Avg Schlafdauer: {fmtMinutes(data.avg_duration_min)}
+            {t('analyticsHealthInsights.sleep.averageDuration', { value: fmtMinutes(data.avg_duration_min, t) })}
           </span>
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium">
-            Avg Score: {data.avg_score.toFixed(0)}
+            {t('analyticsHealthInsights.sleep.averageScore', { value: formatInteger.format(data.avg_score) })}
           </span>
           {trend && (
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800 font-medium ${trend.color}`}>
-              Trend {trend.arrow}
+              {t('analyticsHealthInsights.common.trendWithArrow', { arrow: trend.arrow })}
             </span>
           )}
         </div>
@@ -226,11 +238,11 @@ export default function SleepAnalysisChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[260px] text-sm text-neutral-400">
-            Lade Schlaf-Daten…
+            {t('analyticsHealthInsights.sleep.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[260px] text-sm text-neutral-400">
-            Fehler beim Laden der Schlaf-Daten
+            {t('analyticsHealthInsights.sleep.loadFailed')}
           </div>
         ) : !data || !data.points?.length ? (
           <div className="flex flex-col items-center justify-center h-[260px] gap-2 text-neutral-400">
@@ -238,7 +250,7 @@ export default function SleepAnalysisChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
-            <span className="text-sm">Keine Schlafdaten für diesen Zeitraum</span>
+            <span className="text-sm">{t('analyticsHealthInsights.sleep.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[260px] w-full" />

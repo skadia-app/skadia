@@ -1,33 +1,42 @@
 // frontend/src/lib/colorMetricLabels.ts
-/**
- * Centralized UI strings for the map metric colorization feature.
- * German-only for V1 per frontend/CLAUDE.md §i18n-Vorbereitung.
- * Extraction point for future i18n sprint.
- */
+import { i18n } from '@/i18n/i18n'
 
-export const METRIC_LABELS = {
-  sport:          'Standard',
-  hr:             'Herzfrequenz',
-  speed:          'Geschwindigkeit',
-  pace:           'Tempo',
-  altitude:       'Höhe',
-  cadence_foot:   'Schrittfrequenz',
-  cadence_bike:   'Trittfrequenz',
-  cadence_paddle: 'Paddelschläge',
-  power:          'Leistung',
-  temperature:    'Temperatur',
+const METRIC_LABEL_KEYS = {
+  sport:          'colorMetricLabels.metrics.sport',
+  hr:             'colorMetricLabels.metrics.hr',
+  speed:          'colorMetricLabels.metrics.speed',
+  pace:           'colorMetricLabels.metrics.pace',
+  altitude:       'colorMetricLabels.metrics.altitude',
+  cadence_foot:   'colorMetricLabels.metrics.cadenceFoot',
+  cadence_bike:   'colorMetricLabels.metrics.cadenceBike',
+  cadence_paddle: 'colorMetricLabels.metrics.cadencePaddle',
+  power:          'colorMetricLabels.metrics.power',
+  temperature:    'colorMetricLabels.metrics.temperature',
 } as const
 
-export const MODE_LABELS = {
-  zones:  'Zonen',
-  linear: 'Linear',
+const MODE_LABEL_KEYS = {
+  zones:  'colorMetricLabels.modes.zones',
+  linear: 'colorMetricLabels.modes.linear',
 } as const
 
-export const DROPDOWN_LABELS = {
-  chooseColoring:     'Einfärbung wählen',
-  triggerDefault:     'Einfärbung',
-  zonesBasedTooltip:  'Zonen-basierte Einfärbung',
-  zonesNotConfigured: 'Keine Zonen konfiguriert',
+const DROPDOWN_LABEL_KEYS = {
+  chooseColoring:     'colorMetricLabels.dropdown.chooseColoring',
+  triggerDefault:     'colorMetricLabels.dropdown.triggerDefault',
+  zonesBasedTooltip:  'colorMetricLabels.dropdown.zonesBasedTooltip',
+  zonesNotConfigured: 'colorMetricLabels.dropdown.zonesNotConfigured',
 } as const
 
-export type MetricKey = keyof typeof METRIC_LABELS
+function translatedRecord<T extends Record<string, string>>(keys: T): { readonly [K in keyof T]: string } {
+  return new Proxy(keys, {
+    get(target, prop: string) {
+      const key = target[prop]
+      return key ? i18n.t(key) : undefined
+    },
+  }) as { readonly [K in keyof T]: string }
+}
+
+export const METRIC_LABELS = translatedRecord(METRIC_LABEL_KEYS)
+export const MODE_LABELS = translatedRecord(MODE_LABEL_KEYS)
+export const DROPDOWN_LABELS = translatedRecord(DROPDOWN_LABEL_KEYS)
+
+export type MetricKey = keyof typeof METRIC_LABEL_KEYS

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -14,6 +15,13 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { Maximize2 } from 'lucide-react'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useYearProgression } from '@/hooks/useYearProgression'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  distanceInputUnit,
+  distanceToDisplayValue,
+  elevationInputUnit,
+  elevationToDisplayValue,
+} from '@/lib/units'
 import YearProgressionFullscreenModal from './YearProgressionFullscreenModal'
 import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
@@ -31,14 +39,67 @@ echarts.use([
 
 type MetricKey = 'distance_m' | 'elevation_gain_m' | 'elevation_loss_m' | 'moving_time_s' | 'tss' | 'total_calories'
 
-const METRIC_OPTIONS: { value: MetricKey; label: string; unit: string; factor: number; decimals: number }[] = [
-  { value: 'distance_m', label: 'Distanz', unit: 'km', factor: 0.001, decimals: 1 },
-  { value: 'elevation_gain_m', label: 'Höhenmeter', unit: 'm', factor: 1, decimals: 0 },
-  { value: 'elevation_loss_m', label: 'Tiefenmeter', unit: 'm', factor: 1, decimals: 0 },
-  { value: 'moving_time_s', label: 'Bewegungszeit', unit: 'h', factor: 1 / 3600, decimals: 1 },
-  { value: 'tss', label: 'TSS', unit: 'TSS', factor: 1, decimals: 0 },
-  { value: 'total_calories', label: 'Kalorien', unit: 'kcal', factor: 1, decimals: 0 },
+const METRIC_OPTIONS: { value: MetricKey; labelKey: string }[] = [
+  { value: 'distance_m', labelKey: 'analyticsTrainingStats.metrics.distance' },
+  { value: 'elevation_gain_m', labelKey: 'analyticsTrainingStats.metrics.elevationGain' },
+  { value: 'elevation_loss_m', labelKey: 'analyticsTrainingStats.metrics.elevationLoss' },
+  { value: 'moving_time_s', labelKey: 'analyticsTrainingStats.metrics.movingTime' },
+  { value: 'tss', labelKey: 'analyticsTrainingStats.metrics.tss' },
+  { value: 'total_calories', labelKey: 'analyticsTrainingStats.metrics.calories' },
 ]
+
+type MetricDisplay = {
+  unit: string
+  decimals: number
+  displayValue: (raw: number) => number
+  formatLabel: (raw: number) => string
+  formatValue: (raw: number) => string
+}
+
+function formatDisplayNumber(value: number, locale: string, decimals: number): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value)
+}
+
+function getMetricDisplay(metric: MetricKey, formatters: ReturnType<typeof useUnitFormatters>): MetricDisplay {
+  switch (metric) {
+    case 'distance_m':
+      return {
+        unit: distanceInputUnit(formatters.options.units),
+        decimals: 1,
+        displayValue: raw => distanceToDisplayValue(raw, formatters.options.units),
+        formatLabel: formatters.formatDistance,
+        formatValue: raw => formatDisplayNumber(distanceToDisplayValue(raw, formatters.options.units), formatters.options.locale, 1),
+      }
+    case 'elevation_gain_m':
+    case 'elevation_loss_m':
+      return {
+        unit: elevationInputUnit(formatters.options.units),
+        decimals: 0,
+        displayValue: raw => elevationToDisplayValue(raw, formatters.options.units),
+        formatLabel: formatters.formatElevation,
+        formatValue: raw => formatDisplayNumber(elevationToDisplayValue(raw, formatters.options.units), formatters.options.locale, 0),
+      }
+    case 'moving_time_s':
+      return fixedMetricDisplay('h', 1, 1 / 3600, formatters.options.locale)
+    case 'tss':
+      return fixedMetricDisplay('TSS', 0, 1, formatters.options.locale)
+    case 'total_calories':
+      return fixedMetricDisplay('kcal', 0, 1, formatters.options.locale)
+  }
+}
+
+function fixedMetricDisplay(unit: string, decimals: number, factor: number, locale: string): MetricDisplay {
+  return {
+    unit,
+    decimals,
+    displayValue: raw => raw * factor,
+    formatValue: raw => formatDisplayNumber(raw * factor, locale, decimals),
+    formatLabel: raw => `${formatDisplayNumber(raw * factor, locale, decimals)} ${unit}`,
+  }
+}
 
 const YEAR_COLORS = [
   '#3b82f6',
@@ -51,12 +112,27 @@ const YEAR_COLORS = [
   '#84cc16',
 ]
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTH_LABEL_KEYS = [
+  'analyticsTrainingStats.months.short.jan',
+  'analyticsTrainingStats.months.short.feb',
+  'analyticsTrainingStats.months.short.mar',
+  'analyticsTrainingStats.months.short.apr',
+  'analyticsTrainingStats.months.short.may',
+  'analyticsTrainingStats.months.short.jun',
+  'analyticsTrainingStats.months.short.jul',
+  'analyticsTrainingStats.months.short.aug',
+  'analyticsTrainingStats.months.short.sep',
+  'analyticsTrainingStats.months.short.oct',
+  'analyticsTrainingStats.months.short.nov',
+  'analyticsTrainingStats.months.short.dec',
+]
 
 // Group ID for synchronized cross-chart tooltips
 const CONNECT_GROUP = 'year-progression'
 
 export default function YearProgressionChart() {
+  const { t } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const { toQueryString } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('distance_m')
   const [selectedYears, setSelectedYears] = useState<Set<number>>(new Set())
@@ -115,7 +191,8 @@ export default function YearProgressionChart() {
     }
   }, [data])
 
-  const metricMeta = METRIC_OPTIONS.find(m => m.value === metric)!
+  const metricDisplay = useMemo(() => getMetricDisplay(metric, unitFormatters), [metric, unitFormatters])
+  const monthLabels = useMemo(() => MONTH_LABEL_KEYS.map(key => t(key)), [t])
 
   // Update charts when data or selection changes
   useEffect(() => {
@@ -129,11 +206,10 @@ export default function YearProgressionChart() {
       let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
       for (const p of items) {
         if (p.value == null) continue
-        const v = (p.value * metricMeta.factor).toFixed(metricMeta.decimals)
         html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
           <span style="color:#d1d5db">${p.seriesName}:</span>
-          <strong style="color:#f9fafb">${v} ${metricMeta.unit}</strong>
+          <strong style="color:#f9fafb">${metricDisplay.formatLabel(p.value)}</strong>
         </div>`
       }
       return html
@@ -147,9 +223,9 @@ export default function YearProgressionChart() {
         right: 8,
         top: 2,
         feature: {
-          brush: lineXBrushToolboxFeature,
-          restore: { title: 'Zurücksetzen' },
-          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          brush: lineXBrushToolboxFeature(t),
+          restore: { title: t('analyticsTrainingStats.chartBrushZoom.restoreTitle') },
+          saveAsImage: { title: t('analyticsTrainingStats.chartBrushZoom.savePngTitle'), pixelRatio: 2 },
         },
         iconStyle: { borderColor: '#6b7280' },
         emphasis: { iconStyle: { borderColor: '#d1d5db' } },
@@ -168,7 +244,7 @@ export default function YearProgressionChart() {
       },
       xAxis: {
         type: 'category',
-        data: MONTH_LABELS,
+        data: monthLabels,
         axisLabel: { fontSize: 10, color: '#6b7280' },
         axisLine: { lineStyle: { color: '#374151' } },
         splitLine: { show: false },
@@ -179,7 +255,7 @@ export default function YearProgressionChart() {
           fontSize: 10,
           color: '#6b7280',
           formatter: (v: number) => {
-            const converted = v * metricMeta.factor
+            const converted = metricDisplay.displayValue(v)
             return converted >= 1000 ? `${(converted / 1000).toFixed(0)}k` : converted.toFixed(0)
           },
         },
@@ -243,7 +319,7 @@ export default function YearProgressionChart() {
     monthlyChart.current.setOption(monthlyOption, { notMerge: true })
     cumulChart.current.setOption(cumulOption, { notMerge: true })
 
-    const brushOptions = { dataZoomIndexes: [0], maxValue: MONTH_LABELS.length - 1 }
+    const brushOptions = { dataZoomIndexes: [0], maxValue: monthLabels.length - 1 }
     const cleanupMonthlyBrush = bindLineXBrushZoom(monthlyChart.current, brushOptions)
     const cleanupCumulBrush = bindLineXBrushZoom(cumulChart.current, brushOptions)
 
@@ -251,7 +327,7 @@ export default function YearProgressionChart() {
       cleanupMonthlyBrush()
       cleanupCumulBrush()
     }
-  }, [data, selectedYears, chartType, metric])
+  }, [data, selectedYears, chartType, metric, monthLabels, metricDisplay, t])
 
   const toggleYear = (year: number) => {
     setSelectedYears(prev => {
@@ -269,7 +345,7 @@ export default function YearProgressionChart() {
   const bestYear = data?.best_year
   const bestYearData = data?.years?.find(y => y.year === bestYear)
   const bestConverted = bestYearData
-    ? (bestYearData.total * metricMeta.factor).toFixed(metricMeta.decimals)
+    ? metricDisplay.formatValue(bestYearData.total)
     : null
 
   const hasData = (data?.years?.length ?? 0) > 0
@@ -280,11 +356,11 @@ export default function YearProgressionChart() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-            Jahresvergleich
+            {t('analyticsTrainingStats.yearProgression.title')}
           </h3>
           {bestYear && bestConverted && (
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              — Bestes Jahr: <strong className="text-neutral-700 dark:text-neutral-200">{bestYear}</strong> mit {bestConverted} {metricMeta.unit}
+              {t('analyticsTrainingStats.yearProgression.bestYear', { year: bestYear, value: bestConverted, unit: metricDisplay.unit })}
             </span>
           )}
         </div>
@@ -297,7 +373,7 @@ export default function YearProgressionChart() {
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
           >
             {METRIC_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label} ({o.unit})</option>
+              <option key={o.value} value={o.value}>{t(o.labelKey)} ({getMetricDisplay(o.value, unitFormatters).unit})</option>
             ))}
           </select>
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -307,7 +383,7 @@ export default function YearProgressionChart() {
                 ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Linie
+              {t('analyticsTrainingStats.chartView.line')}
             </button>
             <button
               onClick={() => setChartType('bar')}
@@ -315,12 +391,12 @@ export default function YearProgressionChart() {
                 ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
                 : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
-              Balken
+              {t('analyticsTrainingStats.chartView.bar')}
             </button>
           </div>
           <button
             onClick={() => setFullscreenOpen(true)}
-            aria-label="Vollbild öffnen"
+            aria-label={t('analyticsTrainingStats.yearProgression.openFullscreen')}
             className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
           >
             <Maximize2 size={14} />
@@ -339,7 +415,7 @@ export default function YearProgressionChart() {
               <button
                 key={year}
                 onClick={() => toggleYear(year)}
-                title={isLastActive ? 'Mindestens ein Jahr muss ausgewählt sein' : undefined}
+                title={isLastActive ? t('analyticsTrainingStats.yearProgression.requireOneYear') : undefined}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer transition-all
                   ${active
                     ? 'border-transparent text-white'
@@ -361,24 +437,24 @@ export default function YearProgressionChart() {
       {/* Charts */}
       {isLoading ? (
         <div className="flex items-center justify-center h-[240px] text-sm text-neutral-400 rounded-xl border border-neutral-200 dark:border-neutral-800">
-          Lade Jahresvergleich…
+          {t('analyticsTrainingStats.yearProgression.loading')}
         </div>
       ) : isError ? (
         <div className="flex items-center justify-center h-[240px] text-sm text-neutral-400 rounded-xl border border-neutral-200 dark:border-neutral-800">
-          Fehler beim Laden
+          {t('analyticsTrainingStats.states.loadError')}
         </div>
       ) : !hasData ? (
         <div className="flex items-center justify-center h-[240px] text-sm text-neutral-400 rounded-xl border border-neutral-200 dark:border-neutral-800">
-          Keine Daten vorhanden
+          {t('analyticsTrainingStats.states.noData')}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
-            <div className="px-3 pt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Monatlich</div>
+            <div className="px-3 pt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsTrainingStats.yearProgression.monthly')}</div>
             <div ref={monthlyRef} className="h-[240px] w-full" />
           </div>
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
-            <div className="px-3 pt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Kumulativ</div>
+            <div className="px-3 pt-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('analyticsTrainingStats.yearProgression.cumulative')}</div>
             <div ref={cumulRef} className="h-[240px] w-full" />
           </div>
         </div>

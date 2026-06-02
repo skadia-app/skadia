@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { fetchActiveJobs } from '@/api/jobs'
 import type { ActiveJob } from '@/api/jobs'
-import { JOB_TYPE_LABELS } from '@/lib/jobLabels'
+import { getJobNotificationTitle } from '@/lib/jobLabels'
 
 export type { ActiveJob }
 
@@ -120,7 +120,7 @@ export function useActiveJobs() {
     staleTime: 30_000,
   })
 
-  // Query-Invalidierung wenn Jobs abgeschlossen werden
+  // Invalidate affected queries when jobs complete.
   useEffect(() => {
     if (!data) return
     const prev = prevJobsRef.current
@@ -131,11 +131,7 @@ export function useActiveJobs() {
       const wasRunning = prevJob?.status === 'running'
       if (wasRunning && (job.status === 'completed' || job.status === 'failed')) {
         if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-          const label = JOB_TYPE_LABELS[job.job_type] ?? job.job_type
-          const suffix = job.entity_name ? ` — ${job.entity_name}` : ''
-          const title = job.status === 'completed'
-            ? `${label}${suffix} abgeschlossen`
-            : `${label}${suffix} fehlgeschlagen`
+          const title = getJobNotificationTitle(job)
           new Notification(title, { icon: '/favicon.ico' })
         }
       }

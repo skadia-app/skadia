@@ -1,6 +1,7 @@
 import { Pill } from '../ui/Pill'
 import { ColorSwatch } from './ColorSwatch'
 import type { SegType } from './constants'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
   segType: SegType
@@ -10,18 +11,19 @@ interface Props {
 }
 
 export function DifficultyColorPicker({ segType, value, onChange, disabled }: Props) {
+  const { t } = useTranslation()
   if (segType !== 'wintersport') return null
   
   const colors: Array<{ key: 'blue' | 'red' | 'black'; label: string }> = [
-    { key: 'blue', label: 'Blau (einfach)' },
-    { key: 'red', label: 'Rot (mittel)' },
-    { key: 'black', label: 'Schwarz (schwer)' },
+    { key: 'blue', label: t('segmentEditor.difficultyColors.blue') },
+    { key: 'red', label: t('segmentEditor.difficultyColors.red') },
+    { key: 'black', label: t('segmentEditor.difficultyColors.black') },
   ]
   
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Schwierigkeit</label>
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Pistenfarbe">
+      <label className="text-xs font-medium text-neutral-500 uppercase tracking-wider">{t('segmentEditor.sidebar.difficulty')}</label>
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('segmentEditor.difficultyColors.aria')}>
         <Pill active={value === null} onClick={() => onChange(null)} disabled={disabled}>—</Pill>
         {colors.map(c => (
           <Pill

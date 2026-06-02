@@ -28,11 +28,11 @@ func RenderGoRecordsProjection(expanded ExpandedRecordsProjection, modifiers Mod
 	for _, category := range expanded.MainCategories {
 		fmt.Fprintf(&buf, "\t{Key: %q, LabelDE: %q, Color: %q, RecordGroups: %s, SubFilters: []RecordSubFilter{\n", category.Key, category.Label["de"], category.Color, goStringArray(category.RecordGroups))
 		for _, filter := range category.SubFilters {
-			fmt.Fprintf(&buf, "\t\t{Label: %q, RecordGroups: %s},\n", filter.Label, goStringArray(filter.RecordGroups))
+			fmt.Fprintf(&buf, "\t\t{Label: %q, RecordGroups: %s},\n", filter.Labels["de"], goStringArray(filter.RecordGroups))
 		}
 		buf.WriteString("\t}")
 		if category.PowerCurve != nil {
-			fmt.Fprintf(&buf, ", PowerCurve: &RecordPowerCurve{Label: %q, RecordGroups: %s}", category.PowerCurve.Label, goStringArray(category.PowerCurve.RecordGroups))
+			fmt.Fprintf(&buf, ", PowerCurve: &RecordPowerCurve{Label: %q, RecordGroups: %s}", category.PowerCurve.Labels["de"], goStringArray(category.PowerCurve.RecordGroups))
 		}
 		buf.WriteString("},\n")
 	}
@@ -63,6 +63,7 @@ func RenderTSRecordsProjection(expanded ExpandedRecordsProjection, modifiers Mod
 		buf.WriteString("  {\n")
 		fmt.Fprintf(&buf, "    key: %s,\n", tsString(group.Key))
 		fmt.Fprintf(&buf, "    label: %s,\n", tsString(group.Label["de"]))
+		fmt.Fprintf(&buf, "    labels: %s,\n", tsLocaleMap(group.Label))
 		fmt.Fprintf(&buf, "    mainCategory: %s,\n", tsString(group.MainCategory))
 		fmt.Fprintf(&buf, "    color: %s,\n", tsString(group.Color))
 		if group.Badge != "" {
@@ -82,15 +83,16 @@ func RenderTSRecordsProjection(expanded ExpandedRecordsProjection, modifiers Mod
 		buf.WriteString("  {\n")
 		fmt.Fprintf(&buf, "    key: %s,\n", tsString(category.Key))
 		fmt.Fprintf(&buf, "    label: %s,\n", tsString(category.Label["de"]))
+		fmt.Fprintf(&buf, "    labels: %s,\n", tsLocaleMap(category.Label))
 		fmt.Fprintf(&buf, "    color: %s,\n", tsString(category.Color))
 		fmt.Fprintf(&buf, "    recordGroups: %s,\n", tsStringArray(category.RecordGroups))
 		buf.WriteString("    subFilters: [\n")
 		for _, filter := range category.SubFilters {
-			fmt.Fprintf(&buf, "      { label: %s, recordGroups: %s },\n", tsString(filter.Label), tsStringArray(filter.RecordGroups))
+			fmt.Fprintf(&buf, "      { key: %s, label: %s, labels: %s, recordGroups: %s },\n", tsString(filter.Key), tsString(filter.Labels["de"]), tsLocaleMap(filter.Labels), tsStringArray(filter.RecordGroups))
 		}
 		buf.WriteString("    ],\n")
 		if category.PowerCurve != nil {
-			fmt.Fprintf(&buf, "    powerCurve: { label: %s, recordGroups: %s },\n", tsString(category.PowerCurve.Label), tsStringArray(category.PowerCurve.RecordGroups))
+			fmt.Fprintf(&buf, "    powerCurve: { key: %s, label: %s, labels: %s, recordGroups: %s },\n", tsString(category.PowerCurve.Key), tsString(category.PowerCurve.Labels["de"]), tsLocaleMap(category.PowerCurve.Labels), tsStringArray(category.PowerCurve.RecordGroups))
 		}
 		buf.WriteString("  },\n")
 	}
@@ -115,7 +117,7 @@ func RenderTSRecordsProjection(expanded ExpandedRecordsProjection, modifiers Mod
 	fmt.Fprintf(&buf, "export const GENERATED_RECORD_CATEGORY_ORDER = %s as const\n", tsStringArray(categoryOrder))
 	buf.WriteString("export const GENERATED_RECORD_CATEGORY_LABELS = {\n")
 	for _, key := range categoryOrder {
-		fmt.Fprintf(&buf, "  %s: %s,\n", tsString(key), tsString(categoryLabels[key]))
+		fmt.Fprintf(&buf, "  %s: %s,\n", tsString(key), tsLocaleMap(categoryLabels[key]))
 	}
 	buf.WriteString("} as const\n")
 	fmt.Fprintf(&buf, "export const GENERATED_RECORD_POWER_CATEGORY_ORDER = %s as const\n", tsStringArray(powerOrder))
@@ -140,6 +142,7 @@ func tsRecordCategory(category RecordCategory) string {
 		fmt.Sprintf("key: %s", tsString(category.Key)),
 		fmt.Sprintf("type: %s", tsString(category.Type)),
 		fmt.Sprintf("label: %s", tsString(category.Labels["de"])),
+		fmt.Sprintf("labels: %s", tsLocaleMap(category.Labels)),
 	}
 	if category.DistanceM > 0 {
 		parts = append(parts, fmt.Sprintf("distanceM: %v", category.DistanceM))
@@ -189,9 +192,9 @@ func tsRecordModifiers(values RecordModifiers, modifiers ModifierRegistry) strin
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
-func collectRecordCategoryMetadata(expanded ExpandedRecordsProjection) ([]RecordCategory, []string, map[string]string, []string) {
+func collectRecordCategoryMetadata(expanded ExpandedRecordsProjection) ([]RecordCategory, []string, map[string]LocaleMap, []string) {
 	seen := map[string]struct{}{}
-	labels := map[string]string{}
+	labels := map[string]LocaleMap{}
 	categories := []RecordCategory{}
 	order := []string{}
 	powerOrder := []string{}
@@ -203,7 +206,7 @@ func collectRecordCategoryMetadata(expanded ExpandedRecordsProjection) ([]Record
 			seen[category.Key] = struct{}{}
 			categories = append(categories, cloneRecordCategory(category))
 			order = append(order, category.Key)
-			labels[category.Key] = category.Labels["de"]
+			labels[category.Key] = cloneLocaleMap(category.Labels)
 			if category.DurationS > 0 {
 				powerOrder = append(powerOrder, category.Key)
 			}

@@ -1,6 +1,7 @@
 // frontend/src/components/segment-editor/SegmentSidebar.tsx
 import { useMemo, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Check, Loader2, RefreshCw, X } from 'lucide-react'
 import { listObjectAccessScopes } from '@/api/accessScopes'
 import type { SegmentVisibility } from '@/api/segments'
@@ -17,9 +18,9 @@ import { DifficultyColorPicker } from './DifficultyColorPicker'
 import { SportCategoryChips } from './SportCategoryChips'
 import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
-import { fmtDist, fmtElevation } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segmentSportSelection'
-import { segmentEligibleSelectionKeys, segmentTypeLabel } from '@/lib/segmentProjection'
+import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
 
 export interface SegmentMetadata {
   name: string
@@ -68,14 +69,15 @@ function eligibleKeys(segType: SegType): readonly string[] | undefined {
 }
 
 export function SegmentSidebar(props: SegmentSidebarProps) {
+  const { t } = useTranslation()
+  const { formatDistance, formatElevation } = useUnitFormatters()
   const {
     meta,
     onMetaChange,
     info,
     mode,
     allSportTypes,
-    // defaultSportGroup: akzeptiert für API-Kompat, nicht verwendet (category chips haben
-    // keinen Auto-Expand mehr — siehe main Commit 741fa0ce / #14 "remove dead prop")
+    // defaultSportGroup is kept for API compatibility; category chips no longer auto-expand.
     onEnrichmentRequest,
     enrichmentState,
     enrichmentSources,
@@ -88,7 +90,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   // Sidebar handlers only set the scale value — parent re-derives color automatically.
   // Previously, sidebar ALSO set difficultyColor, causing a double state-update cycle
   // that triggered React's "Maximum update depth exceeded" when Radix DropdownMenu opened
-  // (portal mount → state change → re-render → portal re-mount → infinite loop). Fix: #5.
+  // (portal mount → state change → re-render → portal re-mount → infinite loop).
   const handleSacChange = (newSac: string | null) => {
     onMetaChange({ sacScale: newSac })
   }
@@ -102,10 +104,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     if (!meta.userEditedBidirectional) {
       patch.bidirectional = BIDIRECTIONAL_DEFAULT[newType]
     }
-	const whitelist = eligibleKeys(newType)
-	if (meta.sportTypes && whitelist) {
-	  patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, whitelist)
-	}
+    const whitelist = eligibleKeys(newType)
+    if (meta.sportTypes && whitelist) {
+      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, whitelist)
+    }
     if (newType === 'wintersport' || newType === 'wassersport' || newType === 'lift') {
       patch.sacScale = null
       patch.mtbScale = null
@@ -115,13 +117,13 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   const handleBidirectionalToggle = () => {
-   const newValue = !meta.bidirectional
-   const defaultValue = BIDIRECTIONAL_DEFAULT[meta.segType] ?? true
-   const isDefault = newValue === defaultValue
-   onMetaChange({
-     bidirectional: newValue,
-     userEditedBidirectional: !isDefault,
-   })
+    const newValue = !meta.bidirectional
+    const defaultBidirectional = BIDIRECTIONAL_DEFAULT[meta.segType] ?? true
+    const isDefault = newValue === defaultBidirectional
+    onMetaChange({
+      bidirectional: newValue,
+      userEditedBidirectional: !isDefault,
+    })
   }
 
   const toggleSportType = (key: string) => {
@@ -164,31 +166,35 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     staleTime: 60_000,
   })
   const checkpointMode = mode === 'checkpoint'
+  const formatSignedElevation = (meters: number | null | undefined, sign: '+' | '−') => {
+    if (meters == null || !Number.isFinite(meters) || meters <= 0) return '—'
+    return `${sign}${formatElevation(Math.abs(meters))}`
+  }
 
   return (
     <aside className="flex h-full w-full flex-col overflow-y-auto border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       {info && (mode === 'track' || (mode === 'draw' && info.distanceKm > 0)) && (
         <div className="mx-3 mt-3 rounded-lg border border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800 p-3">
           <div className="grid grid-cols-3 gap-x-2 text-center">
-            <MetricCell label="Distanz" value={fmtDist(info.distanceKm * 1000)} />
-            <MetricCell label="Aufstieg" value={formatSignedElevation(info.gainM, '+')} valueClassName="text-red-500" />
-            <MetricCell label="Abstieg"  value={formatSignedElevation(info.lossM, '−')} valueClassName="text-green-500" />
+            <MetricCell label={t('segmentEditor.sidebar.metrics.distance')} value={formatDistance(info.distanceKm * 1000)} />
+            <MetricCell label={t('segmentEditor.sidebar.metrics.ascent')} value={formatSignedElevation(info.gainM, '+')} valueClassName="text-red-500" />
+            <MetricCell label={t('segmentEditor.sidebar.metrics.descent')}  value={formatSignedElevation(info.lossM, '−')} valueClassName="text-green-500" />
           </div>
           {info.elevationMaxM != null && (
             <div className="mt-2 border-t border-neutral-200 dark:border-neutral-700/60 pt-2 text-center">
-              <MetricCell label="Höchstpunkt" value={fmtElevation(info.elevationMaxM)} />
+              <MetricCell label={t('segmentEditor.sidebar.metrics.highestPoint')} value={formatElevation(info.elevationMaxM)} />
             </div>
           )}
         </div>
       )}
 
       <div className="flex flex-col gap-4 mx-3 py-3">
-        <Field label="Name" required>
+        <Field label={t('segmentEditor.sidebar.fields.name')} required>
           <input
             type="text"
             value={meta.name}
             onChange={e => onMetaChange({ name: e.target.value })}
-            placeholder="Segmentname"
+            placeholder={t('segmentEditor.sidebar.namePlaceholder')}
             className={cn(
               'w-full rounded-md border border-neutral-300 dark:border-neutral-700',
               'bg-white dark:bg-neutral-800 px-3 py-1.5',
@@ -201,24 +207,24 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         </Field>
 
         {!checkpointMode && (
-          <Field label="Typ">
-            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Segment-Typ">
-              {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(t => (
+          <Field label={t('segmentEditor.sidebar.fields.type')}>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('segmentEditor.sidebar.segmentTypeAria')}>
+              {(['standard', 'trail', 'lap', 'wintersport', 'wassersport', 'lift'] as SegType[]).map(segType => (
                 <Pill
-                  key={t}
+                  key={segType}
                   role="radio"
-                  ariaChecked={meta.segType === t}
-                  active={meta.segType === t}
-                  onClick={() => handleSegTypeChange(t)}
+                  ariaChecked={meta.segType === segType}
+                  active={meta.segType === segType}
+                  onClick={() => handleSegTypeChange(segType)}
                 >
-                  {segmentTypeLabel(t)}
+                  {t(`segmentDetail.types.${segType}`)}
                 </Pill>
               ))}
             </div>
           </Field>
         )}
 
-        <Field label="Sportarten">
+        <Field label={t('segmentEditor.sidebar.fields.sports')}>
           <SportCategoryChips
             segType={meta.segType}
             activeTypes={meta.sportTypes}
@@ -234,13 +240,13 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase">
-              Schwierigkeit &amp; Oberfläche
+              {t('segmentEditor.sidebar.difficultySurface')}
             </span>
             <button
               type="button"
               onClick={onEnrichmentRequest}
               disabled={!!enrichmentDisabledReason || enrichmentState.loading}
-              title={enrichmentDisabledReason ?? 'Surface, SAC- und MTB-Skala aus OSM-Wegedaten vorschlagen'}
+              title={enrichmentDisabledReason ?? t('segmentEditor.enrichment.suggestTitle')}
               aria-pressed={!!enrichmentSources.surface || !!enrichmentSources.sac || !!enrichmentSources.mtb}
               className={cn(
                 'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium',
@@ -256,7 +262,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               {enrichmentState.loading
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <RefreshCw className="h-3.5 w-3.5" />}
-              <span className="sr-only">OSM-Vorschlag</span>
+              <span className="sr-only">{t('segmentEditor.enrichment.suggest')}</span>
             </button>
           </div>
 
@@ -306,16 +312,16 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               onChange={(v) => onMetaChange({ difficultyColor: v })}
             />
             {meta.segType !== 'trail' && meta.segType !== 'wintersport' && (
-              <div className="text-xs text-neutral-400 italic">SAC/MTB-Skala nur für Trail-Segmente</div>
+              <div className="text-xs text-neutral-400 italic">{t('segmentEditor.sidebar.sacMtbTrailOnly')}</div>
             )}
           </div>
         </div>
         )}
 
-        {/* Höhenprofil: only visible for standard/trail — ClimbTypePills returns null for others,
+        {/* Elevation profile: only visible for standard/trail; ClimbTypePills returns null for others,
             but wrapping <Field> would show an empty label row, so we guard here. */}
         {!checkpointMode && (meta.segType === 'standard' || meta.segType === 'trail') && (
-          <Field label="Höhenprofil">
+          <Field label={t('segmentEditor.sidebar.fields.elevationProfile')}>
             <ClimbTypePills
               segType={meta.segType}
               value={meta.climbType ?? 'standard'}
@@ -325,16 +331,16 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
         )}
 
         {!checkpointMode && (
-          <Field label="Richtung">
+          <Field label={t('segmentEditor.sidebar.fields.direction')}>
             <ToggleRow
               checked={meta.bidirectional}
               onChange={handleBidirectionalToggle}
-              label="In beide Richtungen matchen"
+              label={t('segmentEditor.sidebar.bidirectional')}
             />
           </Field>
         )}
 
-        <Field label="Sichtbarkeit">
+        <Field label={t('segmentEditor.sidebar.fields.visibility')}>
           <select
             value={meta.visibility}
             onChange={e => {
@@ -351,13 +357,13 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
               'focus:outline-none focus:border-accent-DEFAULT focus:ring-1 focus:ring-accent-DEFAULT',
             )}
           >
-            <option value="private">Privat</option>
-            <option value="shared">Geteilt</option>
-            <option value="public">Öffentlich</option>
+            <option value="private">{t('segmentsList.visibility.private')}</option>
+            <option value="shared">{t('segmentsList.visibility.shared')}</option>
+            <option value="public">{t('segmentsList.visibility.public')}</option>
           </select>
           {meta.visibility === 'shared' && (
             <select
-              aria-label="Segment-Freigabe"
+              aria-label={t('segmentEditor.sidebar.scopeAria')}
               value={meta.accessScopeId ?? ''}
               onChange={e => onMetaChange({ accessScopeId: e.target.value || null })}
               className={cn(
@@ -366,10 +372,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                 'focus:outline-none focus:border-accent-DEFAULT focus:ring-1 focus:ring-accent-DEFAULT',
               )}
             >
-              <option value="">Freigabe wählen</option>
+              <option value="">{t('segmentEditor.sidebar.chooseScope')}</option>
               {(accessScopesData?.scopes ?? []).map(scope => (
                 <option key={scope.id} value={scope.id}>
-                  {scope.label?.trim() || `Freigabe ${scope.id.slice(0, 8)}`}
+                  {scope.label?.trim() || t('segmentEditor.sidebar.fallbackScope', { id: scope.id.slice(0, 8) })}
                 </option>
               ))}
             </select>
@@ -379,7 +385,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
 
       {/* Live-region for screen-reader enrichment announcements (§4.14) */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
-        {enrichmentStatus ?? (enrichmentState.loading ? 'Lade OSM-Daten...' : '')}
+        {enrichmentStatus ?? (enrichmentState.loading ? t('segmentEditor.enrichment.status.loading') : '')}
       </div>
     </aside>
   )
@@ -392,11 +398,6 @@ function MetricCell({ label, value, valueClassName }: { label: string; value: st
       <div className={cn('mt-0.5 text-sm font-semibold', valueClassName ?? 'text-neutral-900 dark:text-neutral-100')}>{value}</div>
     </div>
   )
-}
-
-function formatSignedElevation(valueM: number | null | undefined, sign: '+' | '−'): string {
-  const formatted = fmtElevation(valueM)
-  return formatted === '—' ? formatted : `${sign}${formatted}`
 }
 
 function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
@@ -427,6 +428,7 @@ function EnrichmentBadge({
   source?: { coverage: number } | null
   onClear: () => void
 }) {
+  const { t } = useTranslation()
   if (!source) return null
   const pct = Math.round(source.coverage * 100)
   return (
@@ -436,7 +438,7 @@ function EnrichmentBadge({
       <button
         type="button"
         onClick={onClear}
-        aria-label="OSM-Quelle entfernen"
+        aria-label={t('segmentEditor.enrichment.removeSource')}
         className={cn(
           'flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded',
           'text-accent-DEFAULT dark:text-accent-400 transition-colors duration-150',

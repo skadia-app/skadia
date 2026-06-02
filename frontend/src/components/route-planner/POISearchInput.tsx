@@ -1,33 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { searchPOIs } from '@/api/routes'
 import type { POIResult } from '@/api/routes'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // ── POI type helpers ────────────────────────────────────────────────────────
-
-const POI_TYPE_LABELS: Record<string, string> = {
-  summit: 'Gipfel',
-  volcano: 'Vulkan',
-  saddle: 'Sattel',
-  alpine_hut: 'Alpenhütte',
-  wilderness_hut: 'Berghütte',
-  restaurant: 'Restaurant',
-  cafe: 'Café',
-  bar: 'Bar',
-  fast_food: 'Schnellimbiss',
-  hotel: 'Hotel',
-  hostel: 'Hostel',
-  camp_site: 'Campingplatz',
-  drinking_water: 'Trinkwasser',
-  toilets: 'WC',
-  parking: 'Parkplatz',
-  fuel: 'Tankstelle',
-  bicycle_repair_station: 'Fahrradreparatur',
-  viewpoint: 'Aussichtspunkt',
-}
-
-function poiTypeLabel(type: string): string {
-  return POI_TYPE_LABELS[type] ?? type
-}
 
 function poiTypeIcon(type: string): string {
   if (type === 'summit' || type === 'volcano' || type === 'saddle') return '⛰'
@@ -43,15 +20,31 @@ function poiTypeIcon(type: string): string {
   return '📍'
 }
 
+const KNOWN_POI_TYPES = new Set([
+  'summit',
+  'volcano',
+  'saddle',
+  'alpine_hut',
+  'wilderness_hut',
+  'restaurant',
+  'cafe',
+  'bar',
+  'fast_food',
+  'hotel',
+  'hostel',
+  'camp_site',
+  'drinking_water',
+  'toilets',
+  'parking',
+  'fuel',
+  'bicycle_repair_station',
+  'viewpoint',
+])
+
 // ── Filter tabs ─────────────────────────────────────────────────────────────
 
 type TypeFilter = 'all' | 'summits' | 'amenities'
-
-const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
-  all: 'Alle',
-  summits: 'Gipfel',
-  amenities: 'Orte',
-}
+const TYPE_FILTERS: TypeFilter[] = ['all', 'summits', 'amenities']
 
 // Maps frontend filter tabs to API `types` param values
 const TYPE_FILTER_API: Record<TypeFilter, string | undefined> = {
@@ -75,9 +68,11 @@ interface Props {
 
 export default function POISearchInput({
   onSelect,
-  placeholder = 'Gipfel, Hütte oder Ort suchen…',
+  placeholder,
   className = '',
 }: Props) {
+  const { t } = useTranslation()
+  const { formatElevation } = useUnitFormatters()
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [results, setResults] = useState<POIResult[]>([])
@@ -206,6 +201,11 @@ export default function POISearchInput({
 
   const showDropdown = isOpen && (results.length > 0 || (isLoading && query.trim().length >= 2))
   const showEmpty = isOpen && !isLoading && results.length === 0 && query.trim().length >= 2
+  const effectivePlaceholder = placeholder ?? t('routePlanner.poiSearch.placeholder')
+  const poiTypeLabel = (type: string) =>
+    KNOWN_POI_TYPES.has(type)
+      ? t(`routePlanner.poiSearch.types.${type}`)
+      : t('routePlanner.poiSearch.types.unknown')
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -239,10 +239,10 @@ export default function POISearchInput({
           ref={inputRef}
           type="text"
           value={query}
-          placeholder={placeholder}
+          placeholder={effectivePlaceholder}
           autoComplete="off"
           spellCheck={false}
-          aria-label="POI suchen"
+          aria-label={t('routePlanner.poiSearch.searchAria')}
           aria-expanded={isOpen}
           aria-autocomplete="list"
           aria-activedescendant={activeIndex >= 0 ? `poi-result-${activeIndex}` : undefined}
@@ -265,7 +265,7 @@ export default function POISearchInput({
           <button
             type="button"
             onClick={handleClear}
-            aria-label="Suche löschen"
+            aria-label={t('routePlanner.poiSearch.clearSearch')}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors cursor-pointer"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -277,7 +277,7 @@ export default function POISearchInput({
 
       {/* Type filter tabs */}
       <div className="flex gap-1 mt-1.5">
-        {(Object.keys(TYPE_FILTER_LABELS) as TypeFilter[]).map((f) => (
+        {TYPE_FILTERS.map((f) => (
           <button
             key={f}
             type="button"
@@ -288,7 +288,7 @@ export default function POISearchInput({
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
-            {TYPE_FILTER_LABELS[f]}
+            {t(`routePlanner.poiSearch.filters.${f}`)}
           </button>
         ))}
       </div>
@@ -299,12 +299,12 @@ export default function POISearchInput({
           <ul
             ref={listRef}
             role="listbox"
-            aria-label="POI-Suchergebnisse"
+            aria-label={t('routePlanner.poiSearch.resultsAria')}
             className="max-h-64 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800"
           >
             {isLoading && results.length === 0 && (
               <li className="px-4 py-3 text-sm text-neutral-400 dark:text-neutral-500 italic">
-                Suche läuft…
+                {t('routePlanner.poiSearch.loading')}
               </li>
             )}
             {results.map((poi, idx) => (
@@ -345,7 +345,7 @@ export default function POISearchInput({
                         <>
                           <span className="text-neutral-300 dark:text-neutral-700 text-xs">·</span>
                           <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
-                            {poi.ele.toLocaleString('de-DE')} m
+                            {formatElevation(poi.ele)}
                           </span>
                         </>
                       )}
@@ -376,10 +376,10 @@ export default function POISearchInput({
       {showEmpty && (
         <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg px-4 py-3">
           <p className="text-sm text-neutral-400 dark:text-neutral-500">
-            Keine POIs für <span className="text-neutral-600 dark:text-neutral-300 font-medium">„{query.trim()}"</span> gefunden
+            {t('routePlanner.poiSearch.noResults', { query: query.trim() })}
           </p>
           <p className="text-xs text-neutral-400 dark:text-neutral-600 mt-0.5">
-            Tipp: OSM-Daten müssen für die Region importiert sein.
+            {t('routePlanner.poiSearch.importHint')}
           </p>
         </div>
       )}

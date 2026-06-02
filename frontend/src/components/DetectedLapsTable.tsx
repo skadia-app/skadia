@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { fetchDetectedLaps } from '@/api/segments'
 import { fmtDuration, fmtDist } from '@/lib/format'
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function DetectedLapsTable({ activityId, sportType }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
   const { data: laps = [], isLoading } = useQuery({
@@ -41,7 +43,7 @@ export default function DetectedLapsTable({ activityId, sportType }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Erkannte Runden
+          {t('activities.laps.detectedTitle')}
         </h2>
         <span className="text-sm text-neutral-400">({laps.length})</span>
       </button>
@@ -52,12 +54,12 @@ export default function DetectedLapsTable({ activityId, sportType }: Props) {
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">#</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Zeit</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Delta</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Distanz</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Tempo</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activities.table.time')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activityTables.detectedLaps.delta')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activities.table.distance')}</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('activities.laps.headers.pace')}</th>
                 <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">HR</th>
-                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Power</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">{t('colorMetricLabels.metrics.power')}</th>
               </tr>
             </thead>
             <tbody>
@@ -92,7 +94,7 @@ export default function DetectedLapsTable({ activityId, sportType }: Props) {
                       {delta == null ? (
                         <span className="text-neutral-400 text-xs">--</span>
                       ) : delta === 0 ? (
-                        <span className="text-amber-600 dark:text-amber-400 font-bold text-xs">BEST</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-bold text-xs">{t('activities.laps.best')}</span>
                       ) : (
                         <span className="text-neutral-500 dark:text-neutral-400 text-xs">+{fmtDuration(delta)}</span>
                       )}

@@ -1,4 +1,5 @@
 import { useState, useRef, KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SendHorizonal, Square } from 'lucide-react'
 
 interface ChatInputProps {
@@ -8,7 +9,8 @@ interface ChatInputProps {
   placeholder?: string
 }
 
-export default function ChatInput({ onSend, onCancel, disabled, placeholder = 'Frag mich etwas…' }: ChatInputProps) {
+export default function ChatInput({ onSend, onCancel, disabled, placeholder }: ChatInputProps) {
+  const { t } = useTranslation()
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -49,7 +51,7 @@ export default function ChatInput({ onSend, onCancel, disabled, placeholder = 'F
           disabled={disabled}
           maxLength={2000}
           rows={1}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('chatPage.input.placeholder')}
           className="w-full resize-none rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           style={{ minHeight: '38px', maxHeight: '120px' }}
         />
@@ -59,7 +61,7 @@ export default function ChatInput({ onSend, onCancel, disabled, placeholder = 'F
         onClick={disabled ? onCancel : handleSend}
         disabled={disabled ? !onCancel : !value.trim()}
         className="cursor-pointer p-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-        title={disabled ? 'Antwort abbrechen' : 'Senden'}
+        title={disabled ? t('chatPage.input.cancel') : t('chatPage.input.send')}
       >
         {disabled ? <Square className="w-4 h-4" /> : <SendHorizonal className="w-4 h-4" />}
       </button>

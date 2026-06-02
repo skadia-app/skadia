@@ -1,14 +1,15 @@
 package database
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 // knownJobTypes is the authoritative list of job_type values written to background_jobs.
-// Add a new entry here whenever a new job type is introduced — the test below enforces
-// that the label map covers it, so a missing label becomes a CI failure rather than a
-// silent raw-string in the UI.
+// Add a new entry here whenever a new job type is introduced so notification
+// payload tests keep covering the structured contract consumed by UI clients.
 var knownJobTypes = []string{
 	"osm_import",
 	"osm_enrichment",
@@ -22,6 +23,8 @@ var knownJobTypes = []string{
 	"gdpr_export",
 	"gdpr_purge",
 	"segment_recompute",
+	"segment_recalculation",
+	"lift_recompute",
 	"segment_publish",
 	"segment_matching",
 	"activity_recompute",
@@ -64,15 +67,92 @@ var knownJobTypes = []string{
 	"device_orphan_cleanup",
 }
 
-func TestJobTypeLabelsCoversAllKnownTypes(t *testing.T) {
-	var missing []string
+func TestJobCompletionNotificationDataPreservesKnownJobTypes(t *testing.T) {
 	for _, jt := range knownJobTypes {
-		if _, ok := jobTypeLabels[jt]; !ok {
-			missing = append(missing, jt)
+		payload, err := jobCompletionNotificationData(jt, nil, false)
+		if err != nil {
+			t.Fatalf("jobCompletionNotificationData(%q): %v", jt, err)
+		}
+
+		var data struct {
+			Key    string         `json:"key"`
+			Params map[string]any `json:"params"`
+		}
+		if err := json.Unmarshal(payload, &data); err != nil {
+			t.Fatalf("unmarshal payload for %q: %v", jt, err)
+		}
+
+		if data.Key != "notifications.jobs.completed" {
+			t.Fatalf("key for %q = %q, want notifications.jobs.completed", jt, data.Key)
+		}
+		if data.Params["jobType"] != jt {
+			t.Fatalf("jobType param for %q = %#v", jt, data.Params["jobType"])
 		}
 	}
-	if len(missing) > 0 {
-		t.Errorf("job types missing from jobTypeLabels (add labels to jobs.go AND frontend/src/lib/jobLabels.ts):\n  %s",
-			strings.Join(missing, "\n  "))
+}
+
+func TestJobCompletionNotificationDataUsesStructuredKey(t *testing.T) {
+	entityName := "Morning Ride"
+	payload, err := jobCompletionNotificationData("garmin_import", &entityName, false)
+	if err != nil {
+		t.Fatalf("jobCompletionNotificationData: %v", err)
+	}
+
+	var data struct {
+		Key    string         `json:"key"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	if data.Key != "notifications.jobs.completed" {
+		t.Fatalf("key = %q, want notifications.jobs.completed", data.Key)
+	}
+	if data.Params["jobType"] != "garmin_import" {
+		t.Fatalf("jobType param = %#v", data.Params["jobType"])
+	}
+	if data.Params["entityName"] != entityName {
+		t.Fatalf("entityName param = %#v", data.Params["entityName"])
+	}
+}
+
+func TestStructuredNotificationDataCarriesCanonicalAndColumnStyleKeys(t *testing.T) {
+	params := map[string]any{"ruleName": "Morning rule"}
+
+	data := structuredNotificationData("notifications.automation.ruleNotification", params)
+
+	if data["key"] != "notifications.automation.ruleNotification" {
+		t.Fatalf("key = %#v", data["key"])
+	}
+	if data["message_key"] != "notifications.automation.ruleNotification" {
+		t.Fatalf("message_key = %#v", data["message_key"])
+	}
+	if !reflect.DeepEqual(data["params"], params) {
+		t.Fatalf("params not preserved: %#v", data["params"])
+	}
+	if !reflect.DeepEqual(data["message_params"], params) {
+		t.Fatalf("message_params not preserved: %#v", data["message_params"])
+	}
+}
+
+func TestJobCompletionTitleUsesGenericFallback(t *testing.T) {
+	entityName := "Morning Ride"
+
+	got := jobCompletionTitle("garmin_import", &entityName, false)
+	if got != "Hintergrundjob - Morning Ride abgeschlossen" {
+		t.Fatalf("completion title = %q", got)
+	}
+
+	got = jobCompletionTitle("garmin_import", nil, true)
+	if got != "Hintergrundjob fehlgeschlagen" {
+		t.Fatalf("failed title = %q", got)
+	}
+}
+
+func TestJobCompletionTitleDoesNotExposeUnknownJobType(t *testing.T) {
+	got := jobCompletionTitle("private_unknown_job", nil, true)
+	if strings.Contains(got, "private_unknown_job") {
+		t.Fatalf("unknown job type leaked into title: %q", got)
 	}
 }

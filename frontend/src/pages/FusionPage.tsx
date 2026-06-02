@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import {
   fetchRecordingGroup,
@@ -13,6 +14,7 @@ import { sportLabel } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { deviceLabel } from '@/lib/deviceUtils'
 import { getSourceColor } from '@/lib/comparisonColors'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 import type { RecordingGroup } from '@/api/types'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
@@ -20,6 +22,7 @@ import StreamChartContainer from '@/components/comparison/StreamChartContainer'
 import FusionFieldTable, { FUSION_FIELDS } from '@/components/fusion/FusionFieldTable'
 import { useToast } from '@/lib/toast'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // ── Source letter labels ───────────────────────────────────────────────────────
 
@@ -49,7 +52,7 @@ export interface FusionActivityInfo {
 
 // ── Group label helper ────────────────────────────────────────────────────────
 
-function groupLabel(group: RecordingGroup | undefined): string {
+function groupLabel(group: RecordingGroup | undefined, language: SupportedLanguage): string {
   if (!group) return ''
   // Use primary_activity_id match (single source of truth, consistent with RecordingGroupPage convention).
   // NOT via m.is_primary field.
@@ -57,15 +60,18 @@ function groupLabel(group: RecordingGroup | undefined): string {
   if (!primary) return ''
   const title = displayActivityTitle(primary, '')
   if (title) return title
-  return `${sportLabel(primary.sport_type)} · ${fmtDateCompact(primary.started_at)}`
+  return `${sportLabel(primary.sport_type, primary.sub_type, { language })} · ${fmtDateCompact(primary.started_at)}`
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function FusionPage() {
+  const { t, i18n } = useTranslation()
+  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'de'
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const { formatDistance } = useUnitFormatters()
   const queryClient = useQueryClient()
 
   const groupId = searchParams.get('group') ?? null
@@ -289,10 +295,10 @@ export default function FusionPage() {
     if (member) {
       const dl = deviceLabel(member.recording_device_name ?? member.source_device, member.source, member.original_file_format) ?? ''
       const dist = member.distance_m != null
-        ? `${Math.round((member.distance_m / 1000) * 10) / 10} km`
+        ? formatDistance(member.distance_m)
         : '—'
       const date = fmtDateCompact(member.started_at, null)
-      return [displayActivityTitle(member, 'Ohne Titel'), date, dist, dl].filter(Boolean).join(' — ')
+      return [displayActivityTitle(member, t('workshopOperations.common.untitled')), date, dist, dl].filter(Boolean).join(' — ')
     }
     return id.slice(0, 8) + '…'
   }
@@ -341,9 +347,7 @@ export default function FusionPage() {
           : Math.max(8000, Math.min(15000, warningMessage.length * 80))
         addToast({
           type: 'warning',
-          title: result.warnings.length === 1
-            ? 'Hinweis zur Fusion'
-            : `${result.warnings.length} Hinweise zur Fusion`,
+          title: t('workshopOperations.fusion.toasts.warningTitle', { count: result.warnings.length }),
           message: warningMessage,
           duration: warningDuration,
         })
@@ -353,15 +357,15 @@ export default function FusionPage() {
         setFusedActivityId(result.id)
         setShowGroupPrimaryDialog(true)
       } else {
-        addToast({ type: 'success', title: 'Fusion abgeschlossen', message: 'Die Aktivität wurde erfolgreich fusioniert.' })
+        addToast({ type: 'success', title: t('workshopOperations.fusion.toasts.completedTitle'), message: t('workshopOperations.fusion.toasts.completedMessage') })
         navigate(`/activities/${result.id}`)
       }
     } catch (err) {
       console.error('Fusion failed:', err)
       addToast({
         type: 'error',
-        title: 'Fusion fehlgeschlagen',
-        message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+        title: t('workshopOperations.fusion.toasts.failedTitle'),
+        message: err instanceof Error ? err.message : t('common.unknownError'),
         duration: 0,
       })
     } finally {
@@ -374,12 +378,12 @@ export default function FusionPage() {
     if (setAsPrimary && groupId && fusedActivityId) {
       try {
         await setGroupPrimary(groupId, fusedActivityId)
-        addToast({ type: 'success', title: 'Primäre Aktivität gesetzt', message: 'Die fusionierte Aktivität ist nun primär für die Gruppe.' })
+        addToast({ type: 'success', title: t('workshopOperations.fusion.toasts.primarySetTitle'), message: t('workshopOperations.fusion.toasts.primarySetMessage') })
       } catch (err) {
-        addToast({ type: 'error', title: 'Konnte nicht als primär setzen', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 })
+        addToast({ type: 'error', title: t('workshopOperations.fusion.toasts.primarySetFailedTitle'), message: err instanceof Error ? err.message : t('common.unknownError'), duration: 0 })
       }
     } else {
-      addToast({ type: 'success', title: 'Fusion abgeschlossen', message: 'Die Aktivität wurde erfolgreich fusioniert.' })
+      addToast({ type: 'success', title: t('workshopOperations.fusion.toasts.completedTitle'), message: t('workshopOperations.fusion.toasts.completedMessage') })
     }
     if (fusedActivityId) navigate(`/activities/${fusedActivityId}`)
   }
@@ -395,13 +399,13 @@ export default function FusionPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12 text-center">
         <p className="text-neutral-500">
-          Keine Quell-Aktivitäten angegeben. Öffne diese Seite über eine Gruppe oder mit ?ids=…
+          {t('workshopOperations.fusion.noSources')}
         </p>
         <Link
           to="/activities"
           className="mt-4 inline-block text-sm text-accent-DEFAULT hover:underline"
         >
-          Zur Aktivitätsliste
+          {t('workshopOperations.fusion.toActivityList')}
         </Link>
       </div>
     )
@@ -418,37 +422,37 @@ export default function FusionPage() {
                 to={`/activities/group/${groupId}`}
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
               >
-                ← Zur Gruppe{group && groupLabel(group) ? ` „${groupLabel(group)}“` : 'nansicht'}
+                {t('workshopOperations.fusion.backToGroup', { group: group && groupLabel(group, language) ? ` "${groupLabel(group, language)}"` : '' })}
               </Link>
             ) : (
               <Link
                 to="/workshop/fusion"
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
               >
-                ← Fusionskandidaten
+                {t('workshopOperations.fusion.backToCandidates')}
               </Link>
             )}
           </div>
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-            Aktivitäten fusionieren
+            {t('workshopOperations.fusion.title')}
           </h1>
           <p className="text-sm text-neutral-500 mt-1">
-            Kombiniere GPS, HR, Power und andere Streams aus bis zu 6 Aktivitäten
+            {t('workshopOperations.fusion.description')}
           </p>
           <p className="text-xs text-neutral-400 mt-0.5">
-            Es wird eine neue Aktivität erstellt — alle Originale bleiben erhalten.
+            {t('workshopOperations.fusion.keepOriginals')}
           </p>
         </div>
       </div>
 
-      {/* Quellen-Auswahl */}
+      {/* Source selection */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-          Quell-Aktivitäten
+          {t('workshopOperations.fusion.sourceActivities')}
         </h2>
 
         {isLoading ? (
-          <p className="text-xs text-neutral-400">Lade Aktivitäten…</p>
+          <p className="text-xs text-neutral-400">{t('workshopOperations.fusion.loadingActivities')}</p>
         ) : (
           <div className="space-y-0">
             {selectedSources.map((id, index) => (
@@ -484,7 +488,7 @@ export default function FusionPage() {
                 <button
                   onClick={() => handleSourceRemove(index)}
                   disabled={selectedSources.length <= 2}
-                  title="Quelle entfernen"
+                  title={t('workshopOperations.fusion.removeSourceTitle')}
                   className="text-neutral-400 hover:text-red-500 p-1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -503,8 +507,8 @@ export default function FusionPage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Weitere Quelle hinzufügen
-                <span className="text-xs text-neutral-400">(max. 6 Quellen)</span>
+                {t('workshopOperations.fusion.addSource')}
+                <span className="text-xs text-neutral-400">{t('workshopOperations.fusion.maxSources')}</span>
               </button>
             )}
           </div>
@@ -521,11 +525,11 @@ export default function FusionPage() {
         </SourcesProvider>
       )}
 
-      {/* Feld-Tabelle (inkl. Meta-Zeilen Titel/Tags) */}
+      {/* Field table, including title/tag metadata rows */}
       {selectedSources.length >= 2 && (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-            Datenquellen pro Feld wählen
+            {t('workshopOperations.fusion.chooseFieldSources')}
           </h2>
           <FusionFieldTable
             activities={fusionActivities}
@@ -539,15 +543,15 @@ export default function FusionPage() {
             onTagsChange={setTagsSelection}
           />
 
-          {/* GPS-Fusion-Konfiguration */}
+          {/* GPS Fusion configuration */}
           {fieldMap[FUSION_FIELDS.GPS] === 'fuse' && (
             <div className="mt-4 p-3 bg-neutral-50 dark:bg-neutral-800 rounded-lg space-y-2">
               <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-                GPS-Fusion-Konfiguration
+                {t('workshopOperations.fusion.gpsConfig')}
               </p>
               <div className="flex flex-wrap items-center gap-4">
                 <label className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
-                  <span>Primäre GPS-Quelle:</span>
+                  <span>{t('workshopOperations.fusion.primaryGpsSource')}</span>
                   <select
                     value={gpsPrimarySource || selectedSources[0]}
                     onChange={e => setGpsPrimarySource(e.target.value)}
@@ -567,7 +571,7 @@ export default function FusionPage() {
                     onChange={e => setGpsExtendTrack(e.target.checked)}
                     className="accent-accent-DEFAULT"
                   />
-                  Track verlängern (Zeitbereiche außerhalb verbinden)
+                  {t('workshopOperations.fusion.extendTrack')}
                 </label>
               </div>
             </div>
@@ -580,8 +584,8 @@ export default function FusionPage() {
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs text-neutral-400">
             {Object.keys(fieldMap).length === 0
-              ? 'Wähle mindestens ein Datenfeld aus, um die Fusion zu starten.'
-              : `${Object.keys(fieldMap).length} Feld(er) konfiguriert`}
+              ? t('workshopOperations.fusion.selectFieldHint')
+              : t('workshopOperations.fusion.configuredFields', { count: Object.keys(fieldMap).length })}
           </p>
           <div className="flex items-center gap-3">
             {groupId && (
@@ -589,7 +593,7 @@ export default function FusionPage() {
                 to={`/activities/group/${groupId}`}
                 className="px-4 py-2.5 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
-                Abbrechen
+                {t('common.cancel')}
               </Link>
             )}
             <button
@@ -597,7 +601,7 @@ export default function FusionPage() {
               disabled={!canExecute}
               className="cursor-pointer px-6 py-2.5 bg-accent-DEFAULT text-white rounded-lg font-medium text-sm hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {isMerging ? 'Fusion läuft…' : 'Fusionieren'}
+              {isMerging ? t('workshopOperations.fusion.merging') : t('workshopOperations.fusion.merge')}
             </button>
           </div>
         </div>
@@ -608,23 +612,23 @@ export default function FusionPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-xl p-6 max-w-md w-full space-y-4">
             <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              Fusion abgeschlossen
+              {t('workshopOperations.fusion.toasts.completedTitle')}
             </h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              Fusioniertes Ergebnis als primäre Aktivität der Gruppe setzen?
+              {t('workshopOperations.fusion.setPrimaryQuestion')}
             </p>
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => handleSetGroupPrimary(false)}
                 className="cursor-pointer px-4 py-2 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 rounded-lg text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
-                Nein
+                {t('common.no')}
               </button>
               <button
                 onClick={() => handleSetGroupPrimary(true)}
                 className="cursor-pointer px-4 py-2 bg-accent-DEFAULT text-white rounded-lg text-sm hover:bg-accent-600 transition-colors"
               >
-                Ja, als primär setzen
+                {t('workshopOperations.fusion.setPrimaryYes')}
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ModalConfig, PromptModalConfig } from '@/lib/modal'
 import { useModal } from '@/lib/modal'
 import { useAccentColor } from '@/lib/accentColor'
+import { useTranslation } from 'react-i18next'
 
 interface ModalItemProps {
   modal: ModalConfig
@@ -14,7 +15,7 @@ function ModalItem({ modal }: ModalItemProps) {
   const { accent } = useAccentColor()
 
   useEffect(() => {
-    // Focus auf ersten Button (oder Modal selbst, falls kein Button)
+    // Focus the first button, or the modal itself when no button exists.
     const firstButton = dialogRef.current?.querySelector('button')
     if (firstButton && firstButton instanceof HTMLButtonElement) {
       firstButton.focus()
@@ -109,6 +110,7 @@ interface PromptModalItemProps {
 }
 
 function PromptModalItem({ config }: PromptModalItemProps) {
+  const { t } = useTranslation()
   const [inputValue, setInputValue] = useState(config.defaultValue || '')
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -199,7 +201,7 @@ function PromptModalItem({ config }: PromptModalItemProps) {
             disabled={isLoading}
             className="cursor-pointer px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap disabled:cursor-not-allowed bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-50 disabled:opacity-50"
           >
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleConfirm}

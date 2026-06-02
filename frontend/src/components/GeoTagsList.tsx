@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { fetchGeoTags } from '@/api/enrichment'
 import type { GeoTag } from '@/api/types'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 // Maps enrichment module name → GeoTag group keys it produces
 const MODULE_TO_GEO_GROUPS: Record<string, string[]> = {
@@ -22,14 +24,14 @@ interface GeoTagsListProps {
 }
 
 interface CategoryConfig {
-  label: string
+  labelKey: string
   icon: React.ReactNode
   order: number
 }
 
 const categoryConfigs: Record<string, CategoryConfig> = {
   summit: {
-    label: 'Gipfel',
+    labelKey: 'geoTags.categories.summit',
     order: 1,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -38,7 +40,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   pass: {
-    label: 'Pässe',
+    labelKey: 'geoTags.categories.pass',
     order: 2,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -48,7 +50,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   settlement: {
-    label: 'Ortschaften',
+    labelKey: 'geoTags.categories.settlement',
     order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -57,7 +59,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   still_water: {
-    label: 'Gewässer',
+    labelKey: 'geoTags.categories.water',
     order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -66,7 +68,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   flowing_water: {
-    label: 'Gewässer',
+    labelKey: 'geoTags.categories.water',
     order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -75,7 +77,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   water: {
-    label: 'Gewässer',
+    labelKey: 'geoTags.categories.water',
     order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -84,7 +86,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   forest: {
-    label: 'Wälder',
+    labelKey: 'geoTags.categories.forest',
     order: 6,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -93,7 +95,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   gastronomy: {
-    label: 'Einkehr',
+    labelKey: 'geoTags.categories.gastronomy',
     order: 3,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -105,7 +107,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   border: {
-    label: 'Grenzen',
+    labelKey: 'geoTags.categories.border',
     order: 7,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -114,7 +116,7 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   stop: {
-    label: 'Stopps',
+    labelKey: 'geoTags.categories.stop',
     order: 8,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -125,38 +127,40 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
 }
 
+const knownPoiTypes = new Set([
+  'restaurant',
+  'cafe',
+  'alpine_hut',
+  'wilderness_hut',
+  'fast_food',
+  'ice_cream',
+  'bar',
+  'pub',
+  'biergarten',
+  'kiosk',
+  'bakery',
+  'butcher',
+  'food_court',
+  'guest_house',
+  'hostel',
+  'hotel',
+])
+
 function getGroupKey(category: string): string {
   if (category === 'summit') return 'summit'
   if (category === 'still_water' || category === 'flowing_water' || category === 'water') return 'water'
   return category
 }
 
-const POI_TYPE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurant',
-  cafe: 'Café',
-  alpine_hut: 'Berghütte / Alm',
-  wilderness_hut: 'Schutzhütte',
-  fast_food: 'Imbiss',
-  ice_cream: 'Eisdiele',
-  bar: 'Bar',
-  pub: 'Pub',
-  biergarten: 'Biergarten',
-  kiosk: 'Kiosk',
-  bakery: 'Bäckerei',
-  butcher: 'Metzgerei',
-  food_court: 'Food Court',
-  guest_house: 'Pension',
-  hostel: 'Hostel',
-  hotel: 'Hotel',
-}
-
-function formatPoiType(poiType: string): string {
-  return POI_TYPE_LABELS[poiType] ?? poiType
+function formatPoiType(poiType: string, t: ReturnType<typeof useTranslation>['t']): string {
+  return knownPoiTypes.has(poiType)
+    ? t(`geoTags.poiTypes.${poiType}`)
+    : t('geoTags.poiTypes.unknown')
 }
 
 function getConfig(groupKey: string): CategoryConfig {
   return categoryConfigs[groupKey] ?? {
-    label: groupKey,
+    labelKey: 'geoTags.categories.unknown',
     order: 99,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -167,6 +171,8 @@ function getConfig(groupKey: string): CategoryConfig {
 }
 
 export default function GeoTagsList({ activityId, hiddenModules, enabled = true }: GeoTagsListProps) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
   const [collapsed, setCollapsed] = useState(true)
 
   const { data: tags, isLoading } = useQuery({
@@ -216,7 +222,7 @@ export default function GeoTagsList({ activityId, hiddenModules, enabled = true 
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
         <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-          Geo-Tags
+          {t('geoTags.title')}
         </h2>
         <span className="text-sm text-neutral-400">({tags.length})</span>
       </button>
@@ -229,7 +235,7 @@ export default function GeoTagsList({ activityId, hiddenModules, enabled = true 
               <div key={groupKey}>
                 <h3 className="flex items-center gap-1.5 text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">
                   <span className="text-neutral-400 dark:text-neutral-500">{config.icon}</span>
-                  {config.label}
+                  {t(config.labelKey)}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {items.map(tag => {
@@ -246,24 +252,20 @@ export default function GeoTagsList({ activityId, hiddenModules, enabled = true 
                             {tag.name}
                             {(tag.ele_m ?? tag.ele) != null && (groupKey === 'summit' || groupKey === 'pass') && (
                               <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
-                                ({Math.round(tag.ele_m ?? tag.ele!)} m)
+                                ({formatElevation(tag.ele_m ?? tag.ele!)})
                               </span>
                             )}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                           {poiType && (
-                            <span>{formatPoiType(poiType)}</span>
+                            <span>{formatPoiType(poiType, t)}</span>
                           )}
                           {(tag.ele_m ?? tag.ele) != null && groupKey !== 'summit' && groupKey !== 'pass' && (
-                            <span>{Math.round(tag.ele_m ?? tag.ele!)} m</span>
+                            <span>{formatElevation(tag.ele_m ?? tag.ele!)}</span>
                           )}
                           {tag.dist_m != null && (
-                            <span>
-                              {tag.dist_m >= 1000
-                                ? `${(tag.dist_m / 1000).toFixed(1)} km`
-                                : `${Math.round(tag.dist_m)} m`}
-                            </span>
+                            <span>{formatDistanceCompact(tag.dist_m)}</span>
                           )}
                           {tag.duration_min != null && (
                             <span>{Math.round(tag.duration_min)} min</span>

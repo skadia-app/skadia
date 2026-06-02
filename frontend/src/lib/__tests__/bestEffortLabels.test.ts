@@ -17,10 +17,17 @@ import {
 
 describe('bestEffortLabels generated metadata', () => {
   it('reads labels and order from generated records projection', () => {
-    expect(CATEGORY_LABELS).toEqual(GENERATED_RECORD_CATEGORY_LABELS)
+    expect(CATEGORY_LABELS).toEqual(Object.fromEntries(
+      Object.entries(GENERATED_RECORD_CATEGORY_LABELS).map(([key, labels]) => [key, labels.de]),
+    ))
     expect(CATEGORY_KEYS).toEqual([...GENERATED_RECORD_CATEGORY_ORDER])
     expect(POWER_DURATIONS).toEqual([...GENERATED_RECORD_POWER_CATEGORY_ORDER])
     expect(categoryLabel('dist_marathon')).toBe('Marathon')
+    expect(categoryLabel('sup_longest_distance', 'en')).toBe('Longest distance')
+  })
+
+  it('keeps unknown record category codes technical instead of guessing labels', () => {
+    expect(categoryLabel('new_backend_category', 'en')).toBe('new_backend_category')
   })
 
   it('exposes metric thresholds from generated category metadata', () => {

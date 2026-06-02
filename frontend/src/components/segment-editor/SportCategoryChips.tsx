@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { Pill } from '../ui/Pill'
-import { sportsInCategory } from '@/lib/sportTaxonomy'
+import { sportLabel, sportsInCategory } from '@/lib/sportTaxonomy'
 import {
   getVisibleCategories,
   isCategoryFullyActive,
@@ -11,6 +12,8 @@ import {
 } from '@/lib/sportCategoryHelpers'
 import { type SegType } from './constants'
 import { cn } from '@/lib/utils'
+import { supportedLanguageFrom } from '@/i18n/localizedString'
+import type { SupportedLanguage } from '@/i18n/languages'
 
 // ── Enrichment types ──────────────────────────────────────────────────────────
 // These describe per-sport-type enrichment badge data. The source/status types
@@ -40,6 +43,7 @@ interface DetailPanelProps {
   enrichmentSources?: Record<string, SportEnrichmentSource[]>
   onClearEnrichmentSource?: (sportType: string, source: SportEnrichmentSource) => void
   enrichmentStatus?: SportEnrichmentStatus
+  language: SupportedLanguage
 }
 
 function DetailPanel({
@@ -50,7 +54,9 @@ function DetailPanel({
   onToggleSportType,
   enrichmentSources,
   onClearEnrichmentSource,
+  language,
 }: DetailPanelProps) {
+  const { t } = useTranslation()
   const catSports = category.taxonomyKeys
     .flatMap(tk => sportsInCategory(tk))
     .filter(s => availableSportTypes.some(a => a.key === s.sportType))
@@ -60,9 +66,9 @@ function DetailPanel({
   return (
     <div className="flex flex-wrap gap-1 pl-3">
       {catSports.flatMap(s => {
-        const entries = [{ key: s.sportType, label: s.label }]
+        const entries = [{ key: s.sportType, label: sportLabel(s.sportType, undefined, { language }) }]
         for (const st of s.subTypes) {
-          entries.push({ key: `${s.sportType}:${st.subType}`, label: st.label })
+          entries.push({ key: `${s.sportType}:${st.subType}`, label: sportLabel(s.sportType, st.subType, { language }) })
         }
         return entries.map(entry => ({ sport: s, entry }))
       }).filter(({ entry }) => {
@@ -95,7 +101,10 @@ function DetailPanel({
                     key={i}
                     type="button"
                     onClick={() => onClearEnrichmentSource(sport.sportType, src)}
-                    title={`${src.label}${src.coverage != null ? ` (${Math.round(src.coverage * 100)}%)` : ''} — klicken zum Entfernen`}
+                    title={t('segmentEditor.sportChips.removeEnrichmentSource', {
+                      label: src.label,
+                      pct: src.coverage != null ? ` (${Math.round(src.coverage * 100)}%)` : '',
+                    })}
                     className={cn(
                       'inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[10px] font-medium',
                       'border-blue-300 bg-blue-50 text-blue-700',
@@ -156,10 +165,12 @@ export function SportCategoryChips({
   onClearEnrichmentSource,
   enrichmentStatus,
 }: SportCategoryChipsProps) {
+  const { t, i18n } = useTranslation()
+  const language = supportedLanguageFrom(i18n.language)
   // Internal accordion state — uncontrolled; only used when showDetailPicker=true
   const [openCategoryKey, setOpenCategoryKey] = useState<string | null>(null)
 
-  const visible = getVisibleCategories(segType)
+  const visible = getVisibleCategories(segType, language)
   const whitelist = whitelistForSegmentType(segType)
 
   // Fall back to "all taxonomy sports" if availableSportTypes not provided
@@ -181,7 +192,7 @@ export function SportCategoryChips({
   return (
     <div className="flex flex-col gap-2">
       {/* ── Category chip row ── */}
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sportarten-Filter">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('segmentEditor.sportChips.filterAria')}>
         {showAllChip && (
           <Pill
             role="checkbox"
@@ -190,7 +201,7 @@ export function SportCategoryChips({
             onClick={onSetAll}
             leftSlot={activeTypes === null ? <Check className="h-3.5 w-3.5 shrink-0" /> : undefined}
           >
-            Alle
+            {t('common.all')}
           </Pill>
         )}
 
@@ -225,7 +236,7 @@ export function SportCategoryChips({
                 {/* Chevron as its own focusable button — stopPropagation keeps it independent */}
                 <button
                   type="button"
-                  aria-label={isOpen ? `${cat.label} zuklappen` : `${cat.label} aufklappen`}
+                  aria-label={isOpen ? t('segmentEditor.sportChips.collapseCategory', { label: cat.label }) : t('segmentEditor.sportChips.expandCategory', { label: cat.label })}
                   onClick={e => { e.stopPropagation(); toggleDetail(cat.key) }}
                   className={cn(
                     'absolute inset-y-0 right-0 flex items-center justify-center w-7 rounded-r-lg',
@@ -273,14 +284,14 @@ export function SportCategoryChips({
                   {/* Category label + toggle-all button */}
                   <div className="flex items-center justify-between mb-1 px-0.5">
                     <span className="text-[10px] font-semibold tracking-wider uppercase text-neutral-400 dark:text-neutral-500">
-                      {cat.label} — Feinwahl
+                      {t('segmentEditor.sportChips.fineSelection', { label: cat.label })}
                     </span>
                     <button
                       type="button"
                       onClick={() => onToggleCategory(cat.key)}
                       className="text-[10px] text-neutral-400 hover:text-accent-DEFAULT dark:hover:text-accent-300 transition-colors"
                     >
-                      {isCategoryFullyActive(cat.key, activeTypes, whitelist) ? 'Alle aus' : 'Alle an'}
+                      {isCategoryFullyActive(cat.key, activeTypes, whitelist) ? t('segmentEditor.sportChips.allOff') : t('segmentEditor.sportChips.allOn')}
                     </button>
                   </div>
 	                  <DetailPanel
@@ -292,6 +303,7 @@ export function SportCategoryChips({
                     enrichmentSources={enrichmentSources}
                     onClearEnrichmentSource={onClearEnrichmentSource}
                     enrichmentStatus={enrichmentStatus}
+                    language={language}
                   />
                 </div>
               )

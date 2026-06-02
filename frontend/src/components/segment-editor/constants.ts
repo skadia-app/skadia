@@ -78,9 +78,9 @@ export const SAC_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> 
   { value: 'T6', label: 'T6 — schwieriges Alpinwandern' },
 ]
 
-// Bewusst ohne Zusätze — verführerische Kurzbeschreibungen führen zu
-// Selbstüberschätzung (siehe User-Feedback 2026-04-24). Die offizielle
-// Skala ist auf https://www.singletrail-skala.de/ definiert.
+// Intentionally no added descriptions: tempting short explanations encourage
+// overconfidence. The official scale is defined at
+// https://www.singletrail-skala.de/.
 export const MTB_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'S0', label: 'S0' },
   { value: 'S1', label: 'S1' },

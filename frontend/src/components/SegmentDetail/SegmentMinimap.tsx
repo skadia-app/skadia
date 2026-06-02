@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Segment } from '@/api/segments'
@@ -22,6 +23,7 @@ interface SegmentMinimapProps {
 }
 
 export function SegmentMinimap({ segment }: SegmentMinimapProps) {
+  const { t } = useTranslation()
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
 
@@ -75,7 +77,10 @@ export function SegmentMinimap({ segment }: SegmentMinimapProps) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       })
       if (segment.course_kind === 'checkpoint_sequence') {
-        const controlFeatures = checkpointControlFeatures(segment)
+        const controlFeatures = checkpointControlFeatures(segment, {
+          start: t('segmentDetail.controls.start'),
+          finish: t('segmentDetail.controls.finish'),
+        })
         if (controlFeatures.length > 0) {
           map.addSource('checkpoint-controls', {
             type: 'geojson',
@@ -131,7 +136,7 @@ export function SegmentMinimap({ segment }: SegmentMinimapProps) {
         className="border border-neutral-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center"
         style={{ height: '350px' }}
       >
-        <span className="text-neutral-400 text-sm">Keine Kartendaten verfügbar</span>
+        <span className="text-neutral-400 text-sm">{t('segmentDetail.minimap.noMapData')}</span>
       </div>
     )
   }
@@ -143,15 +148,15 @@ export function SegmentMinimap({ segment }: SegmentMinimapProps) {
   )
 }
 
-function checkpointControlFeatures(segment: Segment): GeoJSON.Feature[] {
+function checkpointControlFeatures(segment: Segment, labels: { start: string; finish: string }): GeoJSON.Feature[] {
   const controls = segment.controls ?? []
   return controls.flatMap((control, index): GeoJSON.Feature[] => {
     const geometry = control.geometry as GeoJSON.Geometry | undefined
     if (!geometry) return []
     const label = control.role === 'start'
-      ? 'Start'
+      ? labels.start
       : control.role === 'finish'
-        ? 'Ziel'
+        ? labels.finish
         : String(index + 1)
     const point = control.geometry_shape === 'point' || control.geometry_shape === 'circle'
       ? geometry

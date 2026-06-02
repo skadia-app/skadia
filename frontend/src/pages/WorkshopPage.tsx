@@ -1,43 +1,44 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { featureAvailable, featureConfigured, type CapabilityKey } from '@/lib/deploymentCapabilities'
 
 const sections = [
   {
     to: '/workshop/profile',
-    title: 'Physiologisches Profil',
-    description: 'Körperdaten, FTP, LTHR und Herzfrequenz-Werte verwalten',
+    titleKey: 'profileTitle',
+    descriptionKey: 'profileDescription',
     icon: ProfileIcon,
   },
   {
     to: '/gear',
-    title: 'Ausrüstung',
-    description: 'Räder, Schuhe, Zubehör und Komponenten verwalten',
+    titleKey: 'gearTitle',
+    descriptionKey: 'gearDescription',
     icon: GearIcon,
   },
   {
     to: '/workshop/tags',
-    title: 'Tags',
-    description: 'Tags für Aktivitäten erstellen und verwalten',
+    titleKey: 'tagsTitle',
+    descriptionKey: 'tagsDescription',
     icon: TagIcon,
   },
   {
     to: '/workshop/rules',
-    title: 'Automatisierungsregeln',
-    description: 'Regeln für automatisches Taggen, Sport-Typ, Sichtbarkeit und mehr',
+    titleKey: 'rulesTitle',
+    descriptionKey: 'rulesDescription',
     icon: RulesIcon,
   },
   {
     to: '/workshop/reprocess',
-    title: 'Neu verarbeiten',
-    description: 'Aktivitäten erneut durch die Enrichment-Pipeline verarbeiten',
+    titleKey: 'reprocessTitle',
+    descriptionKey: 'reprocessDescription',
     icon: ReprocessIcon,
   },
   {
     to: '/workshop/document-review',
-    title: 'Dokument-Überprüfung',
-    description: 'Aus Rechnungen erkannte Ausrüstung überprüfen und bestätigen',
+    titleKey: 'documentReviewTitle',
+    descriptionKey: 'documentReviewDescription',
     icon: DocumentIcon,
     requiredCapability: 'document_ml',
     disabledWhenUnavailable: true,
@@ -45,20 +46,20 @@ const sections = [
   },
   {
     to: '/workshop/fusion',
-    title: 'Fusionskandidaten',
-    description: 'Aktivitäten aus mehreren Geräten erkennen und zusammenführen',
+    titleKey: 'fusionTitle',
+    descriptionKey: 'fusionDescription',
     icon: FusionIcon,
   },
   {
     to: '/imports?view=review',
-    title: 'Zu prüfen',
-    description: 'Importierte Dateien mit manueller Nacharbeit prüfen, zuordnen oder verwerfen',
+    titleKey: 'reviewTitle',
+    descriptionKey: 'reviewDescription',
     icon: PhotoIcon,
   },
 ] satisfies Array<{
   to: string
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
   icon: () => ReactNode
   requiredCapability?: CapabilityKey
   disabledWhenUnavailable?: boolean
@@ -66,6 +67,7 @@ const sections = [
 }>
 
 export default function WorkshopPage() {
+  const { t } = useTranslation()
   const { data: capabilities } = useCapabilities()
   const visibleSections = sections
     .map(section => {
@@ -87,14 +89,16 @@ export default function WorkshopPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Werkstatt</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('workshopOperations.workshop.title')}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Verwaltung deiner importierten Daten und Ausrüstung.
+          {t('workshopOperations.workshop.description')}
         </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {visibleSections.map(({ to, title, description, icon: Icon, disabled }) => {
+        {visibleSections.map(({ to, titleKey, descriptionKey, icon: Icon, disabled }) => {
+          const title = t(`workshopOperations.workshop.sections.${titleKey}`)
+          const description = t(`workshopOperations.workshop.sections.${descriptionKey}`)
           const content = (
             <>
               <div className="flex items-center gap-3">

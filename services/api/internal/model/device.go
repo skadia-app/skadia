@@ -15,13 +15,14 @@ type DeviceToken struct {
 
 // Notification represents a push notification stored for a user.
 type Notification struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Category  string    `json:"category"`
-	Title     string    `json:"title"`
-	Body      *string   `json:"body,omitempty"`
-	Read      bool      `json:"read"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string         `json:"id"`
+	UserID    string         `json:"user_id"`
+	Category  string         `json:"category"`
+	Title     string         `json:"title"`
+	Body      *string        `json:"body,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
+	Read      bool           `json:"read"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 // Device represents a hardware device (GPS watch, sensor, bike computer, etc.)

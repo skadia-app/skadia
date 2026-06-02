@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Routes, Route, Navigate, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { apiClient } from '@/api/client'
 import { ThemeProvider } from '@/lib/theme'
@@ -70,6 +71,7 @@ const RecordingGroupPage = lazy(() => import('@/pages/RecordingGroupPage'))
 const PersonalRecordsTab = lazy(() => import('@/pages/analytics/PersonalRecordsTab'))
 
 function ImportRedirect() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const url = searchParams.get('url')
@@ -97,7 +99,7 @@ function ImportRedirect() {
 
   return (
     <div className="flex items-center justify-center h-64">
-      <p className="text-neutral-500">Importiere Aktivität...</p>
+      <p className="text-neutral-500">{t('app.importingActivity')}</p>
     </div>
   )
 }
@@ -122,9 +124,11 @@ function SettingsImportRedirect() {
   return <Navigate to="/imports?view=import" replace />
 }
 
-function LoadingSpinner() {
+export function LoadingSpinner() {
+  const { t } = useTranslation()
+
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex h-full items-center justify-center" role="status" aria-label={t('common.loading')}>
       <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-blue-600 dark:border-neutral-600 dark:border-t-blue-400" />
     </div>
   )

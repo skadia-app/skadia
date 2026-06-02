@@ -16,6 +16,10 @@ import { LIB_LABELS, FILE_TYPE_ORDER } from '@/lib/libraryLabels'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { FileSchemaAccordionRow } from '@/components/FileSchemaAccordionRow'
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : LIB_LABELS.unknownErrorFallback
+}
+
 // ── SchemaSection — one collapsible per file type ─────────────────────────
 
 interface SchemaSectionProps {
@@ -59,7 +63,7 @@ function SchemaSection({
       addToast({ type: 'success', title: LIB_LABELS.fileSchemaToastSaved })
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+      const msg = errorMessage(err)
       addToast({ type: 'error', title: LIB_LABELS.fileSchemaErrorSave, message: msg, duration: 0 })
     },
   })
@@ -68,7 +72,7 @@ function SchemaSection({
     !disabled && !isUserOverride && effectiveSchema ? effectiveSchema : undefined
 
   const saveError = mut.isError
-    ? (mut.error instanceof Error ? mut.error.message : 'Unbekannt')
+    ? errorMessage(mut.error)
     : null
 
   return (
@@ -133,7 +137,7 @@ function LibraryDirSection() {
       addToast({ type: 'success', title: LIB_LABELS.libraryDirToastSaved })
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+      const msg = errorMessage(err)
       addToast({ type: 'error', title: LIB_LABELS.fileSchemaErrorSave, message: msg, duration: 0 })
     },
   })
@@ -202,7 +206,7 @@ function LibraryDirSection() {
       {mut.isError && (
         <p className="text-xs text-rose-500">
           {LIB_LABELS.fileSchemaErrorSave}:{' '}
-          {mut.error instanceof Error ? mut.error.message : 'Unbekannt'}
+          {errorMessage(mut.error)}
         </p>
       )}
     </div>

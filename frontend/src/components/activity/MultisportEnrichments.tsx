@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQueries } from '@tanstack/react-query'
 import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { fetchActivityTrackSummary } from '@/api/trackSummary'
 import { fmtDuration, fmtTime } from '@/lib/format'
 import type { Activity, GeoTag, ActivityStop } from '@/api/types'
 import type { TrackSummarySurfaceItem } from '@/api/trackSummary'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 interface Props {
   childActivities: Activity[]
@@ -23,14 +25,12 @@ interface SurfaceDisplayRow {
 // ── Geo-Tags rendering helpers ────────────────────────────────────────────────
 
 interface CategoryConfig {
-  label: string
   icon: React.ReactNode
   order: number
 }
 
 const categoryConfigs: Record<string, CategoryConfig> = {
   summit: {
-    label: 'Gipfel',
     order: 1,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -39,7 +39,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   pass: {
-    label: 'Pässe',
     order: 2,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -49,7 +48,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   gastronomy: {
-    label: 'Einkehr',
     order: 3,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -61,7 +59,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   settlement: {
-    label: 'Ortschaften',
     order: 4,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -70,7 +67,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   water: {
-    label: 'Gewässer',
     order: 5,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -79,7 +75,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   forest: {
-    label: 'Wälder',
     order: 6,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -88,7 +83,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   border: {
-    label: 'Grenzen',
     order: 7,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -97,7 +91,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
     ),
   },
   stop: {
-    label: 'Stopps',
     order: 8,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -108,25 +101,6 @@ const categoryConfigs: Record<string, CategoryConfig> = {
   },
 }
 
-const POI_TYPE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurant',
-  cafe: 'Café',
-  alpine_hut: 'Berghütte / Alm',
-  wilderness_hut: 'Schutzhütte',
-  fast_food: 'Imbiss',
-  ice_cream: 'Eisdiele',
-  bar: 'Bar',
-  pub: 'Pub',
-  biergarten: 'Biergarten',
-  kiosk: 'Kiosk',
-  bakery: 'Bäckerei',
-  butcher: 'Metzgerei',
-  food_court: 'Food Court',
-  guest_house: 'Pension',
-  hostel: 'Hostel',
-  hotel: 'Hotel',
-}
-
 function getGroupKey(category: string): string {
   if (category === 'summit') return 'summit'
   if (category === 'still_water' || category === 'flowing_water' || category === 'water') return 'water'
@@ -135,7 +109,6 @@ function getGroupKey(category: string): string {
 
 function getConfig(groupKey: string): CategoryConfig {
   return categoryConfigs[groupKey] ?? {
-    label: groupKey,
     order: 99,
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -274,6 +247,7 @@ function CollapsibleSection({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function MultisportEnrichments({ childActivities, timezone }: Props) {
+  const { t } = useTranslation()
   const ids = childActivities.map(c => c.id)
 
   const geoTagQueries = useQueries({
@@ -363,30 +337,30 @@ export default function MultisportEnrichments({ childActivities, timezone }: Pro
 
   return (
     <div className="space-y-6">
-      {/* Geo-Tags */}
+      {/* Geo tags */}
       {mergedGeoTags.length > 0 && (
-        <CollapsibleSection title="Geo-Tags" count={mergedGeoTags.length}>
+        <CollapsibleSection title={t('components.geoTagsList.title')} count={mergedGeoTags.length}>
           <GeoTagsDisplay tags={mergedGeoTags} />
         </CollapsibleSection>
       )}
 
-      {/* Stopps */}
+      {/* Stops */}
       {allStops.length > 0 && (
-        <CollapsibleSection title="Stopps" count={allStops.length}>
+        <CollapsibleSection title={t('activityOperations.stops.title')} count={allStops.length}>
           <StopsDisplay stops={allStops} timezone={timezone} />
         </CollapsibleSection>
       )}
 
-      {/* Wegearten */}
+      {/* Highways */}
       {mergedHighways.length > 0 && (
-        <CollapsibleSection title="Wegearten">
+        <CollapsibleSection title={t('routePlanner.surfaces.highways')}>
           <SurfacesDisplay surfaces={mergedHighways} dimension="highway" />
         </CollapsibleSection>
       )}
 
-      {/* Oberflächen */}
+      {/* Surfaces */}
       {mergedSurfaces.length > 0 && (
-        <CollapsibleSection title="Oberflächen">
+        <CollapsibleSection title={t('routePlanner.surfaces.surfaces')}>
           <SurfacesDisplay surfaces={mergedSurfaces} dimension="surface" />
         </CollapsibleSection>
       )}
@@ -401,6 +375,10 @@ function addSummaryLength(target: Map<string, number>, item: TrackSummarySurface
 // ── Sub-renderers ─────────────────────────────────────────────────────────────
 
 function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact, formatElevation } = useUnitFormatters()
+  const categoryLabels = translationRecord(t('components.geoTagsList.categories', { returnObjects: true }))
+  const poiTypeLabels = translationRecord(t('activityOperations.stops.poiTypes', { returnObjects: true }))
   // Group tags by normalized category key
   const grouped = new Map<string, GeoTag[]>()
   for (const tag of tags) {
@@ -421,7 +399,7 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
           <div key={groupKey}>
             <h3 className="flex items-center gap-1.5 text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">
               <span className="text-neutral-400 dark:text-neutral-500">{config.icon}</span>
-              {config.label}
+              {localizedFallbackLabel(categoryLabels, groupKey)}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {items.map(tag => {
@@ -437,23 +415,19 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
                       {tag.name}
                       {(tag.ele_m ?? tag.ele) != null && (groupKey === 'summit' || groupKey === 'pass') && (
                         <span className="ml-1.5 text-neutral-500 dark:text-neutral-400 font-normal">
-                          ({Math.round(tag.ele_m ?? tag.ele!)} m)
+                          ({formatElevation(tag.ele_m ?? tag.ele!)})
                         </span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                       {poiType && (
-                        <span>{POI_TYPE_LABELS[poiType] ?? poiType}</span>
+                        <span>{localizedFallbackLabel(poiTypeLabels, poiType)}</span>
                       )}
                       {(tag.ele_m ?? tag.ele) != null && groupKey !== 'summit' && groupKey !== 'pass' && (
-                        <span>{Math.round(tag.ele_m ?? tag.ele!)} m</span>
+                        <span>{formatElevation(tag.ele_m ?? tag.ele!)}</span>
                       )}
                       {tag.dist_m != null && (
-                        <span>
-                          {tag.dist_m >= 1000
-                            ? `${(tag.dist_m / 1000).toFixed(1)} km`
-                            : `${Math.round(tag.dist_m)} m`}
-                        </span>
+                        <span>{formatDistanceCompact(tag.dist_m)}</span>
                       )}
                       {tag.duration_min != null && (
                         <span>{Math.round(tag.duration_min)} min</span>
@@ -471,10 +445,12 @@ function GeoTagsDisplay({ tags }: { tags: GeoTag[] }) {
 }
 
 function StopsDisplay({ stops, timezone }: { stops: ActivityStop[]; timezone?: string | null }) {
+  const { t } = useTranslation()
+
   return (
     <div className="space-y-1.5">
       {stops.map(stop => {
-        const title = stop.poi_name ?? stop.name ?? 'Aufenthalt'
+        const title = stop.poi_name ?? stop.name ?? t('activityOperations.stops.fallbackTitle')
         const isFallback = !stop.poi_name && !stop.name
         return (
           <div
@@ -513,23 +489,25 @@ const HIGHWAY_COLORS: Record<string, string> = {
   offroad: '#b91c1c', unknown: '#d1d5db',
 }
 
-// Surface keys are already human-readable German names — no separate label map needed
-const SURFACE_LABELS: Record<string, string> = {}
+function translationRecord(value: unknown): Record<string, string> {
+  return value != null && typeof value === 'object' ? value as Record<string, string> : {}
+}
 
-const HIGHWAY_LABELS: Record<string, string> = {
-  primary: 'Bundesstraße', secondary: 'Landstraße', tertiary: 'Kreisstraße',
-  unclassified: 'Gemeindestraße', residential: 'Wohnstraße', living_street: 'Spielstraße',
-  service: 'Zufahrtsweg', track: 'Feldweg', path: 'Pfad', footway: 'Fußweg',
-  cycleway: 'Radweg', bridleway: 'Reitweg', steps: 'Treppen', pedestrian: 'Fußgängerzone',
-  motorway: 'Schnellstraße', trunk: 'Schnellstraße', via_ferrata: 'Klettersteig',
-  motorway_link: 'Schnellstraße', trunk_link: 'Schnellstraße',
-  primary_link: 'Bundesstraße', secondary_link: 'Landstraße', tertiary_link: 'Kreisstraße',
-  offroad: 'Offroad', unknown: 'Unbekannt',
+function labelForKey(labels: Record<string, string>, key: string): string {
+  return labels[key] ?? labels.unknown ?? labels.Unbekannt ?? ''
+}
+
+function localizedFallbackLabel(labels: Record<string, string>, key: string): string {
+  return labelForKey(labels, key)
 }
 
 function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: SurfaceDisplayRow[]; dimension?: 'surface' | 'highway' }) {
+  const { t } = useTranslation()
+  const { formatDistanceCompact } = useUnitFormatters()
   const colorMap = dimension === 'highway' ? HIGHWAY_COLORS : SURFACE_COLORS
-  const labelMap = dimension === 'highway' ? HIGHWAY_LABELS : SURFACE_LABELS
+  const labelMap = dimension === 'highway'
+    ? translationRecord(t('activityOperations.surfaces.highwayLabels', { returnObjects: true }))
+    : translationRecord(t('activityOperations.surfaces.surfaceLabels', { returnObjects: true }))
   const typeKey = dimension === 'highway' ? 'path_type' : 'surface_type'
 
   return (
@@ -541,7 +519,7 @@ function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: Surfac
             <div
               key={s.id}
               style={{ width: `${s.percentage}%`, backgroundColor: colorMap[key] ?? '#9ca3af' }}
-              title={`${labelMap[key] ?? key}: ${s.percentage.toFixed(0)}%`}
+              title={`${labelForKey(labelMap, key)}: ${s.percentage.toFixed(0)}%`}
             />
           )
         })}
@@ -552,12 +530,9 @@ function SurfacesDisplay({ surfaces, dimension = 'surface' }: { surfaces: Surfac
           return (
             <span key={s.id} className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: colorMap[key] ?? '#9ca3af' }} />
-              {labelMap[key] ?? key}
+              {labelForKey(labelMap, key)}
               <span className="tabular-nums">{s.percentage.toFixed(0)}%</span>
-              {s.length_m >= 1000
-                ? <span className="text-neutral-400">({(s.length_m / 1000).toFixed(1)} km)</span>
-                : <span className="text-neutral-400">({Math.round(s.length_m)} m)</span>
-              }
+              <span className="text-neutral-400">({formatDistanceCompact(s.length_m)})</span>
             </span>
           )
         })}

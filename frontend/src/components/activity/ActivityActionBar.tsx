@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Download, Edit3, Map, MoreHorizontal, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Activity } from '@/api/types'
 import { apiDownload } from '@/api/client'
 import { reprocessActivity, ungroupActivity, type ExportFormat } from '@/api/activities'
@@ -24,6 +25,7 @@ interface ActivityActionBarProps {
 }
 
 export default function ActivityActionBar({ activity }: ActivityActionBarProps) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
@@ -141,7 +143,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
       }
     },
     onError: () => {
-      addToast({ type: 'error', title: 'Fusion konnte nicht rückgängig gemacht werden', message: 'Bitte erneut versuchen.' })
+      addToast({ type: 'error', title: t('activityActions.toasts.revertFusionFailed'), message: t('common.retry') })
     },
   })
 
@@ -153,7 +155,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
       navigate('/activities')
     },
     onError: (err) => {
-      addToast({ type: 'error', title: 'Fehler beim Auflösen der Gruppe', message: err instanceof Error ? err.message : 'Unbekannter Fehler', duration: 0 })
+      addToast({ type: 'error', title: t('activityActions.toasts.ungroupFailed'), message: err instanceof Error ? err.message : t('activityActions.toasts.unknownError'), duration: 0 })
     },
   })
 
@@ -172,8 +174,8 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
     } catch (err) {
       addToast({
         type: 'error',
-        title: 'Fehler beim Öffnen im Routenplaner',
-        message: err instanceof Error ? err.message : 'Unbekannter Fehler',
+        title: t('activityActions.toasts.routePlannerFailed'),
+        message: err instanceof Error ? err.message : t('activityActions.toasts.unknownError'),
         duration: 0,
       })
     } finally {
@@ -189,7 +191,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
           className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
         >
           <AlertTriangle className="h-4 w-4" />
-          Sportkonflikt
+          {t('activityActions.sportConflict')}
         </button>
       )}
       {activity.has_gps && activity.sport_type !== 'multisport' && featureAvailable(capabilities, 'routing') && (
@@ -199,7 +201,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
           className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
           <Map className="h-4 w-4" />
-          Routenplaner
+          {t('activityActions.routePlanner')}
         </button>
       )}
       <button
@@ -207,7 +209,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
         className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
       >
         <Edit3 className="h-4 w-4" />
-        Bearbeiten
+        {t('activityActions.edit')}
       </button>
       <div className="relative">
         <button
@@ -235,8 +237,8 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
           }}
           disabled={isReprocessing}
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-neutral-700 dark:hover:bg-neutral-800"
-          aria-label="Weitere Aktionen"
-          title={isReprocessing ? 'Aktivität wird neu berechnet' : 'Weitere Aktionen'}
+          aria-label={t('activityActions.moreActions')}
+          title={isReprocessing ? t('activityActions.reprocessingTitle') : t('activityActions.moreActions')}
         >
           {menuButtonIcon}
         </button>
@@ -244,7 +246,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
           <div ref={menuRef} className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
             {activity.sport_type !== 'multisport' && (
               <Link to={`/activities/${activity.id}/edit`} className="block rounded px-2 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800">
-                Track bearbeiten
+                {t('activityActions.editTrack')}
               </Link>
             )}
             {(activity.fusion_memberships?.length ?? 0) > 0 && (
@@ -256,7 +258,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 disabled={revertFusionMutation.isPending}
                 className="block w-full rounded px-2 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/30"
               >
-                Fusion rückgängig
+                {t('activityActions.revertFusion')}
               </button>
             )}
             {activity.sport_type === 'multisport' && (
@@ -264,7 +266,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 <div className="m-1 rounded-lg border border-red-200 bg-red-50 p-2 text-xs dark:border-red-900 dark:bg-red-950/30">
                   <div className="mb-2 flex items-center gap-1.5 text-red-700 dark:text-red-300">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    Gruppe wirklich auflösen?
+                    {t('activityActions.ungroupConfirm')}
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -272,13 +274,13 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                       disabled={ungroupMutation.isPending}
                       className="flex-1 rounded bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700 disabled:opacity-50"
                     >
-                      {ungroupMutation.isPending ? '...' : 'Ja'}
+                      {ungroupMutation.isPending ? '...' : t('activityActions.yes')}
                     </button>
                     <button
                       onClick={() => setUngroupConfirm(false)}
                       className="flex-1 rounded border border-neutral-200 px-2 py-1 hover:bg-white dark:border-neutral-700 dark:hover:bg-neutral-800"
                     >
-                      Nein
+                      {t('activityActions.no')}
                     </button>
                   </div>
                 </div>
@@ -287,7 +289,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                   onClick={() => setUngroupConfirm(true)}
                   className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
-                  Gruppe auflösen
+                  {t('activityActions.ungroup')}
                 </button>
               )
             )}
@@ -299,14 +301,14 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
                 >
                   <SlidersHorizontal className="h-4 w-4" />
-                  Geschwindigkeit glätten
+                  {t('activityActions.smoothSpeed')}
                 </button>
                 {smoothOpen && (
                   <div className="mx-2 my-1 space-y-3 rounded-lg border border-neutral-200 p-3 text-xs dark:border-neutral-800">
                     <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400">
-                      <span>Leicht</span>
-                      <span className="font-medium text-neutral-800 dark:text-neutral-100">{smoothWindow * 2 + 1}s Fenster</span>
-                      <span>Stark</span>
+                      <span>{t('activityActions.light')}</span>
+                      <span className="font-medium text-neutral-800 dark:text-neutral-100">{t('activityActions.windowSeconds', { seconds: smoothWindow * 2 + 1 })}</span>
+                      <span>{t('activityActions.strong')}</span>
                     </div>
                     <input
                       type="range"
@@ -325,18 +327,18 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                           await reprocessActivity(activity.id, ['speed_smooth'], smoothWindow)
                           queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                           queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                          addToast({ type: 'success', title: `Geglättet (${smoothWindow * 2 + 1}s Fenster)` })
+                          addToast({ type: 'success', title: t('activityActions.toasts.smoothed', { seconds: smoothWindow * 2 + 1 }) })
                           setMenuOpen(false)
                           setSmoothOpen(false)
                         } catch {
-                          addToast({ type: 'error', title: 'Glätten fehlgeschlagen', duration: 0 })
+                          addToast({ type: 'error', title: t('activityActions.toasts.smoothingFailed'), duration: 0 })
                         } finally {
                           setSmoothing('idle')
                         }
                       }}
                       className="w-full rounded-lg bg-accent-DEFAULT px-3 py-1.5 font-medium text-white hover:bg-accent-600 disabled:opacity-50"
                     >
-                      Anwenden
+                      {t('activityActions.apply')}
                     </button>
                   </div>
                 )}
@@ -350,19 +352,19 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                   await reprocessActivity(activity.id, ['streams'])
                   queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
                   queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
-                  addToast({ type: 'success', title: 'Trackdaten aus Originaldatei wiederhergestellt' })
+                  addToast({ type: 'success', title: t('activityActions.toasts.restoreSuccess') })
                 } catch {
-                  addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', duration: 0 })
+                  addToast({ type: 'error', title: t('activityActions.toasts.restoreFailed'), duration: 0 })
                 } finally {
                   setSmoothing('idle')
                 }
               }}
               disabled={smoothing !== 'idle'}
-              title="Setzt die Track-Streams aus der Originaldatei zurück, inklusive geglätteter Geschwindigkeitsdaten."
+              title={t('activityActions.restoreTrackTitle')}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
             >
               <RotateCcw className="h-4 w-4" />
-              Trackdaten aus Originaldatei wiederherstellen
+              {t('activityActions.restoreTrack')}
             </button>
             <button
               onClick={() => {
@@ -372,7 +374,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
               disabled={isReprocessing}
               className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
             >
-              {isReprocessing ? 'Berechne neu...' : 'Alles neu berechnen'}
+              {isReprocessing ? t('activityActions.recomputing') : t('activityActions.recomputeAll')}
             </button>
             {activity.sport_type !== 'multisport' && (
               <button
@@ -383,7 +385,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 disabled={isReprocessing}
                 className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
               >
-                Bereiche neu berechnen...
+                {t('activityActions.recomputeScopes')}
               </button>
             )}
           </div>
@@ -402,9 +404,9 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowRevertFusionModal(false)} />
           <div className="relative w-full max-w-sm space-y-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900">
-            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Fusion rückgängig machen?</h2>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('activityActions.revertFusionTitle')}</h2>
             <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
-              Die zusammengeführte Aktivität wird gelöscht. Die Quellaktivitäten werden wiederhergestellt und wieder sichtbar.
+              {t('activityActions.revertFusionWarning')}
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -412,7 +414,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 disabled={revertFusionMutation.isPending}
                 className="rounded-lg border border-neutral-200 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -422,7 +424,7 @@ export default function ActivityActionBar({ activity }: ActivityActionBarProps) 
                 disabled={revertFusionMutation.isPending}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {revertFusionMutation.isPending ? 'Wird rückgängig gemacht...' : 'Rückgängig machen'}
+                {revertFusionMutation.isPending ? t('activityActions.reverting') : t('activityActions.revert')}
               </button>
             </div>
           </div>

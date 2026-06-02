@@ -1,12 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import GearPage from './GearPage'
 import { downloadGearDocumentBlob, fetchGear, fetchGearDocuments } from '@/api/gear'
 import type { Gear, GearDocument } from '@/api/types'
+
+const mockUserPrefs = vi.hoisted((): { locale: string; units: 'metric' | 'imperial' } => ({
+  locale: 'de',
+  units: 'metric',
+}))
 
 // Stub out API calls so tests don't reach the network.
 vi.mock('@/api/gear', () => ({
@@ -24,6 +29,9 @@ vi.mock('@/components/MaintenanceAlerts', () => ({
 vi.mock('@/components/GearMergePanel', () => ({
   default: () => null,
 }))
+vi.mock('@/providers/UserProvider', () => ({
+  useUser: () => mockUserPrefs,
+}))
 
 function renderGearPage(initialEntry = '/gear') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -37,6 +45,14 @@ function renderGearPage(initialEntry = '/gear') {
 }
 
 describe('GearPage', () => {
+  beforeEach(() => {
+    mockUserPrefs.locale = 'de'
+    mockUserPrefs.units = 'metric'
+    vi.mocked(fetchGear).mockResolvedValue([])
+    vi.mocked(fetchGearDocuments).mockResolvedValue([])
+    vi.mocked(downloadGearDocumentBlob).mockResolvedValue('blob:gear-photo')
+  })
+
   it('TestGearPageRendersAllEightScopes', async () => {
     renderGearPage()
 
@@ -111,12 +127,51 @@ describe('GearPage', () => {
     renderGearPage('/gear?type=bike')
 
     expect(await screen.findByText('Propain Tyee 2020')).toBeInTheDocument()
-    expect(screen.getByText('3262 km')).toBeInTheDocument()
+    expect(screen.getByText('3.262,1 km')).toBeInTheDocument()
     expect(screen.getByText('442 h')).toBeInTheDocument()
     expect(screen.getByText('Radfahren')).toBeInTheDocument()
     expect(screen.queryByText('Aktivität')).not.toBeInTheDocument()
     expect(screen.queryByText('3262.14 km')).not.toBeInTheDocument()
     expect(screen.queryByText('441h 43min')).not.toBeInTheDocument()
+  })
+
+  it('TestGearCardUsesUserUnitPreferenceForDistanceAndElevation', async () => {
+    mockUserPrefs.locale = 'en'
+    mockUserPrefs.units = 'imperial'
+    vi.mocked(fetchGear).mockResolvedValue([
+      gearFixture({
+        id: 'bike-1',
+        name: 'Unit Bike',
+        type: 'bike',
+        scope: 'bike',
+        total_distance_m: 3218.688,
+        total_elevation_gain_m: 100,
+      }),
+    ])
+
+    renderGearPage('/gear?type=bike')
+
+    expect(await screen.findByText('Unit Bike')).toBeInTheDocument()
+    expect(screen.getByText('2.0 mi')).toBeInTheDocument()
+    expect(screen.getByText('+328 ft')).toBeInTheDocument()
+    expect(screen.queryByText('3 km')).not.toBeInTheDocument()
+    expect(screen.queryByText('+100 m')).not.toBeInTheDocument()
+  })
+
+  it('does not expose unknown backend gear status values as labels', async () => {
+    vi.mocked(fetchGear).mockResolvedValue([
+      gearFixture({
+        id: 'gear-status-1',
+        name: 'Status Test',
+        status: 'private_backend_status' as Gear['status'],
+      }),
+    ])
+
+    renderGearPage('/gear?type=bike')
+
+    expect(await screen.findByText('Status Test')).toBeInTheDocument()
+    expect(screen.getByText('Unbekannter Status')).toBeInTheDocument()
+    expect(screen.queryByText('private_backend_status')).not.toBeInTheDocument()
   })
 })
 

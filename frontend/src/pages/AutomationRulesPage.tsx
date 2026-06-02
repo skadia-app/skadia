@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   fetchRules,
   createRule,
@@ -19,6 +21,16 @@ import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
 import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
+import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import {
+  formatDistanceCompact as formatUnitDistanceCompact,
+  formatElevation as formatUnitElevation,
+  formatPace as formatUnitPace,
+  formatSpeed as formatUnitSpeed,
+  formatTemperature,
+  type UnitFormatOptions,
+} from '@/lib/units'
 
 const READONLY_SYNC_SYSTEM_TYPES = ['electric_sync', 'virtual_sync', 'indoor_sync'] as const
 
@@ -35,112 +47,132 @@ interface DryRunMatch {
   rules: { rule_name: string; action: string }[]
 }
 
-const FIELD_LABELS: Record<string, string> = {
-  sport_type: 'Sportart', sport_tuple: 'Sportauswahl', sub_type: 'Sub-Typ', source: 'Quelle',
-  intensity: 'Intensität', is_indoor: 'Indoor', has_gps: 'GPS',
-  visibility: 'Sichtbarkeit', title: 'Titel', description: 'Beschreibung',
-  elapsed_time_s: 'Gesamtzeit', moving_time_s: 'Bewegungszeit',
-  weekday: 'Wochentag', month: 'Monat', season: 'Jahreszeit',
-  time_of_day: 'Tageszeit', distance_m: 'Distanz',
-  avg_speed_ms: 'Ø Geschwindigkeit', max_speed_ms: 'Max. Geschwindigkeit',
-  elevation_gain_m: 'Höhenmeter', elevation_loss_m: 'Höhenverlust',
-  max_elevation_m: 'Max. Höhe', min_elevation_m: 'Min. Höhe',
-  avg_heart_rate: 'Ø HF', max_heart_rate: 'Max. HF', min_heart_rate: 'Min. HF',
-  avg_cadence: 'Ø Kadenz', max_cadence: 'Max. Kadenz',
-  avg_power_w: 'Ø Leistung', max_power_w: 'Max. Leistung',
-  normalized_power_w: 'NP', tss: 'TSS', trimp: 'TRIMP',
-  avg_temperature_c: 'Ø Temperatur', min_temperature_c: 'Min. Temperatur',
-  max_temperature_c: 'Max. Temperatur',
-  start_city: 'Startort', start_state: 'Region', start_country: 'Land',
-  end_city: 'Endort', gear_id: 'Ausrüstung',
-  has_tag: 'Tag', photo_count: 'Fotos', detected_lap_count: 'Runden',
-  hide_map: 'Karte verborgen', sun_elevation: 'Sonnenstand',
-  start_end_distance_m: 'Start-End-Abstand',
-  has_lift: 'Lift', lift_count: 'Lifte',
-  climb_count: 'Anstiege', climb_category_max: 'Härteste Kategorie',
-  has_summit: 'Gipfel', summit_count: 'Anz. Gipfel',
-  has_pass: 'Pass', border_crossing_count: 'Ländergrenzquerungen',
-  has_gastronomy_stop: 'Einkehr',
-  has_structured_intervals: 'Intervalle', has_hc_climb: 'HC-Anstieg',
-  surface_paved_pct: 'Asphalt %', surface_gravel_pct: 'Gravel %',
-  surface_trail_pct: 'Trail %',
-  swim_stroke: 'Schwimmstil', pool_length_m: 'Bahnlänge',
-  max_depth_m: 'Max. Tiefe', jump_count: 'Sprünge',
-  weather_temp_c: 'Wetter-Temp.', weather_condition: 'Wetterlage',
-}
-
-const OP_DISPLAY: Record<string, string> = {
+const OP_SYMBOLS: Record<string, string> = {
   eq: '=', neq: '≠', gt: '>', lt: '<', gte: '≥', lte: '≤',
-  contains: 'enthält', not_contains: 'enthält nicht',
-  starts_with: 'beginnt mit', ends_with: 'endet mit',
-  between: 'zwischen', in: 'in',
 }
 
-function formatConditionValue(c: { field: string; op: string; value: unknown }): string {
-  if (c.field === 'sport_tuple') return formatSportTupleConditionValue(c.value)
-  if (typeof c.value === 'boolean') return c.value ? 'Ja' : 'Nein'
+const OP_I18N_KEYS: Record<string, string> = {
+  contains: 'contains',
+  not_contains: 'notContains',
+  starts_with: 'startsWith',
+  ends_with: 'endsWith',
+  between: 'between',
+  in: 'in',
+}
+
+const DISTANCE_FIELDS = new Set(['distance_m', 'start_end_distance_m', 'net_distance_m', 'lift_distance_m'])
+const SPEED_FIELDS = new Set(['avg_speed_ms', 'max_speed_ms', 'min_speed_ms', 'weather_wind_speed_ms', 'weather_wind_gusts_ms'])
+const PACE_FIELDS = new Set(['avg_pace_min_km', 'min_pace_min_km', 'max_pace_min_km'])
+const TEMPERATURE_FIELDS = new Set(['avg_temperature_c', 'min_temperature_c', 'max_temperature_c', 'weather_temp_c', 'weather_temp_min_c', 'weather_temp_max_c'])
+
+function currentLanguage(language: string): SupportedLanguage {
+  const code = language.split('-')[0]
+  return isSupportedLanguage(code) ? code : 'de'
+}
+
+function fieldLabel(field: string, t: TFunction): string {
+  const key = `automationRules.summary.fields.${field}`
+  const label = t(key)
+  return label === key ? t('automationRules.summary.unknownField') : label
+}
+
+function hasActionLabel(action: string, t: TFunction): boolean {
+  const key = `automationRules.summary.actions.${action}`
+  return t(key) !== key
+}
+
+function opLabel(op: string, t: TFunction): string {
+  if (OP_SYMBOLS[op]) return OP_SYMBOLS[op]
+  const key = OP_I18N_KEYS[op]
+  return key ? t(`ruleEditor.operators.${key}`) : op
+}
+
+function yesNo(value: unknown, t: TFunction): string {
+  return value ? t('ruleEditor.choices.yes') : t('ruleEditor.choices.no')
+}
+
+function numericConditionValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+function formatNumericConditionValue(field: string, value: unknown, unitOptions: UnitFormatOptions): string | null {
+  const numeric = numericConditionValue(value)
+  if (numeric == null) return null
+  if (DISTANCE_FIELDS.has(field)) return formatUnitDistanceCompact(numeric, unitOptions)
+  if (SPEED_FIELDS.has(field)) return formatUnitSpeed(numeric, unitOptions)
+  if (PACE_FIELDS.has(field)) return formatUnitPace(numeric * 60, unitOptions)
+  if (TEMPERATURE_FIELDS.has(field)) return formatTemperature(numeric, unitOptions)
+  return null
+}
+
+function formatConditionValue(c: { field: string; op: string; value: unknown }, t: TFunction, language: SupportedLanguage, unitOptions: UnitFormatOptions): string {
+  if (c.field === 'sport_tuple') return formatSportTupleConditionValue(c.value, t, language)
+  if (typeof c.value === 'boolean') return yesNo(c.value, t)
   if (c.value === null || c.value === undefined) return ''
   const v = String(c.value)
-  // Sport type → German label
-  if (c.field === 'sport_type') return sportLabel(v)
-  // Distance in meters → formatted with unit
-  if (c.field === 'distance_m' || c.field === 'start_end_distance_m' || c.field === 'net_distance_m') {
-    const n = Number(v)
-    if (!isNaN(n)) return n >= 10000 ? `${(n / 1000).toFixed(1)} km` : `${n} m`
-  }
-  // Elevation → with unit
+  // Sport type -> localized label
+  if (c.field === 'sport_type') return sportLabel(v, null, { language })
+  const formattedNumeric = formatNumericConditionValue(c.field, c.value, unitOptions)
+  if (formattedNumeric) return formattedNumeric
   if (c.field.includes('elevation') || c.field.includes('ascent') || c.field.includes('descent')) {
     const n = Number(v)
-    if (!isNaN(n)) return `${n} m`
+    if (!isNaN(n)) return formatUnitElevation(n, unitOptions)
   }
   // Between: "min,max" → formatted
   if (c.op === 'between' && v.includes(',')) {
     const [lo, hi] = v.split(',', 2)
     const loN = Number(lo), hiN = Number(hi)
-    if (c.field === 'distance_m' && !isNaN(loN) && !isNaN(hiN)) {
-      return `${(loN / 1000).toFixed(1)}–${(hiN / 1000).toFixed(1)} km`
+    if (!isNaN(loN) && !isNaN(hiN)) {
+      const formattedLo = formatNumericConditionValue(c.field, loN, unitOptions)
+      const formattedHi = formatNumericConditionValue(c.field, hiN, unitOptions)
+      if (formattedLo && formattedHi) return `${formattedLo}–${formattedHi}`
     }
     return `${lo}–${hi}`
   }
   return v
 }
 
-function formatSportTupleConditionValue(value: unknown): string {
+function formatSportTupleConditionValue(value: unknown, t: TFunction, language: SupportedLanguage): string {
   if (!Array.isArray(value)) return ''
   return value.map((entry) => {
     const tuple = entry as RuleSportTupleConditionValue
-    const parts = [sportDetailLabel(tuple.sport_type, tuple.sub_type ?? null)]
-    if (tuple.is_electric !== undefined) parts.push(`E-Antrieb=${tuple.is_electric ? 'Ja' : 'Nein'}`)
-    if (tuple.is_indoor !== undefined) parts.push(`Indoor=${tuple.is_indoor ? 'Ja' : 'Nein'}`)
-    if (tuple.is_virtual !== undefined) parts.push(`Virtuell=${tuple.is_virtual ? 'Ja' : 'Nein'}`)
-    if (tuple.is_commute !== undefined) parts.push(`Pendeln=${tuple.is_commute ? 'Ja' : 'Nein'}`)
+    const parts = [sportDetailLabel(tuple.sport_type, tuple.sub_type ?? null, language)]
+    if (tuple.is_electric !== undefined) parts.push(`${t('automationRules.summary.modifiers.electric')}=${yesNo(tuple.is_electric, t)}`)
+    if (tuple.is_indoor !== undefined) parts.push(`${t('automationRules.summary.modifiers.indoor')}=${yesNo(tuple.is_indoor, t)}`)
+    if (tuple.is_virtual !== undefined) parts.push(`${t('automationRules.summary.modifiers.virtual')}=${yesNo(tuple.is_virtual, t)}`)
+    if (tuple.is_commute !== undefined) parts.push(`${t('automationRules.summary.modifiers.commute')}=${yesNo(tuple.is_commute, t)}`)
     return parts.join(', ')
-  }).join(' ODER ')
+  }).join(` ${t('ruleEditor.logic.or')} `)
 }
 
-function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags?: { id: string; name: string }[]): string {
+function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags: { id: string; name: string }[] | undefined, t: TFunction, language: SupportedLanguage): string {
   if (!params) return ''
+  if (!hasActionLabel(action, t)) return ''
   if ((action === 'add_tag' || action === 'remove_tag') && params.tag_id) {
     const tag = tags?.find((t) => t.id === params.tag_id)
     return tag ? `"${tag.name}"` : String(params.tag_id)
   }
   if (action === 'set_field' && params.field) {
-    const label = FIELD_LABELS[String(params.field)] || String(params.field)
+    const label = fieldLabel(String(params.field), t)
     return `${label} = ${params.value}`
   }
-  if (action === 'set_sport_type') return sportDetailLabel(String(params.sport_type || ''), params.sub_type == null ? null : String(params.sub_type))
-  if (action === 'set_electric') return params.electric ? 'Ja' : 'Nein'
+  if (action === 'set_sport_type') return sportDetailLabel(String(params.sport_type || ''), params.sub_type == null ? null : String(params.sub_type), language)
+  if (action === 'set_electric') return yesNo(params.electric, t)
   if (action === 'set_name') return `"${params.template || ''}"`
   if (action === 'set_visibility') return String(params.visibility || '')
   if (action === 'set_intensity') return String(params.intensity || '')
-  if (action === 'set_indoor') return params.indoor ? 'Ja' : 'Nein'
-  if (action === 'set_virtual') return params.virtual ? 'Ja' : 'Nein'
-  if (action === 'set_commute') return params.commute ? 'Ja' : 'Nein'
+  if (action === 'set_indoor') return yesNo(params.indoor, t)
+  if (action === 'set_virtual') return yesNo(params.virtual, t)
+  if (action === 'set_commute') return yesNo(params.commute, t)
   if (action === 'set_gear' && params.gear_id) return String(params.gear_id)
   return JSON.stringify(params)
 }
 
 export default function AutomationRulesPage() {
+  const { t, i18n } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -163,7 +195,7 @@ export default function AutomationRulesPage() {
   // Build initial rule data from URL params
   const initialRuleData: Partial<AutomationRule> | undefined = urlNew && (urlTagName || urlTagId)
     ? {
-        name: urlTagName ? `Tag "${urlTagName}" vergeben` : '',
+        name: urlTagName ? `${t('automationRules.summary.actions.add_tag')} "${urlTagName}"` : '',
         actions: [{ action: 'add_tag', params: { tag: urlTagName ?? '' } }],
       }
     : undefined
@@ -174,7 +206,12 @@ export default function AutomationRulesPage() {
       const result = await dryRunAllRules()
       setDryRunResults(result)
     } catch {
-      addToast({ type: 'error', title: 'Vorschau fehlgeschlagen', message: 'Regeln konnten nicht ausgewertet werden', duration: 0 })
+      addToast({
+        type: 'error',
+        title: t('automationRules.toasts.previewFailed'),
+        message: t('automationRules.toasts.rulesCouldNotBeEvaluated'),
+        duration: 0,
+      })
     } finally {
       setDryRunLoading(false)
     }
@@ -224,8 +261,8 @@ export default function AutomationRulesPage() {
       // the human-readable message rather than the full JSON envelope.
       const msg = err instanceof ApiError
         ? (typeof err.json?.detail === 'string' ? err.json.detail : err.body)
-        : err instanceof Error ? err.message : 'Unbekannter Fehler'
-      addToast({ type: 'error', title: 'Regel konnte nicht gelöscht werden', message: msg, duration: 0 })
+        : err instanceof Error ? err.message : t('tagsPage.unknownError')
+      addToast({ type: 'error', title: t('automationRules.toasts.deleteFailed'), message: msg, duration: 0 })
     },
   })
 
@@ -266,7 +303,7 @@ export default function AutomationRulesPage() {
   ]
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Regeln...</div>
+    return <div className="flex items-center justify-center h-64 text-neutral-400">{t('automationRules.loading')}</div>
   }
 
   return (
@@ -275,11 +312,11 @@ export default function AutomationRulesPage() {
         to={urlTagName || urlTagId ? '/workshop/tags' : '/workshop'}
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> {urlTagName || urlTagId ? 'Tags' : 'Werkstatt'}
+        <span>&#8592;</span> {urlTagName || urlTagId ? t('automationRules.backToTags') : t('navigation.workshop')}
       </Link>
 
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Automatisierungsregeln</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{t('automationRules.title')}</h1>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 cursor-pointer select-none">
             <input
@@ -288,27 +325,27 @@ export default function AutomationRulesPage() {
               onChange={e => setShowReadonlySyncRules(e.target.checked)}
               className="rounded"
             />
-            Sync-Regeln anzeigen
+            {t('automationRules.showSyncRules')}
           </label>
           <button
             onClick={handleDryRunAll}
             disabled={dryRunLoading || applyMutation.isPending}
             className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            {dryRunLoading ? 'Prüfe...' : 'Vorschau'}
+            {dryRunLoading ? t('automationRules.actions.checking') : t('automationRules.actions.preview')}
           </button>
           <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending || dryRunLoading}
             className="px-4 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            {applyMutation.isPending ? 'Wird angewendet...' : 'Regeln anwenden'}
+            {applyMutation.isPending ? t('automationRules.actions.applying') : t('automationRules.actions.applyRules')}
           </button>
           <button
             onClick={() => setCreating(true)}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
           >
-            Regel erstellen
+            {t('automationRules.actions.createRule')}
           </button>
         </div>
       </div>
@@ -317,10 +354,10 @@ export default function AutomationRulesPage() {
         <div className="rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-3 text-sm">
           <span className="text-emerald-700 dark:text-emerald-400">
             {applyResult.job_id
-              ? 'Regelanwendung gestartet'
+              ? t('automationRules.results.started')
               : applyResult.applied != null
-                ? `${applyResult.applied} Regel(n) angewendet`
-                : 'Regelanwendung abgeschlossen'}
+                ? t('automationRules.results.applied', { count: applyResult.applied })
+                : t('automationRules.results.completed')}
           </span>
         </div>
       )}
@@ -328,7 +365,7 @@ export default function AutomationRulesPage() {
       {/* Search */}
       <input
         type="text"
-        placeholder="Regeln durchsuchen..."
+        placeholder={t('automationRules.searchPlaceholder')}
         value={search}
         onChange={e => setSearch(e.target.value)}
         className="w-full border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
@@ -337,7 +374,7 @@ export default function AutomationRulesPage() {
       {/* Create form */}
       {creating && (
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Regel</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">{t('automationRules.newRule')}</h2>
           <RuleEditor
             initialData={initialRuleData}
             onSave={(data) => createMutation.mutate(data)}
@@ -350,13 +387,13 @@ export default function AutomationRulesPage() {
       {/* System rules section */}
       {systemRules.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">System-Regeln</h3>
+          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">{t('automationRules.systemRules')}</h3>
           <div className="space-y-3">
             {sortedSystemRules.map((rule) => (
               <div key={rule.id}>
                 {editingId === rule.id ? (
                   <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Regel bearbeiten</h2>
+                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">{t('automationRules.editRule')}</h2>
                     <RuleEditor
                       rule={rule}
                       onSave={(data) => updateMutation.mutate({ id: rule.id, data })}
@@ -384,14 +421,14 @@ export default function AutomationRulesPage() {
       {userRules.length > 0 ? (
         <div>
           {systemRules.length > 0 && (
-            <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">Meine Regeln</h3>
+            <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">{t('automationRules.myRules')}</h3>
           )}
           <div className="space-y-3">
             {userRules.map((rule) => (
               <div key={rule.id}>
                 {editingId === rule.id ? (
                   <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Regel bearbeiten</h2>
+                    <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">{t('automationRules.editRule')}</h2>
                     <RuleEditor
                       rule={rule}
                       onSave={(data) => updateMutation.mutate({ id: rule.id, data })}
@@ -416,7 +453,7 @@ export default function AutomationRulesPage() {
       ) : (
         !creating && systemRules.length === 0 && (
           <div className="text-center py-16 text-neutral-400">
-            Noch keine Regeln vorhanden.
+            {t('automationRules.empty')}
           </div>
         )
       )}
@@ -430,12 +467,12 @@ export default function AutomationRulesPage() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                Vorschau — Regeln anwenden
+                {t('automationRules.preview.title')}
               </h3>
               <button
                 onClick={() => setDryRunResults(null)}
                 className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
-                title="Schließen"
+                title={t('common.close')}
               >
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -444,11 +481,11 @@ export default function AutomationRulesPage() {
             </div>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {dryRunResults.total_matches === 0
-                ? 'Keine Aktivitäten würden von aktiven Regeln betroffen.'
+                ? t('automationRules.preview.noMatchesActive')
                 : dryRunResults.total_matches === 1
-                  ? '1 Aktivität würde betroffen sein.'
-                  : `${dryRunResults.total_matches} Aktivitäten würden betroffen sein.`}
-              {dryRunResults.truncated && ' (Vorschau zeigt die ersten 50 Treffer.)'}
+                  ? t('automationRules.preview.oneMatch')
+                  : t('automationRules.preview.matchCount', { count: dryRunResults.total_matches })}
+              {dryRunResults.truncated && t('automationRules.preview.truncated')}
             </p>
             {dryRunResults.matches.length > 0 && (
               <div className="overflow-y-auto flex-1 space-y-2">
@@ -464,10 +501,10 @@ export default function AutomationRulesPage() {
                         <span className="text-neutral-400 font-normal ml-2">{m.started_at}</span>
                       )}
                       {m.sport_type && (
-                        <span className="text-neutral-400 font-normal ml-2">{sportLabel(m.sport_type)}</span>
+                        <span className="text-neutral-400 font-normal ml-2">{sportLabel(m.sport_type, null, { language: currentLanguage(i18n.language) })}</span>
                       )}
                       {m.distance_m != null && m.distance_m > 0 && (
-                        <span className="text-neutral-400 font-normal ml-2">{(m.distance_m / 1000).toFixed(1)} km</span>
+                        <span className="text-neutral-400 font-normal ml-2">{unitFormatters.formatDistanceCompact(m.distance_m)}</span>
                       )}
                     </a>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
@@ -488,14 +525,14 @@ export default function AutomationRulesPage() {
                 onClick={() => setDryRunResults(null)}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
               >
-                Abbrechen
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => { setDryRunResults(null); applyMutation.mutate() }}
                 disabled={applyMutation.isPending}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                Regeln anwenden
+                {t('automationRules.actions.applyRules')}
               </button>
             </div>
           </div>
@@ -512,11 +549,11 @@ export default function AutomationRulesPage() {
               className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700 p-6 shadow-xl max-w-sm w-full mx-4 space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Regel löschen?</h3>
+              <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('automationRules.deleteDialog.title')}</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Soll die Automatisierungsregel{' '}
+                {t('automationRules.deleteDialog.confirmPrefix')}{' '}
                 <span className="font-semibold text-neutral-900 dark:text-neutral-100">"{ruleToDelete.name}"</span>{' '}
-                wirklich gelöscht werden? Diese Aktion kann nicht rückgängig gemacht werden.
+                {t('automationRules.deleteDialog.confirmSuffix')}
               </p>
               <div className="flex items-center justify-end gap-3">
                 <button
@@ -524,14 +561,14 @@ export default function AutomationRulesPage() {
                   disabled={deleteMutation.isPending}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Abbrechen
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={() => deleteMutation.mutate(deleteConfirmId)}
                   disabled={deleteMutation.isPending}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  {deleteMutation.isPending ? 'Wird gelöscht...' : 'Löschen'}
+                  {deleteMutation.isPending ? t('automationRules.deleteDialog.deleting') : t('automationRules.deleteDialog.delete')}
                 </button>
               </div>
             </div>
@@ -557,9 +594,12 @@ function RuleCard({
   onDelete: () => void
   onBackfill?: ReturnType<typeof useToast>['addToast']
 }) {
+  const { t, i18n } = useTranslation()
+  const unitFormatters = useUnitFormatters()
   const [backfillPreview, setBackfillPreview] = useState<DryRunSingleResult | null>(null)
   const [backfillLoading, setBackfillLoading] = useState(false)
   const [backfillApplying, setBackfillApplying] = useState(false)
+  const language = currentLanguage(i18n.language)
 
   async function handleBackfillPreview() {
     if (!onBackfill) return
@@ -568,7 +608,7 @@ function RuleCard({
       const result = await dryRunSingleRule(rule.id)
       setBackfillPreview(result)
     } catch {
-      onBackfill({ type: 'error', title: 'Vorschau fehlgeschlagen', message: 'Regel konnte nicht ausgewertet werden', duration: 0 })
+      onBackfill({ type: 'error', title: t('automationRules.toasts.previewFailed'), message: t('automationRules.toasts.ruleCouldNotBeEvaluated'), duration: 0 })
     } finally {
       setBackfillLoading(false)
     }
@@ -580,9 +620,9 @@ function RuleCard({
     try {
       await applySingleRule(rule.id)
       setBackfillPreview(null)
-      onBackfill({ type: 'success', title: `Regel "${rule.name}" wird angewendet` })
+      onBackfill({ type: 'success', title: t('automationRules.toasts.ruleWillBeApplied', { name: rule.name }) })
     } catch {
-      onBackfill({ type: 'error', title: 'Backfill fehlgeschlagen', message: 'Regel konnte nicht angewendet werden', duration: 0 })
+      onBackfill({ type: 'error', title: t('automationRules.toasts.backfillFailed'), message: t('automationRules.toasts.ruleCouldNotBeApplied'), duration: 0 })
     } finally {
       setBackfillApplying(false)
     }
@@ -591,11 +631,11 @@ function RuleCard({
   const isReadonlySystem = isReadonlySyncRule(rule)
 
   const readonlyDescriptions: Record<string, string> = {
-    electric_sync: 'Wird automatisch bei elektrischen Radfahrten gesetzt. Diese Regel kann nicht bearbeitet werden.',
-    virtual_sync: 'Wird automatisch aus Importdaten und Aktivitätsmerkmalen erkannt. Diese Regel kann nicht bearbeitet werden.',
-    indoor_sync: 'Wird automatisch anhand der Sportart und Sub-Sportart gesetzt. Diese Regel kann nicht bearbeitet werden.',
+    electric_sync: t('automationRules.readonly.electricSync'),
+    virtual_sync: t('automationRules.readonly.virtualSync'),
+    indoor_sync: t('automationRules.readonly.indoorSync'),
   }
-  const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
+  const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? t('automationRules.readonly.default')) : ''
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4">
@@ -608,24 +648,24 @@ function RuleCard({
             <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</h3>
             {rule.is_system && isReadonlySystem && (
               <span className="text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.5 rounded font-medium">
-                System
+                {t('automationRules.card.system')}
               </span>
             )}
-            <span className="text-xs text-neutral-400 tabular-nums">Prio {rule.priority}</span>
+            <span className="text-xs text-neutral-400 tabular-nums">{t('automationRules.card.priority', { priority: rule.priority })}</span>
             {rule.trigger_event && rule.trigger_event !== 'on_import' && (
               <span className="text-xs text-neutral-400 tabular-nums">
-                · {rule.trigger_event === 'on_enrichment_complete' ? 'Nach Enrichment' : 'Nur manuell'}
+                · {rule.trigger_event === 'on_enrichment_complete' ? t('ruleEditor.triggers.onEnrichmentComplete') : t('ruleEditor.triggers.onManualApply')}
               </span>
             )}
             {rule.stop_on_match && (
-              <span className="text-xs text-amber-500 tabular-nums">· Stoppt</span>
+              <span className="text-xs text-amber-500 tabular-nums">· {t('automationRules.card.stops')}</span>
             )}
-            <span className="text-xs text-neutral-400 tabular-nums">{rule.times_applied}x angewendet</span>
+            <span className="text-xs text-neutral-400 tabular-nums">{t('automationRules.card.timesApplied', { count: rule.times_applied })}</span>
             {rule.last_evaluated_at && (
               <span className="text-xs text-neutral-400 tabular-nums">
-                · Zuletzt: {new Date(rule.last_evaluated_at).toLocaleDateString('de-DE')}
+                · {t('automationRules.card.lastEvaluated', { date: new Date(rule.last_evaluated_at).toLocaleDateString(i18n.language) })}
                 {rule.last_matched_count != null && (
-                  <> ({rule.last_matched_count} Treffer)</>
+                  <> ({t('automationRules.card.matches', { count: rule.last_matched_count })})</>
                 )}
               </span>
             )}
@@ -638,12 +678,12 @@ function RuleCard({
             <div className="mt-1 space-y-0.5">
               {rule.branches.map((branch, i) => {
                 const condStr = branch.condition_groups?.flatMap(g => g.conditions).map(c =>
-                  `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`
-                ).join(' UND ') || ''
+                  `${fieldLabel(c.field, t)} ${opLabel(c.op, t)} ${formatConditionValue(c, t, language, unitFormatters.options)}`
+                ).join(` ${t('ruleEditor.logic.and')} `) || ''
                 const actStr = branch.actions.map(a =>
-                  `${actionLabel(a.action)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags)})`
+                  `${actionLabel(a.action, t)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags, t, language)})`
                 ).join(', ')
-                const prefix = branch.type === 'if' ? 'WENN' : branch.type === 'else' ? 'SONST' : 'SONST WENN'
+                const prefix = branch.type === 'if' ? t('automationRules.summary.if') : branch.type === 'else' ? t('automationRules.summary.else') : t('automationRules.summary.elseIf')
                 return (
                   <div key={i} className="text-sm text-neutral-500 dark:text-neutral-400">
                     <span className="font-mono text-xs">
@@ -661,13 +701,13 @@ function RuleCard({
                     const displayConditions = rule.conditions.length > 0
                       ? rule.conditions
                       : (rule.condition_groups ?? []).flatMap(g => g.conditions)
-                    return `WENN ${displayConditions.map((c) => `${FIELD_LABELS[c.field] || c.field} ${OP_DISPLAY[c.op] || c.op} ${formatConditionValue(c)}`).join(' UND ')}`
+                    return `${t('automationRules.summary.if')} ${displayConditions.map((c) => `${fieldLabel(c.field, t)} ${opLabel(c.op, t)} ${formatConditionValue(c, t, language, unitFormatters.options)}`).join(` ${t('ruleEditor.logic.and')} `)}`
                   })()}
                 </span>
               </div>
               <div className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
                 <span className="font-mono text-xs">
-                  DANN {rule.actions.map((a) => `${actionLabel(a.action)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags)})`).join(', ')}
+                  {t('automationRules.summary.then')} {rule.actions.map((a) => `${actionLabel(a.action, t)}(${formatActionParams(a.action, a.params as Record<string, unknown> | undefined, tags, t, language)})`).join(', ')}
                 </span>
               </div>
             </>
@@ -680,7 +720,7 @@ function RuleCard({
             <Toggle
               checked={rule.is_active}
               onChange={(active) => onToggle(active)}
-              aria-label={`${rule.name} aktivieren`}
+              aria-label={t('automationRules.card.toggleActive', { name: rule.name })}
             />
             {/* Backfill button: for all non-readonly system rules */}
             {!isReadonlySystem && onBackfill && (
@@ -688,9 +728,9 @@ function RuleCard({
                 onClick={handleBackfillPreview}
                 disabled={backfillLoading || backfillApplying}
                 className="text-xs px-2 py-1 rounded border border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400 hover:border-orange-400 hover:text-orange-600 dark:hover:text-orange-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                title="Regel auf alle Aktivitäten anwenden"
+                title={t('automationRules.card.applyToAllTitle')}
               >
-                {backfillLoading ? 'Prüfe...' : 'Backfill'}
+                {backfillLoading ? t('automationRules.actions.checking') : t('automationRules.card.backfill')}
               </button>
             )}
             {/* Delete button: disabled with tooltip for system rules, active for user rules */}
@@ -698,7 +738,7 @@ function RuleCard({
               onClick={rule.is_system ? undefined : onDelete}
               disabled={rule.is_system}
               className="text-neutral-400 hover:text-rose-500 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-neutral-400"
-              title={rule.is_system ? 'System-Regeln können nicht gelöscht werden' : 'Regel löschen'}
+              title={rule.is_system ? t('automationRules.card.systemRulesCannotBeDeleted') : t('automationRules.card.deleteRule')}
             >
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
@@ -713,11 +753,11 @@ function RuleCard({
         <div className="mt-3 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/10 px-3 py-2.5 space-y-2">
           <p className="text-sm text-neutral-700 dark:text-neutral-300">
             {backfillPreview.total_matches === 0
-              ? 'Keine Aktivitäten würden von dieser Regel betroffen.'
+              ? t('automationRules.preview.noMatchesSingle')
               : backfillPreview.total_matches === 1
-                ? '1 Aktivität würde betroffen sein.'
-                : `${backfillPreview.total_matches} Aktivitäten würden betroffen sein.`}
-            {backfillPreview.truncated && ' (Vorschau zeigt die ersten 50 Treffer.)'}
+                ? t('automationRules.preview.oneMatch')
+                : t('automationRules.preview.matchCount', { count: backfillPreview.total_matches })}
+            {backfillPreview.truncated && t('automationRules.preview.truncated')}
           </p>
           {backfillPreview.matches.length > 0 && (
             <ul className="text-xs text-neutral-600 dark:text-neutral-400 space-y-0.5 max-h-32 overflow-y-auto">
@@ -731,7 +771,7 @@ function RuleCard({
               onClick={() => setBackfillPreview(null)}
               className="text-xs px-2 py-1 rounded border border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             >
-              Abbrechen
+              {t('common.cancel')}
             </button>
             {backfillPreview.total_matches > 0 && (
               <button
@@ -739,7 +779,7 @@ function RuleCard({
                 disabled={backfillApplying}
                 className="text-xs px-2 py-1 rounded bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                {backfillApplying ? 'Wird gestartet...' : 'Jetzt anwenden'}
+                {backfillApplying ? t('automationRules.actions.starting') : t('automationRules.actions.applyNow')}
               </button>
             )}
           </div>
@@ -749,20 +789,8 @@ function RuleCard({
   )
 }
 
-function actionLabel(action: string): string {
-  const labels: Record<string, string> = {
-    set_gear: 'Ausrüstung',
-    add_tag: 'Tag',
-    remove_tag: 'Tag entfernen',
-    set_visibility: 'Sichtbarkeit',
-    set_sport_type: 'Sportart',
-    set_electric: 'E-Antrieb',
-    set_name: 'Titel',
-    set_intensity: 'Intensität',
-    set_indoor: 'Indoor',
-    set_virtual: 'Virtuell',
-    set_commute: 'Pendeln',
-    set_field: 'Feld setzen',
-  }
-  return labels[action] ?? action
+function actionLabel(action: string, t: TFunction): string {
+  return hasActionLabel(action, t)
+    ? t(`automationRules.summary.actions.${action}`)
+    : t('automationRules.summary.unknownAction')
 }

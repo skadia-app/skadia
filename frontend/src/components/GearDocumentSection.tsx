@@ -3,6 +3,7 @@ import 'react-pdf/dist/Page/TextLayer.css'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   fetchGearDocuments, uploadGearDocument, deleteGearDocument,
   downloadGearDocumentBlob,
@@ -18,13 +19,16 @@ interface Props {
   gearId: string
 }
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  receipt: 'Rechnung',
-  invoice: 'Rechnung',
-  warranty: 'Garantie',
-  manual: 'Handbuch',
-  photo: 'Foto',
-  other: 'Sonstiges',
+function docTypeLabel(docType: string, t: ReturnType<typeof useTranslation>['t']): string {
+  const labels: Record<string, string> = {
+    receipt: t('gearPages.documents.types.receipt'),
+    invoice: t('gearPages.documents.types.invoice'),
+    warranty: t('gearPages.documents.types.warranty'),
+    manual: t('gearPages.documents.types.manual'),
+    photo: t('gearPages.documents.types.photo'),
+    other: t('gearPages.documents.types.other'),
+  }
+  return labels[docType] ?? t('gearPages.documents.types.unknown')
 }
 
 function DocTypeIcon({ docType, className = 'w-5 h-5' }: { docType: string; className?: string }) {
@@ -70,11 +74,14 @@ const STATUS_STYLES: Record<string, string> = {
   failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  idle: 'Bereit',
-  pending: 'Ausstehend',
-  processed: 'Verarbeitet',
-  failed: 'Fehlgeschlagen',
+function processingStatusLabel(status: string, t: ReturnType<typeof useTranslation>['t']): string {
+  const labels: Record<string, string> = {
+    idle: t('gearPages.documents.status.idle'),
+    pending: t('gearPages.documents.status.pending'),
+    processed: t('gearPages.documents.status.processed'),
+    failed: t('gearPages.documents.status.failed'),
+  }
+  return labels[status] ?? t('gearPages.documents.status.unknown')
 }
 
 function showProcessingBadge(status?: string): boolean {
@@ -87,16 +94,17 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string, locale: string): string {
   const d = new Date(dateStr)
-  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return d.toLocaleDateString(locale || undefined, { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function formatCurrency(amount: number, currency: string): string {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: currency || 'EUR' }).format(amount)
+function formatCurrency(amount: number, currency: string, locale: string): string {
+  return new Intl.NumberFormat(locale || undefined, { style: 'currency', currency: currency || 'EUR' }).format(amount)
 }
 
 export default function GearDocumentSection({ gearId }: Props) {
+  const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [collapsed, setCollapsed] = useState<boolean | null>(null)
@@ -124,14 +132,14 @@ export default function GearDocumentSection({ gearId }: Props) {
         resolved.add(docId)
         addToast({
           type: 'success',
-          title: 'Dokument verarbeitet',
+          title: t('gearPages.documents.toasts.processed'),
           message: doc.title || doc.original_filename,
         })
       } else if (doc.processing_status === 'failed') {
         resolved.add(docId)
         addToast({
           type: 'error',
-          title: 'Dokumentverarbeitung fehlgeschlagen',
+          title: t('gearPages.documents.toasts.processingFailed'),
           message: doc.title || doc.original_filename,
           duration: 0,
         })
@@ -175,7 +183,7 @@ export default function GearDocumentSection({ gearId }: Props) {
           className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
         >
           <span>
-            Dokumente{' '}
+            {t('gearPages.documents.title')}{' '}
             {docs.length > 0 && <span className="text-neutral-400">({docs.length})</span>}
           </span>
           <svg
@@ -196,7 +204,7 @@ export default function GearDocumentSection({ gearId }: Props) {
                   <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.736 6.979C9.208 6.193 9.696 6 10 6c.304 0 .792.193 1.264.979a1 1 0 001.715-1.029C12.279 4.784 11.232 4 10 4s-2.279.784-2.979 1.95c-.285.475-.507 1-.67 1.55H6a1 1 0 000 2h.013a9.358 9.358 0 000 1H6a1 1 0 100 2h.351c.163.55.385 1.075.67 1.55C7.721 15.216 8.768 16 10 16s2.279-.784 2.979-1.95a1 1 0 10-1.715-1.029c-.472.786-.96.979-1.264.979-.304 0-.792-.193-1.264-.979a5.389 5.389 0 01-.421-.821H10a1 1 0 100-2H8.014a7.36 7.36 0 010-1H10a1 1 0 100-2H8.315c.134-.292.29-.566.421-.821z" />
                 </svg>
                 <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                  Dokumentierte Kosten: {formatCurrency(totalCost, costCurrency)}
+                  {t('gearPages.documents.documentedCosts', { amount: formatCurrency(totalCost, costCurrency, i18n.language) })}
                 </span>
               </div>
             )}
@@ -218,20 +226,20 @@ export default function GearDocumentSection({ gearId }: Props) {
                         {doc.title || doc.original_filename}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                        <span>{DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}</span>
+                        <span>{docTypeLabel(doc.doc_type, t)}</span>
                         <span>·</span>
                         <span>{formatFileSize(doc.file_size_bytes)}</span>
                         {doc.document_date && (
                           <>
                             <span>·</span>
-                            <span>{formatDate(doc.document_date)}</span>
+                            <span>{formatDate(doc.document_date, i18n.language)}</span>
                           </>
                         )}
                         {doc.document_amount != null && doc.document_amount > 0 && (
                           <>
                             <span>·</span>
                             <span className="font-medium text-neutral-700 dark:text-neutral-300">
-                              {formatCurrency(doc.document_amount, doc.document_currency ?? 'EUR')}
+                              {formatCurrency(doc.document_amount, doc.document_currency ?? 'EUR', i18n.language)}
                             </span>
                           </>
                         )}
@@ -239,7 +247,7 @@ export default function GearDocumentSection({ gearId }: Props) {
                     </div>
                     {showProcessingBadge(doc.processing_status) && (
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_STYLES[doc.processing_status ?? 'pending'] ?? STATUS_STYLES.pending}`}>
-                        {STATUS_LABELS[doc.processing_status ?? 'pending'] ?? doc.processing_status}
+                        {processingStatusLabel(doc.processing_status ?? 'pending', t)}
                       </span>
                     )}
                   </button>
@@ -247,7 +255,7 @@ export default function GearDocumentSection({ gearId }: Props) {
               </div>
             ) : (
               <div className="px-4 py-6 text-center text-sm text-neutral-400">
-                Noch keine Dokumente vorhanden.
+                {t('gearPages.documents.empty')}
               </div>
             )}
 
@@ -257,7 +265,7 @@ export default function GearDocumentSection({ gearId }: Props) {
                 onClick={() => setUploadOpen(true)}
                 className="text-xs text-[var(--color-accent-DEFAULT,#F97316)] hover:text-[var(--color-accent-600,#EA580C)] cursor-pointer font-medium"
               >
-                + Dokument hinzufügen
+                {t('gearPages.documents.add')}
               </button>
             </div>
           </div>
@@ -284,6 +292,7 @@ export default function GearDocumentSection({ gearId }: Props) {
       {previewDoc && (
         <PreviewPanel
           doc={previewDoc}
+          locale={i18n.language}
           onClose={() => setPreviewDoc(null)}
           onDelete={(docId) => setDeleteConfirmId(docId)}
         />
@@ -292,9 +301,9 @@ export default function GearDocumentSection({ gearId }: Props) {
       {/* Delete Confirm */}
       {deleteConfirmId && (
         <ConfirmModal
-          title="Dokument löschen?"
-          message="Das Dokument wird unwiderruflich gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden."
-          confirmLabel="Löschen"
+          title={t('gearPages.documents.deleteTitle')}
+          message={t('gearPages.documents.deleteMessage')}
+          confirmLabel={t('gearPages.actions.delete')}
           onConfirm={() => deleteMutation.mutate(deleteConfirmId)}
           onClose={() => setDeleteConfirmId(null)}
           isPending={deleteMutation.isPending}
@@ -315,6 +324,7 @@ function UploadDialog({
   onClose: () => void
   onSuccess: (doc: GearDocument) => void
 }) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [docType, setDocType] = useState('receipt')
   const [title, setTitle] = useState('')
@@ -350,7 +360,7 @@ function UploadDialog({
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-lg" className="p-0 overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Dokument hinzufügen</h3>
+          <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gearPages.documents.add')}</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-neutral-600 cursor-pointer transition-colors"
@@ -397,9 +407,9 @@ function UploadDialog({
                   <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                 </svg>
                 <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                  Datei hierher ziehen oder <span className="text-[var(--color-accent-DEFAULT,#F97316)] font-medium">auswählen</span>
+                  {t('gearPages.documents.dropPrefix')} <span className="text-[var(--color-accent-DEFAULT,#F97316)] font-medium">{t('gearPages.documents.chooseFile')}</span>
                 </p>
-                <p className="text-xs text-neutral-400">PDF, JPG, PNG — max. 10 MB</p>
+                <p className="text-xs text-neutral-400">{t('gearPages.documents.fileHint')}</p>
               </div>
             )}
           </div>
@@ -407,33 +417,33 @@ function UploadDialog({
           {/* Form fields */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Typ</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">{t('gearPages.form.type')}</label>
               <select
                 value={docType}
                 onChange={e => setDocType(e.target.value)}
                 className={COMPACT_INPUT_CLASS}
               >
-                <option value="receipt">Rechnung</option>
-                <option value="warranty">Garantie</option>
-                <option value="manual">Handbuch</option>
-                <option value="photo">Foto</option>
-                <option value="other">Sonstiges</option>
+                <option value="receipt">{t('gearPages.documents.types.receipt')}</option>
+                <option value="warranty">{t('gearPages.documents.types.warranty')}</option>
+                <option value="manual">{t('gearPages.documents.types.manual')}</option>
+                <option value="photo">{t('gearPages.documents.types.photo')}</option>
+                <option value="other">{t('gearPages.documents.types.other')}</option>
               </select>
             </div>
 
             <div className="col-span-2">
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Titel (optional)</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">{t('gearPages.documents.titleOptional')}</label>
               <input
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                placeholder="z.B. Kaufbeleg Canyon Spectral"
+                placeholder={t('gearPages.documents.placeholders.title')}
                 className={COMPACT_INPUT_CLASS}
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Datum (optional)</label>
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">{t('gearPages.documents.dateOptional')}</label>
               <input
                 type="date"
                 value={docDate}
@@ -444,19 +454,19 @@ function UploadDialog({
 
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Betrag</label>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">{t('gearPages.documents.amount')}</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
-                  placeholder="0,00"
+                  placeholder={t('gearPages.documents.placeholders.amount')}
                   className={COMPACT_INPUT_CLASS}
                 />
               </div>
               <div className="w-20">
-                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">Währung</label>
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1 block">{t('gearPages.documents.currency')}</label>
                 <select
                   value={currency}
                   onChange={e => setCurrency(e.target.value)}
@@ -474,7 +484,7 @@ function UploadDialog({
           {/* Upload error */}
           {uploadMutation.isError && (
             <p className="text-sm text-rose-500">
-              Hochladen fehlgeschlagen: {uploadMutation.error instanceof Error ? uploadMutation.error.message : 'Unbekannt'}
+              {t('gearPages.documents.uploadFailed', { message: uploadMutation.error instanceof Error ? uploadMutation.error.message : t('gearPages.common.unknown') })}
             </p>
           )}
 
@@ -484,7 +494,7 @@ function UploadDialog({
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             >
-              Abbrechen
+              {t('gearPages.actions.cancel')}
             </button>
             <button
               onClick={() => uploadMutation.mutate()}
@@ -497,9 +507,9 @@ function UploadDialog({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Hochladen...
+                  {t('gearPages.documents.uploading')}
                 </span>
-              ) : 'Hochladen'}
+              ) : t('gearPages.documents.upload')}
             </button>
           </div>
         </div>
@@ -511,13 +521,16 @@ function UploadDialog({
 
 function PreviewPanel({
   doc,
+  locale,
   onClose,
   onDelete,
 }: {
   doc: GearDocument
+  locale: string
   onClose: () => void
   onDelete: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [numPages, setNumPages] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -593,7 +606,7 @@ function PreviewPanel({
       >
         <div
           role="separator"
-          aria-label="Vorschau-Breite ändern"
+          aria-label={t('gearPages.documents.resizePreview')}
           aria-orientation="vertical"
           onMouseDown={startResize}
           className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-accent-DEFAULT/40"
@@ -605,8 +618,8 @@ function PreviewPanel({
               {doc.title || doc.original_filename}
             </h3>
             <p className="text-xs text-neutral-500 mt-0.5">
-              {DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type} · {formatFileSize(doc.file_size_bytes)}
-              {doc.document_date && ` · ${formatDate(doc.document_date)}`}
+              {docTypeLabel(doc.doc_type, t)} · {formatFileSize(doc.file_size_bytes)}
+              {doc.document_date && ` · ${formatDate(doc.document_date, locale)}`}
             </p>
           </div>
           <button
@@ -647,7 +660,7 @@ function PreviewPanel({
                 disabled={!blobUrl}
                 className="px-2.5 py-1 rounded-md text-xs font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
               >
-                Drucken
+                {t('gearPages.documents.print')}
               </button>
               <button
                 type="button"
@@ -655,7 +668,7 @@ function PreviewPanel({
                 disabled={!blobUrl}
                 className="px-2.5 py-1 rounded-md text-xs font-medium text-white bg-[var(--color-accent-DEFAULT,#F97316)] hover:bg-[var(--color-accent-600,#EA580C)] disabled:opacity-40"
               >
-                Herunterladen
+                {t('gearPages.documents.download')}
               </button>
             </div>
           </div>
@@ -722,7 +735,7 @@ function PreviewPanel({
               <svg className="w-12 h-12" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
               </svg>
-              <p>Vorschau nicht verfügbar</p>
+              <p>{t('gearPages.documents.previewUnavailable')}</p>
               <p className="text-xs">{doc.content_type}</p>
             </div>
           )}
@@ -734,14 +747,14 @@ function PreviewPanel({
             onClick={() => onDelete(doc.id)}
             className="text-xs text-rose-500 hover:text-rose-600 cursor-pointer font-medium"
           >
-            Löschen
+            {t('gearPages.actions.delete')}
           </button>
           <button
             onClick={handleDownload}
             disabled={!blobUrl}
             className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-[var(--color-accent-DEFAULT,#F97316)] hover:bg-[var(--color-accent-600,#EA580C)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
-            Herunterladen
+            {t('gearPages.documents.download')}
           </button>
         </div>
       </div>

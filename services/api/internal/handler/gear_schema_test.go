@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
-	"github.com/google/uuid"
 )
 
 // gearSchemaTestHandler returns a minimal Handler connected to the test DB.
@@ -51,7 +51,7 @@ func TestGetGearSchemaReturnsCompleteSchema(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	for _, key := range []string{"assignmentRoles", "optionSets", "attributes", "gearTypes", "version"} {
+	for _, key := range []string{"assignmentRoles", "optionSets", "unitGroups", "attributes", "gearTypes", "componentTypes", "version"} {
 		if _, ok := body[key]; !ok {
 			t.Errorf("response missing top-level key %q", key)
 		}
@@ -164,37 +164,53 @@ func TestGetGearSchemaWireFormatCamelCase(t *testing.T) {
 	// Wire types with camelCase tags — these must decode without error for the
 	// assertion to be meaningful.
 	type wireOptionValue struct {
-		Key     string `json:"key"`
-		LabelDe string `json:"labelDe"`
+		Key     string            `json:"key"`
+		LabelDe string            `json:"labelDe"`
+		Labels  map[string]string `json:"labels"`
 	}
 	type wireOptionSet struct {
 		Key     string            `json:"key"`
 		Options []wireOptionValue `json:"options"`
 	}
+	type wireUnitGroup struct {
+		Key     string            `json:"key"`
+		LabelDe string            `json:"labelDe"`
+		Labels  map[string]string `json:"labels"`
+	}
 	type wireAttribute struct {
-		Key          string `json:"key"`
-		LabelDe      string `json:"labelDe"`
-		ValueType    string `json:"valueType"`
-		OptionSetKey string `json:"optionSetKey"`
+		Key          string            `json:"key"`
+		LabelDe      string            `json:"labelDe"`
+		Labels       map[string]string `json:"labels"`
+		ValueType    string            `json:"valueType"`
+		OptionSetKey string            `json:"optionSetKey"`
 	}
 	type wireGearType struct {
-		Key                      string   `json:"key"`
-		LabelDe                  string   `json:"labelDe"`
-		Scope                    string   `json:"scope"`
-		DefaultAssignmentRoleKey string   `json:"defaultAssignmentRoleKey"`
-		AttributeKeys            []string `json:"attributeKeys"`
-		ModifierKeys             []string `json:"modifierKeys"`
+		Key                      string            `json:"key"`
+		LabelDe                  string            `json:"labelDe"`
+		Labels                   map[string]string `json:"labels"`
+		Scope                    string            `json:"scope"`
+		DefaultAssignmentRoleKey string            `json:"defaultAssignmentRoleKey"`
+		AttributeKeys            []string          `json:"attributeKeys"`
+		ModifierKeys             []string          `json:"modifierKeys"`
+	}
+	type wireComponentType struct {
+		Key     string            `json:"key"`
+		LabelDe string            `json:"labelDe"`
+		Labels  map[string]string `json:"labels"`
 	}
 	type wireAssignmentRole struct {
-		Key               string `json:"key"`
-		LabelDe           string `json:"labelDe"`
-		UniquePerActivity bool   `json:"uniquePerActivity"`
+		Key               string            `json:"key"`
+		LabelDe           string            `json:"labelDe"`
+		Labels            map[string]string `json:"labels"`
+		UniquePerActivity bool              `json:"uniquePerActivity"`
 	}
 	type wireSchema struct {
 		Version         int                  `json:"version"`
 		GearTypes       []wireGearType       `json:"gearTypes"`
+		ComponentTypes  []wireComponentType  `json:"componentTypes"`
 		AssignmentRoles []wireAssignmentRole `json:"assignmentRoles"`
 		OptionSets      []wireOptionSet      `json:"optionSets"`
+		UnitGroups      []wireUnitGroup      `json:"unitGroups"`
 		Attributes      []wireAttribute      `json:"attributes"`
 	}
 
@@ -214,6 +230,9 @@ func TestGetGearSchemaWireFormatCamelCase(t *testing.T) {
 	if gt0.LabelDe == "" {
 		t.Error("gearTypes[0].labelDe must not be empty (camelCase JSON tag check)")
 	}
+	if gt0.Labels["de"] == "" {
+		t.Error("gearTypes[0].labels.de must not be empty")
+	}
 
 	// Verify assignmentRoles are non-empty and have key + labelDe.
 	if len(schema.AssignmentRoles) == 0 {
@@ -225,6 +244,9 @@ func TestGetGearSchemaWireFormatCamelCase(t *testing.T) {
 	}
 	if ar0.LabelDe == "" {
 		t.Error("assignmentRoles[0].labelDe must not be empty (camelCase JSON tag check)")
+	}
+	if ar0.Labels["en"] == "" {
+		t.Error("assignmentRoles[0].labels.en must not be empty")
 	}
 
 	// Verify optionSets are non-empty with nested options.
@@ -240,6 +262,22 @@ func TestGetGearSchemaWireFormatCamelCase(t *testing.T) {
 	}
 	if os0.Options[0].LabelDe == "" {
 		t.Error("optionSets[0].options[0].labelDe must not be empty (camelCase JSON tag check)")
+	}
+	if os0.Options[0].Labels["fr"] == "" {
+		t.Error("optionSets[0].options[0].labels.fr must not be empty")
+	}
+
+	if len(schema.UnitGroups) == 0 {
+		t.Fatal("unitGroups must be non-empty")
+	}
+	if schema.UnitGroups[0].Labels["it"] == "" {
+		t.Error("unitGroups[0].labels.it must not be empty")
+	}
+	if len(schema.ComponentTypes) == 0 {
+		t.Fatal("componentTypes must be non-empty")
+	}
+	if schema.ComponentTypes[0].Labels["es"] == "" {
+		t.Error("componentTypes[0].labels.es must not be empty")
 	}
 }
 
@@ -284,7 +322,7 @@ func TestGetGearSchemaJSONKeysAreCamelCase(t *testing.T) {
 	}
 
 	// Top-level keys.
-	for _, k := range []string{"assignmentRoles", "optionSets", "attributes", "gearTypes", "version"} {
+	for _, k := range []string{"assignmentRoles", "optionSets", "unitGroups", "attributes", "gearTypes", "componentTypes", "version"} {
 		requireKey(raw, "top-level", k)
 	}
 
@@ -297,7 +335,7 @@ func TestGetGearSchemaJSONKeysAreCamelCase(t *testing.T) {
 	if gt0 == nil {
 		t.Fatal("gearTypes[0] must be an object")
 	}
-	for _, k := range []string{"key", "labelDe", "scope", "defaultAssignmentRoleKey", "attributeKeys", "modifierKeys"} {
+	for _, k := range []string{"key", "labelDe", "labels", "scope", "defaultAssignmentRoleKey", "attributeKeys", "modifierKeys"} {
 		requireKey(gt0, "gearTypes[0]", k)
 	}
 	// No PascalCase keys may be present anywhere in gearTypes[0].
@@ -316,7 +354,7 @@ func TestGetGearSchemaJSONKeysAreCamelCase(t *testing.T) {
 	if attr0 == nil {
 		t.Fatal("attributes[0] must be an object")
 	}
-	for _, k := range []string{"key", "labelDe", "valueType"} {
+	for _, k := range []string{"key", "labelDe", "labels", "valueType"} {
 		requireKey(attr0, "attributes[0]", k)
 	}
 	for k := range attr0 {

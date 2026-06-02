@@ -10,20 +10,23 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { updateTrainingZones, ZONE_TYPES } from '@/api/trainingZones'
 import type { SportZones, ZoneDetail, ZoneType, TrainingZoneUpdate } from '@/api/trainingZones'
+import { speedDisplayUnit, speedFromDisplayValue, speedToDisplayValue, type UnitSystem } from '@/lib/units'
+import { useUser } from '@/providers/UserProvider'
 import ZoneTable from './ZoneTable'
 import type { ZoneRow } from './ZoneTable'
+import { useTranslation } from 'react-i18next'
 
 // ── Source badge ──────────────────────────────────────────────────────────────
 
-function sourceLabel(sourceType: string): string {
+function sourceLabel(sourceType: string, strings: { deviceImport: string; manual: string }): string {
   const lower = sourceType.toLowerCase()
-  if (lower.includes('fit') || lower.includes('garmin')) return 'Geräte-Import'
-  if (lower.includes('manual')) return 'Manuell'
+  if (lower.includes('fit') || lower.includes('garmin')) return strings.deviceImport
+  if (lower.includes('manual')) return strings.manual
   return sourceType
 }
 
-function SourceBadge({ sourceType }: { sourceType: string }) {
-  const label = sourceLabel(sourceType)
+function SourceBadge({ sourceType, strings }: { sourceType: string; strings: { deviceImport: string; manual: string } }) {
+  const label = sourceLabel(sourceType, strings)
   const lower = sourceType.toLowerCase()
   const isDevice = lower.includes('fit') || lower.includes('garmin')
   return (
@@ -83,23 +86,37 @@ function useZoneSave(buildPayload: (state: ZoneState) => TrainingZoneUpdate, suc
 
 interface ZoneSectionConfig {
   zoneType: ZoneType
-  heading: string
   thresholdLabel: string
-  thresholdPlaceholder: string
   thresholdMin: number
   thresholdMax: number
   thresholdStep?: number
   unit: string
   convertMps?: boolean
-  saveLabel: string
-  successTitle: string
-  errorTitle: string
+  copyKey: 'heartRate' | 'power' | 'speed'
   /** Read threshold from ZoneDetail into display units */
-  readThreshold: (d: ZoneDetail) => number | null
+  readThreshold: (d: ZoneDetail, units: UnitSystem) => number | null
   /** Build the API payload from sport + display-unit state */
-  buildPayload: (sport: number, state: ZoneState) => TrainingZoneUpdate
+  buildPayload: (sport: number, state: ZoneState, units: UnitSystem) => TrainingZoneUpdate
   /** True when save should be disabled (beyond isPending) */
   isSaveDisabled: (state: ZoneState) => boolean
+}
+
+type ZoneSectionKey = ZoneSectionConfig['copyKey']
+
+interface ZoneEditorStrings {
+  saving: string
+  empty: string
+  source: {
+    deviceImport: string
+    manual: string
+  }
+  sections: Record<ZoneSectionKey, {
+    heading: string
+    thresholdPlaceholder: string
+    saveLabel: string
+    successTitle: string
+    errorTitle: string
+  }>
 }
 
 // ── ZoneSection ───────────────────────────────────────────────────────────────
@@ -109,45 +126,52 @@ function ZoneSection({
   detail,
   disabled,
   config,
+  strings,
+  units,
 }: {
   sport: number
   detail: ZoneDetail
   disabled: boolean
   config: ZoneSectionConfig
+  strings: ZoneEditorStrings
+  units: UnitSystem
 }) {
+  const displayUnit = config.copyKey === 'speed' ? speedDisplayUnit(units) : config.unit
+  const thresholdMin = config.convertMps ? roundDisplaySpeed(speedToDisplayValue(config.thresholdMin, units)) : config.thresholdMin
+  const thresholdMax = config.convertMps ? roundDisplaySpeed(speedToDisplayValue(config.thresholdMax, units)) : config.thresholdMax
   const [state, setState] = useState<ZoneState>({
-    threshold: config.readThreshold(detail),
+    threshold: config.readThreshold(detail, units),
     rows: zoneDetailToRows(detail),
   })
 
   useEffect(() => {
     setState({
-      threshold: config.readThreshold(detail),
+      threshold: config.readThreshold(detail, units),
       rows: zoneDetailToRows(detail),
     })
-  }, [detail]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [detail, units]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const mutation = useZoneSave(
-    s => config.buildPayload(sport, s),
-    config.successTitle,
-    config.errorTitle,
+    s => config.buildPayload(sport, s, units),
+    strings.sections[config.copyKey].successTitle,
+    strings.sections[config.copyKey].errorTitle,
   )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{config.heading}</h4>
-        <SourceBadge sourceType={detail.source_type} />
+        <h4 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{strings.sections[config.copyKey].heading}</h4>
+        <SourceBadge sourceType={detail.source_type} strings={strings.source} />
       </div>
 
       <div className="flex items-center gap-3">
         <label className="text-sm text-neutral-600 dark:text-neutral-400 shrink-0">
-          {config.thresholdLabel} ({config.unit})
+          {config.thresholdLabel} ({displayUnit})
         </label>
         <input
           type="number"
-          min={config.thresholdMin}
-          max={config.thresholdMax}
+          min={thresholdMin}
+          max={thresholdMax}
           step={config.thresholdStep}
           value={state.threshold ?? ''}
           onChange={e =>
@@ -161,7 +185,7 @@ function ZoneSection({
             }))
           }
           disabled={disabled}
-          placeholder={config.thresholdPlaceholder}
+          placeholder={strings.sections[config.copyKey].thresholdPlaceholder}
           className="w-28 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm disabled:opacity-50"
         />
       </div>
@@ -169,7 +193,8 @@ function ZoneSection({
       <ZoneTable
         rows={state.rows}
         onChange={rows => setState(s => ({ ...s, rows }))}
-        unit={config.unit}
+        unit={displayUnit}
+        unitSystem={units}
         convertMpsToKmh={config.convertMps}
         disabled={disabled}
       />
@@ -181,7 +206,7 @@ function ZoneSection({
           disabled={disabled || mutation.isPending || config.isSaveDisabled(state)}
           className="cursor-pointer px-3 py-1.5 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {mutation.isPending ? 'Speichere…' : config.saveLabel}
+          {mutation.isPending ? strings.saving : strings.sections[config.copyKey].saveLabel}
         </button>
       </div>
     </div>
@@ -192,15 +217,11 @@ function ZoneSection({
 
 const HR_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.HR,
-  heading: 'Herzfrequenz-Zonen',
   thresholdLabel: 'LTHR',
-  thresholdPlaceholder: 'z.B. 165',
   thresholdMin: 40,
   thresholdMax: 250,
   unit: 'bpm',
-  saveLabel: 'HF-Zonen speichern',
-  successTitle: 'Herzfrequenz-Zonen gespeichert',
-  errorTitle: 'Fehler beim Speichern der HF-Zonen',
+  copyKey: 'heartRate',
   readThreshold: d => d.threshold_heart_rate ?? 0,
   buildPayload: (sport, state) => {
     const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
@@ -218,15 +239,11 @@ const HR_CONFIG: ZoneSectionConfig = {
 
 const POWER_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.POWER,
-  heading: 'Power-Zonen',
   thresholdLabel: 'FTP',
-  thresholdPlaceholder: 'z.B. 280',
   thresholdMin: 0,
   thresholdMax: 1000,
   unit: 'W',
-  saveLabel: 'Power-Zonen speichern',
-  successTitle: 'Power-Zonen gespeichert',
-  errorTitle: 'Fehler beim Speichern der Power-Zonen',
+  copyKey: 'power',
   readThreshold: d => d.functional_threshold_power ?? 0,
   buildPayload: (sport, state) => {
     const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
@@ -244,26 +261,22 @@ const POWER_CONFIG: ZoneSectionConfig = {
 
 const SPEED_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.SPEED,
-  heading: 'Geschwindigkeitszonen',
   thresholdLabel: 'CSS',
-  thresholdPlaceholder: 'Optional',
   thresholdMin: 0,
-  thresholdMax: 100,
+  thresholdMax: 100 / 3.6,
   thresholdStep: 0.1,
   unit: 'km/h',
   convertMps: true,
-  saveLabel: 'Geschwindigkeitszonen speichern',
-  successTitle: 'Geschwindigkeitszonen gespeichert',
-  errorTitle: 'Fehler beim Speichern der Geschwindigkeitszonen',
-  readThreshold: d =>
-    d.threshold_speed_mps != null ? Math.round(d.threshold_speed_mps * 3.6 * 10) / 10 : null,
-  buildPayload: (sport, state) => {
+  copyKey: 'speed',
+  readThreshold: (d, units) =>
+    d.threshold_speed_mps != null ? roundDisplaySpeed(speedToDisplayValue(d.threshold_speed_mps, units)) : null,
+  buildPayload: (sport, state, units) => {
     const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
     return {
       sport,
       sub_sport: 0,
       zone_type: ZONE_TYPES.SPEED,
-      threshold_speed_mps: state.threshold != null ? state.threshold / 3.6 : undefined,
+      threshold_speed_mps: state.threshold != null ? speedFromDisplayValue(state.threshold, units) : undefined,
       zone_names,
       zone_highs,
     }
@@ -278,7 +291,44 @@ interface ZoneEditorCardProps {
   disabled?: boolean
 }
 
+function roundDisplaySpeed(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
 export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEditorCardProps) {
+  const { t } = useTranslation()
+  const { units } = useUser()
+  const strings: ZoneEditorStrings = {
+    saving: t('gearZones.zoneEditor.saving'),
+    empty: t('gearZones.zoneEditor.empty'),
+    source: {
+      deviceImport: t('gearZones.zoneEditor.source.deviceImport'),
+      manual: t('gearZones.zoneEditor.source.manual'),
+    },
+    sections: {
+      heartRate: {
+        heading: t('gearZones.zoneEditor.sections.heartRate.heading'),
+        thresholdPlaceholder: t('gearZones.zoneEditor.sections.heartRate.thresholdPlaceholder'),
+        saveLabel: t('gearZones.zoneEditor.sections.heartRate.saveLabel'),
+        successTitle: t('gearZones.zoneEditor.sections.heartRate.successTitle'),
+        errorTitle: t('gearZones.zoneEditor.sections.heartRate.errorTitle'),
+      },
+      power: {
+        heading: t('gearZones.zoneEditor.sections.power.heading'),
+        thresholdPlaceholder: t('gearZones.zoneEditor.sections.power.thresholdPlaceholder'),
+        saveLabel: t('gearZones.zoneEditor.sections.power.saveLabel'),
+        successTitle: t('gearZones.zoneEditor.sections.power.successTitle'),
+        errorTitle: t('gearZones.zoneEditor.sections.power.errorTitle'),
+      },
+      speed: {
+        heading: t('gearZones.zoneEditor.sections.speed.heading'),
+        thresholdPlaceholder: t('gearZones.zoneEditor.sections.speed.thresholdPlaceholder'),
+        saveLabel: t('gearZones.zoneEditor.sections.speed.saveLabel'),
+        successTitle: t('gearZones.zoneEditor.sections.speed.successTitle'),
+        errorTitle: t('gearZones.zoneEditor.sections.speed.errorTitle'),
+      },
+    },
+  }
   const hr = sportZones.zones[ZONE_TYPES.HR] ?? null
   const power = sportZones.zones[ZONE_TYPES.POWER] ?? null
   const speed = sportZones.zones[ZONE_TYPES.SPEED] ?? null
@@ -288,7 +338,7 @@ export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEdi
   if (!hasAny) {
     return (
       <div className="text-sm text-neutral-500 dark:text-neutral-400 py-4">
-        Keine Trainingszonen für diese Sportart. Importiere eine FIT-Datei mit Zonendaten.
+        {strings.empty}
       </div>
     )
   }
@@ -296,20 +346,20 @@ export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEdi
   return (
     <div className="space-y-6">
       {hr && (
-        <ZoneSection sport={sportZones.sport} detail={hr} disabled={disabled} config={HR_CONFIG} />
+        <ZoneSection sport={sportZones.sport} detail={hr} disabled={disabled} config={HR_CONFIG} strings={strings} units={units} />
       )}
 
       {power && (
         <>
           {hr && <div className="border-t border-neutral-200 dark:border-neutral-700" />}
-          <ZoneSection sport={sportZones.sport} detail={power} disabled={disabled} config={POWER_CONFIG} />
+          <ZoneSection sport={sportZones.sport} detail={power} disabled={disabled} config={POWER_CONFIG} strings={strings} units={units} />
         </>
       )}
 
       {speed && (
         <>
           {(hr || power) && <div className="border-t border-neutral-200 dark:border-neutral-700" />}
-          <ZoneSection sport={sportZones.sport} detail={speed} disabled={disabled} config={SPEED_CONFIG} />
+          <ZoneSection sport={sportZones.sport} detail={speed} disabled={disabled} config={SPEED_CONFIG} strings={strings} units={units} />
         </>
       )}
     </div>

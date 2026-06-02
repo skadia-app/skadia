@@ -8,9 +8,12 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchWeightAnalysis } from '@/api/analytics'
 import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { formatWeight } from '@/lib/units'
 
 echarts.use([
   LineChart,
@@ -22,7 +25,12 @@ echarts.use([
 ])
 
 export default function WeightChart() {
+  const { t } = useTranslation()
   const { from, to } = useHealthRange()
+  const { options: unitOptions } = useUnitFormatters()
+  const weightLabel = t('analyticsHealthInsights.weight.series.weight')
+  const bodyFatLabel = t('analyticsHealthInsights.weight.series.bodyFat')
+  const formatSignedWeight = (kg: number) => `${kg > 0 ? '+' : ''}${formatWeight(kg, unitOptions)}`
 
   const queryParams = useMemo(() => {
     const params = new URLSearchParams()
@@ -54,7 +62,7 @@ export default function WeightChart() {
         ? [
             {
               type: 'value',
-              axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => `${v} kg` },
+              axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => formatWeight(v, unitOptions) },
               splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
               scale: true,
             },
@@ -67,7 +75,7 @@ export default function WeightChart() {
           ]
         : {
             type: 'value',
-            axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => `${v} kg` },
+            axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v: number) => formatWeight(v, unitOptions) },
             splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
             scale: true,
           }
@@ -75,7 +83,7 @@ export default function WeightChart() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const series: any[] = [
         {
-          name: 'Gewicht',
+          name: weightLabel,
           type: 'line',
           yAxisIndex: 0,
           data: weights,
@@ -91,7 +99,7 @@ export default function WeightChart() {
 
       if (hasFatData) {
         series.push({
-          name: 'Körperfett',
+          name: bodyFatLabel,
           type: 'bar',
           yAxisIndex: 1,
           data: fatData,
@@ -106,7 +114,7 @@ export default function WeightChart() {
         grid: { left: 55, right: hasFatData ? 50 : 20, top: hasFatData ? 44 : 24, bottom: 40 },
         legend: hasFatData
           ? {
-              data: ['Gewicht', 'Körperfett'],
+              data: [weightLabel, bodyFatLabel],
               top: 8,
               textStyle: { fontSize: 10, color: '#9ca3af' },
               itemHeight: 8,
@@ -126,11 +134,11 @@ export default function WeightChart() {
             let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
             for (const p of items) {
               if (p.value == null) continue
-              const unit = p.seriesName === 'Körperfett' ? '%' : 'kg'
+              const value = p.seriesName === bodyFatLabel ? `${p.value.toFixed(1)}%` : formatWeight(p.value, unitOptions)
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
-                <strong style="color:#f9fafb">${p.value.toFixed(1)} ${unit}</strong>
+                <strong style="color:#f9fafb">${value}</strong>
               </div>`
             }
             return html
@@ -147,7 +155,7 @@ export default function WeightChart() {
         series,
       }
     },
-    [data],
+    [data, weightLabel, bodyFatLabel, unitOptions],
   )
 
   const changeColor = data && data.change_30d !== 0
@@ -158,16 +166,16 @@ export default function WeightChart() {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          Gewichtsverlauf
+          {t('analyticsHealthInsights.weight.title')}
         </h2>
         {data && (
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold tabular-nums text-emerald-500">
-              {data.current_kg.toFixed(1)} kg
+              {formatWeight(data.current_kg, unitOptions)}
             </span>
             {data.change_30d !== 0 && (
               <span className={`text-sm font-medium tabular-nums ${changeColor}`}>
-                {data.change_30d > 0 ? '+' : ''}{data.change_30d.toFixed(1)} kg (30T)
+                {t('analyticsHealthInsights.weight.changeLast30Days', { value: formatSignedWeight(data.change_30d) })}
               </span>
             )}
           </div>
@@ -177,11 +185,11 @@ export default function WeightChart() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
         {isLoading ? (
           <div className="flex items-center justify-center h-[260px] text-sm text-neutral-400">
-            Lade Gewichtsdaten…
+            {t('analyticsHealthInsights.weight.loading')}
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-[260px] text-sm text-neutral-400">
-            Fehler beim Laden der Gewichtsdaten
+            {t('analyticsHealthInsights.weight.loadFailed')}
           </div>
         ) : !data || !data.points?.length ? (
           <div className="flex flex-col items-center justify-center h-[260px] gap-2 text-neutral-400">
@@ -189,7 +197,7 @@ export default function WeightChart() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
             </svg>
-            <span className="text-sm">Keine Gewichtsdaten vorhanden</span>
+            <span className="text-sm">{t('analyticsHealthInsights.weight.noData')}</span>
           </div>
         ) : (
           <div ref={containerRef} className="h-[260px] w-full" />

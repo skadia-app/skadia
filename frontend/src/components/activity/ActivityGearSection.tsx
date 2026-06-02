@@ -1,24 +1,34 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { ApiError } from '@/api/client'
 import type { ActivityGearAssignment } from '@/api/types'
 import { addActivityGearAssignment, fetchActivity, removeActivityGearAssignment } from '@/api/activities'
 import { fetchGear } from '@/api/gear'
 import { getActiveSchema } from '@/lib/gearSchema'
 import { gearTypeLabel as schemaGearTypeLabel } from '@/lib/gearSchemaHelpers'
+import { isSupportedLanguage, localeForLanguage, type SupportedLanguage } from '@/i18n/languages'
 
 interface ActivityGearSectionProps {
   activityId: string
   assignments?: ActivityGearAssignment[]
 }
 
-function gearTypeLabel(type: string): string {
-  return schemaGearTypeLabel(getActiveSchema(), type)
+function currentLanguage(language: string): SupportedLanguage {
+  const normalized = language.split('-')[0]
+  return isSupportedLanguage(normalized) ? normalized : 'de'
+}
+
+function gearTypeLabel(type: string, language: SupportedLanguage): string {
+  return schemaGearTypeLabel(getActiveSchema(), type, language)
 }
 
 export default function ActivityGearSection({ activityId, assignments = [] }: ActivityGearSectionProps) {
   const queryClient = useQueryClient()
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
+  const locale = localeForLanguage(language)
   const [adding, setAdding] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -32,7 +42,7 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
   const selectableGear = (gearList ?? [])
     .filter(g => !g.is_retired)
     .filter(g => !assignedGearIds.has(g.id))
-    .sort((a, b) => a.name.localeCompare(b.name, 'de'))
+    .sort((a, b) => a.name.localeCompare(b.name, locale))
 
   const refreshActivity = async () => {
     const updated = await fetchActivity(activityId)
@@ -51,10 +61,10 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 404) {
-        setErrorMessage('Der API-Endpunkt ist im laufenden Backend noch nicht verfügbar.')
+        setErrorMessage(t('activityGear.errors.endpointUnavailable'))
         return
       }
-      setErrorMessage('Bitte erneut versuchen.')
+      setErrorMessage(t('activityGear.errors.retry'))
     },
   })
 
@@ -65,7 +75,7 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
     },
     onSuccess: refreshActivity,
     onError: () => {
-      setErrorMessage('Bitte erneut versuchen.')
+      setErrorMessage(t('activityGear.errors.retry'))
     },
   })
 
@@ -82,14 +92,14 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
           }}
           disabled={busy}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-          title="Ausrüstung hinzufügen"
-          aria-label="Ausrüstung hinzufügen"
+          title={t('activityGear.add')}
+          aria-label={t('activityGear.add')}
         >
           +
         </button>
         <div className="min-w-0 flex-1 space-y-1">
           {assignments.length === 0 && !adding && (
-            <div className="py-1 text-sm text-neutral-500 dark:text-neutral-400">Keine Ausrüstung</div>
+            <div className="py-1 text-sm text-neutral-500 dark:text-neutral-400">{t('activityGear.none')}</div>
           )}
 
           {assignments.map(assignment => (
@@ -103,14 +113,14 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
               >
                 {assignment.gear_name}
               </Link>
-              <span className="shrink-0 text-xs text-neutral-400">{assignment.role_label || gearTypeLabel(assignment.gear_type)}</span>
+              <span className="shrink-0 text-xs text-neutral-400">{assignment.role_label || gearTypeLabel(assignment.gear_type, language)}</span>
               <button
                 type="button"
                 onClick={() => removeMut.mutate(assignment.id)}
                 disabled={busy}
                 className="shrink-0 rounded px-1 text-sm text-neutral-400 opacity-0 transition-opacity hover:text-red-600 focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
-                title={`${assignment.gear_name} entfernen`}
-                aria-label={`${assignment.gear_name} entfernen`}
+                title={t('activityGear.remove', { name: assignment.gear_name })}
+                aria-label={t('activityGear.remove', { name: assignment.gear_name })}
               >
                 &times;
               </button>
@@ -120,7 +130,7 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
           {adding && (
             <select
               autoFocus
-              aria-label="Ausrüstung wählen"
+              aria-label={t('activityGear.choose')}
               value=""
               disabled={busy}
               onChange={(event) => {
@@ -128,10 +138,10 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
               }}
               className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm text-neutral-900 outline-none focus:border-orange-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
             >
-              <option value="">{selectableGear.length ? 'Ausrüstung wählen...' : 'Keine aktive Ausrüstung verfügbar'}</option>
+              <option value="">{selectableGear.length ? t('activityGear.choose') : t('activityGear.noActiveGear')}</option>
               {selectableGear.map(gear => (
                 <option key={gear.id} value={gear.id}>
-                  {gear.name} ({gearTypeLabel(gear.type)})
+                  {gear.name} ({gearTypeLabel(gear.type, language)})
                 </option>
               ))}
             </select>
@@ -139,13 +149,13 @@ export default function ActivityGearSection({ activityId, assignments = [] }: Ac
 
           {busy && (
             <div className="text-xs text-neutral-500 dark:text-neutral-400" aria-live="polite">
-              Ausrüstung wird aktualisiert...
+              {t('activityGear.updating')}
             </div>
           )}
 
           {errorMessage && (
             <div className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">
-              <div className="font-semibold">Ausrüstung konnte nicht hinzugefügt werden.</div>
+              <div className="font-semibold">{t('activityGear.errors.addFailed')}</div>
               <div>{errorMessage}</div>
             </div>
           )}

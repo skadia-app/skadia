@@ -10,14 +10,14 @@ func TestRenderTSEmitsTopLevelAutoTitleAndMovingThreshold(t *testing.T) {
 	taxonomy := Taxonomy{
 		Categories: []Category{{
 			Key:    "run",
-			Labels: LocaleMap{"de": "Laufen"},
+			Labels: LocaleMap{"de": "Laufen", "en": "Runs"},
 			Color:  Color{Token: "run", LightHex: "#EF4444"},
 		}},
 		Sports: []Sport{{
 			SportType:       "running",
 			CategoryKey:     "run",
-			Labels:          LocaleMap{"de": "Laufen"},
-			AutoTitles:      LocaleMap{"de": "Lauf"},
+			Labels:          LocaleMap{"de": "Laufen", "en": "Running"},
+			AutoTitles:      LocaleMap{"de": "Lauf", "en": "Run"},
 			SegmentGroup:    "foot",
 			TypicallyHasGPS: true,
 			MovingThreshold: 0.5,
@@ -42,7 +42,13 @@ func TestRenderTSEmitsTopLevelAutoTitleAndMovingThreshold(t *testing.T) {
 		t.Fatalf("RenderTS() error = %v", err)
 	}
 	got := string(rendered)
-	for _, want := range []string{"autoTitle: 'Lauf'", "movingThreshold: 0.5"} {
+	for _, want := range []string{
+		"labels: { de: 'Laufen', en: 'Running' }",
+		"autoTitles: { de: 'Lauf', en: 'Run' }",
+		"label: 'Laufen'",
+		"autoTitle: 'Lauf'",
+		"movingThreshold: 0.5",
+	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("RenderTS() missing %q:\n%s", want, got)
 		}
@@ -70,12 +76,37 @@ func TestRenderTSModifiersEmitsMetadata(t *testing.T) {
 	for _, want := range []string{
 		"GENERATED_SPORT_MODIFIERS",
 		"export type SportModifierKey = typeof GENERATED_SPORT_MODIFIER_KEYS[number]",
+		"labels: { de: 'E-Antrieb', en: 'Electric assist', es: 'Asistencia eléctrica', fr: 'Assistance électrique', it: 'Assistenza elettrica' }",
+		"label: 'E-Antrieb'",
 		"actionName: 'set_electric'",
 		"actionParam: 'electric'",
 		"shadowFSToken: 'electric'",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("RenderTSModifiers() missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderTSGearDefaultProjectionEmitsLocalizedLabels(t *testing.T) {
+	rendered, err := RenderTSGearDefaultProjection(GearDefaultProjection{
+		ManualOptions: []GearDefaultSportOption{{
+			SportType: "running",
+			LabelDE:   "Laufen",
+			Labels:    LocaleMap{"de": "Laufen", "en": "Running"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RenderTSGearDefaultProjection() error = %v", err)
+	}
+	got := string(rendered)
+	for _, want := range []string{
+		"value: 'running'",
+		"label: 'Laufen'",
+		"labels: { de: 'Laufen', en: 'Running' }",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderTSGearDefaultProjection() missing %q:\n%s", want, got)
 		}
 	}
 }

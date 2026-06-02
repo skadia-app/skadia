@@ -11,6 +11,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useTranslation } from 'react-i18next'
 import { fetchHRVAnalysis } from '@/api/analytics'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 import { useECharts } from '@/hooks/useECharts'
@@ -31,8 +32,15 @@ echarts.use([
 ])
 
 export default function HRVAnalysisChart() {
+  const { t, i18n } = useTranslation()
   const [range, setRange] = useState<DateRange | null>(null)
   const changepoints = useChangepoints('hrv_rmssd', 180)
+  const baselineLabel = t('analyticsHealthInsights.hrvAnalysis.baselineBand')
+  const locale = i18n.language || 'de'
+  const formatOneDecimal = (value: number) => new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value)
 
   const queryParams = range
     ? new URLSearchParams({ from: range.from, to: range.to }).toString()
@@ -65,7 +73,7 @@ export default function HRVAnalysisChart() {
       const markPointData = points
         .filter(p => anomalyDates.has(p.date) && p.rmssd != null)
         .map(p => ({
-          name: 'Anomalie',
+          name: t('analyticsHealthInsights.hrvAnalysis.anomaly'),
           coord: [p.date, p.rmssd],
           symbol: 'pin',
           symbolSize: 24,
@@ -77,7 +85,7 @@ export default function HRVAnalysisChart() {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 44, bottom: 40 },
         legend: {
-          data: ['RMSSD', 'Baseline ±1 SD'],
+          data: ['RMSSD', baselineLabel],
           top: 8,
           textStyle: { fontSize: 10, color: '#9ca3af' },
           itemHeight: 8,
@@ -101,11 +109,11 @@ export default function HRVAnalysisChart() {
             if (!Array.isArray(items) || items.length === 0) return ''
             let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
             for (const p of items) {
-              if (p.seriesName === 'Baseline ±1 SD' || p.value == null) continue
+              if (p.seriesName === baselineLabel || p.value == null) continue
               html += `<div style="display:flex;align-items:center;gap:6px">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span>
                 <span style="color:#d1d5db">${p.seriesName}:</span>
-                <strong style="color:#f9fafb">${p.value.toFixed(1)} ms</strong>
+                <strong style="color:#f9fafb">${formatOneDecimal(p.value)} ms</strong>
               </div>`
             }
             return html
@@ -123,14 +131,14 @@ export default function HRVAnalysisChart() {
           axisLabel: {
             fontSize: 10,
             color: '#6b7280',
-            formatter: (v: number) => `${v}ms`,
+            formatter: (v: number) => `${formatOneDecimal(v)} ms`,
           },
           splitLine: { lineStyle: { color: '#1f2937', type: 'dashed' } },
         },
         dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
         series: [
           {
-            name: 'Baseline ±1 SD',
+            name: baselineLabel,
             type: 'line',
             data: upperBand,
             showSymbol: false,
@@ -188,7 +196,7 @@ export default function HRVAnalysisChart() {
         ],
       }
     },
-    [data, changepoints],
+    [data, changepoints, baselineLabel, formatOneDecimal, t],
   )
 
   const anomalyCount = data?.anomalies?.length ?? 0
@@ -199,10 +207,10 @@ export default function HRVAnalysisChart() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-            HRV-Analyse
+            {t('analyticsHealthInsights.hrvAnalysis.title')}
           </h2>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            RMSSD-Trend mit Anomalie-Erkennung
+            {t('analyticsHealthInsights.hrvAnalysis.subtitle')}
           </p>
         </div>
         <PureAggregateRangePicker defaultPreset="90d" onChange={setRange} />
@@ -212,14 +220,14 @@ export default function HRVAnalysisChart() {
       {data && data.points.length > 0 && (
         <div className="flex items-center gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
-            7-Tage-Avg: {data.seven_day_avg.toFixed(1)} ms
+            {t('analyticsHealthInsights.hrvAnalysis.sevenDayAverage', { value: formatOneDecimal(data.seven_day_avg) })}
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-            Baseline: {data.baseline_mean.toFixed(1)} ms
+            {t('analyticsHealthInsights.hrvAnalysis.baselineValue', { value: formatOneDecimal(data.baseline_mean) })}
           </span>
           {anomalyCount > 0 && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-              {anomalyCount} {anomalyCount === 1 ? 'Anomalie' : 'Anomalien'}
+              {t('analyticsHealthInsights.hrvAnalysis.anomalyCount', { count: anomalyCount })}
             </span>
           )}
         </div>
@@ -230,12 +238,12 @@ export default function HRVAnalysisChart() {
         <div className="relative h-[280px]">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Lade HRV-Daten…
+              {t('analyticsHealthInsights.hrvAnalysis.loading')}
             </div>
           )}
           {!isLoading && isError && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
-              Fehler beim Laden der HRV-Daten
+              {t('analyticsHealthInsights.hrvAnalysis.loadFailed')}
             </div>
           )}
           {!isLoading && !isError && (!data || !data.points?.length) && (
@@ -244,7 +252,7 @@ export default function HRVAnalysisChart() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
-              <span className="text-sm">Keine HRV-Daten für diesen Zeitraum</span>
+              <span className="text-sm">{t('analyticsHealthInsights.hrvAnalysis.noData')}</span>
             </div>
           )}
           <div

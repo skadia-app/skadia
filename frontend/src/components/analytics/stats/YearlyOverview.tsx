@@ -1,18 +1,29 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { fetchYearlyOverview } from '@/api/analytics'
 import type { YearlyOverviewRow } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { fmtDuration } from '@/lib/format'
+import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTH_LABEL_KEYS = [
+  'analyticsTrainingStats.months.short.jan',
+  'analyticsTrainingStats.months.short.feb',
+  'analyticsTrainingStats.months.short.mar',
+  'analyticsTrainingStats.months.short.apr',
+  'analyticsTrainingStats.months.short.may',
+  'analyticsTrainingStats.months.short.jun',
+  'analyticsTrainingStats.months.short.jul',
+  'analyticsTrainingStats.months.short.aug',
+  'analyticsTrainingStats.months.short.sep',
+  'analyticsTrainingStats.months.short.oct',
+  'analyticsTrainingStats.months.short.nov',
+  'analyticsTrainingStats.months.short.dec',
+]
 
-function fmtNum(n: number): string {
-  return new Intl.NumberFormat('de-DE').format(Math.round(n))
-}
-
-function fmtDist(m: number): string {
-  return `${(m / 1000).toFixed(0)} km`
+function fmtNum(n: number, locale: string): string {
+  return new Intl.NumberFormat(locale).format(Math.round(n))
 }
 
 interface YearGroup {
@@ -57,6 +68,8 @@ function groupByYear(rows: YearlyOverviewRow[]): YearGroup[] {
 }
 
 export default function YearlyOverview() {
+  const { t } = useTranslation()
+  const { options, formatDistance, formatElevation } = useUnitFormatters()
   const { toQueryString } = useAnalyticsFilters()
   const params = toQueryString()
   const currentYear = new Date().getFullYear()
@@ -83,7 +96,7 @@ export default function YearlyOverview() {
   if (isError || !data) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-        Fehler beim Laden der Jahres-Übersicht
+        {t('analyticsTrainingStats.yearlyOverview.loadError')}
       </div>
     )
   }
@@ -91,7 +104,7 @@ export default function YearlyOverview() {
   if (data.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-        Keine Daten vorhanden
+        {t('analyticsTrainingStats.states.noData')}
       </div>
     )
   }
@@ -134,12 +147,12 @@ export default function YearlyOverview() {
               <div className="flex items-center gap-3">
                 <span className={`text-base font-bold ${isCurrent ? 'text-[var(--color-accent-DEFAULT)]' : 'text-neutral-900 dark:text-neutral-100'}`}>
                   {group.year}
-                  {isCurrent && <span className="ml-2 text-xs font-normal text-[var(--color-accent-DEFAULT)]/70">aktuell</span>}
+                  {isCurrent && <span className="ml-2 text-xs font-normal text-[var(--color-accent-DEFAULT)]/70">{t('analyticsTrainingStats.yearlyOverview.current')}</span>}
                 </span>
                 <div className="hidden sm:flex items-center gap-4 text-sm text-neutral-600 dark:text-neutral-400">
-                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count} Aktivitäten</span>
-                  <span>{fmtDist(group.totals.distance_m)}</span>
-                  <span>{fmtNum(group.totals.elevation_m)} m</span>
+                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">{t('analyticsTrainingStats.metrics.activitiesCount', { count: group.totals.count })}</span>
+                  <span>{formatDistance(group.totals.distance_m)}</span>
+                  <span>{formatElevation(group.totals.elevation_m)}</span>
                   <span>{fmtDuration(group.totals.duration_s, 'compact')}</span>
                 </div>
               </div>
@@ -151,8 +164,8 @@ export default function YearlyOverview() {
             {/* Mobile summary */}
             <div className="sm:hidden px-4 pb-2 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-900">
               <span className="font-semibold">{group.totals.count}×</span>
-              <span>{fmtDist(group.totals.distance_m)}</span>
-              <span>{fmtNum(group.totals.elevation_m)} m</span>
+              <span>{formatDistance(group.totals.distance_m)}</span>
+              <span>{formatElevation(group.totals.elevation_m)}</span>
             </div>
 
             {/* Month rows — only shown when accordion is open */}
@@ -160,7 +173,7 @@ export default function YearlyOverview() {
               <div className="border-t border-neutral-100 dark:border-neutral-800 divide-y divide-neutral-50 dark:divide-neutral-800/50">
                 {group.months.map((row, idx) => {
                   const isCurrentMonth = isCurrent && row.month === currentMonth
-                  const monthLabel = row.month != null ? MONTH_NAMES[(row.month - 1) % 12] : `#${idx + 1}`
+                  const monthLabel = row.month != null ? t(MONTH_LABEL_KEYS[(row.month - 1) % 12]) : `#${idx + 1}`
                   return (
                     <div
                       key={row.month ?? idx}
@@ -178,13 +191,13 @@ export default function YearlyOverview() {
                         {monthLabel}
                       </span>
                       <span className="w-16 text-right text-neutral-700 dark:text-neutral-300 tabular-nums">
-                        {row.count} Akt.
+                        {t('analyticsTrainingStats.metrics.activitiesAbbr', { count: row.count })}
                       </span>
                       <span className="flex-1 text-right text-neutral-600 dark:text-neutral-400 tabular-nums text-xs">
-                        {fmtDist(row.distance_m)}
+                        {formatDistance(row.distance_m)}
                       </span>
                       <span className="flex-1 text-right text-neutral-600 dark:text-neutral-400 tabular-nums text-xs hidden sm:block">
-                        {fmtNum(row.elevation_m)} m
+                        {formatElevation(row.elevation_m)}
                       </span>
                       <span className="flex-1 text-right text-neutral-500 dark:text-neutral-500 tabular-nums text-xs hidden sm:block">
                         {fmtDuration(row.duration_s, 'compact')}
@@ -199,10 +212,10 @@ export default function YearlyOverview() {
             {isOpen && !group.hasMonths && (
               <div className="border-t border-neutral-100 dark:border-neutral-800 px-4 py-3 bg-white dark:bg-neutral-900">
                 <div className="flex items-center gap-6 text-sm text-neutral-600 dark:text-neutral-400">
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count}</span> Aktivitäten</span>
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDist(group.totals.distance_m)}</span> Distanz</span>
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNum(group.totals.elevation_m)} m</span> Höhenmeter</span>
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDuration(group.totals.duration_s, 'compact')}</span> Dauer</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNum(group.totals.count, options.locale)}</span> {t('analyticsTrainingStats.metrics.activities')}</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{formatDistance(group.totals.distance_m)}</span> {t('analyticsTrainingStats.metrics.distance')}</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{formatElevation(group.totals.elevation_m)}</span> {t('analyticsTrainingStats.metrics.elevationGain')}</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDuration(group.totals.duration_s, 'compact')}</span> {t('analyticsTrainingStats.metrics.duration')}</span>
                 </div>
               </div>
             )}
