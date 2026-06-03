@@ -9680,6 +9680,30 @@
         "label": "Frost",
         "description": "Activity in freezing conditions."
       },
+      "weather_cloudy": {
+        "label": "cloudy",
+        "description": "Activity in cloudy weather."
+      },
+      "weather_sunny": {
+        "label": "sunny",
+        "description": "Activity in sunny weather."
+      },
+      "weather_rain": {
+        "label": "rain",
+        "description": "Activity in rain."
+      },
+      "weather_snow": {
+        "label": "snow",
+        "description": "Activity in snow."
+      },
+      "weather_fog": {
+        "label": "fog",
+        "description": "Activity in fog."
+      },
+      "weather_thunderstorm": {
+        "label": "thunderstorm",
+        "description": "Activity during a thunderstorm."
+      },
       "nacht": {
         "label": "Night",
         "description": "Activity at night."

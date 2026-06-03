@@ -9680,6 +9680,30 @@
         "label": "Frost",
         "description": "Aktivität bei Frost."
       },
+      "weather_cloudy": {
+        "label": "bewölkt",
+        "description": "Aktivität bei bewölktem Wetter."
+      },
+      "weather_sunny": {
+        "label": "sonnig",
+        "description": "Aktivität bei sonnigem Wetter."
+      },
+      "weather_rain": {
+        "label": "Regen",
+        "description": "Aktivität bei Regen."
+      },
+      "weather_snow": {
+        "label": "Schnee",
+        "description": "Aktivität bei Schnee."
+      },
+      "weather_fog": {
+        "label": "Nebel",
+        "description": "Aktivität bei Nebel."
+      },
+      "weather_thunderstorm": {
+        "label": "Gewitter",
+        "description": "Aktivität bei Gewitter."
+      },
       "nacht": {
         "label": "Nacht",
         "description": "Aktivität bei Nacht."
