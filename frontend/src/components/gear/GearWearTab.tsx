@@ -6,6 +6,7 @@ import { listServiceEvents, listServiceIntervals } from '@/api/gear'
 import type { Gear, GearComponent, GearServiceEvent, GearServiceInterval } from '@/api/types'
 import { formatDuration } from '@/lib/utils'
 import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
+import { displayServiceIntervalName } from '@/lib/i18nDisplay'
 import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import type { UnitFormatOptions } from '@/lib/units'
 
@@ -129,7 +130,7 @@ function ServiceIntervalOverview({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                      {row.component.name} - {row.interval.name}
+                      {row.component.name} - {displayServiceIntervalName(row.interval.name, t)}
                     </div>
                     <div className="text-xs text-neutral-500 dark:text-neutral-400">
                       {formatUsageMetricValue(row.interval.metric_key, row.currentValue, unitOptions)} / {formatUsageMetricValue(row.interval.metric_key, row.interval.interval_value, unitOptions)}

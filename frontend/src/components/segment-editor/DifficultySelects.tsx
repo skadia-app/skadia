@@ -11,13 +11,6 @@ interface DifficultySelectsProps {
   disabled?: boolean
 }
 
-const sacOptions: ReadonlyArray<ColoredSelectOption> = SAC_SCALE_OPTIONS.map(o => ({
-  value: o.value,
-  label: o.label,
-  shortLabel: o.value, // Trigger shows e.g. "T3"; dropdown list keeps "T3 — anspruchsvolles Bergwandern"
-  color: SAC_BADGE_COLORS[o.value],
-}))
-
 const mtbOptions: ReadonlyArray<ColoredSelectOption> = MTB_SCALE_OPTIONS.map(o => ({
   value: o.value,
   label: o.label,
@@ -27,6 +20,12 @@ const mtbOptions: ReadonlyArray<ColoredSelectOption> = MTB_SCALE_OPTIONS.map(o =
 export function DifficultySelects({ segType, sacScale, mtbScale, onChange, disabled }: DifficultySelectsProps) {
   const { t } = useTranslation()
   if (segType !== 'trail') return null
+  const sacOptions: ReadonlyArray<ColoredSelectOption> = SAC_SCALE_OPTIONS.map(o => ({
+    value: o.value,
+    label: t(`segmentEditor.sacOptions.${o.value}`),
+    shortLabel: o.value,
+    color: SAC_BADGE_COLORS[o.value],
+  }))
 
   return (
     <div className="grid grid-cols-1 gap-4">

@@ -872,7 +872,7 @@ export default function SegmentsPage() {
                   )}
                 </span>
                 {!!segment.segment_type_meta?.surface && (
-                  <span className="text-neutral-400 italic">{String(segment.segment_type_meta.surface)}</span>
+                  <span className="text-neutral-400 italic">{surfaceLabel(String(segment.segment_type_meta.surface))}</span>
                 )}
                 {segment.course_kind === 'checkpoint_sequence' && segment.control_summary && (
                   <span>{t('segmentDetail.controls.checkpoints', { count: segment.control_summary.control_count })}</span>

@@ -69,13 +69,13 @@ export const SURFACE_DROPDOWN_OPTIONS: readonly string[] = [
   'Wechselnd',          // editor-only, auto-set on mixed=true from enrichment
 ]
 
-export const SAC_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'T1', label: 'T1 — Wandern' },
-  { value: 'T2', label: 'T2 — Bergwandern' },
-  { value: 'T3', label: 'T3 — anspruchsvolles Bergwandern' },
-  { value: 'T4', label: 'T4 — Alpinwandern' },
-  { value: 'T5', label: 'T5 — anspruchsvolles Alpinwandern' },
-  { value: 'T6', label: 'T6 — schwieriges Alpinwandern' },
+export const SAC_SCALE_OPTIONS: ReadonlyArray<{ value: string }> = [
+  { value: 'T1' },
+  { value: 'T2' },
+  { value: 'T3' },
+  { value: 'T4' },
+  { value: 'T5' },
+  { value: 'T6' },
 ]
 
 // Intentionally no added descriptions: tempting short explanations encourage

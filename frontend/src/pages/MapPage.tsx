@@ -21,6 +21,7 @@ import type { PlannedRoute, RouteSuggestion } from '@/api/routes'
 import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { bboxForProfileDistRange, buildFallbackProfileToCoordMap, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
+import { displayMapLayerName } from '@/lib/i18nDisplay'
 import { fmtDateCompact } from '@/lib/format'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
@@ -2926,11 +2927,13 @@ export default function MapPage() {
           <div className="rounded-l-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm flex-shrink min-w-0">
             <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Active (capability-passing) base layers — includes user-owned base layers */}
-            {baseLayers.map((layer) => (
+            {baseLayers.map((layer) => {
+              const layerLabel = displayMapLayerName(layer, t)
+              return (
               <button
                 key={layer.key}
                 onClick={() => setBaseStyle(layer.key)}
-                aria-label={layer.is_system ? layer.name : t('map.ownMapAria', { name: layer.name })}
+                aria-label={layer.is_system ? layerLabel : t('map.ownMapAria', { name: layerLabel })}
                 className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                   baseStyle === layer.key
                     ? 'bg-accent-DEFAULT text-white'
@@ -2953,9 +2956,10 @@ export default function MapPage() {
                     <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
                   </svg>
                 )}
-                {layer.name}
+                {layerLabel}
               </button>
-            ))}
+              )
+            })}
             {/* Capability-missing base layers: shown grayed-out so users know they exist */}
             {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
               <button
@@ -2964,7 +2968,7 @@ export default function MapPage() {
                 title={t('map.requiresCapability', { capability: missingCapability })}
                 className="flex-shrink-0 px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
               >
-                {layer.name}
+                {displayMapLayerName(layer, t)}
               </button>
             ))}
             </div>
@@ -3006,7 +3010,7 @@ export default function MapPage() {
                 onClick={() => setLayerMenuOpen(o => !o)}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors"
               >
-                {selectedBaseLayer?.name ?? baseStyle}
+                {selectedBaseLayer ? displayMapLayerName(selectedBaseLayer, t) : baseStyle}
                 <svg className={`w-3 h-3 transition-transform ${layerMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                 </svg>
@@ -3014,14 +3018,16 @@ export default function MapPage() {
               {layerMenuOpen && (
                 <div className="absolute bottom-full mb-1 left-0 flex flex-col rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm shadow-lg overflow-hidden min-w-[6rem] z-10">
                   {/* Active (capability-passing) base layers — includes user-owned base layers */}
-                  {baseLayers.map((layer) => (
+                  {baseLayers.map((layer) => {
+                    const layerLabel = displayMapLayerName(layer, t)
+                    return (
                     <button
                       key={layer.key}
                       onClick={() => {
                         setBaseStyle(layer.key)
                         setLayerMenuOpen(false)
                       }}
-                      aria-label={layer.is_system ? layer.name : t('map.ownMapAria', { name: layer.name })}
+                      aria-label={layer.is_system ? layerLabel : t('map.ownMapAria', { name: layerLabel })}
                       className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-left transition-colors cursor-pointer ${
                         baseStyle === layer.key
                           ? 'bg-accent-DEFAULT text-white'
@@ -3043,9 +3049,10 @@ export default function MapPage() {
                           <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
                         </svg>
                       )}
-                      {layer.name}
+                      {layerLabel}
                     </button>
-                  ))}
+                    )
+                  })}
                   {/* Capability-missing base layers: grayed-out with tooltip */}
                   {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
                     <button
@@ -3054,7 +3061,7 @@ export default function MapPage() {
                       title={t('map.requiresCapability', { capability: missingCapability })}
                       className="px-3 py-1.5 text-xs font-medium text-left opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
                     >
-                      {layer.name}
+                      {displayMapLayerName(layer, t)}
                     </button>
                   ))}
                 </div>
@@ -3272,7 +3279,7 @@ export default function MapPage() {
                 : 'bg-white/90 dark:bg-neutral-800/90 text-neutral-600 dark:text-neutral-300 border-neutral-300 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
             }`}
           >
-            {t('map.customMaps')}
+            {t('map.customMaps.title')}
           </button>
           </div>
 

@@ -118,7 +118,7 @@
     "assistant": "Assistant",
     "routes": "Itinéraires",
     "segments": "Segments",
-    "imports": "Imports",
+    "imports": "Importations",
     "workshop": "Atelier",
     "settings": "Paramètres",
     "toggleColorScheme": "Changer le thème"
@@ -709,6 +709,15 @@
       "tracks": "Tracks",
       "heatmap": "Heatmap",
       "terraIncognitaShort": "Terra Inc."
+    },
+    "baseLayers": {
+      "osm": "OSM",
+      "topo": "Topo",
+      "cyclosm": "CyclOSM",
+      "satellite": "Satellite",
+      "dark": "Sombre",
+      "local": "Local",
+      "offline": "Hors ligne"
     }
   },
   "account": {
@@ -2833,20 +2842,20 @@
       "types": {
         "standard": "Standard",
         "trail": "Trail",
-      "lap": "Tour",
-      "lift": "Lift",
-      "wintersport": "Sport d’hiver",
-      "wassersport": "Sport nautique",
-      "unknown": "Type de segment inconnu"
+        "lap": "Tour",
+        "lift": "Lift",
+        "wintersport": "Sport d’hiver",
+        "wassersport": "Sport nautique",
+        "unknown": "Type de segment inconnu"
       },
       "sportGroups": {
         "bike": "Cyclisme",
         "foot": "Course et marche",
         "swim": "Natation",
-      "ski": "Sport d’hiver",
-      "paddle": "Sport nautique",
-      "generic": "Autre",
-      "unknown": "Groupe de sport inconnu"
+        "ski": "Sport d’hiver",
+        "paddle": "Sport nautique",
+        "generic": "Autre",
+        "unknown": "Groupe de sport inconnu"
       },
       "visibility": {
         "public": "Public",
@@ -3444,8 +3453,8 @@
       "queue": "File d'attente"
     },
     "hub": {
-      "title": "Imports",
-      "description": "Imports, éléments à vérifier, file d'attente active et historique au même endroit.",
+      "title": "Importations",
+      "description": "Importations, éléments à vérifier, file d'attente active et historique au même endroit.",
       "tablistAria": "Vues d'import",
       "views": {
         "import": "Importer",
@@ -5147,12 +5156,12 @@
           "description": "Détecte et classe les montées."
         },
         "intervals": {
-          "label": "Intervalltraining",
+          "label": "Entraînement par intervalles",
           "description": "Détecte automatiquement les intervalles d'entraînement."
         },
         "lap_detection": {
-          "label": "Détection des laps",
-          "description": "Détecte automatiquement les laps sur les activités en circuit."
+          "label": "Détection des tours",
+          "description": "Détecte automatiquement les tours sur les activités en circuit."
         },
         "embeddings": {
           "label": "Embeddings",
@@ -5395,7 +5404,7 @@
       "description": "Description (facultatif)",
       "segmentType": "Type de segment",
       "climbType": "Profil d'altitude",
-      "bidirectional": "Matching bidirectionnel",
+      "bidirectional": "Correspondance dans les deux sens",
       "allowedSports": "Types de sport autorisés",
       "newVersion": "Créer une nouvelle version",
       "newVersionHint": "À activer seulement si l'itinéraire change de manière importante. Les meilleures performances existantes restent liées à l'ancienne version.",
@@ -5405,7 +5414,7 @@
       "direction": "Sens",
       "visibility": "Visibilité",
       "accessScope": "Partage du segment",
-      "bidirectionalMatch": "Matcher dans les deux sens"
+      "bidirectionalMatch": "Correspondance dans les deux sens"
     },
     "toasts": {
       "updated": "Segment mis à jour",
@@ -6365,6 +6374,10 @@
       "units": {
         "count": "nombre",
         "days": "jours"
+      },
+      "intervalNames": {
+        "swap": "Remplacer",
+        "check": "Vérifier"
       }
     },
     "chainRotation": {
@@ -7615,12 +7628,12 @@
       "unknown": "Visibilité inconnue"
     },
     "surfaces": {
-      "Asphalt": "Asphalt",
+      "Asphalt": "Asphalte",
       "Pflaster": "Pavés",
       "Schotter (fein)": "Gravier fin",
       "Schotter (grob)": "Gravier grossier",
       "Naturweg": "Chemin naturel",
-      "Sand": "Sand",
+      "Sand": "Sable",
       "Gras": "Herbe",
       "Fels": "Rocher",
       "Schnee": "Neige",
@@ -7697,7 +7710,7 @@
         "highestPoint": "Point culminant"
       },
       "fields": {
-        "name": "Name",
+        "name": "Nom",
         "type": "Type",
         "sports": "Sports",
         "elevationProfile": "Profil altimétrique",
@@ -7850,65 +7863,73 @@
     "mapPreviewUnavailable": "Aperçu de carte indisponible",
     "map": {
       "heatmap": "Heatmap"
+    },
+    "sacOptions": {
+      "T1": "T1 - Randonnée",
+      "T2": "T2 - Randonnée en montagne",
+      "T3": "T3 - randonnée en montagne exigeante",
+      "T4": "T4 - randonnée alpine",
+      "T5": "T5 - randonnée alpine exigeante",
+      "T6": "T6 - randonnée alpine difficile"
     }
   },
   "calendar": {
-    "title": "Calendar",
-    "healthData": "Health data",
-    "week": "Week",
-    "calendarWeek": "CW {{week}}",
-    "moreActivities": "+{{count}} more",
+    "title": "Calendrier",
+    "healthData": "Données de santé",
+    "week": "Semaine",
+    "calendarWeek": "Sem. {{week}}",
+    "moreActivities": "+{{count}} en plus",
     "tabs": {
-      "weeks": "Weeks",
-      "year": "Year"
+      "weeks": "Semaines",
+      "year": "Année"
     },
     "viewModes": {
-      "calendar": "Calendar",
-      "heatmap": "TSS heatmap"
+      "calendar": "Calendrier",
+      "heatmap": "Heatmap TSS"
     },
     "navigation": {
-      "previousYear": "Previous year",
-      "nextYear": "Next year"
+      "previousYear": "Année précédente",
+      "nextYear": "Année suivante"
     },
     "summary": {
       "distance": "Distance",
-      "time": "Time"
+      "time": "Temps"
     },
     "weekdaysShort": {
-      "0": "Mon",
-      "1": "Tue",
-      "2": "Wed",
-      "3": "Thu",
-      "4": "Fri",
-      "5": "Sat",
-      "6": "Sun"
+      "0": "Lun",
+      "1": "Mar",
+      "2": "Mer",
+      "3": "Jeu",
+      "4": "Ven",
+      "5": "Sam",
+      "6": "Dim"
     },
     "weekdaysShortSundayFirst": {
-      "0": "Sun",
-      "1": "Mon",
-      "2": "Tue",
-      "3": "Wed",
-      "4": "Thu",
-      "5": "Fri",
-      "6": "Sat"
+      "0": "Dim",
+      "1": "Lun",
+      "2": "Mar",
+      "3": "Mer",
+      "4": "Jeu",
+      "5": "Ven",
+      "6": "Sam"
     },
     "monthsShort": {
-      "0": "Jan",
-      "1": "Feb",
-      "2": "Mar",
-      "3": "Apr",
-      "4": "May",
-      "5": "Jun",
-      "6": "Jul",
-      "7": "Aug",
-      "8": "Sep",
+      "0": "Janv.",
+      "1": "Févr.",
+      "2": "Mars",
+      "3": "Avr.",
+      "4": "Mai",
+      "5": "Juin",
+      "6": "Juil.",
+      "7": "Août",
+      "8": "Sept.",
       "9": "Oct",
       "10": "Nov",
-      "11": "Dec"
+      "11": "Déc."
     },
     "heatmap": {
-      "title": "TSS heatmap {{year}}",
-      "description": "Daily training load (TSS). Only activities with calculated TSS, for example cycling with a power meter or HR zones."
+      "title": "Heatmap TSS {{year}}",
+      "description": "Charge d'entraînement quotidienne (TSS). Uniquement les activités avec TSS calculé, par exemple le cyclisme avec capteur de Power ou zones HR."
     }
   },
   "manualActivity": {
@@ -7992,102 +8013,102 @@
     }
   },
   "activityMiniCard": {
-    "fallbackTitle": "Activity",
+    "fallbackTitle": "Activité",
     "photoCount_one": "{{count}} photo",
     "photoCount_other": "{{count}} photos"
   },
   "autoTitleDisplayPolicy": {
-    "label": "Title display",
+    "label": "Affichage du titre",
     "options": {
       "sourceFirst": {
-        "label": "Always prefer import title",
-        "description": "The imported title stays visible as long as it is not empty. Empty import titles fall back to auto titles."
+        "label": "Toujours préférer le titre importé",
+        "description": "Le titre importé reste visible tant qu'il n'est pas vide. Les titres importés vides reviennent aux titres automatiques."
       },
       "autoFirst": {
-        "label": "Always prefer auto title",
-        "description": "The automatically generated title is shown as soon as it is available."
+        "label": "Toujours préférer le titre automatique",
+        "description": "Le titre généré automatiquement s'affiche dès qu'il est disponible."
       }
     }
   },
   "enrichmentStatus": {
-    "title": "Enrichment modules",
-    "errorCount_one": "{{count}} error",
-    "errorCount_other": "{{count}} errors",
-    "hint": "Active modules are shown in the detail view. Inactive modules can be recomputed by clicking.",
-    "globalDisabled_one": "1 module is globally disabled.",
-    "globalDisabled_other": "{{count}} modules are globally disabled.",
-    "recomputeAutoTitle": "Recompute auto title",
-    "hitCount_one": "{{count}} hit",
-    "hitCount_other": "{{count}} hits",
-    "globallyOff": "globally off",
+    "title": "Modules d'enrichissement",
+    "errorCount_one": "{{count}} erreur",
+    "errorCount_other": "{{count}} erreurs",
+    "hint": "Les modules actifs sont affichés dans la vue détaillée. Les modules inactifs peuvent être recalculés par clic.",
+    "globalDisabled_one": "1 module est désactivé globalement.",
+    "globalDisabled_other": "{{count}} modules sont désactivés globalement.",
+    "recomputeAutoTitle": "Recalculer le titre automatique",
+    "hitCount_one": "{{count}} résultat",
+    "hitCount_other": "{{count}} résultats",
+    "globallyOff": "désactivé globalement",
     "toasts": {
-      "recomputed": "{{label}} recomputed",
-      "startFailed": "Could not start",
-      "notReprocessable": "Cannot be recomputed manually"
+      "recomputed": "{{label}} recalculé",
+      "startFailed": "Impossible de démarrer",
+      "notReprocessable": "Ne peut pas être recalculé manuellement"
     },
     "tooltips": {
-      "globallyDisabled": "Globally disabled - enable under Settings > Analytics",
-      "hidden": "Hidden - click to show",
-      "completed": "Data available - click to hide",
-      "error": "Error - click to recompute",
-      "pending": "Pending",
-      "noData": "No data - click to compute"
+      "globallyDisabled": "Désactivé globalement - activer sous Paramètres > Analyses",
+      "hidden": "Masqué - cliquer pour afficher",
+      "completed": "Données disponibles - cliquer pour masquer",
+      "error": "Erreur - cliquer pour recalculer",
+      "pending": "En attente",
+      "noData": "Aucune donnée - cliquer pour calculer"
     },
     "modules": {
       "auto_naming": {
-        "label": "Automatic naming",
+        "label": "Nommage automatique",
         "description": "Génère automatiquement un titre à partir de l'itinéraire et du type d'activité."
       },
       "summits": {
-        "label": "Summits & passes",
+        "label": "Sommets & cols",
         "description": "Détecte les sommets et cols visités."
       },
       "forests": {
-        "label": "Forests",
+        "label": "Forêts",
         "description": "Détecte les zones forestières traversées."
       },
       "water": {
-        "label": "Water bodies",
+        "label": "Eaux",
         "description": "Détecte les lacs et cours d'eau le long de l'itinéraire."
       },
       "settlements": {
-        "label": "Settlements",
+        "label": "Localités",
         "description": "Détecte les localités traversées."
       },
       "borders": {
-        "label": "Border crossings",
+        "label": "Franchissements de frontière",
         "description": "Détecte les frontières nationales et régionales franchies."
       },
       "stops": {
-        "label": "Stops & food breaks",
+        "label": "Arrêts & pauses repas",
         "description": "Détecte les arrêts et pauses repas (>=10 min)."
       },
       "lifts": {
-        "label": "Lifts / cableways",
+        "label": "Remontées / téléphériques",
         "description": "Détecte les télécabines et télésièges."
       },
       "lifts_osm": {
-        "label": "OSM snap",
+        "label": "OSM-Snap",
         "description": "Ajuste les trajets heuristiques aux géométries de remontées OSM connues."
       },
       "lifts_heuristic": {
-        "label": "Heuristic",
+        "label": "Heuristique",
         "description": "Détecte les trajets en remontée mécanique à partir des schémas de mouvement."
       },
       "surfaces": {
-        "label": "Surface types",
+        "label": "Types de surface",
         "description": "Détecte les types de voies, les surfaces et les parts de forêt/zones protégées."
       },
       "ascents": {
-        "label": "Ascents",
+        "label": "Montées",
         "description": "Détecte et classe les montées."
       },
       "intervals": {
-        "label": "Interval training",
+        "label": "Entraînement par intervalles",
         "description": "Détecte automatiquement les intervalles d’entraînement."
       },
       "lap_detection": {
-        "label": "Lap detection",
+        "label": "Détection des tours",
         "description": "Détecte automatiquement les tours pour les activités sur circuits."
       },
       "embeddings": {
@@ -8218,27 +8239,27 @@
   },
   "surfaceConstants": {
     "surfaces": {
-      "asphalt": "Asphalt",
-      "concrete": "Concrete",
-      "paved": "Paved",
-      "pavingStones": "Paving stones",
-      "gravel": "Gravel",
-      "fineGravel": "Fine gravel",
-      "coarseGravel": "Coarse gravel",
-      "natural": "Natural path",
-      "naturalFirm": "Firm natural path",
-      "naturalSoft": "Soft natural path",
-      "sand": "Sand",
-      "grass": "Grass",
-      "wood": "Wood",
-      "rock": "Rock",
-      "metal": "Metal",
-      "snow": "Snow",
-      "sportSurface": "Sport surface",
-      "unpaved": "Unpaved",
-      "unknown": "Unknown",
+      "asphalt": "Asphalte",
+      "concrete": "Béton",
+      "paved": "Revêtu",
+      "pavingStones": "Pavés",
+      "gravel": "Gravier",
+      "fineGravel": "Gravier fin",
+      "coarseGravel": "Gravier grossier",
+      "natural": "Chemin naturel",
+      "naturalFirm": "Chemin naturel ferme",
+      "naturalSoft": "Chemin naturel meuble",
+      "sand": "Sable",
+      "grass": "Herbe",
+      "wood": "Bois",
+      "rock": "Rocher",
+      "metal": "Métal",
+      "snow": "Neige",
+      "sportSurface": "Revêtement sportif",
+      "unpaved": "Non revêtu",
+      "unknown": "Inconnu",
       "offroad": "Offroad",
-      "mixed": "Mixed"
+      "mixed": "Mixte"
     },
     "highways": {
       "primary": "Primary road",
@@ -9631,6 +9652,106 @@
       "alreadyInOtherGroupTitle": "Activité déjà dans un autre groupe",
       "alreadyInOtherGroupMessage": "Cette activité appartient déjà à un autre groupe d’enregistrement. Tu peux la fusionner séparément.",
       "extendGroupFailedTitle": "Impossible d’étendre le groupe"
+    }
+  },
+  "tags": {
+    "system": {
+      "round_trip": {
+        "label": "Boucle",
+        "description": "Départ et arrivée proches."
+      },
+      "is_electric": {
+        "label": "E-Bike",
+        "description": "Activité cycliste électrique."
+      },
+      "is_commute": {
+        "label": "Trajet domicile-travail",
+        "description": "Activité de trajet domicile-travail."
+      },
+      "is_indoor": {
+        "label": "Indoor",
+        "description": "Activité indoor."
+      },
+      "is_virtual": {
+        "label": "Virtuel",
+        "description": "Activité virtuelle."
+      },
+      "frost": {
+        "label": "Gel",
+        "description": "Activité par conditions de gel."
+      },
+      "nacht": {
+        "label": "Nuit",
+        "description": "Activité de nuit."
+      },
+      "lift": {
+        "label": "Lift",
+        "description": "Activité avec assistance par remontée."
+      },
+      "ultra_marathon": {
+        "label": "Ultramarathon",
+        "description": "Course de distance ultramarathon."
+      },
+      "marathon": {
+        "label": "Marathon",
+        "description": "Course de distance marathon."
+      },
+      "half_marathon": {
+        "label": "Semi-marathon",
+        "description": "Course de distance semi-marathon."
+      },
+      "interval_training": {
+        "label": "Entraînement par intervalles",
+        "description": "Activité avec intervalles."
+      },
+      "food_stop": {
+        "label": "Pause repas",
+        "description": "Activité avec pause prolongée ou repas."
+      },
+      "border_crossing": {
+        "label": "Franchissement de frontière",
+        "description": "Activité avec franchissement de frontière."
+      },
+      "running_distance": {
+        "label": "Distance de course",
+        "description": "Règle pour les distances de course."
+      }
+    }
+  },
+  "automation": {
+    "system_rules": {
+      "round_trip": {
+        "label": "Boucle",
+        "description": "Définie automatiquement quand le départ et l’arrivée sont proches."
+      },
+      "electric_sync": {
+        "label": "E-Bike",
+        "description": "Définie automatiquement à partir du type de sport et du sous-type. Cette règle ne peut pas être modifiée."
+      },
+      "indoor_sync": {
+        "label": "Indoor",
+        "description": "Définie automatiquement à partir du type de sport et du sous-type. Cette règle ne peut pas être modifiée."
+      },
+      "virtual_sync": {
+        "label": "Virtuel",
+        "description": "Détectée automatiquement à partir des données d’import et des caractéristiques de l’activité. Cette règle ne peut pas être modifiée."
+      },
+      "frost": {
+        "label": "Gel",
+        "description": "Définie automatiquement quand la température minimale est inférieure ou égale à 0 °C."
+      },
+      "nacht": {
+        "label": "Nuit",
+        "description": "Définie automatiquement quand l’activité a lieu principalement de nuit."
+      },
+      "lift_detected": {
+        "label": "Lift",
+        "description": "Définie automatiquement lorsqu’une utilisation de remontée est détectée."
+      },
+      "commute_auto": {
+        "label": "Trajet domicile-travail",
+        "description": "Définie automatiquement pour les trajets domicile-travail détectés."
+      }
     }
   }
 }
