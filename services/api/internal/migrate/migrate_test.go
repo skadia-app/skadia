@@ -42,22 +42,12 @@ func (q fakeSchemaQuerier) QueryRow(_ context.Context, sql string, _ ...any) pgx
 	return fakeSchemaRow{dirty: q.dirty}
 }
 
-func TestReadSchemaVersionNormalizesFinalizedProvisionals(t *testing.T) {
-	version, err := ReadSchemaVersion(context.Background(), fakeSchemaQuerier{version: 900001})
-	if err != nil {
-		t.Fatalf("ReadSchemaVersion returned error: %v", err)
-	}
-	if version != 371 {
-		t.Fatalf("version = %d, want 371", version)
-	}
-}
-
 func TestReadSchemaVersionRejectsUnknownProvisionals(t *testing.T) {
-	_, err := ReadSchemaVersion(context.Background(), fakeSchemaQuerier{version: 900123})
+	_, err := ReadSchemaVersion(context.Background(), fakeSchemaQuerier{version: 900001})
 	if err == nil {
-		t.Fatal("ReadSchemaVersion should reject unknown provisional versions")
+		t.Fatal("ReadSchemaVersion should reject provisional versions")
 	}
-	if !strings.Contains(err.Error(), "unfinalized provisional version 900123") {
+	if !strings.Contains(err.Error(), "unfinalized provisional version 900001") {
 		t.Fatalf("error = %v", err)
 	}
 }
