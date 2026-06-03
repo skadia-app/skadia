@@ -9680,6 +9680,30 @@
         "label": "Helada",
         "description": "Actividad con condiciones de helada."
       },
+      "weather_cloudy": {
+        "label": "nublado",
+        "description": "Actividad con tiempo nublado."
+      },
+      "weather_sunny": {
+        "label": "soleado",
+        "description": "Actividad con tiempo soleado."
+      },
+      "weather_rain": {
+        "label": "lluvia",
+        "description": "Actividad con lluvia."
+      },
+      "weather_snow": {
+        "label": "nieve",
+        "description": "Actividad con nieve."
+      },
+      "weather_fog": {
+        "label": "niebla",
+        "description": "Actividad con niebla."
+      },
+      "weather_thunderstorm": {
+        "label": "tormenta",
+        "description": "Actividad durante una tormenta."
+      },
       "nacht": {
         "label": "Noche",
         "description": "Actividad nocturna."
@@ -9689,12 +9713,12 @@
         "description": "Actividad con apoyo de remontes."
       },
       "ultra_marathon": {
-        "label": "Ultramarathon",
-        "description": "Carrera de distancia ultramarathon."
+        "label": "Ultramaratón",
+        "description": "Carrera de distancia ultramaratón."
       },
       "marathon": {
-        "label": "Marathon",
-        "description": "Carrera de distancia marathon."
+        "label": "Maratón",
+        "description": "Carrera de distancia maratón."
       },
       "half_marathon": {
         "label": "Media maratón",
