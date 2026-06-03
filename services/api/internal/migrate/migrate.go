@@ -19,9 +19,7 @@ var migrationFS embed.FS
 
 const provisionalMigrationFloor int64 = 900000
 
-var finalizedMigrationAliases = map[int64]int64{
-	900001: 371,
-}
+var finalizedMigrationAliases = map[int64]int64{}
 
 type schemaVersionQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
