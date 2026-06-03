@@ -709,6 +709,15 @@
       "tracks": "Tracks",
       "heatmap": "Heatmap",
       "terraIncognitaShort": "Terra Inc."
+    },
+    "baseLayers": {
+      "osm": "OSM",
+      "topo": "Topo",
+      "cyclosm": "CyclOSM",
+      "satellite": "Satellit",
+      "dark": "Dunkel",
+      "local": "Lokal",
+      "offline": "Offline"
     }
   },
   "account": {
@@ -2833,20 +2842,20 @@
       "types": {
         "standard": "Standard",
         "trail": "Trail",
-      "lap": "Runde",
-      "lift": "Lift",
-      "wintersport": "Wintersport",
-      "wassersport": "Wassersport",
-      "unknown": "Unbekannter Segmenttyp"
+        "lap": "Runde",
+        "lift": "Lift",
+        "wintersport": "Wintersport",
+        "wassersport": "Wassersport",
+        "unknown": "Unbekannter Segmenttyp"
       },
       "sportGroups": {
         "bike": "Radfahren",
         "foot": "Laufsport",
         "swim": "Schwimmen",
-      "ski": "Wintersport",
-      "paddle": "Wassersport",
-      "generic": "Sonstiges",
-      "unknown": "Unbekannte Sportgruppe"
+        "ski": "Wintersport",
+        "paddle": "Wassersport",
+        "generic": "Sonstiges",
+        "unknown": "Unbekannte Sportgruppe"
       },
       "visibility": {
         "public": "Öffentlich",
@@ -5395,7 +5404,7 @@
       "description": "Beschreibung (optional)",
       "segmentType": "Segment-Typ",
       "climbType": "Höhenprofil",
-      "bidirectional": "Bidirektionales Matching",
+      "bidirectional": "In beide Richtungen matchen",
       "allowedSports": "Erlaubte Sportarten",
       "newVersion": "Neue Version erstellen",
       "newVersionHint": "Nur aktivieren, wenn sich die Route grundlegend ändert. Bestehende Bestzeiten bleiben der alten Version zugeordnet.",
@@ -6365,6 +6374,10 @@
       "units": {
         "count": "Anzahl",
         "days": "Tage"
+      },
+      "intervalNames": {
+        "swap": "Tauschen",
+        "check": "Prüfen"
       }
     },
     "chainRotation": {
@@ -7850,6 +7863,14 @@
     "mapPreviewUnavailable": "Kartenvorschau nicht verfügbar",
     "map": {
       "heatmap": "Heatmap"
+    },
+    "sacOptions": {
+      "T1": "T1 - Wandern",
+      "T2": "T2 - Bergwandern",
+      "T3": "T3 - anspruchsvolles Bergwandern",
+      "T4": "T4 - Alpinwandern",
+      "T5": "T5 - anspruchsvolles Alpinwandern",
+      "T6": "T6 - schwieriges Alpinwandern"
     }
   },
   "calendar": {
@@ -9631,6 +9652,106 @@
       "alreadyInOtherGroupTitle": "Aktivität bereits in anderer Gruppe",
       "alreadyInOtherGroupMessage": "Diese Aktivität gehört bereits einer anderen Aufnahmegruppe an. Du kannst sie einzeln fusionieren.",
       "extendGroupFailedTitle": "Gruppe konnte nicht erweitert werden"
+    }
+  },
+  "tags": {
+    "system": {
+      "round_trip": {
+        "label": "Rundtour",
+        "description": "Start und Ziel liegen nah beieinander."
+      },
+      "is_electric": {
+        "label": "E-Bike",
+        "description": "Elektrische Radaktivität."
+      },
+      "is_commute": {
+        "label": "Pendeln",
+        "description": "Aktivität zum Pendeln."
+      },
+      "is_indoor": {
+        "label": "Indoor",
+        "description": "Indoor-Aktivität."
+      },
+      "is_virtual": {
+        "label": "Virtuell",
+        "description": "Virtuelle Aktivität."
+      },
+      "frost": {
+        "label": "Frost",
+        "description": "Aktivität bei Frost."
+      },
+      "nacht": {
+        "label": "Nacht",
+        "description": "Aktivität bei Nacht."
+      },
+      "lift": {
+        "label": "Lift",
+        "description": "Aktivität mit Lift-Unterstützung."
+      },
+      "ultra_marathon": {
+        "label": "Ultramarathon",
+        "description": "Lauf über Ultramarathon-Distanz."
+      },
+      "marathon": {
+        "label": "Marathon",
+        "description": "Lauf über Marathon-Distanz."
+      },
+      "half_marathon": {
+        "label": "Halbmarathon",
+        "description": "Lauf über Halbmarathon-Distanz."
+      },
+      "interval_training": {
+        "label": "Intervalltraining",
+        "description": "Aktivität mit Intervallen."
+      },
+      "food_stop": {
+        "label": "Mit Einkehr",
+        "description": "Aktivität mit längerer Rast oder Einkehr."
+      },
+      "border_crossing": {
+        "label": "Grenzquerung",
+        "description": "Aktivität mit Grenzübertritt."
+      },
+      "running_distance": {
+        "label": "Laufdistanz",
+        "description": "Regel für Laufdistanzen."
+      }
+    }
+  },
+  "automation": {
+    "system_rules": {
+      "round_trip": {
+        "label": "Rundtour",
+        "description": "Automatisch gesetzt, wenn Start und Ziel nah beieinander liegen."
+      },
+      "electric_sync": {
+        "label": "E-Bike",
+        "description": "Automatisch aus Sportart und Subtyp gesetzt. Diese Regel kann nicht bearbeitet werden."
+      },
+      "indoor_sync": {
+        "label": "Indoor",
+        "description": "Automatisch aus Sportart und Subtyp gesetzt. Diese Regel kann nicht bearbeitet werden."
+      },
+      "virtual_sync": {
+        "label": "Virtuell",
+        "description": "Automatisch aus Importdaten und Aktivitätsmerkmalen erkannt. Diese Regel kann nicht bearbeitet werden."
+      },
+      "frost": {
+        "label": "Frost",
+        "description": "Automatisch gesetzt, wenn die Mindesttemperatur bei oder unter 0 °C liegt."
+      },
+      "nacht": {
+        "label": "Nacht",
+        "description": "Automatisch gesetzt, wenn die Aktivität vorwiegend nachts stattfindet."
+      },
+      "lift_detected": {
+        "label": "Lift",
+        "description": "Automatisch gesetzt, wenn Lift-Nutzung erkannt wird."
+      },
+      "commute_auto": {
+        "label": "Pendeln",
+        "description": "Automatisch für erkannte Pendelaktivitäten gesetzt."
+      }
     }
   }
 }

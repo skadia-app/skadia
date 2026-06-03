@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { fetchMaintenanceAlerts } from '@/api/gear'
 import type { MaintenanceAlert } from '@/api/types'
 import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
+import { displayServiceIntervalName } from '@/lib/i18nDisplay'
 import { useUnitFormatters } from '@/lib/useUnitFormatters'
 
 type AlertGroup = {
@@ -73,7 +74,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
           {alert.component_name}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {alert.interval_name}: {formatUsageMetricValue(alert.interval_type, alert.current_value, unitOptions)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value, unitOptions)}
+          {displayServiceIntervalName(alert.interval_name, t)}: {formatUsageMetricValue(alert.interval_type, alert.current_value, unitOptions)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value, unitOptions)}
         </div>
       </div>
       <span

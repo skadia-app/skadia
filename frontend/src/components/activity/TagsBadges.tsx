@@ -8,6 +8,7 @@ import { useClickOutside } from '@/hooks/useClickOutside'
 import { fetchTags, createTag, unassignActivitiesFromTag, assignActivitiesToTag } from '@/api/tags'
 import { updateActivity } from '@/api/activities'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
+import { displaySystemTagName, displayTagName } from '@/lib/i18nDisplay'
 import CommuteModal from './CommuteModal'
 
 interface CommuteContext {
@@ -165,14 +166,14 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
                 />
               </div>
               <div className="max-h-48 overflow-y-auto">
-                {filtered.map((t) => (
+                {filtered.map((tag) => (
                   <button
-                    key={t.id}
-                    onClick={() => addMut.mutate(t.name)}
+                    key={tag.id}
+                    onClick={() => addMut.mutate(tag.name)}
                     className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
-                    <span>{t.name}</span>
-                    <span className="text-xs text-neutral-400">{t.activity_count}</span>
+                    <span>{displayTagName(tag, t)}</span>
+                    <span className="text-xs text-neutral-400">{tag.activity_count}</span>
                   </button>
                 ))}
                 {showCreate && (
@@ -193,18 +194,19 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
 
         {tags.map((tag, i) => {
           const isHardcoded = tag === 'virtuell' && isVirtual
+          const tagLabel = displaySystemTagName(tag, t)
           return (
             <span
               key={tag}
               className="group inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
               style={getTagStyle(tag, i)}
             >
-              {tag}
+              {tagLabel}
               {!isHardcoded && (
                 <button
                   onClick={() => removeMut.mutate(tag)}
                   className="ml-1.5 text-xs opacity-0 transition-opacity group-hover:opacity-100"
-                  title={t('tagsBadges.remove', { tag })}
+                  title={t('tagsBadges.remove', { tag: tagLabel })}
                 >
                   &times;
                 </button>

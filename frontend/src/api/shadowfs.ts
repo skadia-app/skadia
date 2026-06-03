@@ -1,23 +1,8 @@
 import { apiClient } from './client'
-import { i18n } from '@/i18n/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type FileType = 'activity' | 'media' | 'document' | 'health' | 'route'
-
-/** Human-readable labels for all known file types (i18n-ready placeholder). */
-export const FILE_TYPE_LABELS: Record<string, string> = {
-  get activity() { return i18n.t('fileTypes.activity') },
-  get media() { return i18n.t('fileTypes.media') },
-  get document() { return i18n.t('fileTypes.document') },
-  get health() { return i18n.t('fileTypes.health') },
-  get route() { return i18n.t('fileTypes.route') },
-  get report() { return i18n.t('fileTypes.report') },
-  get edit() { return i18n.t('fileTypes.edit') },
-  get chat() { return i18n.t('fileTypes.chat') },
-  get thumb() { return i18n.t('fileTypes.thumb') },
-  get preview() { return i18n.t('fileTypes.preview') },
-}
 
 export interface FileSchema {
   file_type: FileType

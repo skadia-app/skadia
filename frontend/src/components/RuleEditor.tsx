@@ -14,6 +14,7 @@ import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOption
 import { GEAR_RULE_CONDITION_CATEGORY } from '@/lib/ruleGearProjection'
 import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 import { localizeString, type LocalizedString } from '@/i18n/localizedString'
+import { displayTagName } from '@/lib/i18nDisplay'
 import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import {
   distanceFromDisplayValue,
@@ -1437,9 +1438,9 @@ function ConditionValueEditor({
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">{t('ruleEditor.conditionControls.chooseTag')}</option>
-        {tags.map(t => (
-          <option key={t.id} value={t.name}>
-            {t.name}
+        {tags.map(tag => (
+          <option key={tag.id} value={tag.name}>
+            {displayTagName(tag, t)}
           </option>
         ))}
       </select>
@@ -1799,7 +1800,7 @@ function ActionParams({
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">{t('ruleEditor.actionParams.chooseTag')}</option>
-        {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        {tags.map(tag => <option key={tag.id} value={tag.id}>{displayTagName(tag, t)}</option>)}
       </select>
     )
   }
@@ -1811,7 +1812,7 @@ function ActionParams({
         className={inputClass + ' flex-1 min-w-0'}
       >
         <option value="">{t('ruleEditor.actionParams.chooseTag')}</option>
-        {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        {tags.map(tag => <option key={tag.id} value={tag.id}>{displayTagName(tag, t)}</option>)}
       </select>
     )
   }

@@ -9,6 +9,7 @@ import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
 import { fmtDateCompact } from '@/lib/format'
 import { displayActivityTitle } from '@/lib/activityTitle'
+import { displayTagName } from '@/lib/i18nDisplay'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -761,7 +762,7 @@ export default function TagsPage() {
                           className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
                           style={getTagBadgeStyle(tag.color || '#f3f4f6')}
                         >
-                          {tag.name}
+                          {displayTagName(tag, t)}
                         </span>
                         {(tag.has_automation || tag.is_auto) && (
                           <span
@@ -988,7 +989,7 @@ export default function TagsPage() {
                         className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
                         style={{ backgroundColor: '#9CA3AF', color: '#FFFFFF' }}
                       >
-                        {tag.name}
+                        {displayTagName(tag, t)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
@@ -1025,7 +1026,7 @@ export default function TagsPage() {
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 {t('tagsPage.deleteDialog.confirmPrefix')}{' '}
                 <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={getTagBadgeStyle(tagToDelete.color || '#f3f4f6')}>
-                  {tagToDelete.name}
+                  {displayTagName(tagToDelete, t)}
                 </span>
                 {' '}{t('tagsPage.deleteDialog.confirmSuffix')}
                 {tagToDelete.activity_count > 0 && (

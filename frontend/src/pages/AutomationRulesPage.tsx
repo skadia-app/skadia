@@ -23,6 +23,7 @@ import { useToast } from '@/lib/toast'
 import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
 import { isSupportedLanguage, type SupportedLanguage } from '@/i18n/languages'
 import { useUnitFormatters } from '@/lib/useUnitFormatters'
+import { displayAutomationRuleName, displaySystemTagName, displayTagName } from '@/lib/i18nDisplay'
 import {
   formatDistanceCompact as formatUnitDistanceCompact,
   formatElevation as formatUnitElevation,
@@ -147,12 +148,12 @@ function formatSportTupleConditionValue(value: unknown, t: TFunction, language: 
   }).join(` ${t('ruleEditor.logic.or')} `)
 }
 
-function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags: { id: string; name: string }[] | undefined, t: TFunction, language: SupportedLanguage): string {
+function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags: { id: string; name: string; display_key?: string | null }[] | undefined, t: TFunction, language: SupportedLanguage): string {
   if (!params) return ''
   if (!hasActionLabel(action, t)) return ''
   if ((action === 'add_tag' || action === 'remove_tag') && params.tag_id) {
     const tag = tags?.find((t) => t.id === params.tag_id)
-    return tag ? `"${tag.name}"` : String(params.tag_id)
+    return tag ? `"${displayTagName(tag, t)}"` : String(params.tag_id)
   }
   if (action === 'set_field' && params.field) {
     const label = fieldLabel(String(params.field), t)
@@ -510,7 +511,7 @@ export default function AutomationRulesPage() {
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
                       {m.rules.map((rm, i) => (
                         <span key={i} className="inline-flex items-center gap-1 text-xs bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800 rounded px-1.5 py-0.5">
-                          <span className="font-medium">{rm.rule_name}</span>
+                          <span className="font-medium">{displaySystemTagName(rm.rule_name, t)}</span>
                           <span className="text-orange-500 dark:text-orange-500">→</span>
                           <span>{rm.action}</span>
                         </span>
@@ -552,7 +553,7 @@ export default function AutomationRulesPage() {
               <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('automationRules.deleteDialog.title')}</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 {t('automationRules.deleteDialog.confirmPrefix')}{' '}
-                <span className="font-semibold text-neutral-900 dark:text-neutral-100">"{ruleToDelete.name}"</span>{' '}
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">"{displayAutomationRuleName(ruleToDelete, t)}"</span>{' '}
                 {t('automationRules.deleteDialog.confirmSuffix')}
               </p>
               <div className="flex items-center justify-end gap-3">
@@ -588,7 +589,7 @@ function RuleCard({
   onBackfill,
 }: {
   rule: AutomationRule
-  tags?: { id: string; name: string }[]
+  tags?: { id: string; name: string; display_key?: string | null }[]
   onEdit: () => void
   onToggle: (active: boolean) => void
   onDelete: () => void
@@ -600,6 +601,7 @@ function RuleCard({
   const [backfillLoading, setBackfillLoading] = useState(false)
   const [backfillApplying, setBackfillApplying] = useState(false)
   const language = currentLanguage(i18n.language)
+  const ruleLabel = displayAutomationRuleName(rule, t)
 
   async function handleBackfillPreview() {
     if (!onBackfill) return
@@ -620,7 +622,7 @@ function RuleCard({
     try {
       await applySingleRule(rule.id)
       setBackfillPreview(null)
-      onBackfill({ type: 'success', title: t('automationRules.toasts.ruleWillBeApplied', { name: rule.name }) })
+      onBackfill({ type: 'success', title: t('automationRules.toasts.ruleWillBeApplied', { name: ruleLabel }) })
     } catch {
       onBackfill({ type: 'error', title: t('automationRules.toasts.backfillFailed'), message: t('automationRules.toasts.ruleCouldNotBeApplied'), duration: 0 })
     } finally {
@@ -645,7 +647,7 @@ function RuleCard({
           onClick={!isReadonlySystem ? onEdit : undefined}
         >
           <div className="flex items-center gap-3">
-            <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{rule.name}</h3>
+            <h3 className="text-base font-medium text-neutral-900 dark:text-neutral-100">{ruleLabel}</h3>
             {rule.is_system && isReadonlySystem && (
               <span className="text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 px-1.5 py-0.5 rounded font-medium">
                 {t('automationRules.card.system')}
@@ -720,7 +722,7 @@ function RuleCard({
             <Toggle
               checked={rule.is_active}
               onChange={(active) => onToggle(active)}
-              aria-label={t('automationRules.card.toggleActive', { name: rule.name })}
+              aria-label={t('automationRules.card.toggleActive', { name: ruleLabel })}
             />
             {/* Backfill button: for all non-readonly system rules */}
             {!isReadonlySystem && onBackfill && (

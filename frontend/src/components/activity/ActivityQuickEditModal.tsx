@@ -26,6 +26,7 @@ import {
 import { formatDuration } from '@/lib/utils'
 import { useUnitFormatters } from '@/lib/useUnitFormatters'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
+import { displaySystemTagName, displayTagName } from '@/lib/i18nDisplay'
 import { fmtTime } from '@/lib/format'
 import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
@@ -443,9 +444,10 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   {draft.tags.map(tag => {
                     const locked = quickEditTagRemovalLocked(draft, tag)
                     const removalLabel = tagRemovalLabel(draft, tag, t, language)
+                    const tagLabel = displaySystemTagName(tag, t)
                     return (
                       <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
-                        {tag}
+                        {tagLabel}
                         {!locked && (
                           <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={removalLabel} title={removalLabel}>
                             <X className="h-3 w-3" />
@@ -476,7 +478,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                     <div className="flex flex-wrap gap-1.5">
                       {visibleSuggestions.map(tag => (
                         <button key={tag.name} type="button" onClick={() => { toggleTag(tag.name, true); setTagSearch('') }} className="rounded-full bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
-                          {tag.name}
+                          {displayTagName(tag, t)}
                         </button>
                       ))}
                     </div>

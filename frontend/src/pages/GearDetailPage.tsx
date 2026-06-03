@@ -37,6 +37,7 @@ import type {
 } from '@/api/types'
 import { formatDuration } from '@/lib/utils'
 import { PRODUCTIVE_SERVICE_METRICS, USAGE_METRIC_LABELS, formatUsageMetricValue, type ServiceMetricKey } from '@/lib/gearUsageMetrics'
+import { displayServiceIntervalName } from '@/lib/i18nDisplay'
 import { supportedLanguageFrom } from '@/i18n/localizedString'
 import { useModal } from '@/lib/modal'
 import GearForm from '@/components/GearForm'
@@ -967,7 +968,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
         <div className="flex flex-wrap gap-1.5">
           {intervals.map((interval: GearServiceInterval) => (
             <span key={interval.id} className="inline-flex items-center gap-1 rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300">
-              {interval.name}: {formatGearUsageMetricValue(interval.metric_key, interval.interval_value, unitFormatters)}
+              {displayServiceIntervalName(interval.name, t)}: {formatGearUsageMetricValue(interval.metric_key, interval.interval_value, unitFormatters)}
               <button
                 onClick={() => deleteIntervalMut.mutate(interval.id)}
                 disabled={deleteIntervalMut.isPending}
@@ -1056,7 +1057,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
                 <option value="">{t('gearPages.service.noIntervalReset')}</option>
                 {intervals.map(interval => (
                   <option key={interval.id} value={interval.id}>
-                    {interval.name}
+                    {displayServiceIntervalName(interval.name, t)}
                   </option>
                 ))}
               </select>

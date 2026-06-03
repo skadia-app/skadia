@@ -443,7 +443,11 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
     if (data.reason === 'no_data') return t('segmentEditor.enrichment.status.noData')
     if (data.reason === 'wintersport') return '' // intentional no-op for winter
     const parts: string[] = []
-    if (data.surface?.dominant) parts.push(t('segmentEditor.enrichment.status.surfacePart', { value: data.surface.dominant }))
+    if (data.surface?.dominant) {
+      const surfaceKey = `segmentsList.surfaces.${data.surface.dominant}`
+      const surfaceValue = i18n.exists(surfaceKey) ? t(surfaceKey) : data.surface.dominant
+      parts.push(t('segmentEditor.enrichment.status.surfacePart', { value: surfaceValue }))
+    }
     if (data.sac_scale?.dominant) parts.push(`SAC ${data.sac_scale.dominant}`)
     if (data.mtb_scale?.dominant) parts.push(`MTB ${data.mtb_scale.dominant}`)
     const pct = Math.round((data.coverage_pct ?? 0) * 100)

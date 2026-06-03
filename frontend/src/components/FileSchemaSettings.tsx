@@ -6,11 +6,11 @@ import {
   updateFileSchema,
   getLibraryDir,
   updateLibraryDir,
-  FILE_TYPE_LABELS,
   API_STATUS,
   type FileType,
   type UpdateLibraryDirResponse,
 } from '@/api/shadowfs'
+import { useTranslation } from 'react-i18next'
 import { useToast } from '@/lib/toast'
 import { LIB_LABELS, FILE_TYPE_ORDER } from '@/lib/libraryLabels'
 import { SettingsSection } from '@/components/ui/SettingsSection'
@@ -43,6 +43,7 @@ function SchemaSection({
   expanded,
   onToggle,
 }: SchemaSectionProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { addToast } = useToast()
   const [localValue, setLocalValue] = useState<string | null>(null)
@@ -70,6 +71,8 @@ function SchemaSection({
 
   const adminDefaultHint =
     !disabled && !isUserOverride && effectiveSchema ? effectiveSchema : undefined
+  const labelKey = `fileTypes.${fileType}`
+  const fileTypeLabel = t(labelKey)
 
   const saveError = mut.isError
     ? errorMessage(mut.error)
@@ -78,7 +81,7 @@ function SchemaSection({
   return (
     <FileSchemaAccordionRow
       fileType={fileType}
-      label={FILE_TYPE_LABELS[fileType] ?? fileType}
+      label={fileTypeLabel === labelKey ? fileType : fileTypeLabel}
       currentValue={disabled ? (currentValue || effectiveSchema) : currentValue}
       onChange={setLocalValue}
       onSave={() => mut.mutate()}

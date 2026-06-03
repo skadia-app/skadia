@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { fetchTags } from '@/api/tags'
+import { displayTagName } from '@/lib/i18nDisplay'
 
 export type TagFilterState = 'include' | 'exclude'
 
@@ -126,7 +127,7 @@ export default function TagFilterInput({ value, onChange, placeholder, compact }
                   style={{ backgroundColor: tag.color }}
                 />
                 <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
-                  {tag.name}
+                  {displayTagName(tag, t)}
                 </span>
                 {tag.activity_count > 0 && !state && (
                   <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
