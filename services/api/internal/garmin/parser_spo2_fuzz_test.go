@@ -8,7 +8,7 @@ import (
 )
 
 func FuzzDecodeSpO2(f *testing.F) {
-	// Seed with real SpO2 fixture when available.
+	// Seed with synthetic SpO2 fixture when available.
 	for _, path := range []string{
 		"testdata/sample_type58_spo2.fit",
 	} {

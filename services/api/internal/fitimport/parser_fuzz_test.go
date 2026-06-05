@@ -30,7 +30,7 @@ import (
 //
 // Seed corpus: two sources are added to every fuzz target.
 //
-//  1. Garmin daily-data fixtures from ../garmin/testdata/ (type 32/44/49/58/68
+//  1. Synthetic daily-data fixtures from ../garmin/testdata/ (type 32/44/49/58/68
 //     — monitoring, HRV, sleep, SpO2). Real activity FIT files from
 //     data/hotfolder/ are real-user GPS data (PII) and cannot be committed.
 //
