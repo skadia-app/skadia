@@ -8,7 +8,7 @@ import (
 )
 
 func FuzzDecodeMonitoringB(f *testing.F) {
-	// Seed with real monitoring_b fixtures when available.
+	// Seed with synthetic monitoring_b fixtures when available.
 	for _, path := range []string{
 		"testdata/sample_type32_monitoring_b.fit",
 		"testdata/sample_type32_monitoring_b_large.fit",

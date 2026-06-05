@@ -12,10 +12,10 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 )
 
-// TestRealMonitoringB_BodyBattery parses a real 56KB monitoring_b FIT file from a
-// Garmin export and validates that Body Battery values are correctly extracted from
+// TestSyntheticMonitoringB_BodyBattery parses a synthetic monitoring_b FIT file and validates
+// that Body Battery values are correctly extracted from
 // undocumented msg 227 field 3 (int8, 0-100).
-func TestRealMonitoringB_BodyBattery(t *testing.T) {
+func TestSyntheticMonitoringB_BodyBattery(t *testing.T) {
 	data, err := os.ReadFile("testdata/sample_type32_monitoring_b_large.fit")
 	if err != nil {
 		t.Skip("test fixture not available:", err)
@@ -79,31 +79,30 @@ func TestRealMonitoringB_BodyBattery(t *testing.T) {
 		}
 	}
 
-	t.Logf("Real monitoring_b parse results:")
+	t.Logf("Synthetic monitoring_b parse results:")
 	t.Logf("  Stress samples (0-100): %d", stressCount)
 	t.Logf("  Body Battery samples:   %d (range %d-%d)", bbCount, bbMin, bbMax)
 	t.Logf("  Body Battery deltas:    %d", bbDeltaCount)
 	t.Logf("  Heart Rate samples:     %d", hrCount)
 	t.Logf("  Respiration samples:    %d", respCount)
 
-	// A 56KB monitoring_b file from a full day MUST have data
 	if stressCount == 0 {
-		t.Error("expected non-zero stress samples from real monitoring_b file")
+		t.Error("expected non-zero stress samples from synthetic monitoring_b file")
 	}
 	if bbCount == 0 {
-		t.Error("expected non-zero Body Battery samples from real monitoring_b file (msg 227 field 3)")
+		t.Error("expected non-zero Body Battery samples from synthetic monitoring_b file (msg 227 field 3)")
 	}
 	if bbMin < 0 || bbMax > 100 {
 		t.Errorf("Body Battery out of range: min=%d, max=%d (expected 0-100)", bbMin, bbMax)
 	}
 	if hrCount == 0 {
-		t.Error("expected non-zero heart rate samples from real monitoring_b file")
+		t.Error("expected non-zero heart rate samples from synthetic monitoring_b file")
 	}
 }
 
-// TestRealMonitoringB_HSAMessages checks if HSA messages (306, 307, 308, 314, 409)
-// are present in modern Garmin monitoring files. Older devices only have legacy messages.
-func TestRealMonitoringB_HSAMessages(t *testing.T) {
+// TestSyntheticMonitoringB_MessageCoverage checks that the synthetic fixture keeps
+// the message families needed by the monitoring parser.
+func TestSyntheticMonitoringB_MessageCoverage(t *testing.T) {
 	data, err := os.ReadFile("testdata/sample_type32_monitoring_b_large.fit")
 	if err != nil {
 		t.Skip("test fixture not available:", err)
@@ -120,7 +119,7 @@ func TestRealMonitoringB_HSAMessages(t *testing.T) {
 		msgCounts[fit.Messages[i].Num]++
 	}
 
-	t.Logf("Message type distribution in real monitoring_b:")
+	t.Logf("Message type distribution in synthetic monitoring_b:")
 	hsaTypes := map[typedef.MesgNum]string{
 		55: "Monitoring", 227: "StressLevel", 297: "RespirationRate",
 		211: "MonitoringHrData",
@@ -139,10 +138,9 @@ func TestRealMonitoringB_HSAMessages(t *testing.T) {
 	}
 }
 
-// TestRealHRVNight_TrainingReadiness parses a real HRV night FIT file and checks
-// for msg 369 (Training Readiness, proprietary). Not all HRV night files have it —
-// it depends on device firmware version.
-func TestRealHRVNight_TrainingReadiness(t *testing.T) {
+// TestSyntheticHRVNight_TrainingReadiness parses a synthetic HRV night FIT file and
+// checks for msg 369 (Training Readiness).
+func TestSyntheticHRVNight_TrainingReadiness(t *testing.T) {
 	data, err := os.ReadFile("testdata/sample_type44_hrv_night_large.fit")
 	if err != nil {
 		t.Skip("test fixture not available:", err)
@@ -213,13 +211,13 @@ func TestRealHRVNight_TrainingReadiness(t *testing.T) {
 		}
 	}
 
-	t.Logf("Real HRV night parse results:")
+	t.Logf("Synthetic HRV night parse results:")
 	t.Logf("  HRV night values (msg 281): %d", hrv281Count)
 	t.Logf("  Training Readiness (msg 369): %d", tr369Count)
 
 	// HRV night values OR Training Readiness must be present
 	if hrv281Count == 0 && tr369Count == 0 {
-		t.Error("expected at least msg 281 (HRV) or msg 369 (Training Readiness) from real HRV night file")
+		t.Error("expected at least msg 281 (HRV) or msg 369 (Training Readiness) from synthetic HRV night file")
 	}
 
 	// Training Readiness is optional (firmware-dependent), but log presence
@@ -236,8 +234,8 @@ func TestRealHRVNight_TrainingReadiness(t *testing.T) {
 	}
 }
 
-// TestRealSleep_Levels parses a real sleep FIT file and validates SleepLevel extraction.
-func TestRealSleep_Levels(t *testing.T) {
+// TestSyntheticSleep_Levels parses a synthetic sleep FIT file and validates SleepLevel extraction.
+func TestSyntheticSleep_Levels(t *testing.T) {
 	data, err := os.ReadFile("testdata/sample_type49_sleep.fit")
 	if err != nil {
 		t.Skip("test fixture not available:", err)
@@ -271,7 +269,7 @@ func TestRealSleep_Levels(t *testing.T) {
 		}
 	}
 
-	t.Logf("Real sleep file parse results:")
+	t.Logf("Synthetic sleep file parse results:")
 	t.Logf("  SleepLevel entries: %d", sleepLevelCount)
 	t.Logf("  SleepAssessment: %d", assessmentCount)
 	t.Logf("  Sleep Events (74): %d", eventCount)
@@ -281,12 +279,12 @@ func TestRealSleep_Levels(t *testing.T) {
 	}
 
 	if sleepLevelCount == 0 {
-		t.Error("expected non-zero SleepLevel entries from real sleep file")
+		t.Error("expected non-zero SleepLevel entries from synthetic sleep file")
 	}
 }
 
-// TestRealSpO2_Snapshots parses a real SpO2 FIT file.
-func TestRealSpO2_Snapshots(t *testing.T) {
+// TestSyntheticSpO2_Snapshots parses a synthetic SpO2 FIT file.
+func TestSyntheticSpO2_Snapshots(t *testing.T) {
 	data, err := os.ReadFile("testdata/sample_type58_spo2.fit")
 	if err != nil {
 		t.Skip("test fixture not available:", err)
@@ -310,7 +308,7 @@ func TestRealSpO2_Snapshots(t *testing.T) {
 		}
 	}
 
-	t.Logf("Real SpO2 file message distribution:")
+	t.Logf("Synthetic SpO2 file message distribution:")
 	t.Logf("  Standard Spo2Data (269): %d", std269)
 	t.Logf("  HSA Spo2Data (305): %d", hsa305)
 	t.Logf("  Proprietary (318): %d (skipped by parser)", proprietary318)

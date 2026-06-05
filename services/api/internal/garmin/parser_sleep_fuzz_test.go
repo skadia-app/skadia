@@ -8,7 +8,7 @@ import (
 )
 
 func FuzzDecodeSleep(f *testing.F) {
-	// Seed with real sleep fixture when available.
+	// Seed with synthetic sleep fixture when available.
 	for _, path := range []string{
 		"testdata/sample_type49_sleep.fit",
 	} {
