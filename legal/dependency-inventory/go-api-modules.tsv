@@ -1,0 +1,85 @@
+module	version	relationship	license_notice_files
+cloud.google.com/go/compute/metadata	v0.3.0	direct	services/api/vendor/cloud.google.com/go/compute/metadata/LICENSE
+github.com/alexedwards/argon2id	v1.0.0	direct	services/api/vendor/github.com/alexedwards/argon2id/LICENSE
+github.com/aws/aws-sdk-go-v2	v1.41.4	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/NOTICE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/credentials/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/configsources/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/sync/singleflight/LICENSE; services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/v4a/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/checksum/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/s3shared/LICENSE.txt; services/api/vendor/github.com/aws/aws-sdk-go-v2/service/s3/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream	v1.7.7	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/credentials	v1.19.12	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/credentials/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/internal/configsources	v1.4.20	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/configsources/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/internal/endpoints/v2	v2.7.20	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/internal/v4a	v1.4.21	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/internal/v4a/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding	v1.13.7	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/checksum	v1.9.12	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/checksum/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/presigned-url	v1.13.20	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/s3shared	v1.19.20	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/service/internal/s3shared/LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/s3	v1.97.1	direct	services/api/vendor/github.com/aws/aws-sdk-go-v2/service/s3/LICENSE.txt
+github.com/aws/smithy-go	v1.24.2	direct	services/api/vendor/github.com/aws/smithy-go/LICENSE; services/api/vendor/github.com/aws/smithy-go/NOTICE; services/api/vendor/github.com/aws/smithy-go/internal/sync/singleflight/LICENSE
+github.com/aymerick/douceur	v0.2.0	direct	services/api/vendor/github.com/aymerick/douceur/LICENSE
+github.com/beorn7/perks	v1.0.1	direct	services/api/vendor/github.com/beorn7/perks/LICENSE
+github.com/bep/imagemeta	v0.17.0	direct	services/api/vendor/github.com/bep/imagemeta/LICENSE
+github.com/cespare/xxhash/v2	v2.3.0	direct	services/api/vendor/github.com/cespare/xxhash/v2/LICENSE.txt
+github.com/clipperhouse/uax29/v2	v2.2.0	direct	services/api/vendor/github.com/clipperhouse/uax29/v2/LICENSE
+github.com/corona10/goimagehash	v1.1.0	direct	services/api/vendor/github.com/corona10/goimagehash/LICENSE
+github.com/decred/dcrd/dcrec/secp256k1/v4	v4.4.0	direct	services/api/vendor/github.com/decred/dcrd/dcrec/secp256k1/v4/LICENSE
+github.com/disintegration/imaging	v1.6.2	direct	services/api/vendor/github.com/disintegration/imaging/LICENSE
+github.com/fogleman/delaunay	v0.0.0-20180910191513-63f09b4c883d	direct	services/api/vendor/github.com/fogleman/delaunay/LICENSE.md
+github.com/fsnotify/fsnotify	v1.9.0	direct	services/api/vendor/github.com/fsnotify/fsnotify/LICENSE
+github.com/go-chi/chi/v5	v5.2.5	direct	services/api/vendor/github.com/go-chi/chi/v5/LICENSE
+github.com/goccy/go-json	v0.10.3	direct	services/api/vendor/github.com/goccy/go-json/LICENSE
+github.com/google/uuid	v1.6.0	direct	services/api/vendor/github.com/google/uuid/LICENSE
+github.com/gorilla/css	v1.0.1	direct	services/api/vendor/github.com/gorilla/css/LICENSE
+github.com/hhrutter/lzw	v1.0.0	direct	services/api/vendor/github.com/hhrutter/lzw/LICENSE
+github.com/hhrutter/pkcs7	v0.2.0	direct	services/api/vendor/github.com/hhrutter/pkcs7/LICENSE
+github.com/hhrutter/tiff	v1.0.2	direct	services/api/vendor/github.com/hhrutter/tiff/LICENSE
+github.com/jackc/pgpassfile	v1.0.0	direct	services/api/vendor/github.com/jackc/pgpassfile/LICENSE
+github.com/jackc/pgservicefile	v0.0.0-20240606120523-5a60cdf6a761	direct	services/api/vendor/github.com/jackc/pgservicefile/LICENSE
+github.com/jackc/pgx/v5	v5.8.0	direct	services/api/vendor/github.com/jackc/pgx/v5/LICENSE; services/api/vendor/github.com/jackc/pgx/v5/pgproto3/notice_response.go
+github.com/jackc/puddle/v2	v2.2.2	direct	services/api/vendor/github.com/jackc/puddle/v2/LICENSE
+github.com/klauspost/compress	v1.18.2	direct	services/api/vendor/github.com/klauspost/compress/LICENSE
+github.com/klauspost/cpuid/v2	v2.2.10	direct	services/api/vendor/github.com/klauspost/cpuid/v2/LICENSE
+github.com/lestrrat-go/blackmagic	v1.0.3	direct	services/api/vendor/github.com/lestrrat-go/blackmagic/LICENSE
+github.com/lestrrat-go/httpcc	v1.0.1	direct	services/api/vendor/github.com/lestrrat-go/httpcc/LICENSE
+github.com/lestrrat-go/httprc	v1.0.6	direct	services/api/vendor/github.com/lestrrat-go/httprc/LICENSE
+github.com/lestrrat-go/iter	v1.0.2	direct	services/api/vendor/github.com/lestrrat-go/iter/LICENSE
+github.com/lestrrat-go/jwx/v2	v2.1.6	direct	services/api/vendor/github.com/lestrrat-go/jwx/v2/LICENSE
+github.com/lestrrat-go/option	v1.0.1	direct	services/api/vendor/github.com/lestrrat-go/option/LICENSE
+github.com/mattn/go-runewidth	v0.0.19	direct	services/api/vendor/github.com/mattn/go-runewidth/LICENSE
+github.com/microcosm-cc/bluemonday	v1.0.27	direct	services/api/vendor/github.com/microcosm-cc/bluemonday/CREDITS.md; services/api/vendor/github.com/microcosm-cc/bluemonday/LICENSE.md
+github.com/mitchellh/mapstructure	v1.5.0	direct	services/api/vendor/github.com/mitchellh/mapstructure/LICENSE
+github.com/muktihari/fit	v0.28.0	direct	services/api/vendor/github.com/muktihari/fit/LICENSE; services/api/vendor/github.com/muktihari/fit/LICENSE-FIT-SDK
+github.com/munnerz/goautoneg	v0.0.0-20191010083416-a7dc8b61c822	direct	services/api/vendor/github.com/munnerz/goautoneg/LICENSE
+github.com/nats-io/nats.go	v1.49.0	direct	services/api/vendor/github.com/nats-io/nats.go/LICENSE
+github.com/nats-io/nkeys	v0.4.12	direct	services/api/vendor/github.com/nats-io/nkeys/LICENSE
+github.com/nats-io/nuid	v1.0.1	direct	services/api/vendor/github.com/nats-io/nuid/LICENSE
+github.com/nfnt/resize	v0.0.0-20180221191011-83c6a9932646	direct	services/api/vendor/github.com/nfnt/resize/LICENSE
+github.com/paulmach/orb	v0.12.0	direct	services/api/vendor/github.com/paulmach/orb/LICENSE.md
+github.com/pdfcpu/pdfcpu	v0.11.1	direct	services/api/vendor/github.com/pdfcpu/pdfcpu/LICENSE.txt
+github.com/pkg/errors	v0.9.1	direct	services/api/vendor/github.com/pkg/errors/LICENSE
+github.com/prometheus/client_golang	v1.23.2	direct	services/api/vendor/github.com/prometheus/client_golang/LICENSE; services/api/vendor/github.com/prometheus/client_golang/NOTICE; services/api/vendor/github.com/prometheus/client_golang/internal/github.com/golang/gddo/LICENSE
+github.com/prometheus/client_model	v0.6.2	direct	services/api/vendor/github.com/prometheus/client_model/LICENSE; services/api/vendor/github.com/prometheus/client_model/NOTICE
+github.com/prometheus/common	v0.66.1	direct	services/api/vendor/github.com/prometheus/common/LICENSE; services/api/vendor/github.com/prometheus/common/NOTICE
+github.com/prometheus/procfs	v0.16.1	direct	services/api/vendor/github.com/prometheus/procfs/LICENSE; services/api/vendor/github.com/prometheus/procfs/NOTICE
+github.com/ringsaturn/tzf	v1.0.4	direct	services/api/vendor/github.com/ringsaturn/tzf/LICENSE; services/api/vendor/github.com/ringsaturn/tzf/LICENSE_ANTI_CSDN.md; services/api/vendor/github.com/ringsaturn/tzf/NOTICE; services/api/vendor/github.com/ringsaturn/tzf/internal/maps/LICENSE
+github.com/ringsaturn/tzf-rel-lite	v0.0.2026-a	direct	services/api/vendor/github.com/ringsaturn/tzf-rel-lite/LICENSE
+github.com/santhosh-tekuri/jsonschema/v6	v6.0.2	direct	services/api/vendor/github.com/santhosh-tekuri/jsonschema/v6/LICENSE
+github.com/segmentio/asm	v1.2.0	direct	services/api/vendor/github.com/segmentio/asm/LICENSE
+github.com/sixdouglas/suncalc	v0.0.0-20250114185126-291b1938b70c	direct	services/api/vendor/github.com/sixdouglas/suncalc/LICENSE
+github.com/tidwall/geoindex	v1.7.0	direct	services/api/vendor/github.com/tidwall/geoindex/LICENSE
+github.com/tidwall/geojson	v1.4.6	direct	services/api/vendor/github.com/tidwall/geojson/LICENSE
+github.com/tidwall/pretty	v1.2.1	direct	-
+github.com/tidwall/rtree	v1.10.0	direct	services/api/vendor/github.com/tidwall/rtree/LICENSE
+github.com/twpayne/go-polyline	v1.1.1	direct	services/api/vendor/github.com/twpayne/go-polyline/LICENSE
+github.com/wneessen/go-mail	v0.7.2	direct	services/api/vendor/github.com/wneessen/go-mail/LICENSE; services/api/vendor/github.com/wneessen/go-mail/smtp/LICENSE
+github.com/zeebo/xxh3	v1.1.0	direct	services/api/vendor/github.com/zeebo/xxh3/LICENSE
+go.mongodb.org/mongo-driver	v1.11.4	direct	services/api/vendor/go.mongodb.org/mongo-driver/LICENSE
+go.yaml.in/yaml/v2	v2.4.2	direct	services/api/vendor/go.yaml.in/yaml/v2/LICENSE; services/api/vendor/go.yaml.in/yaml/v2/LICENSE.libyaml; services/api/vendor/go.yaml.in/yaml/v2/NOTICE
+golang.org/x/crypto	v0.46.0	direct	services/api/vendor/golang.org/x/crypto/LICENSE
+golang.org/x/image	v0.32.0	direct	services/api/vendor/golang.org/x/image/LICENSE
+golang.org/x/net	v0.47.0	direct	services/api/vendor/golang.org/x/net/LICENSE
+golang.org/x/oauth2	v0.36.0	direct	services/api/vendor/golang.org/x/oauth2/LICENSE
+golang.org/x/sync	v0.20.0	direct	services/api/vendor/golang.org/x/sync/LICENSE
+golang.org/x/sys	v0.39.0	direct	services/api/vendor/golang.org/x/sys/LICENSE
+golang.org/x/text	v0.35.0	direct	services/api/vendor/golang.org/x/text/LICENSE
+golang.org/x/time	v0.15.0	direct	services/api/vendor/golang.org/x/time/LICENSE
+google.golang.org/protobuf	v1.36.11	direct	services/api/vendor/google.golang.org/protobuf/LICENSE
+gopkg.in/yaml.v2	v2.4.0	direct	services/api/vendor/gopkg.in/yaml.v2/LICENSE; services/api/vendor/gopkg.in/yaml.v2/LICENSE.libyaml; services/api/vendor/gopkg.in/yaml.v2/NOTICE
+gopkg.in/yaml.v3	v3.0.1	direct	services/api/vendor/gopkg.in/yaml.v3/LICENSE; services/api/vendor/gopkg.in/yaml.v3/NOTICE
