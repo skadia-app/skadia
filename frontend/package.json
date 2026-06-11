@@ -22,7 +22,7 @@
     "date-fns": "^4.1.0",
     "echarts": "^6.0.0",
     "i18next": "^26.3.0",
-    "lucide-react": "^0.577.0",
+    "lucide-react": "^1.17.0",
     "maplibre-gl": "^5.3.0",
     "maplibre-gl-draw": "^1.6.9",
     "react": "^19.1.0",
