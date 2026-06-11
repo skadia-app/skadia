@@ -34,6 +34,7 @@ SENSITIVE_FILENAME_TOKEN_RE='(^|[^[:alnum:]_.-])([[:alnum:]_.-]+\.(fit|gpx|tcx|k
 SYNTHETIC_FILENAME_TOKEN_RE='^(synthetic|example|sample)-[[:alnum:]_.-]+\.(fit|gpx|tcx|kml|kmz|zip|tar|tgz|7z|xlsx|xls|docx|pdf|png|jpe?g|heic|avif)$'
 INTERNAL_PUBLIC_PATH_RE='(^|[^[:alnum:]_.-])(\.?docs/(plans|research|_internal|archive|superpowers|reviews)(/[^[:space:]]*)?|\.private(/[^[:space:]]*)?|\.superpowers(/[^[:space:]]*)?|\.claude(/[^[:space:]]*)?|memory/[^[:space:]]*|ideas/[^[:space:]]*)($|[^[:alnum:]_.-])'
 PUBLIC_WORKFLOW_RE='(^|[^[:alnum:]_])(phase[[:space:]_-]*[0-9]+|task[[:space:]_-]*[0-9]+|(plan|spec)[[:space:]_-]+[A-Za-z0-9][A-Za-z0-9_-]*|critic|kritiker|findings?|fixed[[:space:]_-]+review[[:space:]_-]+findings|fixed[[:space:]_-]+critic[[:space:]_-]+findings)([^[:alnum:]_]|$)'
+THIRD_PARTY_FRAMING_RE='(^|[^[:alnum:]_])(inspired[[:space:]]+by|direct[[:space:]]+inspiration|per[[:space:]]+[[:alnum:]_. /+-]{2,80}[[:space:]]+standard)([^[:alnum:]_]|$)'
 AGENT_MODEL_RE='(^|[^[:alnum:]_])(claude|codex|gemini|opus|sonnet|haiku|gpt([[:space:]-]*[0-9][A-Za-z0-9_.-]*)?|openai|anthropic)([^[:alnum:]_]|$)'
 PRIVATE_TAG_RE='(^|[^[:alnum:]_])#[[:alpha:]_][[:alnum:]_-]*|(^|[[:space:]])tags?:[[:space:]]*[^[:space:]]+'
 
@@ -194,6 +195,9 @@ scan_line() {
         fi
         if printf '%s\n' "$text" | grep -Ei "$PUBLIC_WORKFLOW_RE" >/dev/null; then
             WARNINGS+=("internal workflow wording in public text ${path}:${line_no}: ${text}")
+        fi
+        if printf '%s\n' "$text" | grep -Ei "$THIRD_PARTY_FRAMING_RE" >/dev/null; then
+            WARNINGS+=("third-party platform framing in public text ${path}:${line_no}: ${text}")
         fi
         if ! is_allowed_public_doc_provenance_metadata "$path" "$text" \
             && printf '%s\n' "$text" | grep -Ei "$AGENT_MODEL_RE" >/dev/null; then
