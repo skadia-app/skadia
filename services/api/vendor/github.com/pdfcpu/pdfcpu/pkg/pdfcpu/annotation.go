@@ -17,10 +17,12 @@
 package pdfcpu
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/draw"
@@ -238,6 +240,7 @@ func Annotation(xRefTable *model.XRefTable, d types.Dict) (model.AnnotationRende
 	return ann, nil
 }
 
+// AnnotationsForSelectedPages annotations for selected pages.
 func AnnotationsForSelectedPages(ctx *model.Context, selectedPages types.IntSet) map[int]model.PgAnnots {
 
 	var pageNrs []int
@@ -315,6 +318,22 @@ func prepareHeader(horSep *[]int, maxLen *AnnotListMaxLengths, customAnnot bool)
 
 type AnnotListMaxLengths struct {
 	ObjNr, ID, Rect, Content, Type int
+}
+
+// AnnotationList represents page annotations formatted for JSON output.
+type AnnotationList struct {
+	Header      Header                        `json:"header"`
+	Annotations map[int][]AnnotationListEntry `json:"annotations"`
+}
+
+// AnnotationListEntry represents one page annotation formatted for JSON output.
+type AnnotationListEntry struct {
+	Type      string     `json:"type"`
+	ObjNr     int        `json:"objNr"`
+	ID        string     `json:"id,omitempty"`
+	Rect      [4]float64 `json:"rect"`
+	Content   *string    `json:"content"`
+	CustomTyp string     `json:"customType,omitempty"`
 }
 
 // ListAnnotations returns a formatted list of annotations.
@@ -420,6 +439,104 @@ func ListAnnotations(annots map[int]model.PgAnnots) (int, []string, error) {
 	return j, append([]string{fmt.Sprintf("%d annotations available", j)}, ss...), nil
 }
 
+func annotationContent(ann model.AnnotationRenderer) *string {
+	s := ann.Content()
+	switch a := ann.(type) {
+	case model.LinkAnnotation:
+		s = a.ContentString()
+	case model.PopupAnnotation:
+		if a.ParentIndRef != nil {
+			s = a.ContentString()
+		}
+	}
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func annotationListEntry(annType string, objNr int, ann model.AnnotationRenderer) AnnotationListEntry {
+	r := ann.Rectangle()
+	return AnnotationListEntry{
+		Type:      annType,
+		ObjNr:     objNr,
+		ID:        ann.ID(),
+		Rect:      [4]float64{r.LL.X, r.LL.Y, r.UR.X, r.UR.Y},
+		Content:   annotationContent(ann),
+		CustomTyp: ann.CustomTypeString(),
+	}
+}
+
+func annotationJSONHeader() Header {
+	return Header{
+		Version:  "pdfcpu " + model.VersionStr,
+		Creation: time.Now().Format("2006-01-02 15:04:05 MST"),
+	}
+}
+
+func sortedAnnotationObjNrs(annots model.Annot) []int {
+	objNrs := make([]int, 0, len(annots.Map))
+	for objNr := range annots.Map {
+		objNrs = append(objNrs, objNr)
+	}
+	sort.Ints(objNrs)
+	return objNrs
+}
+
+func addAnnotationListEntries(list *AnnotationList, pageNr int, annType string, annots model.Annot) int {
+	objNrs := sortedAnnotationObjNrs(annots)
+	for _, objNr := range objNrs {
+		ann := annots.Map[objNr]
+		list.Annotations[pageNr] = append(list.Annotations[pageNr], annotationListEntry(annType, objNr, ann))
+	}
+	return len(objNrs)
+}
+
+func annotationList(annots map[int]model.PgAnnots) (AnnotationList, int) {
+	var count int
+	list := AnnotationList{
+		Header:      annotationJSONHeader(),
+		Annotations: map[int][]AnnotationListEntry{},
+	}
+
+	for _, pageNr := range sortedAnnotationPages(annots) {
+		pageAnnots := annots[pageNr]
+		for _, annType := range sortedAnnotationTypeNames(pageAnnots) {
+			count += addAnnotationListEntries(&list, pageNr, annType, pageAnnots[model.AnnotTypes[annType]])
+		}
+	}
+
+	return list, count
+}
+
+func sortedAnnotationPages(annots map[int]model.PgAnnots) []int {
+	pageNrs := make([]int, 0, len(annots))
+	for k := range annots {
+		pageNrs = append(pageNrs, k)
+	}
+	sort.Ints(pageNrs)
+	return pageNrs
+}
+
+func sortedAnnotationTypeNames(pageAnnots model.PgAnnots) []string {
+	annTypes := make([]string, 0, len(pageAnnots))
+	for t := range pageAnnots {
+		annTypes = append(annTypes, model.AnnotTypeStrings[t])
+	}
+	sort.Strings(annTypes)
+	return annTypes
+}
+
+// ListAnnotationsJSON returns a JSON-formatted list of annotations.
+func ListAnnotationsJSON(annots map[int]model.PgAnnots) (int, []string, error) {
+	list, count := annotationList(annots)
+	bb, err := json.MarshalIndent(list, "", "\t")
+	if err != nil {
+		return 0, nil, err
+	}
+	return count, []string{string(bb)}, nil
+}
+
 func addAnnotationToDirectObj(
 	ctx *model.Context,
 	annots types.Array,
@@ -517,6 +634,7 @@ func AddAnnotation(
 	return annotIndRef, d, nil
 }
 
+// AddAnnotationToPage adds annotation to page.
 func AddAnnotationToPage(ctx *model.Context, pageNr int, ar model.AnnotationRenderer, incr bool) (*types.IndirectRef, types.Dict, error) {
 	pageDictIndRef, err := ctx.PageDictIndRef(pageNr)
 	if err != nil {

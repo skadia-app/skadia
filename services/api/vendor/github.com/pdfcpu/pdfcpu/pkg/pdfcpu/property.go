@@ -62,9 +62,14 @@ func PropertiesAdd(ctx *model.Context, properties map[string]string) error {
 	return nil
 }
 
-// PropertiesRemove deletes specified properties.
+// PropertiesRemove deletes specified document properties.
+// If properties is empty, it removes all properties and catalog XMP metadata.
 // Returns true if at least one property was removed.
 func PropertiesRemove(ctx *model.Context, properties []string) (bool, error) {
+	if len(properties) == 0 {
+		return removeAllProperties(ctx)
+	}
+
 	if ctx.Info == nil {
 		return false, nil
 	}
@@ -72,15 +77,6 @@ func PropertiesRemove(ctx *model.Context, properties []string) (bool, error) {
 	d, err := ctx.DereferenceDict(*ctx.Info)
 	if err != nil || d == nil {
 		return false, err
-	}
-
-	if len(properties) == 0 {
-		// Remove all properties.
-		for k := range ctx.Properties {
-			delete(d, types.EncodeName(k))
-		}
-		ctx.Properties = map[string]string{}
-		return true, nil
 	}
 
 	var removed bool
@@ -91,6 +87,34 @@ func PropertiesRemove(ctx *model.Context, properties []string) (bool, error) {
 			delete(ctx.Properties, k)
 			removed = true
 		}
+	}
+
+	return removed, nil
+}
+
+func removeAllProperties(ctx *model.Context) (bool, error) {
+	var removed bool
+
+	if ctx.Info != nil {
+		d, err := ctx.DereferenceDict(*ctx.Info)
+		if err != nil || d == nil {
+			return false, err
+		}
+		for k := range ctx.Properties {
+			delete(d, types.EncodeName(k))
+			removed = true
+		}
+		ctx.Properties = map[string]string{}
+	}
+
+	rootDict, err := ctx.Catalog()
+	if err != nil {
+		return removed, err
+	}
+	if _, ok := rootDict["Metadata"]; ok {
+		delete(rootDict, "Metadata")
+		ctx.CatalogXMPMeta = nil
+		removed = true
 	}
 
 	return removed, nil

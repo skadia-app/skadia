@@ -35,6 +35,7 @@ import (
 	"github.com/hhrutter/tiff"
 
 	"github.com/pdfcpu/pdfcpu/pkg/filter"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/safemath"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"github.com/pkg/errors"
 	_ "golang.org/x/image/webp"
@@ -60,6 +61,35 @@ type Image struct {
 	Size        int64  // "Length"
 	Filter      string // filter pipeline
 	DecodeParms string
+}
+
+func validateImageResourceLimits(xRefTable *XRefTable, c image.Config) error {
+	if c.Width <= 0 || c.Height <= 0 {
+		return errors.Errorf("pdfcpu: image has invalid dimensions %dx%d", c.Width, c.Height)
+	}
+
+	limits := DefaultResourceLimits()
+	if xRefTable != nil && xRefTable.Conf != nil {
+		limits = xRefTable.Conf.Limits
+	}
+
+	pixels, err := safemath.MultiplyInt64(int64(c.Width), int64(c.Height))
+	if err != nil {
+		return err
+	}
+	if pixels > limits.MaxImagePixels {
+		return errors.Errorf("pdfcpu: image pixel count %d exceeds limit %d", pixels, limits.MaxImagePixels)
+	}
+
+	renderBytes, err := safemath.MultiplyInt64(pixels, 4)
+	if err != nil {
+		return err
+	}
+	if renderBytes > limits.MaxImageBytes {
+		return errors.Errorf("pdfcpu: image byte size %d exceeds limit %d", renderBytes, limits.MaxImageBytes)
+	}
+
+	return nil
 }
 
 // ImageFileName returns true for supported image file types.
@@ -191,7 +221,7 @@ func CreateDCTImageStreamDict(xRefTable *XRefTable, buf []byte, w, h, bpc int, c
 		return nil, err
 	}
 
-	sd.Content = nil
+	//sd.Content = nil
 
 	sd.FilterPipeline = []types.PDFFilter{{Name: filter.DCT, DecodeParms: nil}}
 
@@ -572,107 +602,115 @@ func encodeJPEG(img image.Image) ([]byte, string, error) {
 	return buf.Bytes(), cs, err
 }
 
-func createImageBuf(xRefTable *XRefTable, img image.Image, imgA image.Image, format string) ([]byte, []byte, int, string, error) {
-	var buf []byte
-	var sm []byte // soft mask aka alpha mask
-	var bpc int
-	// TODO if dpi != 72 resample (applies to PNG,JPG,TIFF)
+func handleRGBImage(xRefTable *XRefTable, img image.Image) ([]byte, []byte, int, string, error) {
+	var (
+		buf, sm []byte
+		cs      = DeviceRGBCS
+		bpc     int
+	)
 
-	if format == "jpeg" {
-		bb, cs, err := encodeJPEG(img)
-		return bb, sm, 8, cs, err
-	}
-
-	var cs string
-
-	switch img := img.(type) {
+	switch im := img.(type) {
 	case *image.RGBA:
 		// A 32-bit alpha-premultiplied color, having 8 bits for each of red, green, blue and alpha.
 		// An alpha-premultiplied color component C has been scaled by alpha (A), so it has valid values 0 <= C <= A.
-		cs = DeviceRGBCS
 		bpc = 8
-		buf, sm = writeRGBAImageBuf(img)
+		buf, sm = writeRGBAImageBuf(im)
 
 	case *image.RGBA64:
 		// A 64-bit alpha-premultiplied color, having 16 bits for each of red, green, blue and alpha.
 		// An alpha-premultiplied color component C has been scaled by alpha (A), so it has valid values 0 <= C <= A.
-		cs = DeviceRGBCS
 		bpc = 16
-		buf = writeRGBA64ImageBuf(img)
+		buf = writeRGBA64ImageBuf(im)
 
 	case *image.NRGBA:
 		// Non-alpha-premultiplied 32-bit color.
-		cs = DeviceRGBCS
 		bpc = 8
-		buf, sm = writeNRGBAImageBuf(xRefTable, img)
+		buf, sm = writeNRGBAImageBuf(xRefTable, im)
 
 	case *image.NRGBA64:
 		// Non-alpha-premultiplied 64-bit color.
-		cs = DeviceRGBCS
 		bpc = 16
-		buf, sm = writeNRGBA64ImageBuf(xRefTable, img)
-
-	case *image.Alpha:
-		return buf, sm, bpc, cs, errors.New("pdfcpu: unsupported image type: Alpha")
-
-	case *image.Alpha16:
-		return buf, sm, bpc, cs, errors.New("pdfcpu: unsupported image type: Alpha16")
-
-	case *image.Gray:
-		// 8-bit grayscale color.
-		cs = DeviceGrayCS
-		bpc = 8
-		if imgA != nil {
-			switch imgA := imgA.(type) {
-			case *image.Alpha:
-				sm = writeSoftmask(xRefTable, imgA)
-			case *image.Alpha16:
-				sm = writeSoftmask16(xRefTable, imgA)
-			}
-		}
-		buf = writeGrayImageBuf(img)
-
-	case *image.Gray16:
-		// 16-bit grayscale color.
-		cs = DeviceGrayCS
-		bpc = 16
-		if imgA != nil {
-			switch imgA := imgA.(type) {
-			case *image.Alpha:
-				sm = writeSoftmask(xRefTable, imgA)
-			case *image.Alpha16:
-				sm = writeSoftmask16(xRefTable, imgA)
-			}
-		}
-		buf = writeGray16ImageBuf(img)
-
-	case *image.CMYK:
-		// Opaque CMYK color, having 8 bits for each of cyan, magenta, yellow and black.
-		cs = DeviceCMYKCS
-		bpc = 8
-		buf = writeCMYKImageBuf(img)
+		buf, sm = writeNRGBA64ImageBuf(xRefTable, im)
 
 	case *image.YCbCr:
-		cs = DeviceRGBCS
 		bpc = 8
-		buf, sm = writeRGBAImageBuf(convertToRGBA(img))
+		buf, sm = writeRGBAImageBuf(convertToRGBA(im))
 
 	case *image.NYCbCrA:
-		cs = DeviceRGBCS
 		bpc = 8
-		buf, sm = writeRGBAImageBuf(convertNYCbCrAToRGBA(img))
+		buf, sm = writeRGBAImageBuf(convertNYCbCrAToRGBA(im))
 
 	case *image.Paletted:
 		// In-memory image of uint8 indices into a given palette.
-		cs = DeviceRGBCS
 		bpc = 8
-		buf, sm = writeRGBAImageBuf(convertToRGBA(img))
-
-	default:
-		return buf, sm, bpc, cs, errors.Errorf("pdfcpu: unsupported image type: %T", img)
+		buf, sm = writeRGBAImageBuf(convertToRGBA(im))
 	}
 
 	return buf, sm, bpc, cs, nil
+}
+
+func handleGrayImage(xRefTable *XRefTable, img image.Image, imgA image.Image) ([]byte, []byte, int, string, error) {
+	var (
+		buf, sm []byte
+		cs      = DeviceGrayCS
+		bpc     int
+	)
+
+	writeSoftmaskIfNeeded := func() {
+		if imgA == nil {
+			return
+		}
+		switch a := imgA.(type) {
+		case *image.Alpha:
+			sm = writeSoftmask(xRefTable, a)
+		case *image.Alpha16:
+			sm = writeSoftmask16(xRefTable, a)
+		}
+	}
+
+	switch im := img.(type) {
+	case *image.Gray:
+		// 8-bit grayscale color.
+		bpc = 8
+		writeSoftmaskIfNeeded()
+		buf = writeGrayImageBuf(im)
+
+	case *image.Gray16:
+		// 16-bit grayscale color.
+		bpc = 16
+		writeSoftmaskIfNeeded()
+		buf = writeGray16ImageBuf(im)
+	}
+
+	return buf, sm, bpc, cs, nil
+}
+
+func handleCMYKImage(img *image.CMYK) ([]byte, []byte, int, string, error) {
+	// Opaque CMYK color, having 8 bits for each of cyan, magenta, yellow and black.
+	buf := writeCMYKImageBuf(img)
+	return buf, nil, 8, DeviceCMYKCS, nil
+}
+
+func createImageBuf(xRefTable *XRefTable, img image.Image, imgA image.Image, format string) ([]byte, []byte, int, string, error) {
+	if format == "jpeg" {
+		bb, cs, err := encodeJPEG(img)
+		return bb, nil, 8, cs, err
+	}
+
+	switch im := img.(type) {
+	case *image.RGBA, *image.RGBA64, *image.NRGBA, *image.NRGBA64,
+		*image.YCbCr, *image.NYCbCrA, *image.Paletted:
+		return handleRGBImage(xRefTable, im)
+
+	case *image.Gray, *image.Gray16:
+		return handleGrayImage(xRefTable, im, imgA)
+
+	case *image.CMYK:
+		return handleCMYKImage(im)
+
+	default:
+		return nil, nil, 0, "", errors.Errorf("pdfcpu: unsupported image type: %T", im)
+	}
 }
 
 func colorSpaceForJPEGColorModel(cm color.Model) string {
@@ -881,6 +919,9 @@ func CreateImageResources(xRefTable *XRefTable, r io.Reader, gray, sepia bool) (
 	if err != nil {
 		return nil, err
 	}
+	if err := validateImageResourceLimits(xRefTable, c); err != nil {
+		return nil, err
+	}
 
 	if format == "tiff" {
 		return createImageResourcesForTIFF(xRefTable, bb, gray, sepia)
@@ -893,43 +934,49 @@ func CreateImageResources(xRefTable *XRefTable, r io.Reader, gray, sepia bool) (
 	return createImageResources(xRefTable, c, bb, gray, sepia)
 }
 
-// CreateImageStreamDict returns a stream dict for image data represented by r and applies optional filters.
+// CreateImageStreamDict creates an image stream dictionary.
 func CreateImageStreamDict(xRefTable *XRefTable, r io.Reader) (*types.StreamDict, int, int, error) {
-
 	var bb bytes.Buffer
-	tee := io.TeeReader(r, &bb)
+	if _, err := io.Copy(&bb, r); err != nil {
+		return nil, 0, 0, err
+	}
+	data := bb.Bytes()
 
-	var sniff bytes.Buffer
-	if _, err := io.Copy(&sniff, tee); err != nil {
+	c, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if err := validateImageResourceLimits(xRefTable, c); err != nil {
 		return nil, 0, 0, err
 	}
 
-	c, configFormat, err := image.DecodeConfig(&sniff)
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
-	img, format, err := image.Decode(&bb)
-	if err != nil {
-		return nil, 0, 0, err
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	if w != c.Width || h != c.Height {
+		return nil, 0, 0, errors.New("pdfcpu: unexpected width or height")
 	}
+
 	gray := checkIfGray(img)
 
-	if configFormat == "jpeg" && !gray {
+	if format == "jpeg" && !gray {
 		sd, err := createDCTImageStreamDictForJPEG(xRefTable, c, bb)
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		return sd, c.Width, c.Height, nil
+		return sd, w, h, nil
 	}
 
 	var imgA image.Image
-	if gray { // We could also check if the image is grayscale only by checking RGB / CMYK values
-		cm := img.ColorModel()
-		if hasAlpha(cm) {
-			imgA = extractAlpha(img)
 
+	if gray {
+		if hasAlpha(img.ColorModel()) {
+			imgA = extractAlpha(img)
 		}
+
 		switch img.(type) {
 		case *image.Gray, *image.Gray16:
 		default:
@@ -942,16 +989,12 @@ func CreateImageStreamDict(xRefTable *XRefTable, r io.Reader) (*types.StreamDict
 		return nil, 0, 0, err
 	}
 
-	w, h := img.Bounds().Dx(), img.Bounds().Dy()
-	if w != c.Width || h != c.Height {
-		return nil, 0, 0, errors.New("pdfcpu: unexpected width or height")
-	}
-
 	sd, err := createImageStreamDict(xRefTable, imgBuf, softMask, w, h, bpc, format, cs)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return sd, c.Width, c.Height, nil
+
+	return sd, w, h, nil
 }
 
 func hasAlpha(cm color.Model) bool {

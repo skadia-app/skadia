@@ -44,6 +44,7 @@ const (
 	FTRadioButtonGroup
 )
 
+// String returns the string value of ft.
 func (ft FieldType) String() string {
 	var s string
 	switch ft {
@@ -93,7 +94,8 @@ type FieldMeta struct {
 	pageMax, defMax, valMax, idMax, nameMax, altNameMax int
 }
 
-func fields(xRefTable *model.XRefTable) (types.Array, error) {
+// Fields returns the form field array.
+func Fields(xRefTable *model.XRefTable) (types.Array, error) {
 
 	if xRefTable.Form == nil {
 		return nil, errors.New("pdfcpu: no form available")
@@ -116,7 +118,15 @@ func fields(xRefTable *model.XRefTable) (types.Array, error) {
 	return fields, nil
 }
 
-func fullyQualifiedFieldName(xRefTable *model.XRefTable, indRef types.IndirectRef, fields types.Array, id, name *string) (bool, error) {
+func fullyQualifiedFieldNameDepth(xRefTable *model.XRefTable, indRef types.IndirectRef, fields types.Array, id, name *string, depth int, visit *model.FormFieldVisit) (bool, error) {
+	if err := xRefTable.CheckRecursionDepth("form field tree", depth); err != nil {
+		return false, err
+	}
+	objNr := indRef.ObjectNumber.Value()
+	if err := visit.Enter(objNr); err != nil {
+		return false, err
+	}
+	defer visit.Leave(objNr)
 
 	d, err := xRefTable.DereferenceDict(indRef)
 	if err != nil {
@@ -150,7 +160,7 @@ func fullyQualifiedFieldName(xRefTable *model.XRefTable, indRef types.IndirectRe
 
 	// non-terminal field
 
-	ok, err := fullyQualifiedFieldName(xRefTable, *pIndRef, fields, id, name)
+	ok, err := fullyQualifiedFieldNameDepth(xRefTable, *pIndRef, fields, id, name, depth+1, visit)
 	if !ok || err != nil {
 		return false, err
 	}
@@ -161,6 +171,10 @@ func fullyQualifiedFieldName(xRefTable *model.XRefTable, indRef types.IndirectRe
 	}
 
 	return true, nil
+}
+
+func fullyQualifiedFieldName(xRefTable *model.XRefTable, indRef types.IndirectRef, fields types.Array, id, name *string) (bool, error) {
+	return fullyQualifiedFieldNameDepth(xRefTable, indRef, fields, id, name, 0, model.NewFormFieldVisit())
 }
 
 type fieldInfo struct {
@@ -294,12 +308,12 @@ func parseStringLiteralArray(xRefTable *model.XRefTable, d types.Dict, key strin
 
 func collectRadioButtonGroupOptions(xRefTable *model.XRefTable, d types.Dict) ([]string, error) {
 
-	vv, err := parseOptions(xRefTable, d, OPTIONAL)
+	opts, err := parseOptions(xRefTable, d, OPTIONAL)
 	if err != nil {
 		return nil, err
 	}
-	if len(vv) > 0 {
-		return vv, nil
+	if len(opts) > 0 {
+		return opts, nil
 	}
 
 	for _, o := range d.ArrayEntry("Kids") {
@@ -321,21 +335,21 @@ func collectRadioButtonGroupOptions(xRefTable *model.XRefTable, d types.Dict) ([
 			}
 			if k != "Off" {
 				found := false
-				for _, opt := range vv {
+				for _, opt := range opts {
 					if opt == k {
 						found = true
 						break
 					}
 				}
 				if !found {
-					vv = append(vv, k)
+					opts = append(opts, k)
 				}
 				break
 			}
 		}
 	}
 
-	return vv, nil
+	return opts, nil
 }
 
 func collectRadioButtonGroup(xRefTable *model.XRefTable, d types.Dict, f *Field, fm *FieldMeta) error {
@@ -508,12 +522,12 @@ func collectListBox(xRefTable *model.XRefTable, multi bool, d types.Dict, f *Fie
 func collectCh(xRefTable *model.XRefTable, d types.Dict, f *Field, fm *FieldMeta) error {
 	ff := d.IntEntry("Ff")
 
-	vv, err := parseOptions(xRefTable, d, REQUIRED)
+	opts, err := parseOptions(xRefTable, d, OPTIONAL)
 	if err != nil {
 		return err
 	}
 
-	f.Opts = strings.Join(vv, ",")
+	f.Opts = strings.Join(opts, ",")
 	if len(f.Opts) > 0 {
 		fm.opt = true
 	}
@@ -1025,7 +1039,7 @@ func FormFields(ctx *model.Context) ([]Field, *FieldMeta, error) {
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1053,35 +1067,52 @@ func ListFormFields(ctx *model.Context) ([]string, error) {
 	return renderFields(ctx, fs, fm)
 }
 
-func annotIndRefs(xRefTable *model.XRefTable, fields types.Array) ([]types.IndirectRef, error) {
+func annotIndRefsDepth(xRefTable *model.XRefTable, fields types.Array, depth int, visit *model.FormFieldVisit) ([]types.IndirectRef, error) {
+	if err := xRefTable.CheckRecursionDepth("form field tree", depth); err != nil {
+		return nil, err
+	}
+
 	var indRefs []types.IndirectRef
 	for _, v := range fields {
 		indRef := v.(types.IndirectRef)
+		objNr := indRef.ObjectNumber.Value()
+		if err := visit.Enter(objNr); err != nil {
+			return nil, err
+		}
 		d, err := xRefTable.DereferenceDict(indRef)
 		if err != nil {
+			visit.Leave(objNr)
 			return nil, err
 		}
 		o, ok := d.Find("Kids")
 		if !ok {
+			visit.Leave(objNr)
 			indRefs = append(indRefs, indRef)
 			continue
 		}
 		kids, err := xRefTable.DereferenceArray(o)
 		if err != nil {
+			visit.Leave(objNr)
 			return nil, err
 		}
 		if _, ok := d.Find("FT"); ok {
+			visit.Leave(objNr)
 			indRefs = append(indRefs, indRef)
 			continue
 		}
 		// Non terminal field
-		kidIndRefs, err := annotIndRefs(xRefTable, kids)
+		kidIndRefs, err := annotIndRefsDepth(xRefTable, kids, depth+1, visit)
+		visit.Leave(objNr)
 		if err != nil {
 			return nil, err
 		}
 		indRefs = append(indRefs, kidIndRefs...)
 	}
 	return indRefs, nil
+}
+
+func annotIndRefs(xRefTable *model.XRefTable, fields types.Array) ([]types.IndirectRef, error) {
+	return annotIndRefsDepth(xRefTable, fields, 0, model.NewFormFieldVisit())
 }
 
 func annotIndRefSameLevel(xRefTable *model.XRefTable, fields types.Array, fieldIDOrName string) (*types.IndirectRef, error) {
@@ -1109,7 +1140,11 @@ func annotIndRefSameLevel(xRefTable *model.XRefTable, fields types.Array, fieldI
 	return nil, nil
 }
 
-func annotIndRefForField(xRefTable *model.XRefTable, fields types.Array, fieldIDOrName string) (*types.IndirectRef, error) {
+func annotIndRefForFieldDepth(xRefTable *model.XRefTable, fields types.Array, fieldIDOrName string, depth int, visit *model.FormFieldVisit) (*types.IndirectRef, error) {
+	if err := xRefTable.CheckRecursionDepth("form field tree", depth); err != nil {
+		return nil, err
+	}
+
 	if strings.IndexByte(fieldIDOrName, '.') < 0 {
 		// Must be on this level
 		return annotIndRefSameLevel(xRefTable, fields, fieldIDOrName)
@@ -1120,34 +1155,51 @@ func annotIndRefForField(xRefTable *model.XRefTable, fields types.Array, fieldID
 	partialName := ss[0]
 	for _, v := range fields {
 		indRef := v.(types.IndirectRef)
+		objNr := indRef.ObjectNumber.Value()
+		if err := visit.Enter(objNr); err != nil {
+			return nil, err
+		}
 		d, err := xRefTable.DereferenceDict(indRef)
 		if err != nil {
+			visit.Leave(objNr)
 			return nil, err
 		}
 		o, hasKids := d.Find("Kids")
 		_, hasFT := d.Find("FT")
 		if !hasKids || hasFT {
+			visit.Leave(objNr)
 			continue
 		}
 		kids, err := xRefTable.DereferenceArray(o)
 		if err != nil {
+			visit.Leave(objNr)
 			return nil, err
 		}
 		if indRef.ObjectNumber.String() == partialName {
-			return annotIndRefForField(xRefTable, kids, fieldIDOrName[len(partialName)+1:])
+			ir, err := annotIndRefForFieldDepth(xRefTable, kids, fieldIDOrName[len(partialName)+1:], depth+1, visit)
+			visit.Leave(objNr)
+			return ir, err
 		}
 		id, err := d.StringOrHexLiteralEntry("T")
 		if err != nil {
+			visit.Leave(objNr)
 			return nil, err
 		}
 		if id != nil {
 			if *id == partialName {
-				return annotIndRefForField(xRefTable, kids, fieldIDOrName[len(partialName)+1:])
+				ir, err := annotIndRefForFieldDepth(xRefTable, kids, fieldIDOrName[len(partialName)+1:], depth+1, visit)
+				visit.Leave(objNr)
+				return ir, err
 			}
 		}
+		visit.Leave(objNr)
 	}
 
 	return nil, nil
+}
+
+func annotIndRefForField(xRefTable *model.XRefTable, fields types.Array, fieldIDOrName string) (*types.IndirectRef, error) {
+	return annotIndRefForFieldDepth(xRefTable, fields, fieldIDOrName, 0, model.NewFormFieldVisit())
 }
 
 func annotIndRefsForFields(xRefTable *model.XRefTable, f []string, fields types.Array) ([]types.IndirectRef, error) {
@@ -1180,16 +1232,26 @@ func removeIndRefByIndex(indRefs []types.IndirectRef, i int) []types.IndirectRef
 	return indRefs[:lastIndex]
 }
 
-func removeFormFields(xRefTable *model.XRefTable, indRefs *[]types.IndirectRef, fields *types.Array) error {
+func removeFormFieldsDepth(xRefTable *model.XRefTable, indRefs *[]types.IndirectRef, fields *types.Array, depth int, visit *model.FormFieldVisit) error {
+	if err := xRefTable.CheckRecursionDepth("form field tree", depth); err != nil {
+		return err
+	}
+
 	f := types.Array{}
 	for _, v := range *fields {
 		indRef1 := v.(types.IndirectRef)
+		objNr := indRef1.ObjectNumber.Value()
+		if err := visit.Enter(objNr); err != nil {
+			return err
+		}
 		if len(*indRefs) == 0 {
+			visit.Leave(objNr)
 			f = append(f, indRef1)
 			continue
 		}
 		d, err := xRefTable.DereferenceDict(indRef1)
 		if err != nil {
+			visit.Leave(objNr)
 			return err
 		}
 		o, hasKids := d.Find("Kids")
@@ -1207,23 +1269,31 @@ func removeFormFields(xRefTable *model.XRefTable, indRefs *[]types.IndirectRef, 
 			if !match {
 				f = append(f, indRef1)
 			}
+			visit.Leave(objNr)
 			continue
 		}
 		// non terminal fields
 		kids, err := xRefTable.DereferenceArray(o)
 		if err != nil {
+			visit.Leave(objNr)
 			return err
 		}
-		if err := removeFormFields(xRefTable, indRefs, &kids); err != nil {
+		if err := removeFormFieldsDepth(xRefTable, indRefs, &kids, depth+1, visit); err != nil {
+			visit.Leave(objNr)
 			return err
 		}
 		if len(kids) > 0 {
 			d["Kids"] = kids
 			f = append(f, indRef1)
 		}
+		visit.Leave(objNr)
 	}
 	*fields = f
 	return nil
+}
+
+func removeFormFields(xRefTable *model.XRefTable, indRefs *[]types.IndirectRef, fields *types.Array) error {
+	return removeFormFieldsDepth(xRefTable, indRefs, fields, 0, model.NewFormFieldVisit())
 }
 
 func deletePageAnnots(xRefTable *model.XRefTable, m map[types.IndirectRef]bool, ok *bool) error {
@@ -1279,7 +1349,7 @@ func RemoveFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return false, err
 	}
@@ -1460,23 +1530,17 @@ func resetMultiListBox(xRefTable *model.XRefTable, d types.Dict, opts []string) 
 
 func resetCh(ctx *model.Context, d types.Dict, fonts map[string]types.IndirectRef) error {
 	ff := d.IntEntry("Ff")
-	if ff == nil {
-		return errors.New("pdfcpu: corrupt form field: missing entry \"Ff\"")
-	}
 
-	opts, err := parseOptions(ctx.XRefTable, d, REQUIRED)
+	opts, err := parseOptions(ctx.XRefTable, d, OPTIONAL)
 	if err != nil {
 		return err
-	}
-	if len(opts) == 0 {
-		return errors.New("pdfcpu: missing Opts")
 	}
 
 	var ind types.Array
 
-	if primitives.FieldFlags(*ff)&primitives.FieldCombo > 0 || primitives.FieldFlags(*ff)&primitives.FieldMultiselect == 0 {
+	if ff != nil && (primitives.FieldFlags(*ff)&primitives.FieldCombo > 0 || primitives.FieldFlags(*ff)&primitives.FieldMultiselect == 0) {
 		ind, err = resetComboBoxOrRegularListBox(d, opts, ff)
-	} else { // primitives.FieldFlags(*ff)&primitives.FieldMultiselect > 0
+	} else {
 		ind, err = resetMultiListBox(ctx.XRefTable, d, opts)
 	}
 
@@ -1486,7 +1550,7 @@ func resetCh(ctx *model.Context, d types.Dict, fonts map[string]types.IndirectRe
 
 	da := d.StringEntry("DA")
 
-	if primitives.FieldFlags(*ff)&primitives.FieldCombo == 0 {
+	if ff != nil && primitives.FieldFlags(*ff)&primitives.FieldCombo == 0 {
 		if err := primitives.EnsureListBoxAP(ctx, d, opts, ind, da, fonts); err != nil {
 			return err
 		}
@@ -1642,7 +1706,7 @@ func ResetFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error)
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return false, err
 	}
@@ -1667,25 +1731,8 @@ func ResetFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error)
 		}
 	}
 
-	for fName, indRef := range fonts {
-
-		if len(ctx.UsedGIDs[fName]) == 0 {
-			continue
-		}
-
-		fDict, err := xRefTable.DereferenceDict(indRef)
-		if err != nil {
-			return false, err
-		}
-
-		fr := model.FontResource{}
-		if err := pdffont.IndRefsForUserfontUpdate(xRefTable, fDict, "", &fr); err != nil {
-			return false, pdffont.ErrCorruptFontDict
-		}
-
-		if err := pdffont.UpdateUserfont(xRefTable, fName, fr); err != nil {
-			return false, nil
-		}
+	if err := pdffont.UpdateUserfonts(ctx.XRefTable, fonts); err != nil {
+		return false, err
 	}
 
 	// pdfcpu provides all appearance streams for form fields.
@@ -1808,7 +1855,7 @@ func LockFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error) 
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return false, err
 	}
@@ -1833,25 +1880,8 @@ func LockFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error) 
 		}
 	}
 
-	for fName, indRef := range fonts {
-
-		if len(ctx.UsedGIDs[fName]) == 0 {
-			continue
-		}
-
-		fDict, err := xRefTable.DereferenceDict(indRef)
-		if err != nil {
-			return false, err
-		}
-
-		fr := model.FontResource{}
-		if err := pdffont.IndRefsForUserfontUpdate(xRefTable, fDict, "", &fr); err != nil {
-			return false, pdffont.ErrCorruptFontDict
-		}
-
-		if err := pdffont.UpdateUserfont(xRefTable, fName, fr); err != nil {
-			return false, nil
-		}
+	if err := pdffont.UpdateUserfonts(ctx.XRefTable, fonts); err != nil {
+		return false, err
 	}
 
 	// pdfcpu provides all appearance streams for form fields.
@@ -1948,12 +1978,12 @@ func unlockPageFields(
 	return nil
 }
 
-// UnlockFields turns all form fields contained in fieldIDsOrNames writeable.
+// UnlockFormFields turns all form fields contained in fieldIDsOrNames writeable.
 func UnlockFormFields(ctx *model.Context, fieldIDsOrNames []string) (bool, error) {
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return false, err
 	}

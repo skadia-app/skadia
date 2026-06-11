@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/hhrutter/pkcs7"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
@@ -32,6 +33,50 @@ import (
 )
 
 var ErrUnknownFileType = errors.New("pdfcpu: unsupported file type")
+
+var loadCertsOnce sync.Once
+var loadCertsErr error
+
+func doAddCertificatesToCertPool(path string, certPool *x509.CertPool, n *int) error {
+	certs, err := LoadCertificatesFile(path)
+	if err != nil {
+		if err == ErrUnknownFileType {
+			return nil
+		}
+		return err
+	}
+	for _, cert := range certs {
+		certPool.AddCert(cert)
+	}
+	*n += len(certs)
+	return nil
+}
+
+func addCertificatesToCertPool() error {
+	// fmt.Println("*** loading certificates ***")
+	dir := model.TrustedCertDir
+	certPool := x509.NewCertPool()
+	n := 0
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		return doAddCertificatesToCertPool(path, certPool, &n)
+	})
+	model.UserCertPool = certPool
+	return err
+}
+
+// LoadCertificates loads installed certs from pdfcpu/config/certs exactly once.
+func LoadCertificates() error {
+	loadCertsOnce.Do(func() {
+		loadCertsErr = addCertificatesToCertPool()
+	})
+	return loadCertsErr
+}
 
 func loadSingleCertFile(filename string) (*x509.Certificate, error) {
 	bb, err := os.ReadFile(filename)
@@ -119,7 +164,8 @@ func loadCertsFromP7C(filename string) ([]*x509.Certificate, error) {
 	return p7.Certificates, nil
 }
 
-func LoadCertificates(filename string) ([]*x509.Certificate, error) {
+// LoadCertificatesFile loads certificates from filename.
+func LoadCertificatesFile(filename string) ([]*x509.Certificate, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
 	case ".crt", ".cer":
@@ -135,35 +181,6 @@ func LoadCertificates(filename string) ([]*x509.Certificate, error) {
 	default:
 		return nil, ErrUnknownFileType
 	}
-}
-
-func loadCertificatesToCertPool(path string, certPool *x509.CertPool, n *int) error {
-	certs, err := LoadCertificates(path)
-	if err != nil {
-		if err == ErrUnknownFileType {
-			return nil
-		}
-		return err
-	}
-	for _, cert := range certs {
-		certPool.AddCert(cert)
-	}
-	*n += len(certs)
-	return nil
-}
-
-func LoadCertificatesToCertPool(dir string, certPool *x509.CertPool) (int, error) {
-	n := 0
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		return loadCertificatesToCertPool(path, certPool, &n)
-	})
-	return n, err
 }
 
 func saveCertsAsPEM(certs []*x509.Certificate, filename string, overwrite bool) (bool, error) {
@@ -203,7 +220,7 @@ func saveCertsAsP7C(certs []*x509.Certificate, filename string, overwrite bool) 
 		return false, errors.New("no certificates to save")
 	}
 
-	p7, err := pkcs7.NewSignedData(nil)
+	p7, err := pkcs7.NewSignedData()
 	if err != nil {
 		return false, err
 	}
@@ -220,8 +237,9 @@ func saveCertsAsP7C(certs []*x509.Certificate, filename string, overwrite bool) 
 	return Write(bytes.NewReader(bb), filename, overwrite)
 }
 
+// ImportCertificate imports certificates from inFile.
 func ImportCertificate(inFile string, overwrite bool) (int, bool, error) {
-	certs, err := LoadCertificates(inFile)
+	certs, err := LoadCertificatesFile(inFile)
 	if err != nil {
 		return 0, false, err
 	}
@@ -233,7 +251,7 @@ func ImportCertificate(inFile string, overwrite bool) (int, bool, error) {
 	base := filepath.Base(inFile)
 	outFileNoExt := base[:len(base)-len(filepath.Ext(base))]
 	outFile := outFileNoExt + ".p7c"
-	outFile = filepath.Join(model.CertDir, outFile)
+	outFile = filepath.Join(model.TrustedCertDir, outFile)
 
 	if enforceP7C {
 		// Write certs as .p7c to certDir.
@@ -252,6 +270,7 @@ func ImportCertificate(inFile string, overwrite bool) (int, bool, error) {
 	return len(certs), ok, nil
 }
 
+// InspectCertificate inspect certificate.
 func InspectCertificate(cert *x509.Certificate) (string, error) {
 	return model.CertString(cert), nil
 }

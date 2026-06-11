@@ -177,6 +177,59 @@ func handleTimeoutOCSP(v string, c *Configuration) error {
 	return nil
 }
 
+func parseReadableInt64(s string) (int64, error) {
+	ss := strings.Fields(strings.ToUpper(strings.TrimSpace(s)))
+	if len(ss) == 0 || len(ss) > 2 {
+		return 0, errors.Errorf("invalid numeric value: %s", s)
+	}
+
+	n, err := strconv.ParseInt(ss[0], 10, 64)
+	if err != nil || n <= 0 {
+		return 0, errors.Errorf("numeric value must be > 0: %s", s)
+	}
+	if len(ss) == 1 {
+		return n, nil
+	}
+
+	m := int64(1)
+	switch ss[1] {
+	case "B", "BYTE", "BYTES":
+	case "KB", "KIB":
+		m = 1 << 10
+	case "MB", "MIB":
+		m = 1 << 20
+	case "GB", "GIB":
+		m = 1 << 30
+	case "MP", "MPIXELS":
+		m = 1000 * 1000
+	default:
+		return 0, errors.Errorf("unsupported numeric unit: %s", ss[1])
+	}
+
+	if n > (1<<63-1)/m {
+		return 0, errors.Errorf("numeric value overflows int64: %s", s)
+	}
+	return n * m, nil
+}
+
+func handleLimitInt64(k, v string, dst *int64) error {
+	i, err := parseReadableInt64(v)
+	if err != nil {
+		return errors.Wrapf(err, "%s", k)
+	}
+	*dst = i
+	return nil
+}
+
+func handleLimitInt(k, v string, dst *int) error {
+	i, err := strconv.Atoi(v)
+	if err != nil || i <= 0 {
+		return errors.Errorf("%s is numeric > 0, got: %s", k, v)
+	}
+	*dst = i
+	return nil
+}
+
 func handleConfPermissions(v string, c *Configuration) error {
 	i, err := strconv.Atoi(v)
 	if err != nil {
@@ -313,7 +366,38 @@ func parseKeysPart2(k, v string, c *Configuration) (bool, error) {
 	return false, nil
 }
 
-func parseKeysPart3(k, v string, c *Configuration) (err error) {
+func parseKeysPart3(k, v string, c *Configuration) (bool, error) {
+	switch k {
+
+	case "maxStreamBytes":
+		return true, handleLimitInt64(k, v, &c.Limits.MaxStreamBytes)
+
+	case "maxDecodeBytes":
+		return true, handleLimitInt64(k, v, &c.Limits.MaxDecodeBytes)
+
+	case "maxImagePixels":
+		return true, handleLimitInt64(k, v, &c.Limits.MaxImagePixels)
+
+	case "maxImageBytes":
+		return true, handleLimitInt64(k, v, &c.Limits.MaxImageBytes)
+
+	case "maxObjectCount":
+		return true, handleLimitInt(k, v, &c.Limits.MaxObjectCount)
+
+	case "maxObjectStreamCount":
+		return true, handleLimitInt(k, v, &c.Limits.MaxObjectStreamCount)
+
+	case "maxObjectStreamFirst":
+		return true, handleLimitInt64(k, v, &c.Limits.MaxObjectStreamFirst)
+
+	case "maxXRefEntries":
+		return true, handleLimitInt(k, v, &c.Limits.MaxXRefEntries)
+	}
+
+	return false, nil
+}
+
+func parseKeysPart4(k, v string, c *Configuration) (err error) {
 	switch k {
 
 	case "optimize":
@@ -356,21 +440,35 @@ func parseKeyValue(k, v string, c *Configuration) error {
 		return nil
 	}
 
-	return parseKeysPart3(k, v, c)
+	ok, err = parseKeysPart3(k, v, c)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+
+	return parseKeysPart4(k, v, c)
 }
 
 func parseConfigFile(r io.Reader, configPath string) error {
 	//fmt.Println("parseConfigFile For JS")
-	var conf Configuration
+	conf := *newDefaultConfiguration()
 	conf.Path = configPath
-
-	// TODO add to config.yml
-	conf.OptimizeBeforeWriting = true
 
 	s := bufio.NewScanner(r)
 	for s.Scan() {
 		t := s.Text()
 		if len(t) == 0 || t[0] == '#' {
+			continue
+		}
+		if i := strings.Index(t, "#"); i >= 0 {
+			t = strings.TrimSpace(t[:i])
+			if t == "" {
+				continue
+			}
+		}
+		if strings.HasSuffix(t, ":") {
 			continue
 		}
 		ss := strings.Split(t, ": ")

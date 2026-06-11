@@ -20,13 +20,16 @@ import (
 	"io"
 	"os"
 
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"github.com/pkg/errors"
 )
 
 // PageLayout returns rs's page layout.
-func PageLayout(rs io.ReadSeeker, conf *model.Configuration) (*model.PageLayout, error) {
+func PageLayout(rs io.ReadSeeker, conf *model.Configuration) (pl *model.PageLayout, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, errors.New("pdfcpu: PageLayout: missing rs")
 	}
@@ -58,7 +61,9 @@ func PageLayoutFile(inFile string, conf *model.Configuration) (*model.PageLayout
 }
 
 // ListPageLayout lists rs's page layout.
-func ListPageLayout(rs io.ReadSeeker, conf *model.Configuration) ([]string, error) {
+func ListPageLayout(rs io.ReadSeeker, conf *model.Configuration) (ss []string, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, errors.New("pdfcpu: ListPageLayout: missing rs")
 	}
@@ -94,7 +99,9 @@ func ListPageLayoutFile(inFile string, conf *model.Configuration) ([]string, err
 }
 
 // SetPageLayout sets rs's page layout and writes the result to w.
-func SetPageLayout(rs io.ReadSeeker, w io.Writer, val model.PageLayout, conf *model.Configuration) error {
+func SetPageLayout(rs io.ReadSeeker, w io.Writer, val model.PageLayout, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: SetPageLayout: missing rs")
 	}
@@ -119,6 +126,7 @@ func SetPageLayout(rs io.ReadSeeker, w io.Writer, val model.PageLayout, conf *mo
 // SetPageLayoutFile sets inFile's page layout and writes the result to outFile.
 func SetPageLayoutFile(inFile, outFile string, val model.PageLayout, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -129,14 +137,14 @@ func SetPageLayoutFile(inFile, outFile string, val model.PageLayout, conf *model
 		tmpFile = outFile
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -151,11 +159,19 @@ func SetPageLayoutFile(inFile, outFile string, val model.PageLayout, conf *model
 		}
 	}()
 
-	return SetPageLayout(f1, f2, val, conf)
+	if err = SetPageLayout(f1, f2, val, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }
 
 // ResetPageLayout resets rs's page layout and writes the result to w.
-func ResetPageLayout(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
+func ResetPageLayout(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: ResetPageLayout: missing rs")
 	}
@@ -180,6 +196,7 @@ func ResetPageLayout(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) e
 // ResetPageLayoutFile resets inFile's page layout and writes the result to outFile.
 func ResetPageLayoutFile(inFile, outFile string, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -190,14 +207,14 @@ func ResetPageLayoutFile(inFile, outFile string, conf *model.Configuration) (err
 		tmpFile = outFile
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -212,5 +229,11 @@ func ResetPageLayoutFile(inFile, outFile string, conf *model.Configuration) (err
 		}
 	}()
 
-	return ResetPageLayout(f1, f2, conf)
+	if err = ResetPageLayout(f1, f2, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }

@@ -24,41 +24,68 @@ import (
 	"github.com/pkg/errors"
 )
 
-func processDictRefCounts(xRefTable *XRefTable, d types.Dict) {
+func processDictRefCounts(xRefTable *XRefTable, d types.Dict, depth int) error {
+	if err := xRefTable.CheckRecursionDepth("reference count traversal", depth); err != nil {
+		return err
+	}
 	for _, e := range d {
 		switch o1 := e.(type) {
 		case types.IndirectRef:
 			xRefTable.IncrementRefCount(&o1)
 		case types.Dict:
-			ProcessRefCounts(xRefTable, o1)
+			if err := processRefCounts(xRefTable, o1, depth+1); err != nil {
+				return err
+			}
 		case types.Array:
-			ProcessRefCounts(xRefTable, o1)
+			if err := processRefCounts(xRefTable, o1, depth+1); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func processArrayRefCounts(xRefTable *XRefTable, a types.Array) {
+func processArrayRefCounts(xRefTable *XRefTable, a types.Array, depth int) error {
+	if err := xRefTable.CheckRecursionDepth("reference count traversal", depth); err != nil {
+		return err
+	}
 	for _, e := range a {
 		switch o1 := e.(type) {
 		case types.IndirectRef:
 			xRefTable.IncrementRefCount(&o1)
 		case types.Dict:
-			ProcessRefCounts(xRefTable, o1)
+			if err := processRefCounts(xRefTable, o1, depth+1); err != nil {
+				return err
+			}
 		case types.Array:
-			ProcessRefCounts(xRefTable, o1)
+			if err := processRefCounts(xRefTable, o1, depth+1); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func ProcessRefCounts(xRefTable *XRefTable, o types.Object) {
+func processRefCounts(xRefTable *XRefTable, o types.Object, depth int) error {
 	switch o := o.(type) {
 	case types.Dict:
-		processDictRefCounts(xRefTable, o)
+		return processDictRefCounts(xRefTable, o, depth)
 	case types.StreamDict:
-		processDictRefCounts(xRefTable, o.Dict)
+		return processDictRefCounts(xRefTable, o.Dict, depth)
 	case types.Array:
-		processArrayRefCounts(xRefTable, o)
+		return processArrayRefCounts(xRefTable, o, depth)
 	}
+	return nil
+}
+
+// ProcessRefCountsWithError processes reference counts and returns an error.
+func ProcessRefCountsWithError(xRefTable *XRefTable, o types.Object) error {
+	return processRefCounts(xRefTable, o, 0)
+}
+
+// ProcessRefCounts processes reference counts.
+func ProcessRefCounts(xRefTable *XRefTable, o types.Object) {
+	_ = ProcessRefCountsWithError(xRefTable, o)
 }
 
 func (xRefTable *XRefTable) indRefToObject(ir *types.IndirectRef, decodeLazy bool) (types.Object, int, error) {
@@ -82,7 +109,9 @@ func (xRefTable *XRefTable) indRefToObject(ir *types.IndirectRef, decodeLazy boo
 			return nil, 0, err
 		}
 
-		ProcessRefCounts(xRefTable, ob)
+		if err := ProcessRefCountsWithError(xRefTable, ob); err != nil {
+			return nil, 0, err
+		}
 		entry.Object = ob
 	}
 
@@ -102,9 +131,7 @@ func (xRefTable *XRefTable) Dereference(o types.Object) (types.Object, error) {
 	return obj, err
 }
 
-// Dereference resolves an indirect object and returns the resulting PDF object.
-// It also returns the number of the written PDF Increment this object is part of.
-// The higher the increment number the older the object.
+// DereferenceWithIncr dereferences obj and increments reference counts.
 func (xRefTable *XRefTable) DereferenceWithIncr(o types.Object) (types.Object, int, error) {
 	ir, ok := o.(types.IndirectRef)
 	if !ok {
@@ -115,6 +142,7 @@ func (xRefTable *XRefTable) DereferenceWithIncr(o types.Object) (types.Object, i
 	return xRefTable.indRefToObject(&ir, true)
 }
 
+// DereferenceForWrite dereferences obj for writing.
 func (xRefTable *XRefTable) DereferenceForWrite(o types.Object) (types.Object, error) {
 	ir, ok := o.(types.IndirectRef)
 	if !ok {
@@ -308,6 +336,7 @@ func (xRefTable *XRefTable) DereferenceText(o types.Object) (string, error) {
 	return Text(o)
 }
 
+// CSVSafeString returns obj as a CSV-safe string.
 func CSVSafeString(s string) string {
 	return strings.Replace(s, ";", ",", -1)
 }
@@ -490,6 +519,7 @@ func (xRefTable *XRefTable) DereferenceStringEntryBytes(d types.Dict, key string
 	return nil, errors.Errorf("pdfcpu: DereferenceStringEntryBytes dict=%s entry=%s, wrong type %T <%v>", d, key, o, o)
 }
 
+// DestName returns the destination name for o.
 func (xRefTable *XRefTable) DestName(obj types.Object) (string, error) {
 	dest, err := xRefTable.Dereference(obj)
 	if err != nil {

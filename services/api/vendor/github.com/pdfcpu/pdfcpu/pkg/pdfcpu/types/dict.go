@@ -336,6 +336,7 @@ func (d Dict) HexLiteralEntry(key string) *HexLiteral {
 	return nil
 }
 
+// StringOrHexLiteralEntry string or hex literal entry.
 func (d Dict) StringOrHexLiteralEntry(key string) (*string, error) {
 	if obj, ok := d.Find(key); ok {
 		return StringOrHexLiteral(obj)
@@ -377,6 +378,7 @@ func (d Dict) Size() *int {
 	return d.IntEntry("Size")
 }
 
+// IsPage reports whether page.
 func (d Dict) IsPage() bool {
 	return d.Type() != nil && *d.Type() == "Page"
 }
@@ -521,6 +523,7 @@ func (d Dict) PDFString() string {
 	return strings.Join(logstr, "")
 }
 
+// String returns the string value of d.
 func (d Dict) String() string {
 	return d.indentedString(1)
 }

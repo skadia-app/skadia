@@ -24,12 +24,15 @@ import (
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pkg/errors"
 )
 
 // Images returns all embedded images of rs.
-func Images(rs io.ReadSeeker, selectedPages []string, conf *model.Configuration) ([]map[int]model.Image, error) {
+func Images(rs io.ReadSeeker, selectedPages []string, conf *model.Configuration) (ii []map[int]model.Image, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, errors.New("pdfcpu: ListImages: missing rs")
 	}
@@ -49,13 +52,14 @@ func Images(rs io.ReadSeeker, selectedPages []string, conf *model.Configuration)
 		return nil, err
 	}
 
-	ii, _, err := pdfcpu.Images(ctx, pages)
+	ii, _, err = pdfcpu.Images(ctx, pages)
 
 	return ii, err
 }
 
 // UpdateImages replaces the XObject identified by objNr or (pageNr and resourceId).
-func UpdateImages(rs io.ReadSeeker, rd io.Reader, w io.Writer, objNr, pageNr int, id string, conf *model.Configuration) error {
+func UpdateImages(rs io.ReadSeeker, rd io.Reader, w io.Writer, objNr, pageNr int, id string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
 
 	if rs == nil {
 		return errors.New("pdfcpu: UpdateImages: missing rs")
@@ -126,6 +130,7 @@ func UpdateImagesFile(inFile, imageFile, outFile string, objNr, pageNr int, id s
 	}
 
 	var f0, f1, f2 *os.File
+	ok := false
 
 	if f0, err = os.Open(inFile); err != nil {
 		return err
@@ -143,15 +148,16 @@ func UpdateImagesFile(inFile, imageFile, outFile string, objNr, pageNr int, id s
 		logWritingTo(inFile)
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
+		_ = f0.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			f0.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
+			_ = f0.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -169,5 +175,11 @@ func UpdateImagesFile(inFile, imageFile, outFile string, objNr, pageNr int, id s
 		}
 	}()
 
-	return UpdateImages(f0, f1, f2, objNr, pageNr, id, conf)
+	if err = UpdateImages(f0, f1, f2, objNr, pageNr, id, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }

@@ -35,6 +35,7 @@ const (
 	BookletPerfectBound
 )
 
+// String returns the string value of b.
 func (b BookletType) String() string {
 	switch b {
 	case Booklet:
@@ -54,6 +55,7 @@ const (
 	ShortEdge
 )
 
+// String returns the string value of b.
 func (b BookletBinding) String() string {
 	switch b {
 	case ShortEdge:
@@ -122,6 +124,7 @@ const (
 	fold
 )
 
+// String returns a string representation of c.
 func (c cutOrFold) String(nup *NUp) string {
 	if c == cut {
 		if nup.BookletType == BookletAdvanced {

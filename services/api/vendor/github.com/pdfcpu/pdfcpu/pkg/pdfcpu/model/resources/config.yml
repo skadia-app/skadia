@@ -83,3 +83,13 @@ preferredCertRevocationChecker: crl
 # limit form field content for display purposes when using pdfcpu form list.
 # if > 0 affects the columns AltName, Default and Value.
 FormFieldListMaxColWidth: 0
+
+# encoded stream bytes read from a PDF.
+maxStreamBytes: 512 MB
+
+# decoded stream bytes produced by filters.
+maxDecodeBytes: 512 MB
+
+# decoded/rendered image dimensions and buffers.
+maxImagePixels: 100 MP
+maxImageBytes: 512 MB

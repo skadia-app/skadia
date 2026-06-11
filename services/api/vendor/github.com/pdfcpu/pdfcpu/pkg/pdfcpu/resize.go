@@ -41,9 +41,7 @@ func ParseResizeConfig(s string, u types.DisplayUnit) (*model.Resize, error) {
 
 	res := &model.Resize{Unit: u}
 
-	ss := strings.Split(s, ",")
-
-	for _, s := range ss {
+	for s := range strings.SplitSeq(s, ",") {
 
 		ss1 := strings.Split(s, ":")
 		if len(ss1) != 2 {
@@ -53,7 +51,7 @@ func ParseResizeConfig(s string, u types.DisplayUnit) (*model.Resize, error) {
 		paramPrefix := strings.TrimSpace(ss1[0])
 		paramValueStr := strings.TrimSpace(ss1[1])
 
-		if err := model.ResizeParamMap.Handle(paramPrefix, paramValueStr, res); err != nil {
+		if err := handleParameter(model.ResizeParamMap, paramPrefix, paramValueStr, res); err != nil {
 			return nil, err
 		}
 	}
@@ -153,6 +151,100 @@ func handleBgColAndBorder(dx, dy float64, cropBox *types.Rectangle, bb *[]byte, 
 	}
 }
 
+func transformedRect(r *types.Rectangle, m matrix.Matrix) *types.Rectangle {
+	p1 := m.Transform(types.Point{X: r.LL.X, Y: r.LL.Y})
+	p2 := m.Transform(types.Point{X: r.UR.X, Y: r.LL.Y})
+	p3 := m.Transform(types.Point{X: r.UR.X, Y: r.UR.Y})
+	p4 := m.Transform(types.Point{X: r.LL.X, Y: r.UR.Y})
+	return (types.QuadLiteral{P1: p1, P2: p2, P3: p3, P4: p4}).EnclosingRectangle(0)
+}
+
+func resizeAnnotationRect(ctx *model.Context, d types.Dict, m matrix.Matrix) error {
+	obj, found := d.Find("Rect")
+	if !found || obj == nil {
+		return nil
+	}
+	arr, err := ctx.DereferenceArray(obj)
+	if err != nil {
+		return err
+	}
+	if len(arr) != 4 {
+		return errors.New("pdfcpu: resize: invalid annotation rect")
+	}
+
+	r, err := ctx.RectForArray(arr)
+	if err != nil {
+		return err
+	}
+
+	d.Update("Rect", transformedRect(r, m).Array())
+	return nil
+}
+
+func resizeAnnotationQuadPoints(ctx *model.Context, d types.Dict, m matrix.Matrix) error {
+	obj, found := d.Find("QuadPoints")
+	if !found || obj == nil {
+		return nil
+	}
+	arr, err := ctx.DereferenceArray(obj)
+	if err != nil {
+		return err
+	}
+	if len(arr)%8 != 0 {
+		return errors.New("pdfcpu: resize: invalid annotation quadpoints")
+	}
+
+	a := types.Array{}
+	for i := 0; i < len(arr); i += 2 {
+		x, err := ctx.DereferenceNumber(arr[i])
+		if err != nil {
+			return err
+		}
+		y, err := ctx.DereferenceNumber(arr[i+1])
+		if err != nil {
+			return err
+		}
+		p := m.Transform(types.Point{X: x, Y: y})
+		a = append(a, types.Float(p.X), types.Float(p.Y))
+	}
+
+	d.Update("QuadPoints", a)
+	return nil
+}
+
+func resizeAnnotation(ctx *model.Context, d types.Dict, m matrix.Matrix) error {
+	if err := resizeAnnotationRect(ctx, d, m); err != nil {
+		return err
+	}
+	return resizeAnnotationQuadPoints(ctx, d, m)
+}
+
+func resizePageAnnotations(ctx *model.Context, d types.Dict, m matrix.Matrix) error {
+	obj, found := d.Find("Annots")
+	if !found || obj == nil {
+		return nil
+	}
+	arr, err := ctx.DereferenceArray(obj)
+	if err != nil {
+		return err
+	}
+
+	for _, o := range arr {
+		d, err := ctx.DereferenceDict(o)
+		if err != nil {
+			return err
+		}
+		if len(d) == 0 {
+			continue
+		}
+		if err := resizeAnnotation(ctx, d, m); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
 
 	d, _, inhPAttrs, err := ctx.PageDict(pageNr, false)
@@ -213,6 +305,10 @@ func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
 		return err
 	}
 
+	if err := resizePageAnnotations(ctx, d, m); err != nil {
+		return err
+	}
+
 	ir, err := ctx.IndRefForNewObject(*sd)
 	if err != nil {
 		return err
@@ -227,6 +323,7 @@ func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
 	return nil
 }
 
+// Resize resizes selectedPages using res.
 func Resize(ctx *model.Context, selectedPages types.IntSet, res *model.Resize) error {
 	if log.DebugEnabled() {
 		log.Debug.Printf("Resize:\n%s\n", res)

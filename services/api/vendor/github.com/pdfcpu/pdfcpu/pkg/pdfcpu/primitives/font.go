@@ -130,14 +130,17 @@ func (f *FormFont) mergeIn(f0 *FormFont) {
 	}
 }
 
+// SetCol sets col.
 func (f *FormFont) SetCol(c color.SimpleColor) {
 	f.col = &c
 }
 
+// RTL returns true if f is right-to-left.
 func (f FormFont) RTL() bool {
 	return types.MemberOf(f.Script, []string{"Arab", "Hebr"}) || types.MemberOf(f.Lang, []string{"ar", "fa", "he"})
 }
 
+// FormFontDetails form font details.
 func FormFontDetails(xRefTable *model.XRefTable, indRef types.IndirectRef) (string, string, string, error) {
 
 	objNr := int(indRef.ObjectNumber)
@@ -209,6 +212,7 @@ func formFontIndRef(xRefTable *model.XRefTable, fontID string) *types.IndirectRe
 	return nil
 }
 
+// FontIndRef font ind ref.
 func FontIndRef(fName string, ctx *model.Context, fonts map[string]types.IndirectRef) (*types.IndirectRef, error) {
 
 	indRef, ok := fonts[fName]

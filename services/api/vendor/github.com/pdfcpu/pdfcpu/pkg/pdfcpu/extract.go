@@ -372,7 +372,7 @@ func decodeImage(ctx *model.Context, sd *types.StreamDict, filters, lastFilter s
 
 	switch lastFilter {
 
-	case filter.DCT, filter.JPX, filter.Flate, filter.LZW, filter.CCITTFax, filter.RunLength:
+	case filter.DCT, filter.JPX, filter.JBIG2, filter.Flate, filter.LZW, filter.CCITTFax, filter.RunLength:
 		if err := sd.Decode(); err != nil {
 			return err
 		}
@@ -591,7 +591,7 @@ func ExtractPageFonts(ctx *model.Context, pageNr int, objNrs, skipped types.IntS
 	return ff, nil
 }
 
-// ExtractPageFonts extracts all form fonts.
+// ExtractFormFonts extracts all form fonts.
 func ExtractFormFonts(ctx *model.Context) ([]Font, error) {
 	ff := []Font{}
 	for i, fontObject := range ctx.Optimize.FormFontObjects {

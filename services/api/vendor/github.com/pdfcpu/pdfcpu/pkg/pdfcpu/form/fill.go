@@ -44,11 +44,13 @@ func cacheResIDs(ctx *model.Context, pdf *primitives.PDF) error {
 		if err != nil {
 			return err
 		}
-		if inhPA.Resources["Font"] != nil {
-			pdf.FontResIDs[i] = inhPA.Resources["Font"].(types.Dict)
-		}
-		if inhPA.Resources["XObject"] != nil {
-			pdf.XObjectResIDs[i] = inhPA.Resources["XObject"].(types.Dict)
+		if inhPA != nil {
+			if inhPA.Resources["Font"] != nil {
+				pdf.FontResIDs[i] = inhPA.Resources["Font"].(types.Dict)
+			}
+			if inhPA.Resources["XObject"] != nil {
+				pdf.XObjectResIDs[i] = inhPA.Resources["XObject"].(types.Dict)
+			}
 		}
 	}
 	return nil
@@ -336,10 +338,45 @@ func imageBox(s, src, url string) (*primitives.ImageBox, string, error) {
 	return &ib, ib.PageNr, nil
 }
 
+func addImageBox(vv []string, fieldName string, im map[string]*Page) error {
+	src, url := "", ""
+	if len(vv) == 0 || vv[0] == "" {
+		return nil
+	}
+	if len(vv) == 1 && len(vv[0]) > 1 && vv[0][0] == '(' {
+		// link only, no image
+		url = vv[0][1 : len(vv[0])-1]
+	} else {
+		src = vv[0]
+		if len(vv) == 2 && len(vv[1]) > 1 {
+			url = vv[1][1 : len(vv[1])-1]
+		}
+	}
+
+	ib, pageNr, err := imageBox(fieldName, src, url)
+	if err != nil {
+		return err
+	}
+
+	if ib == nil {
+		return nil
+	}
+
+	p, ok := im[pageNr]
+	if !ok {
+		p = &Page{}
+		im[pageNr] = p
+	}
+	p.ImageBoxes = append(p.ImageBoxes, ib)
+
+	return nil
+}
+
 // FieldMap returns structures needed to fill a form via CSV.
-func FieldMap(fieldNames, formRecord []string) (map[string]CSVFieldAttributes, map[string]*Page, error) {
+func FieldMap(fieldNames, formRecord []string) (map[string]CSVFieldAttributes, map[string]*Page, string, error) {
 	fm := map[string]CSVFieldAttributes{}
 	im := map[string]*Page{}
+	outFile := ""
 	for i, fieldName := range fieldNames {
 		var lock bool
 		if fieldName[0] == '*' {
@@ -360,45 +397,35 @@ func FieldMap(fieldNames, formRecord []string) (map[string]CSVFieldAttributes, m
 			continue
 		}
 
-		// @img defines a virtual image field by rendering an imageBox.
-		// For CSV we keep it simple and support the most important imageBox attributes only:
-		//
-		// "@img(page:1, pos:40 350, w:290, h:200, bgcol:#F5F5DC, border:5 round LightGray)"
+		if strings.HasPrefix(fieldName, "@img") {
+			// @img defines a virtual image field by rendering an imageBox.
+			// For CSV we keep it simple and support the most important imageBox attributes only:
+			//
+			// "@img(page:1, pos:40 350, w:290, h:200, bgcol:#F5F5DC, border:5 round LightGray)"
 
-		if len(vv) == 0 || len(vv) > 2 {
-			// Skip invalid image field
+			if len(vv) == 0 || len(vv) > 2 {
+				// Skip invalid image field
+				continue
+			}
+
+			if err := addImageBox(vv, fieldName, im); err != nil {
+				return nil, nil, "", err
+			}
+
 			continue
 		}
 
-		src, url := "", ""
-		if len(vv) == 1 && vv[0][0] == '(' {
-			// link only, no image
-			url = vv[0][1 : len(vv[0])-1]
-		} else {
-			src = vv[0]
-			if len(vv) == 2 {
-				url = vv[1][1 : len(vv[1])-1]
+		if strings.HasPrefix(fieldName, "@filename") {
+			// @filename defines the output PDF fileName taking precedence.
+			outFile = vv[0]
+			if !strings.HasSuffix(strings.ToLower(outFile), ".pdf") {
+				outFile += ".pdf"
 			}
 		}
 
-		ib, pageNr, err := imageBox(fieldName, src, url)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if ib == nil {
-			continue
-		}
-
-		p, ok := im[pageNr]
-		if !ok {
-			p = &Page{}
-			im[pageNr] = p
-		}
-		p.ImageBoxes = append(p.ImageBoxes, ib)
 	}
 
-	return fm, im, nil
+	return fm, im, outFile, nil
 }
 
 // FillDetails returns a closure that returns new form data provided by CSV or JSON.
@@ -550,34 +577,6 @@ func fillRadioButtonGroup(
 	return nil
 }
 
-func fillCheckBoxKid(ctx *model.Context, kids types.Array, off bool) (*types.Name, error) {
-	d, err := ctx.DereferenceDict(kids[0])
-	if err != nil {
-		return nil, err
-	}
-
-	d1, err := locateAPN(ctx.XRefTable, d)
-	if err != nil {
-		return nil, err
-	}
-
-	offName, yesName, err := primitives.CalcCheckBoxASNames(ctx, d1)
-	if err != nil {
-		return nil, err
-	}
-
-	asName := yesName
-	if off {
-		asName = offName
-	}
-
-	if _, found := d.Find("AS"); found {
-		d["AS"] = asName
-	}
-
-	return &asName, nil
-}
-
 func fillCheckBox(
 	ctx *model.Context,
 	d types.Dict,
@@ -620,31 +619,31 @@ func fillCheckBox(
 		v = types.Name("Yes")
 	}
 
+	d["V"] = v
+	d1 := d
+	var err error
+
 	kids := d.ArrayEntry("Kids")
 	if len(kids) == 1 {
-		asName, err := fillCheckBoxKid(ctx, kids, v == types.Name("Off"))
+		d1, err = ctx.DereferenceDict(kids[0])
 		if err != nil {
 			return err
 		}
-		d["V"] = *asName
-		*ok = true
-		return nil
 	}
 
-	d["V"] = v
-	if _, found := d.Find("AS"); found {
-		offName, yesName, err := primitives.CalcCheckBoxASNames(ctx, d)
+	if _, found := d1.Find("AS"); found {
+		offName, yesName, err := primitives.CalcCheckBoxASNames(ctx, d1)
 		if err != nil {
 			return err
 		}
-		//fmt.Printf("off:<%s> yes:<%s>\n", offName, yesName)
 		asName := yesName
 		if v == "Off" {
 			asName = offName
 		}
-		d["AS"] = asName
+		d1["AS"] = asName
 		d["V"] = asName
 	}
+
 	*ok = true
 	return nil
 }
@@ -816,7 +815,7 @@ func fillListBox(
 	}
 
 	var vOld []string
-	multi := primitives.FieldFlags(*ff)&primitives.FieldMultiselect > 0
+	multi := ff != nil && primitives.FieldFlags(*ff)&primitives.FieldMultiselect > 0
 	if !multi {
 		if sl := d.StringLiteralEntry("V"); sl != nil {
 			s, err := types.StringLiteralToString(*sl)
@@ -877,20 +876,12 @@ func fillCh(
 	ff *int,
 	ok *bool) error {
 
-	if ff == nil {
-		return errors.New("pdfcpu: corrupt form field: missing entry Ff")
-	}
-
-	opts, err := parseOptions(ctx.XRefTable, d, REQUIRED)
+	opts, err := parseOptions(ctx.XRefTable, d, OPTIONAL)
 	if err != nil {
 		return err
 	}
 
-	if len(opts) == 0 {
-		return errors.New("pdfcpu: missing Opts")
-	}
-
-	if primitives.FieldFlags(*ff)&primitives.FieldCombo > 0 {
+	if ff != nil && primitives.FieldFlags(*ff)&primitives.FieldCombo > 0 {
 		return fillComboBox(ctx, d, id, name, opts, locked, format, fonts, fillDetails, ok)
 	}
 
@@ -1146,6 +1137,8 @@ func fillWidgetAnnots(
 }
 
 func setupFillFonts(xRefTable *model.XRefTable) error {
+	font.EnsureUserFontsLoaded()
+
 	d, err := primitives.FormFontResDict(xRefTable)
 	if err != nil {
 		return err
@@ -1182,7 +1175,7 @@ func FillForm(
 
 	xRefTable := ctx.XRefTable
 
-	fields, err := fields(xRefTable)
+	fields, err := Fields(xRefTable)
 	if err != nil {
 		return false, nil, err
 	}
@@ -1211,22 +1204,8 @@ func FillForm(
 		}
 	}
 
-	for fName, indRef := range fonts {
-		if len(ctx.UsedGIDs[fName]) == 0 {
-			continue
-		}
-		// Update user font.
-		fDict, err := xRefTable.DereferenceDict(indRef)
-		if err != nil {
-			return false, nil, err
-		}
-		fr := model.FontResource{}
-		if err := pdffont.IndRefsForUserfontUpdate(xRefTable, fDict, "", &fr); err != nil {
-			return false, nil, pdffont.ErrCorruptFontDict
-		}
-		if err := pdffont.UpdateUserfont(xRefTable, fName, fr); err != nil {
-			return false, nil, err
-		}
+	if err := pdffont.UpdateUserfonts(ctx.XRefTable, fonts); err != nil {
+		return false, nil, err
 	}
 
 	var pages []*model.Page

@@ -29,7 +29,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ValidatePKCS7Signature validates contained signatures using subFilter adbe.pkcs7.sha1, adbe.pkcs7.detached and ETSI.CAdES.detached.
+// ValidatePKCS7Signatures validates contained signatures using subFilter adbe.pkcs7.sha1, adbe.pkcs7.detached and ETSI.CAdES.detached.
 func ValidatePKCS7Signatures(
 	ra io.ReaderAt,
 	sigDict types.Dict,
@@ -79,7 +79,7 @@ func finalizePKCS7Result(result *model.SignatureValidationResult) {
 		result.Status = model.SignatureStatusValid
 		result.Reason = model.SignatureReasonDocNotModified
 	} else {
-		// Show PAdES basic level for valid signatures only.
+		// Show PAdES basic evidence level for valid signatures only.
 		if len(result.Details.Signers) > 0 {
 			result.Details.Signers[0].PAdES = ""
 		}
@@ -161,8 +161,8 @@ func verifyP7Signer(
 		signer.PAdES = "B-B"
 	}
 
-	// Process optional DSS and DTS for embedded revocation info and trusted timestamp.
-	// This may upgrade PAdES level to B-T, B-LT, B-LTA respectively.
+	// Process optional DSS and DTS for embedded revocation and timestamp evidence.
+	// This may report PAdES evidence levels B-T, B-LT or B-LTA respectively.
 
 	// Calculate the signingTime we use for validation.
 	// Use either a present timestamp token or document timestamp.
@@ -361,10 +361,11 @@ func handleClaimedSigningTime(signerInfo pkcs7.SignerInfo, signer *model.Signer,
 	return nil
 }
 
-func timestampToken(p7Signer pkcs7.SignerInfo, rootCerts *x509.CertPool) (time.Time, error) {
-	// A trusted timestamp token aka trusted signing time.
+func timestampToken(p7Signer pkcs7.SignerInfo, _ *x509.CertPool) (time.Time, error) {
+	// Extract timestamp token evidence for signing time.
+	// Full RFC3161 trust validation belongs to the trust validation layer.
 	if bb := locateTimestampToken(p7Signer); len(bb) > 0 {
-		return validateTimestampToken(bb, rootCerts)
+		return extractTimestampTokenTime(bb)
 	}
 	return time.Time{}, nil
 }
@@ -378,7 +379,7 @@ func locateTimestampToken(signerInfo pkcs7.SignerInfo) []byte {
 	return nil
 }
 
-func validateTimestampToken(data []byte, rootCAs *x509.CertPool) (time.Time, error) {
+func extractTimestampTokenTime(data []byte) (time.Time, error) {
 	var defTime time.Time
 	p7, err := pkcs7.Parse(data)
 	if err != nil {
@@ -389,10 +390,6 @@ func validateTimestampToken(data []byte, rootCAs *x509.CertPool) (time.Time, err
 		return defTime, errors.Errorf("malformed timestamp token")
 	}
 	signer := p7.Signers[0]
-
-	// if err := p7.VerifyWithChain(rootCAs); err != nil {
-	// 	return defTime, errors.Errorf("timestamp token signature verification failed: %v", err)
-	// }
 
 	for _, attr := range signer.AuthenticatedAttributes {
 		if attr.Type.Equal(oidSigningTime) {

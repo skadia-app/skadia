@@ -49,7 +49,11 @@ type entry struct {
 }
 
 func (n Node) leaf() bool {
-	return n.Kids == nil
+	return len(n.Kids) == 0
+}
+
+func (n Node) emptyLeaf() bool {
+	return n.leaf() && len(n.Names) == 0
 }
 
 func keyLess(k, s string) bool {
@@ -125,6 +129,7 @@ func (n *Node) AppendToNames(k string, v types.Object) {
 
 type NameMap map[string][]types.Dict
 
+// Add adds key k and value v to n.
 func (m NameMap) Add(k string, d types.Dict) {
 	dd, ok := m[k]
 	if !ok {
@@ -289,6 +294,17 @@ func (n *Node) HandleLeaf(xRefTable *XRefTable, k string, v types.Object, m Name
 	return nil
 }
 
+func updateNameTreeLimits(path []*Node) {
+	for i := len(path) - 1; i >= 0; i-- {
+		n := path[i]
+		if len(n.Kids) == 0 {
+			continue
+		}
+		n.Kmin = n.Kids[0].Kmin
+		n.Kmax = n.Kids[len(n.Kids)-1].Kmax
+	}
+}
+
 // Add adds an entry to a name tree.
 func (n *Node) Add(xRefTable *XRefTable, k string, v types.Object, m NameMap, nameRefDictKeys []string) error {
 	//fmt.Printf("Add: %s %v\n", k, v)
@@ -298,46 +314,64 @@ func (n *Node) Add(xRefTable *XRefTable, k string, v types.Object, m NameMap, na
 	// Dictionary, array, and string objects should be specified by indirect object references.
 	// Other PDF objects (null, number, boolean and name) should be specified as direct objects.
 
-	if n.Names == nil {
-		n.Names = make([]entry, 0, maxEntries)
-	}
-
-	if n.leaf() {
-		return n.HandleLeaf(xRefTable, k, v, m, nameRefDictKeys)
-	}
-
-	if keyLess(k, n.Kmin) {
-		n.Kmin = k
-	} else if keyLess(n.Kmax, k) {
-		n.Kmax = k
-	}
-
-	// For intermediary nodes we delegate to the corresponding subtree.
-	for _, a := range n.Kids {
-		if keyLess(k, a.Kmin) || a.withinLimits(k) {
-			return a.Add(xRefTable, k, v, m, nameRefDictKeys)
+	var path []*Node
+	for {
+		if n.Names == nil {
+			n.Names = make([]entry, 0, maxEntries)
 		}
-	}
 
-	// Insert k into last (right most) subtree.
-	last := n.Kids[len(n.Kids)-1]
-	return last.Add(xRefTable, k, v, m, nameRefDictKeys)
+		if n.leaf() {
+			if err := n.HandleLeaf(xRefTable, k, v, m, nameRefDictKeys); err != nil {
+				return err
+			}
+			updateNameTreeLimits(path)
+			return nil
+		}
+
+		if keyLess(k, n.Kmin) {
+			n.Kmin = k
+		} else if keyLess(n.Kmax, k) {
+			n.Kmax = k
+		}
+
+		// For intermediary nodes we delegate to the corresponding subtree.
+		var target *Node
+		for _, a := range n.Kids {
+			if keyLess(k, a.Kmin) || a.withinLimits(k) {
+				target = a
+				break
+			}
+		}
+
+		// Insert k into last (right most) subtree.
+		if target == nil {
+			target = n.Kids[len(n.Kids)-1]
+		}
+		path = append(path, n)
+		n = target
+	}
 }
 
 // AddTree adds a name tree to a name tree.
 func (n *Node) AddTree(xRefTable *XRefTable, tree *Node, m NameMap, nameRefDictKeys []string) error {
-	if !tree.leaf() {
-		for _, v := range tree.Kids {
-			if err := n.AddTree(xRefTable, v, m, nameRefDictKeys); err != nil {
+	stack := []*Node{tree}
+
+	for len(stack) > 0 {
+		tree = stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if tree == nil {
+			continue
+		}
+		if !tree.leaf() {
+			for i := len(tree.Kids) - 1; i >= 0; i-- {
+				stack = append(stack, tree.Kids[i])
+			}
+			continue
+		}
+		for _, e := range tree.Names {
+			if err := n.Add(xRefTable, e.k, e.v, m, nameRefDictKeys); err != nil {
 				return err
 			}
-		}
-		return nil
-	}
-
-	for _, e := range tree.Names {
-		if err := n.Add(xRefTable, e.k, e.v, m, nameRefDictKeys); err != nil {
-			return err
 		}
 	}
 
@@ -470,6 +504,10 @@ func (n *Node) removeKid(xRefTable *XRefTable, kid *Node, i int) (bool, error) {
 		n.Kids = append(n.Kids[:i], n.Kids[i+1:]...)
 	}
 
+	if len(n.Kids) == 0 {
+		return true, nil
+	}
+
 	if len(n.Kids) == 1 {
 
 		// If a single kid remains we can merge it with its parent.
@@ -548,26 +586,31 @@ func (n *Node) Remove(xRefTable *XRefTable, k string) (empty, ok bool, err error
 		return false, false, err
 	}
 
-	return false, ok, nil
-
+	return n.emptyLeaf(), ok, nil
 }
 
 // Process traverses the nametree applying a handler to each entry (key-value pair).
 func (n *Node) Process(xRefTable *XRefTable, handler func(*XRefTable, string, *types.Object) error) error {
-	if !n.leaf() {
-		for _, v := range n.Kids {
-			if err := v.Process(xRefTable, handler); err != nil {
+	stack := []*Node{n}
+
+	for len(stack) > 0 {
+		n = stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == nil {
+			continue
+		}
+		if !n.leaf() {
+			for i := len(n.Kids) - 1; i >= 0; i-- {
+				stack = append(stack, n.Kids[i])
+			}
+			continue
+		}
+		for k, e := range n.Names {
+			if err := handler(xRefTable, e.k, &e.v); err != nil {
 				return err
 			}
+			n.Names[k] = e
 		}
-		return nil
-	}
-
-	for k, e := range n.Names {
-		if err := handler(xRefTable, e.k, &e.v); err != nil {
-			return err
-		}
-		n.Names[k] = e
 	}
 
 	return nil
@@ -590,6 +633,7 @@ func (n Node) KeyList() ([]string, error) {
 
 }
 
+// String returns the string value of n.
 func (n Node) String() string {
 	a := []string{}
 

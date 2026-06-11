@@ -17,7 +17,6 @@ limitations under the License.
 package filter
 
 import (
-	"bytes"
 	"io"
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
@@ -40,6 +39,7 @@ func (f ccittDecode) Decode(r io.Reader) (io.Reader, error) {
 	return f.DecodeLength(r, -1)
 }
 
+// DecodeLength implements decoding for a CCITTFaxDecode filter with a maximum output length.
 func (f ccittDecode) DecodeLength(r io.Reader, maxLen int64) (io.Reader, error) {
 	if log.TraceEnabled() {
 		log.Trace.Println("DecodeCCITT begin")
@@ -87,15 +87,14 @@ func (f ccittDecode) DecodeLength(r io.Reader, maxLen int64) (io.Reader, error) 
 	}
 	rd := ccitt.NewReader(r, ccitt.MSB, mode, cols, rows, opts)
 
-	var b bytes.Buffer
-	written, err := io.Copy(&b, rd)
+	b, err := f.copyDecoded(rd, maxLen)
 	if err != nil {
 		return nil, err
 	}
 
 	if log.TraceEnabled() {
-		log.Trace.Printf("DecodeCCITT: decoded %d bytes.\n", written)
+		log.Trace.Printf("DecodeCCITT: decoded %d bytes.\n", b.Len())
 	}
 
-	return &b, nil
+	return b, nil
 }

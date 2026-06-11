@@ -27,6 +27,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// RemoveControlChars removes control chars from s.
 func RemoveControlChars(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
@@ -50,7 +51,7 @@ func NewStringSet(slice []string) StringSet {
 	return strSet
 }
 
-// Convert a 1,2 or 3 digit unescaped octal string into the corresponding byte value.
+// ByteForOctalString a 1,2 or 3 digit unescaped octal string into the corresponding byte value.
 func ByteForOctalString(octalBytes string) (b byte) {
 	i, _ := strconv.ParseInt(octalBytes, 8, 64)
 	return byte(i)
@@ -316,6 +317,7 @@ func DecodeName(s string) (string, error) {
 	return sb.String(), nil
 }
 
+// TrimLeadingComment trim leading comment.
 func TrimLeadingComment(s string) string {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {

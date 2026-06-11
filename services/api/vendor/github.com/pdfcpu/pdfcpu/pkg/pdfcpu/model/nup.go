@@ -33,6 +33,7 @@ import (
 
 type orientation int
 
+// String returns the string value of o.
 func (o orientation) String() string {
 	switch o {
 
@@ -100,6 +101,7 @@ func DefaultNUpConfig() *NUp {
 	}
 }
 
+// String returns the string value of nup.
 func (nup NUp) String() string {
 	return fmt.Sprintf("N-Up conf: %s %s, orient=%s, grid=%s, pageGrid=%t, isImage=%t\n",
 		nup.PageSize, *nup.PageDim, nup.Orient, *nup.Grid, nup.PageGrid, nup.ImgInputFile)
@@ -110,10 +112,12 @@ func (nup NUp) N() int {
 	return int(nup.Grid.Height * nup.Grid.Width)
 }
 
+// IsTopFoldBinding reports whether top fold binding.
 func (nup NUp) IsTopFoldBinding() bool {
 	return (nup.PageDim.Portrait() && nup.BookletBinding == ShortEdge) || (nup.PageDim.Landscape() && nup.BookletBinding == LongEdge)
 }
 
+// IsBooklet reports whether booklet.
 func (nup NUp) IsBooklet() bool {
 	return nup.BookletType == Booklet || nup.BookletType == BookletAdvanced
 }
@@ -198,7 +202,7 @@ func createNUpFormForPDF(xRefTable *XRefTable, resDict *types.IndirectRef, conte
 	return xRefTable.IndRefForNewObject(sd)
 }
 
-// NUpTilePDFBytesForPDF applies nup tiles to content bytes.
+// NUpTilePDFBytes applies nup tiles to content bytes.
 func NUpTilePDFBytes(wr io.Writer, rSrc, rDest *types.Rectangle, formResID string, nup *NUp, rotate bool) {
 
 	// rScr is a rectangular region represented by form formResID in form space.

@@ -178,6 +178,10 @@ type (
 		// sendMutex is used to synchronize access to shared resources during the dial and send methods.
 		sendMutex sync.Mutex
 
+		// skipUTF8 indicates that the Client should skip the "SMTPUTF8" in a "MAIL FROM" even if the server
+		// claims to support it
+		skipUTF8 bool
+
 		// smtpAuth is the authentication type that is used to authenticate the user with SMTP server. It
 		// satisfies the smtp.Auth interface.
 		//
@@ -259,6 +263,9 @@ var (
 
 	// ErrDialContextFuncIsNil indicates that a required dial context function is not provided.
 	ErrDialContextFuncIsNil = errors.New("dial context function is nil")
+
+	// ErrClientIsNil indicates that a required smtp client is not provided.
+	ErrClientIsNil = errors.New("client is nil")
 )
 
 // NewClient creates a new Client instance with the provided host and optional configuration Option functions.
@@ -457,8 +464,6 @@ func WithHELO(helo string) Option {
 //
 // Returns:
 //   - An Option function that sets the TLSPolicy for the Client.
-//
-// WithTLSPortPolicy instead.
 func WithTLSPolicy(policy TLSPolicy) Option {
 	return func(c *Client) error {
 		c.tlspolicy = policy
@@ -734,6 +739,20 @@ func WithDialContextFunc(dialCtxFunc DialContextFunc) Option {
 func WithLogAuthData() Option {
 	return func(c *Client) error {
 		c.logAuthData = true
+		return nil
+	}
+}
+
+// WithoutSMTPUTF8 forces the SMTP client to skip the SMTPUTF8 extension in the "MAIL FROM" command, even if
+// the server supports it.
+//
+// This option is useful for servers that advertise support for SMTPUTF8 but do not actually implement it.
+//
+// Returns:
+//   - An Option function that configures the Client to skip SMTPUTF8 in the "MAIL FROM" command.
+func WithoutSMTPUTF8() Option {
+	return func(c *Client) error {
+		c.skipUTF8 = true
 		return nil
 	}
 }
@@ -1056,11 +1075,21 @@ func (c *Client) DialToSMTPClientWithContext(ctxDial context.Context) (*smtp.Cli
 		return nil, err
 	}
 
+	err = connection.SetDeadline(time.Now().Add(c.connTimeout))
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := smtp.NewClient(connection, c.host)
 	if err != nil {
 		return nil, err
 	}
 	client.ErrorHandlerRegistry = c.ErrorHandlerRegistry
+
+	err = client.UpdateDeadline(c.connTimeout)
+	if err != nil {
+		return nil, err
+	}
 
 	if c.logger != nil {
 		client.SetLogger(c.logger)
@@ -1071,6 +1100,7 @@ func (c *Client) DialToSMTPClientWithContext(ctxDial context.Context) (*smtp.Cli
 	if c.logAuthData {
 		client.SetLogAuthData()
 	}
+	client.SkipSMTPUTF8(c.skipUTF8)
 	if err = client.Hello(c.helo); err != nil {
 		return nil, err
 	}
@@ -1191,21 +1221,21 @@ func (c *Client) DialAndSend(messages ...*Msg) error {
 // Returns:
 //   - An error if the connection fails, if sending the messages fails, or if closing the
 //     connection fails; otherwise, returns nil.
-func (c *Client) DialAndSendWithContext(ctx context.Context, messages ...*Msg) error {
+func (c *Client) DialAndSendWithContext(ctx context.Context, messages ...*Msg) (err error) {
 	client, err := c.DialToSMTPClientWithContext(ctx)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
 	defer func() {
-		_ = c.CloseWithSMTPClient(client)
+		if closeErr := c.CloseWithSMTPClient(client); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to close connection: %w", closeErr))
+		}
 	}()
 
 	if err = c.SendWithSMTPClient(client, messages...); err != nil {
 		return fmt.Errorf("send failed: %w", err)
 	}
-	if err = c.CloseWithSMTPClient(client); err != nil {
-		return fmt.Errorf("failed to close connection: %w", err)
-	}
+
 	return nil
 }
 
@@ -1252,16 +1282,19 @@ func (c *Client) Send(messages ...*Msg) (returnErr error) {
 //   - An error that represents the sending result, which may include multiple SendErrors if
 //     any occurred; otherwise, returns nil.
 func (c *Client) SendWithSMTPClient(client *smtp.Client, messages ...*Msg) (returnErr error) {
-	escSupport := false
-	if client != nil {
-		escSupport, _ = client.Extension("ENHANCEDSTATUSCODES")
+	if client == nil {
+		return &SendError{
+			Reason: ErrConnCheck, errlist: []error{ErrClientIsNil}, isTemp: isTempError(ErrClientIsNil),
+			errcode: errorCode(ErrClientIsNil), enhancedStatusCode: enhancedStatusCode(ErrClientIsNil, false),
+		}
 	}
+
+	escSupport, _ := client.Extension("ENHANCEDSTATUSCODES")
 	if err := c.checkConn(client); err != nil {
-		returnErr = &SendError{
+		return &SendError{
 			Reason: ErrConnCheck, errlist: []error{err}, isTemp: isTempError(err),
 			errcode: errorCode(err), enhancedStatusCode: enhancedStatusCode(err, escSupport),
 		}
-		return returnErr
 	}
 
 	var errs []error
