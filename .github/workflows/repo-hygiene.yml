@@ -121,7 +121,7 @@ jobs:
         # hadolint/hadolint-action v3.1.0 — pinned by SHA.
         # `recursive: true` finds Dockerfiles anywhere in the tree (excluding
         # the worktree-sibling-cleanup directory and vendor).
-        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5
         with:
           recursive: true
           ignore: DL3008,DL3009  # apt without version pin (we accept the trade-off, like Dependabot's docker-tag stance)
