@@ -1,0 +1,7 @@
+source	purpose	repo_locations	notice
+BRouter	HTTP routing engine, RD5 segment generation JAR, shipped routing profiles	config/brouter/profiles; services/api/Dockerfile; docker-compose.yml	BRouter is MIT licensed. Shipped profiles match abrensch/brouter v1.7.8 misc/profiles2 for the local filenames.
+BRouter segment downloads	Prebuilt RD5 segment data	scripts/brouter-download-segments.sh; services/api/internal/osm/brouter_download.go	Downloaded runtime data is not committed; users should follow the upstream service/data terms.
+OpenStreetMap	Map data, local OSM import, enrichment, routing graph input	services/api/internal/osm; services/api/internal/migrate/migrations/000333_map_layers.up.sql; frontend/src	OSM-derived data requires OpenStreetMap attribution and ODbL compliance where applicable.
+Protomaps PMTiles	Offline basemap bundle source	scripts/download-pmtiles.sh; services/api/internal/migrate/migrations/000333_map_layers.up.sql	Downloaded runtime data is not committed; notices should preserve Protomaps/OpenStreetMap attribution.
+Copernicus GLO-30 DEM	Elevation data for DEM import and BRouter/HGT conversion	scripts/dem-download-glo30.sh; scripts/dem-download-all-regions.sh	Downloaded runtime data is not committed; source is Copernicus GLO-30 via AWS Open Data mirror.
+Nominatim / Photon	Optional external geocoding fallback	services/api/internal/migrate/migrations/000300_reverse_geocode_cache_and_fallback_settings.up.sql	Only used when configured; operators must comply with provider terms and rate limits.

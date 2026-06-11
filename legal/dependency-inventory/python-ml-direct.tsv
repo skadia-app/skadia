@@ -1,0 +1,23 @@
+package	requirement	pinned_version	license_metadata	source
+fastapi	fastapi==0.135.1	0.135.1	MIT	https://pypi.org/pypi/fastapi/0.135.1/json
+uvicorn	uvicorn[standard]==0.41.0	0.41.0	BSD-3-Clause	https://pypi.org/pypi/uvicorn/0.41.0/json
+asyncpg	asyncpg==0.31.0	0.31.0	Apache-2.0	https://pypi.org/pypi/asyncpg/0.31.0/json
+nats-py	nats-py==2.14.0	2.14.0	Apache-2.0	https://pypi.org/pypi/nats-py/2.14.0/json
+scipy	scipy==1.17.1	1.17.1	BSD-3-Clause; wheel metadata may include bundled OpenBLAS/GCC runtime notices	https://pypi.org/pypi/scipy/1.17.1/json
+numpy	numpy==2.4.3	2.4.3	BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0	https://pypi.org/pypi/numpy/2.4.3/json
+shapely	shapely==2.1.2	2.1.2	BSD-3-Clause	https://pypi.org/pypi/shapely/2.1.2/json
+scikit-learn	scikit-learn>=1.0.0,<1.8		BSD-3-Clause	https://pypi.org/pypi/scikit-learn/json; requirement is not fully pinned
+httpx	httpx==0.28.1	0.28.1	BSD-3-Clause	https://pypi.org/pypi/httpx/0.28.1/json
+aioboto3	aioboto3==13.3.0	13.3.0	Apache-2.0	https://pypi.org/pypi/aioboto3/13.3.0/json
+neurokit2	neurokit2==0.2.12	0.2.12	MIT	https://pypi.org/pypi/neurokit2/0.2.12/json
+tsfel	tsfel==0.2.0	0.2.0	BSD License classifier; exact BSD variant not declared in PyPI metadata	https://pypi.org/pypi/tsfel/0.2.0/json
+ruptures	ruptures>=1.1.9		BSD-2-Clause	https://pypi.org/pypi/ruptures/json; requirement is not fully pinned
+sqlglot	sqlglot>=26.0		MIT	https://pypi.org/pypi/sqlglot/json; requirement is not fully pinned
+python-json-logger	python-json-logger>=3.0.0,<4.0.0		BSD-2-Clause	https://pypi.org/pypi/python-json-logger/json; requirement is not fully pinned
+torch	torch>=2.10,<2.11		BSD-3-Clause	https://pypi.org/pypi/torch/json; requirement is not fully pinned
+transformers	transformers>=4.49.0,<5.0.0		Apache-2.0	https://pypi.org/pypi/transformers/json; requirement is not fully pinned
+Pillow	Pillow>=10.0.0		MIT-CMU	https://pypi.org/pypi/Pillow/json; requirement is not fully pinned
+pillow-heif	pillow-heif>=0.21.0		BSD-3-Clause; package metadata also lists bundled-license files	https://pypi.org/pypi/pillow-heif/json; requirement is not fully pinned
+pillow-jxl-plugin	pillow-jxl-plugin>=0.4.0		GPL-3.0-only	https://pypi.org/pypi/pillow-jxl-plugin/json; requirement is not fully pinned
+granite-tsfm	granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git@bd28309b53e7ec6470e71a13e511d3dea8f21123	bd28309b53e7ec6470e71a13e511d3dea8f21123	Apache-2.0	GitHub source LICENSE at pinned commit
+chronos-forecasting	chronos-forecasting>=2.2.0		Apache-2.0	https://pypi.org/pypi/chronos-forecasting/json; requirement is not fully pinned
