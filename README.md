@@ -1,106 +1,175 @@
 # Skadia
 
-Selfhosted Fitness-Tracking-Plattform mit BRouter-basiertem Routing, Multi-Sport-Support, ML-gestützter Foto-Klassifizierung und vollständigem GDPR-Export. Privacy-first — deine Daten bleiben bei dir.
+Skadia is a self-hosted activity, health, routing, and training-data system.
+It is intended for operators who want to keep their activity files, media, maps,
+and derived analytics under their own control.
 
-## Features
+> **Status:** Pre-release. The repository is being prepared for an initial
+> public release. Review the configuration before using it for real data.
 
-- **Multi-Sport-Tracking** — Run, Bike, Hike, Swim, Ski, Indoor, Strength, ... (60+ Sport-Typen)
-- **Routing** — BRouter (Profile-basiert) + BadRouter (LLM-gestützt) auf Basis von OSM-Daten
-- **Imports** — Garmin Connect, Strava, Komoot, FIT/GPX/TCX-Dateien, Apple Health
-- **Health-Daten** — Sleep, HRV, SpO2, Weight, Blood Pressure (manuell oder via Wearable-Import)
-- **Analytics** — PMC (CTL/ATL/TSB), Best Efforts, Training Load, Power Curve, Eddington
-- **ML-Features** — Photo-Embedding (CLIP), Activity-Clustering, Anomalie-Erkennung
-- **Privacy-Zonen** — Start-/Zieladressen automatisch maskiert
-- **Multi-User** — Bis 100k+ Installationen, eigenes Auth-System (Argon2id, HIBP)
+## What It Includes
 
-## Voraussetzungen
+- Activity import for FIT, GPX, and TCX files.
+- Optional OAuth-based activity importers.
+- Health-data ingestion for sleep, HRV, heart rate, SpO2, weight, and blood
+  pressure where the source data contains those records.
+- Activity lists, maps, detail views, charts, gear assignments, tags, and
+  administrative maintenance screens.
+- Local route calculation and local vector-map serving when the required map
+  and routing data has been imported.
+- Privacy-zone masking for activity coordinates returned by the API.
+- Data export and import paths for user-controlled transfers.
+- Optional machine-learning services for media and document workflows.
 
-- **Container-Runtime:** Podman (rootless empfohlen). Docker braucht derzeit ein geprüftes Override für User-Namespace- und Volume-Ownership.
-- **Compose-Plugin:** `podman compose`
-- **Disk:** Min. 20 GB für OSM-Daten + Aktivitäten (mehr je nach Region)
-- **RAM:** 4 GB (Basis), 8+ GB mit ML-Features
-- **OS:** Linux (Fedora, Ubuntu, Debian getestet)
+## Runtime Requirements
 
-## Quick-Start
+Skadia is not a 4 GiB RAM application in the current Compose setup.
+
+The default Compose configuration already sets these upper bounds:
+
+- PostgreSQL container: `POSTGRES_MEM_LIMIT=8g`
+- PostgreSQL shared buffers: `POSTGRES_SHARED_BUFFERS=4GB`
+- API container: `mem_limit: 16g`
+- Routing service: Java heap capped at `512m`
+- Optional ML and LLM profiles add separate services
+
+Recommended host sizing:
+
+| Installation shape | Recommended RAM | Notes |
+| --- | ---: | --- |
+| Development or small evaluation without ML/LLM | 16 GiB minimum | Keep imports and map data small. |
+| Default local-data setup | 32 GiB | Suitable for normal self-hosted testing with local routing and map data. |
+| ML or LLM profiles enabled | 32 GiB or more | CPU-only ML works, but model choice and image volume affect memory use. |
+| Larger imports or multi-user deployments | Size from measured load | Tune PostgreSQL, workers, storage, and routing data per deployment. |
+
+Storage depends on imported activities, media, map data, routing data, and
+exports. Start with at least 50 GB free for a local evaluation. Larger regions
+and media libraries require more.
+
+## Prerequisites
+
+- Linux host.
+- OCI-compatible container runtime with Compose support. The tested path is
+  rootless Podman with `podman compose`.
+- Git, OpenSSL, and standard POSIX shell tooling.
+- A filesystem layout that can store PostgreSQL data safely.
+
+On btrfs, PostgreSQL data must use `chattr +C` on `data/postgres/` before the
+database is initialized. `scripts/setup.sh` handles this for the default local
+data path.
+
+## Quick Start
 
 ```bash
 git clone https://github.com/skadia-app/skadia.git
 cd skadia
-./scripts/setup.sh           # Verzeichnisse, .env, Secrets generieren
+./scripts/setup.sh
 podman compose up -d --build --remove-orphans
 ```
 
-Browser öffnen: `http://localhost:8080` (oder die konfigurierte Domain).
+Open `http://localhost:8080`.
 
-Erste Registrierung wird automatisch zum Admin-Account.
+The first account registration becomes the administrator account unless a
+bootstrap administrator is configured in the environment.
 
-## Storage-Optionen
+## Configuration
 
-- **Local** (Default) — Dateien direkt im Filesystem (`./data/library/`)
-- **S3** — Garage (selfhosted) oder externes S3 (AWS, Hetzner, MinIO)
+`scripts/setup.sh` creates local directories, writes `.env`, and generates
+secrets for a Compose installation.
 
-Siehe `.env.example` → `STORAGE_BACKEND`.
+Important settings:
 
-## OSM-Import (für Routing & Karten)
+- `SKADIA_DATA_ROOT` controls where runtime data is stored. Default: `./data`.
+- `SKADIA_APP_PORT` controls the local HTTP port. Default: `8080`.
+- `COMPOSE_PROFILES` enables optional service groups such as `full-local-data`,
+  `s3`, `ml`, `llm`, or `proxy`.
+- `STORAGE_BACKEND` selects `local` or `s3` storage for library objects.
+- `REGISTRATION_MODE` controls whether registration is invite-only, open, or
+  approval-based.
+- `POSTGRES_*` settings tune database memory, checkpoint, and I/O behavior.
 
-Routing braucht OSM-Daten der gewünschten Region. Im Setup-Wizard wird das interaktiv eingerichtet, oder manuell:
+Use `.env.example` as the reference for available variables. Do not copy
+development passwords or generated secrets into a shared deployment.
+
+## Optional Profiles
+
+The base Compose stack runs the API, database, event broker, and routing
+support services. Optional profiles add more services:
+
+- `full-local-data`: local map and routing data services.
+- `s3`: local S3-compatible object storage for deployments that need it.
+- `ml`: machine-learning worker service.
+- `llm`: local LLM broker services.
+- `proxy`: reverse proxy and TLS entrypoint.
+
+Enable only the profiles needed for the installation.
+
+## Local Map And Routing Data
+
+Route calculation and local maps require imported map/routing data for the
+selected region. The setup script can prepare the directory layout, but it does
+not make a large region import cheap. Import size, preprocessing time, and RAM
+usage scale with the selected region.
+
+For a manual local import, use:
 
 ```bash
-./scripts/import-osm.sh germany   # oder dachl, europe, etc.
+./scripts/import-osm.sh germany
 ```
 
-Nach dem Import: Routing-Tiles bauen via Admin-UI.
-
-## Warnung: btrfs
-
-Auf btrfs-Filesystemen muss `chattr +C` (nocow) auf `data/postgres/` gesetzt werden — sonst riskierst du PostgreSQL-Page-Korruption durch Copy-on-Write. Das `setup.sh` macht das automatisch. Details: `docs/operations/POSTGRES_INTEGRITY.md`.
-
-## Konfiguration
-
-Alle Optionen in `.env.example` dokumentiert. Wichtig:
-
-- `DOMAIN` — Hostname (default: `localhost`)
-- `SKADIA_APP_PORT` — lokaler Host-Port für App/API in Compose (default: `8080`)
-- `STORAGE_BACKEND` — `local` oder `s3`
-- `COMPOSE_PROFILES` — Optionale Features (`ml`, `llm`, `s3`, kommagetrennt)
-- `REGISTRATION_MODE` — `invite`, `open` oder `approval`
-- `LOG_LEVEL` — `debug`, `info`, `warn`, `error`
+Use a smaller region for initial tests.
 
 ## Development
 
-```bash
-# Frontend (Vite Dev-Server, Hot-Reload)
-cd frontend && npm run dev    # → http://localhost:5173
+Frontend development:
 
-# Backend (im Container, mit Source-Mount via override)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The development server listens on `http://localhost:5173`.
+
+Backend development normally runs through Compose:
+
+```bash
 cp docker-compose.override.example.yml docker-compose.override.yml
 podman compose up -d --build api
 ```
 
-Weitere Doku: `docs/` (Architektur, Migrations, Routing-Engine, Sport-Taxonomie).
+Run focused backend tests from `services/api`:
 
-### Down-Migrations
+```bash
+go test ./internal/garmin ./internal/fitimport
+```
 
-Das Migrate-Framework in Skadia führt ausschließlich `*.up.sql` automatisch
-aus (siehe `services/api/internal/migrate/migrate.go`, `//go:embed migrations/*.up.sql`).
-`*.down.sql`-Dateien sind reine **Operator-Dokumentation** — sie werden nie automatisch
-angewandt.
+## Backups And Data Safety
 
-Bei einem manuellen Rollback (z.B. via `psql -f 000NNN_xxx.down.sql`):
+Back up at least these paths before upgrades:
 
-- **No-Op-Rollbacks** (z.B. `SELECT 1;`): die Up-Migration hat keine inhaltliche
-  Reversion. Typisch für cosmetic DELETEs, Feature-Flag-Cleanups, etc.
-- **Destruktive Rollbacks** (z.B. `RAISE EXCEPTION '...'` in `DO $$ BEGIN ... END $$;`):
-  die Up-Migration ist nicht ohne Code-Revert oder Datenverlust rückgängig zu machen.
-  Operator muss die Migration-spezifische Doku konsultieren (siehe Kommentare
-  in der Down-Migration selbst).
+- PostgreSQL data under `${SKADIA_DATA_ROOT}/postgres`
+- Library data under `${SKADIA_DATA_ROOT}/library`
+- Export/import artifact storage if it is not backed by S3
+- `.env` and any external secret files
 
-Sichere Kombination bei Deployment-Rollbacks:
-1. Code-Revert durch den Deploy-Runner (Binary-Revert).
-2. Falls schema-backwards-kompatibel: Down-Migration via `psql` manuell anwenden.
-3. Falls irreversibel: Backup-Restore + Re-Play ausgewählter Up-Migrations.
+Schema migrations run automatically on startup through the API service.
+Rollback requires an operator decision. Down-migration files are documentation
+for manual recovery; they are not executed automatically by the migration
+runner.
 
-## Lizenz
+## Limitations
 
-GNU Affero General Public License v3.0 (AGPL-3.0). Volltext unter [LICENSE](LICENSE).
-Beiträge unterliegen automatisch derselben Lizenz, siehe [CONTRIBUTING.md](CONTRIBUTING.md).
+- The public documentation set is still being rebuilt for the initial release.
+- The default Compose tuning favors a capable self-hosted machine, not a
+  low-memory VPS.
+- Local map and routing imports can be large and slow.
+- Optional ML and LLM profiles depend heavily on model choice and host
+  resources.
+- Multi-process and Kubernetes-style deployments require shared storage,
+  explicit worker sizing, and deployment-specific configuration review.
+
+## License
+
+Skadia is licensed under the GNU Affero General Public License v3.0. See
+[LICENSE](LICENSE).

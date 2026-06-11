@@ -67,6 +67,8 @@ frontend/GEMINI.md
 frontend/GEMINI.MD
 .claude/
 .agents/
+.claire/
+.clone/
 .worktrees/
 .private/
 TASKS.md
