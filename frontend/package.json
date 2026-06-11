@@ -33,7 +33,7 @@
     "react-pdf": "^10.4.1",
     "react-router-dom": "^7.2.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.3",
