@@ -5,7 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 
 LABEL org.opencontainers.image.title="Skadia frontend"
 LABEL org.opencontainers.image.description="Skadia React/Vite frontend served by nginx"
