@@ -56,6 +56,6 @@ jobs:
 
       - name: Perform CodeQL analysis
         # github/codeql-action v3 — pinned by SHA.
-        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
         with:
           category: "/language:${{ matrix.language }}"
