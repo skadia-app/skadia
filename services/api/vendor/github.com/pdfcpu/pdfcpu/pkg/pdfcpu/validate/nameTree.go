@@ -540,7 +540,7 @@ func validateIDTreeValue(xRefTable *model.XRefTable, o types.Object, sinceVersio
 
 	dictType := d.Type()
 	if dictType == nil || *dictType == "StructElem" {
-		err = validateStructElementDict(xRefTable, d)
+		err = validateStructElementDict(xRefTable, d, true)
 		if err != nil {
 			return err
 		}
@@ -700,6 +700,13 @@ func validateNameTreeDictLimitsEntry(xRefTable *model.XRefTable, d types.Dict, f
 }
 
 func validateNameTree(xRefTable *model.XRefTable, name string, d types.Dict, root bool) (string, string, *model.Node, error) {
+	return validateNameTreeDepth(xRefTable, name, d, root, 0)
+}
+
+func validateNameTreeDepth(xRefTable *model.XRefTable, name string, d types.Dict, root bool, depth int) (string, string, *model.Node, error) {
+	if err := xRefTable.CheckRecursionDepth("name tree", depth); err != nil {
+		return "", "", nil, err
+	}
 
 	//fmt.Printf("validateNameTree begin %s\n", d)
 
@@ -740,7 +747,7 @@ func validateNameTree(xRefTable *model.XRefTable, name string, d types.Dict, roo
 
 			var kminKid string
 			var kidNode *model.Node
-			kminKid, kmax, kidNode, err = validateNameTree(xRefTable, name, d, false)
+			kminKid, kmax, kidNode, err = validateNameTreeDepth(xRefTable, name, d, false, depth+1)
 			if err != nil {
 				if xRefTable.ValidationMode == model.ValidationStrict {
 					return "", "", nil, err

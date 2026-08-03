@@ -30,6 +30,7 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/filter"
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/safemath"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"github.com/pkg/errors"
 )
@@ -83,6 +84,64 @@ func decodeArr(a types.Array) []colValRange {
 	return decode
 }
 
+func checkedImageBytes(w, h, comp, bpc int) (int64, error) {
+	pixels, err := safemath.MultiplyInt64(int64(w), int64(h))
+	if err != nil {
+		return 0, err
+	}
+	bits, err := safemath.MultiplyInt64(pixels, int64(comp))
+	if err != nil {
+		return 0, err
+	}
+	bits, err = safemath.MultiplyInt64(bits, int64(bpc))
+	if err != nil {
+		return 0, err
+	}
+	if bits > int64(^uint64(0)>>1)-7 {
+		return 0, errors.New("pdfcpu: image dimension overflow")
+	}
+	return (bits + 7) / 8, nil
+}
+
+func imageLimits(xRefTable *model.XRefTable) model.ResourceLimits {
+	if xRefTable == nil || xRefTable.Conf == nil {
+		return model.DefaultResourceLimits()
+	}
+	return xRefTable.Conf.Limits
+}
+
+func validatePDFImageDimensions(xRefTable *model.XRefTable, w, h, comp, bpc, objNr int) error {
+	if w <= 0 || h <= 0 {
+		return errors.Errorf("pdfcpu: image obj#%d has invalid dimensions %dx%d", objNr, w, h)
+	}
+	if comp <= 0 || bpc <= 0 {
+		return errors.Errorf("pdfcpu: image obj#%d has invalid components/bpc %d/%d", objNr, comp, bpc)
+	}
+
+	limits := imageLimits(xRefTable)
+	pixels, err := safemath.MultiplyInt64(int64(w), int64(h))
+	if err != nil {
+		return err
+	}
+	if pixels > limits.MaxImagePixels {
+		return errors.Errorf("pdfcpu: image obj#%d pixel count %d exceeds limit %d", objNr, pixels, limits.MaxImagePixels)
+	}
+
+	rawBytes, err := checkedImageBytes(w, h, comp, bpc)
+	if err != nil {
+		return err
+	}
+	renderBytes, err := safemath.MultiplyInt64(pixels, 4)
+	if err != nil {
+		return err
+	}
+	if rawBytes > limits.MaxImageBytes || renderBytes > limits.MaxImageBytes {
+		return errors.Errorf("pdfcpu: image obj#%d byte size exceeds limit %d", objNr, limits.MaxImageBytes)
+	}
+
+	return nil
+}
+
 func pdfImage(xRefTable *model.XRefTable, sd *types.StreamDict, thumb bool, objNr int) (*PDFImage, error) {
 	comp, err := ColorSpaceComponents(xRefTable, sd)
 	if err != nil {
@@ -110,6 +169,10 @@ func pdfImage(xRefTable *model.XRefTable, sd *types.StreamDict, thumb bool, objN
 		return nil, err
 	}
 	h := i.Value()
+
+	if err := validatePDFImageDimensions(xRefTable, w, h, comp, bpc, objNr); err != nil {
+		return nil, err
+	}
 
 	decode := decodeArr(sd.ArrayEntry("Decode"))
 
@@ -192,14 +255,11 @@ func streamBytes(sd *types.StreamDict) ([]byte, error) {
 
 	switch f {
 
-	case filter.DCT, filter.Flate, filter.CCITTFax, filter.ASCII85, filter.RunLength:
+	case filter.DCT, filter.Flate, filter.CCITTFax, filter.ASCII85, filter.RunLength, filter.JPX, filter.JBIG2:
 		// If color space is CMYK then write .tif else write .png
 		if err := sd.Decode(); err != nil {
 			return nil, err
 		}
-
-	case filter.JPX:
-		//imageObj.Extension = "jpx"
 
 	default:
 		if log.DebugEnabled() {
@@ -964,6 +1024,9 @@ func RenderImage(xRefTable *model.XRefTable, sd *types.StreamDict, thumb bool, r
 
 	case filter.JPX:
 		return bytes.NewReader(sd.Content), "jpx", nil
+
+	case filter.JBIG2:
+		return bytes.NewReader(sd.Content), "jbig2", nil
 	}
 
 	return nil, "", nil

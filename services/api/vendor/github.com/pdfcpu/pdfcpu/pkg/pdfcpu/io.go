@@ -39,7 +39,7 @@ func Write(rd io.Reader, filepath string, overwrite bool) (bool, error) {
 	return true, err
 }
 
-// CopyFile copies srcFilename to destFilename
+// CopyFile copies srcFilename to destFilename.
 func CopyFile(srcFilename, destFilename string, overwrite bool) (bool, error) {
 	if !overwrite {
 		if _, err := os.Stat(destFilename); err == nil {

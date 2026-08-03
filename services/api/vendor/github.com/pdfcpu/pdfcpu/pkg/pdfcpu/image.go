@@ -19,12 +19,10 @@ package pdfcpu
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/draw"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
@@ -268,24 +266,6 @@ func ListImages(ctx *model.Context, selectedPages types.IntSet) ([]string, error
 	}
 
 	return append([]string{s}, ss...), nil
-}
-
-// WriteImageToDisk returns a closure for writing img to disk.
-func WriteImageToDisk(outDir, fileName string) func(model.Image, bool, int) error {
-	return func(img model.Image, singleImgPerPage bool, maxPageDigits int) error {
-		if img.Reader == nil {
-			return nil
-		}
-		s := "%s_%" + fmt.Sprintf("0%dd", maxPageDigits)
-		qual := img.Name
-		if img.Thumb {
-			qual = "thumb"
-		}
-		f := fmt.Sprintf(s+"_%s.%s", fileName, img.PageNr, qual, img.FileType)
-		outFile := filepath.Join(outDir, f)
-		log.CLI.Printf("writing %s\n", outFile)
-		return WriteReader(outFile, img)
-	}
 }
 
 func validateImageDimensions(ctx *model.Context, objNr, w, h int) error {

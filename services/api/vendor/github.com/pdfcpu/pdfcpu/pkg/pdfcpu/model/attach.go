@@ -37,6 +37,7 @@ type Attachment struct {
 	ModTime   *time.Time // time of last modification (optional)
 }
 
+// String returns the string value of a.
 func (a Attachment) String() string {
 	return fmt.Sprintf("Attachment: id:%s desc:%s modTime:%s", a.ID, a.Desc, a.ModTime)
 }
@@ -88,7 +89,7 @@ func fileSpecStreamDict(xRefTable *XRefTable, d types.Dict) (*types.StreamDict, 
 	return sd, err
 }
 
-// NewFileSpectDictForAttachment returns a fileSpecDict for a.
+// NewFileSpecDictForAttachment returns a fileSpecDict for a.
 func (xRefTable *XRefTable) NewFileSpecDictForAttachment(a Attachment) (types.Dict, error) {
 	modTime := time.Now()
 	if a.ModTime != nil {
@@ -419,6 +420,7 @@ func (ctx *Context) ExtractAttachment(a Attachment) (*Attachment, error) {
 	return &aa[0], nil
 }
 
+// AddAttachmentsToInfoDigest adds attachments to info digest.
 func (ctx *Context) AddAttachmentsToInfoDigest(ss *[]string) error {
 	aa, err := ctx.ListAttachments()
 	if err != nil {

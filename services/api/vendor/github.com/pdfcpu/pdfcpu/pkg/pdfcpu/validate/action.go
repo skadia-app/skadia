@@ -668,13 +668,21 @@ func validateImportDataActionDict(xRefTable *model.XRefTable, d types.Dict, dict
 }
 
 func validateJavaScript(xRefTable *model.XRefTable, d types.Dict, dictName, entryName string, required bool) error {
-
 	sinceVersion := model.V13
 	if xRefTable.ValidationMode == model.ValidationRelaxed {
 		sinceVersion = model.V12
 	}
+
+	relaxedRequired := required && xRefTable.ValidationMode == model.ValidationRelaxed
+	if relaxedRequired {
+		required = OPTIONAL
+	}
+
 	o, err := validateEntry(xRefTable, d, dictName, entryName, required, sinceVersion)
 	if err != nil || o == nil {
+		if o == nil && err == nil && relaxedRequired {
+			model.ShowSkipped(dictName + `Action: missing "` + entryName + `"`)
+		}
 		return err
 	}
 
@@ -700,7 +708,6 @@ func validateJavaScript(xRefTable *model.XRefTable, d types.Dict, dictName, entr
 }
 
 func validateJavaScriptActionDict(xRefTable *model.XRefTable, d types.Dict, dictName string) error {
-
 	// see 12.6.4.16
 
 	// JS, required, text string or stream

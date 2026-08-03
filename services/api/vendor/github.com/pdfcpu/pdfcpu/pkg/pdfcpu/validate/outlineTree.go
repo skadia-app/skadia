@@ -100,11 +100,13 @@ func validateOutlineItemDict(xRefTable *model.XRefTable, d types.Dict) error {
 	// Optional A or Dest, since V1.1
 	destName, err := validateActionOrDestination(xRefTable, d, dictName, model.V11)
 	if err != nil {
+		model.ShowMsg("outlineItemDict: corrupt action or destination entry")
 		return err
 	}
+
 	if destName != "" {
 		if _, err = xRefTable.DereferenceDestArray(destName); err != nil && xRefTable.ValidationMode == model.ValidationRelaxed {
-			model.ShowDigestedSpecViolation("outlineDict with unresolved destination")
+			model.ShowDigestedSpecViolation("outlineItemDict: unable to resolve destination entry")
 			return nil
 		}
 	}
@@ -183,6 +185,14 @@ func evalOutlineCount(xRefTable *model.XRefTable, c, visc int, count int, total,
 }
 
 func validateOutlineTree(xRefTable *model.XRefTable, first, last *types.IndirectRef, m map[int]bool, fixed *bool) (int, int, error) {
+	return validateOutlineTreeDepth(xRefTable, first, last, m, fixed, 0)
+}
+
+func validateOutlineTreeDepth(xRefTable *model.XRefTable, first, last *types.IndirectRef, m map[int]bool, fixed *bool, depth int) (int, int, error) {
+	if err := xRefTable.CheckRecursionDepth("outline tree", depth); err != nil {
+		return 0, 0, err
+	}
+
 	var (
 		d       types.Dict
 		objNr   int
@@ -226,7 +236,7 @@ func validateOutlineTree(xRefTable *model.XRefTable, first, last *types.Indirect
 			return 0, 0, err
 		}
 
-		c, visc, err := validateOutlineTree(xRefTable, firstChild, lastChild, m, fixed)
+		c, visc, err := validateOutlineTreeDepth(xRefTable, firstChild, lastChild, m, fixed, depth+1)
 		if err != nil {
 			return 0, 0, err
 		}

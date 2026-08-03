@@ -23,13 +23,16 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"github.com/pkg/errors"
 )
 
 // InsertPages inserts a blank page before or after every page selected of rs and writes the result to w.
-func InsertPages(rs io.ReadSeeker, w io.Writer, selectedPages []string, before bool, pageConf *pdfcpu.PageConfiguration, conf *model.Configuration) error {
+func InsertPages(rs io.ReadSeeker, w io.Writer, selectedPages []string, before bool, pageConf *pdfcpu.PageConfiguration, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: InsertPages: missing rs")
 	}
@@ -67,6 +70,7 @@ func InsertPages(rs io.ReadSeeker, w io.Writer, selectedPages []string, before b
 // InsertPagesFile inserts a blank page before or after every inFile page selected and writes the result to w.
 func InsertPagesFile(inFile, outFile string, selectedPages []string, before bool, pageConf *pdfcpu.PageConfiguration, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -80,14 +84,14 @@ func InsertPagesFile(inFile, outFile string, selectedPages []string, before bool
 		logWritingTo(inFile)
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -102,11 +106,19 @@ func InsertPagesFile(inFile, outFile string, selectedPages []string, before bool
 		}
 	}()
 
-	return InsertPages(f1, f2, selectedPages, before, pageConf, conf)
+	if err = InsertPages(f1, f2, selectedPages, before, pageConf, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }
 
 // RemovePages removes selected pages from rs and writes the result to w.
-func RemovePages(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) error {
+func RemovePages(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: RemovePages: missing rs")
 	}
@@ -152,6 +164,7 @@ func RemovePages(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *mo
 // RemovePagesFile removes selected inFile pages and writes the result to outFile..
 func RemovePagesFile(inFile, outFile string, selectedPages []string, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -165,14 +178,14 @@ func RemovePagesFile(inFile, outFile string, selectedPages []string, conf *model
 		logWritingTo(inFile)
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -187,11 +200,19 @@ func RemovePagesFile(inFile, outFile string, selectedPages []string, conf *model
 		}
 	}()
 
-	return RemovePages(f1, f2, selectedPages, conf)
+	if err = RemovePages(f1, f2, selectedPages, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }
 
 // PageCount returns rs's page count.
-func PageCount(rs io.ReadSeeker, conf *model.Configuration) (int, error) {
+func PageCount(rs io.ReadSeeker, conf *model.Configuration) (count int, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return 0, errors.New("pdfcpu: PageCount: missing rs")
 	}
@@ -216,7 +237,9 @@ func PageCountFile(inFile string) (int, error) {
 }
 
 // PageDims returns a sorted slice of mediaBox dimensions for rs.
-func PageDims(rs io.ReadSeeker, conf *model.Configuration) ([]types.Dim, error) {
+func PageDims(rs io.ReadSeeker, conf *model.Configuration) (pd []types.Dim, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, errors.New("pdfcpu: PageDims: missing rs")
 	}
@@ -226,7 +249,7 @@ func PageDims(rs io.ReadSeeker, conf *model.Configuration) ([]types.Dim, error) 
 		return nil, err
 	}
 
-	pd, err := ctx.PageDims()
+	pd, err = ctx.PageDims()
 	if err != nil {
 		return nil, err
 	}

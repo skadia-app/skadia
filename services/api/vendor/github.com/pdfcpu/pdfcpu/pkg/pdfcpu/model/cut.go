@@ -189,6 +189,7 @@ func parseMarginCut(s string, cut *Cut) error {
 	return nil
 }
 
+// CutParamMap maps cut configuration parameter names to parser functions.
 var CutParamMap = cutParameterMap{
 	"horizontalCut": parseHorCut,
 	"verticalCut":   parseVertCut,
@@ -199,27 +200,4 @@ var CutParamMap = cutParameterMap{
 	"border":        parseBorderCut,
 	"margin":        parseMarginCut,
 	"bgcolor":       parseBackgroundColorCut,
-}
-
-// Handle applies parameter completion and on success parse parameter values into resize.
-func (m cutParameterMap) Handle(paramPrefix, paramValueStr string, cut *Cut) error {
-
-	var param string
-
-	// Completion support
-	for k := range m {
-		if !strings.HasPrefix(k, strings.ToLower(paramPrefix)) {
-			continue
-		}
-		if len(param) > 0 {
-			return errors.Errorf("pdfcpu: ambiguous parameter prefix \"%s\"", paramPrefix)
-		}
-		param = k
-	}
-
-	if param == "" {
-		return errors.Errorf("pdfcpu: unknown parameter prefix \"%s\"", paramPrefix)
-	}
-
-	return m[param](paramValueStr, cut)
 }

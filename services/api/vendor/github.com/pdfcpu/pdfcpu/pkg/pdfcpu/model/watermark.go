@@ -170,6 +170,7 @@ func (wm Watermark) Typ() string {
 	return "text"
 }
 
+// String returns the string value of wm.
 func (wm Watermark) String() string {
 	var s string
 	if !wm.OnTop {
@@ -448,6 +449,7 @@ func (wm *Watermark) CalcTransformMatrix() matrix.Matrix {
 	return matrix.CalcTransformMatrix(1, 1, sin, cos, dx, dy)
 }
 
+// PdfResIndex returns the PDF resource index for wm and pageNr.
 func (wm *Watermark) PdfResIndex(pageNr int) int {
 	if !wm.MultiStamp() {
 		return wm.PdfPageNrSrc

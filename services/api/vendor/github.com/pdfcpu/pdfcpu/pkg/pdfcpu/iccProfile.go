@@ -212,6 +212,7 @@ func (p iccProfile) xyz(i int) (x, y, z float32) {
 	return
 }
 
+// PCSIlluminant pcs illuminant.
 func (p iccProfile) PCSIlluminant() string {
 
 	x, y, z := p.xyz(68)
@@ -231,6 +232,7 @@ func (p iccProfile) tagCount() int {
 	return int(binary.BigEndian.Uint32(p.b[128:]))
 }
 
+// String returns the string value of p.
 func (p iccProfile) String() string {
 
 	// profile size: 4 bytes at offset 0 (uintt32)

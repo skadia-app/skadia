@@ -34,6 +34,7 @@ type Buttons struct {
 	boundingBox *types.Rectangle
 }
 
+// Rtl returns true if label is right to left.
 func (b *Buttons) Rtl() bool {
 	if b.Label == nil {
 		return false

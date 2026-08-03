@@ -29,7 +29,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ValidateSignatures validates all digital signatures of ctx.
+// ValidateSignatures validates digital signature integrity of ctx and reports available trust evidence.
 func ValidateSignatures(ra io.ReaderAt, ctx *model.Context, all bool) ([]*model.SignatureValidationResult, error) {
 	var results []*model.SignatureValidationResult
 

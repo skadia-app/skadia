@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pkg/errors"
 )
@@ -31,7 +32,9 @@ import (
 var ErrNoOp = errors.New("pdfcpu: no operation")
 
 // ViewerPreferences returns rs's viewer preferences.
-func ViewerPreferences(rs io.ReadSeeker, conf *model.Configuration) (*model.ViewerPreferences, *model.Version, error) {
+func ViewerPreferences(rs io.ReadSeeker, conf *model.Configuration) (vp *model.ViewerPreferences, v *model.Version, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, nil, errors.New("pdfcpu: ViewerPreferences: missing rs")
 	}
@@ -48,12 +51,12 @@ func ViewerPreferences(rs io.ReadSeeker, conf *model.Configuration) (*model.View
 		return nil, nil, err
 	}
 
-	v := ctx.XRefTable.Version()
+	version := ctx.XRefTable.Version()
 
-	return ctx.ViewerPref, &v, nil
+	return ctx.ViewerPref, &version, nil
 }
 
-// ViewerPreferences returns inFile's viewer preferences.
+// ViewerPreferencesFile returns inFile's viewer preferences.
 func ViewerPreferencesFile(inFile string, all bool, conf *model.Configuration) (*model.ViewerPreferences, error) {
 	f, err := os.Open(inFile)
 	if err != nil {
@@ -74,7 +77,9 @@ func ViewerPreferencesFile(inFile string, all bool, conf *model.Configuration) (
 }
 
 // ListViewerPreferences returns rs's viewer preferences.
-func ListViewerPreferences(rs io.ReadSeeker, all bool, conf *model.Configuration) ([]string, error) {
+func ListViewerPreferences(rs io.ReadSeeker, all bool, conf *model.Configuration) (ss []string, err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return nil, errors.New("pdfcpu: ListViewerPreferences: missing rs")
 	}
@@ -106,7 +111,7 @@ func ListViewerPreferences(rs io.ReadSeeker, all bool, conf *model.Configuration
 	return vp1.List(), nil
 }
 
-// ListViewerPreferencesFile lists inFile's viewer preferences in JSON.
+// ListViewerPreferencesFileJSON lists inFile's viewer preferences in JSON.
 func ListViewerPreferencesFileJSON(inFile string, all bool, conf *model.Configuration) ([]string, error) {
 	f, err := os.Open(inFile)
 	if err != nil {
@@ -162,7 +167,9 @@ func ListViewerPreferencesFile(inFile string, all, json bool, conf *model.Config
 }
 
 // SetViewerPreferences sets rs's viewer preferences and writes the result to w.
-func SetViewerPreferences(rs io.ReadSeeker, w io.Writer, vp model.ViewerPreferences, conf *model.Configuration) error {
+func SetViewerPreferences(rs io.ReadSeeker, w io.Writer, vp model.ViewerPreferences, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: SetViewerPreferences: missing rs")
 	}
@@ -248,6 +255,7 @@ func SetViewerPreferencesFromJSONReader(rs io.ReadSeeker, w io.Writer, rd io.Rea
 // SetViewerPreferencesFile sets inFile's viewer preferences and writes the result to outFile.
 func SetViewerPreferencesFile(inFile, outFile string, vp model.ViewerPreferences, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -258,14 +266,14 @@ func SetViewerPreferencesFile(inFile, outFile string, vp model.ViewerPreferences
 		tmpFile = outFile
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -280,12 +288,19 @@ func SetViewerPreferencesFile(inFile, outFile string, vp model.ViewerPreferences
 		}
 	}()
 
-	return SetViewerPreferences(f1, f2, vp, conf)
+	if err = SetViewerPreferences(f1, f2, vp, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }
 
 // SetViewerPreferencesFileFromJSONBytes sets inFile's viewer preferences corresponding to jsonBytes and writes the result to outFile.
 func SetViewerPreferencesFileFromJSONBytes(inFile, outFile string, jsonBytes []byte, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -296,14 +311,14 @@ func SetViewerPreferencesFileFromJSONBytes(inFile, outFile string, jsonBytes []b
 		tmpFile = outFile
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			return
 		}
@@ -318,7 +333,13 @@ func SetViewerPreferencesFileFromJSONBytes(inFile, outFile string, jsonBytes []b
 		}
 	}()
 
-	return SetViewerPreferencesFromJSONBytes(f1, f2, jsonBytes, conf)
+	if err = SetViewerPreferencesFromJSONBytes(f1, f2, jsonBytes, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }
 
 // SetViewerPreferencesFileFromJSONFile sets inFile's viewer preferences corresponding to inFileJSON and writes the result to outFile.
@@ -336,7 +357,9 @@ func SetViewerPreferencesFileFromJSONFile(inFilePDF, outFilePDF, inFileJSON stri
 }
 
 // ResetViewerPreferences resets rs's viewer preferences and writes the result to w.
-func ResetViewerPreferences(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
+func ResetViewerPreferences(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
 		return errors.New("pdfcpu: ResetViewerPreferences: missing rs")
 	}
@@ -369,6 +392,7 @@ func ResetViewerPreferences(rs io.ReadSeeker, w io.Writer, conf *model.Configura
 // ResetViewerPreferencesFile resets inFile's viewer preferences and writes the result to outFile.
 func ResetViewerPreferencesFile(inFile, outFile string, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
 		return err
@@ -379,14 +403,14 @@ func ResetViewerPreferencesFile(inFile, outFile string, conf *model.Configuratio
 		tmpFile = outFile
 	}
 	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+		_ = f1.Close()
 		return err
 	}
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
+		if !ok {
+			_ = f2.Close()
+			_ = f1.Close()
 			os.Remove(tmpFile)
 			if err == ErrNoOp {
 				err = nil
@@ -404,5 +428,11 @@ func ResetViewerPreferencesFile(inFile, outFile string, conf *model.Configuratio
 		}
 	}()
 
-	return ResetViewerPreferences(f1, f2, conf)
+	if err = ResetViewerPreferences(f1, f2, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }

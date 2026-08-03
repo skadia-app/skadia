@@ -163,7 +163,7 @@ func setTrustStatus(certDetails *model.CertificateDetails, result *model.Signatu
 		certDetails.Trust.Reason = "certificate not trusted"
 	} else {
 		certDetails.Trust.Status = model.True
-		certDetails.Trust.Reason = "cert chain up to root CA is trusted"
+		certDetails.Trust.Reason = "cert chain resolved by local trust store"
 	}
 }
 

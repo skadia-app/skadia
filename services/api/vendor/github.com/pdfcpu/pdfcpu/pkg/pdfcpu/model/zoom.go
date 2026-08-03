@@ -34,6 +34,7 @@ type Zoom struct {
 	BgColor *color.SimpleColor // background color when zooming out
 }
 
+// EnsureFactorAndMargins ensures factor and margins.
 func (z *Zoom) EnsureFactorAndMargins(w, h float64) error {
 	if z.Factor > 0 {
 		z.HMargin = (w - (w * z.Factor)) / 2
@@ -116,32 +117,11 @@ func parseBorderZoom(s string, zoom *Zoom) error {
 
 type zoomParameterMap map[string]func(string, *Zoom) error
 
+// ZoomParamMap maps zoom configuration parameter names to parser functions.
 var ZoomParamMap = zoomParameterMap{
 	"factor":  parseZoomFactor,
 	"hmargin": parseHMargin,
 	"vmargin": parseVMargin,
 	"bgcolor": parseBackgroundColorZoom,
 	"border":  parseBorderZoom,
-}
-
-// Handle applies parameter completion and on success parse parameter values into zoom.
-func (m zoomParameterMap) Handle(paramPrefix, paramValueStr string, zoom *Zoom) error {
-	var param string
-
-	// Completion support
-	for k := range m {
-		if !strings.HasPrefix(k, strings.ToLower(paramPrefix)) {
-			continue
-		}
-		if len(param) > 0 {
-			return errors.Errorf("pdfcpu: ambiguous parameter prefix \"%s\"", paramPrefix)
-		}
-		param = k
-	}
-
-	if param == "" {
-		return errors.Errorf("pdfcpu: unknown parameter prefix \"%s\"", paramPrefix)
-	}
-
-	return m[param](paramValueStr, zoom)
 }

@@ -120,6 +120,7 @@ type PDF struct {
 	httpClient      *http.Client
 }
 
+// Update returns true if this is a PDF update.
 func (pdf *PDF) Update() bool {
 	return pdf.Optimize != nil
 }
@@ -416,6 +417,7 @@ func (pdf *PDF) validateBordersMarginsPaddings() error {
 	return pdf.validatePaddings()
 }
 
+// Validate validates pdf.
 func (pdf *PDF) Validate() error {
 
 	if err := pdf.validatePageBoundaries(); err != nil {
@@ -490,6 +492,7 @@ func (pdf *PDF) Validate() error {
 	return pdf.validatePools()
 }
 
+// DuplicateField returns true if field with ID is a duplicate field.
 func (pdf *PDF) DuplicateField(ID string) bool {
 	if pdf.FieldIDs[ID] || pdf.OldFieldIDs[ID] {
 		return true

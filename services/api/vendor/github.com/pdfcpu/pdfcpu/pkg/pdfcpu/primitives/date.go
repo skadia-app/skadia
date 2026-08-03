@@ -73,7 +73,7 @@ func DateFormatForFmtInt(fmtInt string) (*DateFormat, error) {
 	return nil, errors.Errorf("pdfcpu: \"%s\": unknown internal date format", fmtInt)
 }
 
-// DateFormatForFmtInt returns the date format for an external format string.
+// DateFormatForFmtExt returns the date format for an external format string.
 func DateFormatForFmtExt(fmtExt string) (*DateFormat, error) {
 	s := strings.ToLower(fmtExt)
 	for _, df := range dateFormats {

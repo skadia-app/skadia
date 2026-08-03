@@ -36,6 +36,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var imageBoxUserAgent = "pdfcpu/" + model.VersionStr + " (+https://github.com/pdfcpu/pdfcpu)"
+
 // ImageData represents a more direct way for providing image data for form filling scenarios.
 type ImageData struct {
 	Payload       string // base64 encoded image data
@@ -249,7 +251,7 @@ func (ib *ImageBox) checkForExistingImage(sd *types.StreamDict, w, h int) (*type
 			continue
 		}
 		// compare decoded content from sd and io.ImageDict
-		ok, err := model.EqualObjects(*sd, *io.ImageDict, ib.pdf.XRefTable)
+		ok, err := model.EqualObjects(*sd, *io.ImageDict, ib.pdf.XRefTable, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -278,7 +280,12 @@ func (ib *ImageBox) resource() (io.ReadCloser, error) {
 			}
 			client = pdf.httpClient
 		}
-		resp, err := client.Get(ib.Src)
+		req, err := http.NewRequest(http.MethodGet, ib.Src, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", imageBoxUserAgent)
+		resp, err := client.Do(req)
 		if err != nil {
 			if e, ok := err.(net.Error); ok && e.Timeout() {
 				if log.CLIEnabled() {
@@ -292,6 +299,7 @@ func (ib *ImageBox) resource() (io.ReadCloser, error) {
 			return nil, err
 		}
 		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
 			if log.CLIEnabled() {
 				log.CLI.Printf("http status %d: %s\n", resp.StatusCode, ib.Src)
 			}

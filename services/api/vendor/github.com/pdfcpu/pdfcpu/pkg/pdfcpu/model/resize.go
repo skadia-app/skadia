@@ -36,6 +36,7 @@ type Resize struct {
 	BgColor       *color.SimpleColor // background color
 }
 
+// EnforceOrientation enforce orientation.
 func (r Resize) EnforceOrientation() bool {
 	return r.EnforceOrient || strings.HasSuffix(r.PageSize, "P") || strings.HasSuffix(r.PageSize, "L")
 }
@@ -158,6 +159,7 @@ func parseBorderRes(s string, res *Resize) error {
 
 type resizeParameterMap map[string]func(string, *Resize) error
 
+// ResizeParamMap maps resize configuration parameter names to parser functions.
 var ResizeParamMap = resizeParameterMap{
 	"dimensions":  parseDimensionsRes,
 	"enforce":     parseEnforceOrientation,
@@ -166,27 +168,4 @@ var ResizeParamMap = resizeParameterMap{
 	"scalefactor": parseScaleFactorRes,
 	"bgcolor":     parseBackgroundColorRes,
 	"border":      parseBorderRes,
-}
-
-// Handle applies parameter completion and on success parse parameter values into resize.
-func (m resizeParameterMap) Handle(paramPrefix, paramValueStr string, res *Resize) error {
-
-	var param string
-
-	// Completion support
-	for k := range m {
-		if !strings.HasPrefix(k, strings.ToLower(paramPrefix)) {
-			continue
-		}
-		if len(param) > 0 {
-			return errors.Errorf("pdfcpu: ambiguous parameter prefix \"%s\"", paramPrefix)
-		}
-		param = k
-	}
-
-	if param == "" {
-		return errors.Errorf("pdfcpu: unknown parameter prefix \"%s\"", paramPrefix)
-	}
-
-	return m[param](paramValueStr, res)
 }

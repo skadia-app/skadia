@@ -46,10 +46,12 @@ type SimpleColor struct {
 	R, G, B float32 // intensities between 0 and 1.
 }
 
+// String returns the string value of sc.
 func (sc SimpleColor) String() string {
 	return fmt.Sprintf("r=%1.1f g=%1.1f b=%1.1f", sc.R, sc.G, sc.B)
 }
 
+// Array returns an array representation for sc.
 func (sc SimpleColor) Array() types.Array {
 	return types.NewNumberArray(float64(sc.R), float64(sc.G), float64(sc.B))
 }

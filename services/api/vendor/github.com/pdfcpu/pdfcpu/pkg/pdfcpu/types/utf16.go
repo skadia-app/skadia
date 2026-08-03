@@ -112,6 +112,7 @@ func DecodeUTF16String(s string) (string, error) {
 	return decodeUTF16String([]byte(s))
 }
 
+// EncodeUTF16String encodes s as utf16 string.
 func EncodeUTF16String(s string) string {
 	rr := utf16.Encode([]rune(s))
 	bb := []byte{0xFE, 0xFF}
@@ -121,6 +122,7 @@ func EncodeUTF16String(s string) string {
 	return string(bb)
 }
 
+// EscapedUTF16String returns the escaped utf16 string for s.
 func EscapedUTF16String(s string) (*string, error) {
 	return Escape(EncodeUTF16String(s))
 }
@@ -163,6 +165,7 @@ func HexLiteralToString(hl HexLiteral) (string, error) {
 	return string(bb), nil
 }
 
+// StringOrHexLiteral returns the string value for a string or hex literal.
 func StringOrHexLiteral(obj Object) (*string, error) {
 	if sl, ok := obj.(StringLiteral); ok {
 		s, err := StringLiteralToString(sl)

@@ -33,6 +33,7 @@ var (
 	testAudioFileWAV = filepath.Join(testDir, "resources", "test.wav")
 )
 
+// CreateXRefTableWithRootDict creates x ref table with root dict.
 func CreateXRefTableWithRootDict() (*model.XRefTable, error) {
 	// TODO
 	//xRefTable := model.NewXRefTable(nil)
@@ -1000,6 +1001,7 @@ func addPageTreeWithoutPage(xRefTable *model.XRefTable, rootDict types.Dict, d *
 	return nil
 }
 
+// AddPageTreeWithSamplePage adds page tree with sample page.
 func AddPageTreeWithSamplePage(xRefTable *model.XRefTable, rootDict types.Dict, p model.Page) error {
 
 	// mediabox = physical page dimensions

@@ -65,6 +65,7 @@ const (
 	LJBevel
 )
 
+// ParseHorAlignment parses hor alignment.
 func ParseHorAlignment(s string) (HAlignment, error) {
 	var a HAlignment
 	switch strings.ToLower(s) {
@@ -82,6 +83,7 @@ func ParseHorAlignment(s string) (HAlignment, error) {
 	return a, nil
 }
 
+// ParseOrigin parses origin.
 func ParseOrigin(s string) (Corner, error) {
 	var c Corner
 	switch strings.ToLower(s) {
@@ -99,6 +101,7 @@ func ParseOrigin(s string) (Corner, error) {
 	return c, nil
 }
 
+// ParseAnchor parses anchor.
 func ParseAnchor(s string) (Anchor, error) {
 	var a Anchor
 	switch strings.ToLower(s) {
@@ -126,6 +129,7 @@ func ParseAnchor(s string) (Anchor, error) {
 	return a, nil
 }
 
+// ParsePositionAnchor parses position anchor.
 func ParsePositionAnchor(s string) (Anchor, error) {
 	var a Anchor
 	switch s {
@@ -155,6 +159,7 @@ func ParsePositionAnchor(s string) (Anchor, error) {
 	return a, nil
 }
 
+// AnchorPosition returns the anchor position.
 func AnchorPosition(a Anchor, r *Rectangle, w, h float64) (x float64, y float64) {
 	switch a {
 	case TopLeft:
@@ -198,6 +203,7 @@ const (
 	RelPosBottom
 )
 
+// ParseRelPosition parses rel position.
 func ParseRelPosition(s string) (RelPosition, error) {
 	var p RelPosition
 	switch strings.ToLower(s) {
@@ -280,7 +286,7 @@ func NormalizeCoord(x, y float64, r *Rectangle, origin Corner, absolute bool) (f
 	return x, y
 }
 
-// Normalize offset transfers x and y into offsets in the PDF user space.
+// NormalizeOffset offset transfers x and y into offsets in the PDF user space.
 func NormalizeOffset(x, y float64, origin Corner) (float64, float64) {
 	switch origin {
 	case UpperLeft:
@@ -294,6 +300,7 @@ func NormalizeOffset(x, y float64, origin Corner) (float64, float64) {
 	return x, y
 }
 
+// BestFitRectIntoRect returns a best fit rect into rect.
 func BestFitRectIntoRect(rSrc, rDest *Rectangle, enforceOrient, scaleUp bool) (w, h, dx, dy, rot float64) {
 	if !scaleUp && rSrc.FitsWithin(rDest) {
 		// Translate rSrc into center of rDest without scaling.
@@ -381,6 +388,7 @@ func BestFitRectIntoRect(rSrc, rDest *Rectangle, enforceOrient, scaleUp bool) (w
 	return
 }
 
+// ParsePageFormat parses page format.
 func ParsePageFormat(v string) (*Dim, string, error) {
 
 	// Optional: appended last letter L indicates landscape mode.
