@@ -17,271 +17,235 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
-	"github.com/pkg/errors"
 )
 
 // Encrypt reads a PDF stream from rs and writes the encrypted PDF stream to w.
 // A configuration containing at least the current passwords is required.
-func Encrypt(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
+func Encrypt(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: Encrypt: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for encryption")
+		return ErrMissingConfiguration
 	}
 	conf.Cmd = model.ENCRYPT
 
-	return Optimize(rs, w, conf)
+	if err := optimize(rs, w, conf); err != nil {
+		return fmt.Errorf("encrypt: %w", err)
+	}
+	return nil
 }
 
 // EncryptFile encrypts inFile and writes the result to outFile.
 // A configuration containing at least the current passwords is required.
-func EncryptFile(inFile, outFile string, conf *model.Configuration) (err error) {
+func EncryptFile(inFile, outFile string, conf *model.Configuration) error {
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for encryption")
+		return ErrMissingConfiguration
+	}
+	if inFile == "" {
+		return ErrMissingPDFInput
 	}
 	conf.Cmd = model.ENCRYPT
-
-	var f1, f2 *os.File
-
-	if f1, err = os.Open(inFile); err != nil {
-		return err
-	}
-
-	tmpFile := inFile + ".tmp"
-	if outFile != "" && inFile != outFile {
-		tmpFile = outFile
-		logWritingTo(outFile)
-	} else {
-		logWritingTo(inFile)
-	}
-
-	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
-			return
-		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
-	}()
-
-	return Encrypt(f1, f2, conf)
+	return processSecurityFile(inFile, outFile, conf, "encrypt", Encrypt)
 }
 
-// Decrypt reads a PDF stream from rs and writes the encrypted PDF stream to w.
+// Decrypt reads an encrypted PDF stream from rs and writes the decrypted PDF stream to w.
 // A configuration containing at least the current passwords is required.
-func Decrypt(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
+func Decrypt(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: Decrypt: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for decryption")
+		return ErrMissingConfiguration
 	}
 	conf.Cmd = model.DECRYPT
 
-	return Optimize(rs, w, conf)
+	if err := optimize(rs, w, conf); err != nil {
+		return fmt.Errorf("decrypt: %w", err)
+	}
+	return nil
 }
 
 // DecryptFile decrypts inFile and writes the result to outFile.
 // A configuration containing at least the current passwords is required.
-func DecryptFile(inFile, outFile string, conf *model.Configuration) (err error) {
+func DecryptFile(inFile, outFile string, conf *model.Configuration) error {
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for decryption")
+		return ErrMissingConfiguration
+	}
+	if inFile == "" {
+		return ErrMissingPDFInput
 	}
 	conf.Cmd = model.DECRYPT
+	return processSecurityFile(inFile, outFile, conf, "decrypt", Decrypt)
+}
 
+type securityOperation func(io.ReadSeeker, io.Writer, *model.Configuration) error
+
+func processSecurityFile(
+	inFile, outFile string,
+	conf *model.Configuration,
+	op string,
+	process securityOperation,
+) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
 	if f1, err = os.Open(inFile); err != nil {
-		return err
+		return fmt.Errorf("%s: open input %s: %w", op, inFile, err)
 	}
 
-	tmpFile := inFile + ".tmp"
+	tmpFile := ""
 	if outFile != "" && inFile != outFile {
 		tmpFile = outFile
 		logWritingTo(outFile)
 	} else {
 		logWritingTo(inFile)
 	}
+	staged, err := openStagedOutput(f1, inFile, tmpFile, op)
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("%s: create output: %w", op, err),
+			closeFile(f1, op+": close input"),
+		)
+	}
+	f2 = staged.output.file
 
-	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+	defer func() {
+		if !ok {
+			err = staged.cleanup(err)
+			return
+		}
+		err = staged.commit()
+	}()
+
+	if err = process(f1, f2, conf); err != nil {
 		return err
 	}
 
-	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
-			return
-		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
-	}()
-
-	return Decrypt(f1, f2, conf)
+	ok = true
+	return nil
 }
 
 // ChangeUserPassword reads a PDF stream from rs, changes the user password and writes the encrypted PDF stream to w.
 // A configuration containing the current passwords is required.
-func ChangeUserPassword(rs io.ReadSeeker, w io.Writer, pwOld, pwNew string, conf *model.Configuration) error {
+func ChangeUserPassword(rs io.ReadSeeker, w io.Writer, pwOld, pwNew string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: ChangeUserPassword: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for change user password")
+		return ErrMissingConfiguration
 	}
 
 	conf.Cmd = model.CHANGEUPW
 	conf.UserPW = pwOld
 	conf.UserPWNew = &pwNew
 
-	return Optimize(rs, w, conf)
+	if err := optimize(rs, w, conf); err != nil {
+		return fmt.Errorf("change user password: %w", err)
+	}
+	return nil
 }
 
 // ChangeUserPasswordFile reads inFile, changes the user password and writes the result to outFile.
 // A configuration containing the current passwords is required.
-func ChangeUserPasswordFile(inFile, outFile string, pwOld, pwNew string, conf *model.Configuration) (err error) {
+func ChangeUserPasswordFile(inFile, outFile string, pwOld, pwNew string, conf *model.Configuration) error {
+	const op = "change user password"
+
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for change user password")
+		return ErrMissingConfiguration
+	}
+	if inFile == "" {
+		return ErrMissingPDFInput
 	}
 
-	conf.Cmd = model.CHANGEUPW
-	conf.UserPW = pwOld
-	conf.UserPWNew = &pwNew
-
-	var f1, f2 *os.File
-
-	if f1, err = os.Open(inFile); err != nil {
-		return err
-	}
-
-	tmpFile := inFile + ".tmp"
-	if outFile != "" && inFile != outFile {
-		tmpFile = outFile
-		logWritingTo(outFile)
-	} else {
-		logWritingTo(inFile)
-	}
-
-	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
-			return
-		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
-	}()
-
-	return ChangeUserPassword(f1, f2, pwOld, pwNew, conf)
+	return processSecurityFile(inFile, outFile, conf, op, func(
+		rs io.ReadSeeker,
+		w io.Writer,
+		conf *model.Configuration,
+	) error {
+		return ChangeUserPassword(rs, w, pwOld, pwNew, conf)
+	})
 }
 
 // ChangeOwnerPassword reads a PDF stream from rs, changes the owner password and writes the encrypted PDF stream to w.
 // A configuration containing the current passwords is required.
-func ChangeOwnerPassword(rs io.ReadSeeker, w io.Writer, pwOld, pwNew string, conf *model.Configuration) error {
+func ChangeOwnerPassword(rs io.ReadSeeker, w io.Writer, pwOld, pwNew string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: ChangeOwnerPassword: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for change owner password")
+		return ErrMissingConfiguration
+	}
+	if pwNew == "" {
+		return fmt.Errorf("change owner password: new owner password must not be empty: %w", pdfcpu.ErrOwnerPasswordRequired)
 	}
 
 	conf.Cmd = model.CHANGEOPW
 	conf.OwnerPW = pwOld
 	conf.OwnerPWNew = &pwNew
 
-	return Optimize(rs, w, conf)
+	if err := optimize(rs, w, conf); err != nil {
+		return fmt.Errorf("change owner password: %w", err)
+	}
+	return nil
 }
 
 // ChangeOwnerPasswordFile reads inFile, changes the owner password and writes the result to outFile.
 // A configuration containing the current passwords is required.
-func ChangeOwnerPasswordFile(inFile, outFile string, pwOld, pwNew string, conf *model.Configuration) (err error) {
+func ChangeOwnerPasswordFile(inFile, outFile string, pwOld, pwNew string, conf *model.Configuration) error {
+	const op = "change owner password"
+
 	if conf == nil {
-		return errors.New("pdfcpu: missing configuration for change owner password")
+		return ErrMissingConfiguration
 	}
-	conf.Cmd = model.CHANGEOPW
-	conf.OwnerPW = pwOld
-	conf.OwnerPWNew = &pwNew
-
-	var f1, f2 *os.File
-
-	if f1, err = os.Open(inFile); err != nil {
-		return err
+	if inFile == "" {
+		return ErrMissingPDFInput
+	}
+	if pwNew == "" {
+		return fmt.Errorf("%s: new owner password must not be empty: %w", op, pdfcpu.ErrOwnerPasswordRequired)
 	}
 
-	tmpFile := inFile + ".tmp"
-	if outFile != "" && inFile != outFile {
-		tmpFile = outFile
-		logWritingTo(outFile)
-	} else {
-		logWritingTo(inFile)
-	}
-
-	if f2, err = os.Create(tmpFile); err != nil {
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
-			return
-		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
-	}()
-
-	return ChangeOwnerPassword(f1, f2, pwOld, pwNew, conf)
+	return processSecurityFile(inFile, outFile, conf, op, func(
+		rs io.ReadSeeker,
+		w io.Writer,
+		conf *model.Configuration,
+	) error {
+		return ChangeOwnerPassword(rs, w, pwOld, pwNew, conf)
+	})
 }

@@ -18,11 +18,12 @@ package pdfcpu
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -32,7 +33,7 @@ const (
 )
 
 func writeCommentLine(w *model.WriteContext, comment string) (int, error) {
-	return w.WriteString(fmt.Sprintf("%%%s%s", comment, w.Eol))
+	return fmt.Fprintf(w, "%%%s%s", comment, w.Eol)
 }
 
 func writeHeader(w *model.WriteContext, v model.Version) error {
@@ -56,12 +57,16 @@ func writeTrailer(w *model.WriteContext) error {
 	return err
 }
 
-func writeObjectHeader(w *model.WriteContext, objNumber, genNumber int) (int, error) {
-	return w.WriteString(fmt.Sprintf("%d %d obj%s", objNumber, genNumber, w.Eol))
+func objectHeader(objNr, genNr int, eol string) string {
+	return fmt.Sprintf("%d %d obj%s", objNr, genNr, eol)
+}
+
+func writeObjectHeader(w *model.WriteContext, objNr, genNr int) (int, error) {
+	return w.WriteString(objectHeader(objNr, genNr, w.Eol))
 }
 
 func writeObjectTrailer(w *model.WriteContext) (int, error) {
-	return w.WriteString(fmt.Sprintf("%sendobj%s", w.Eol, w.Eol))
+	return fmt.Fprintf(w, "%sendobj%s", w.Eol, w.Eol)
 }
 
 func startObjectStream(ctx *model.Context) error {
@@ -96,7 +101,7 @@ func stopObjectStream(ctx *model.Context) error {
 	xRefTable := ctx.XRefTable
 
 	if !ctx.Write.WriteToObjectStream {
-		return errors.Errorf("stopObjectStream: Not writing to object stream.")
+		return fmt.Errorf("not writing to object stream")
 	}
 
 	if ctx.Write.CurrentObjStream == nil {
@@ -147,6 +152,24 @@ func stopObjectStream(ctx *model.Context) error {
 	return nil
 }
 
+func addObjectStreamObject(osd types.ObjectStreamDict, objNumber int, obj types.Object) (types.ObjectStreamDict, error) {
+	offset := len(osd.Content)
+	if osd.ObjCount > 0 {
+		osd.Prolog = append(osd.Prolog, ' ')
+	}
+	osd.Prolog = strconv.AppendInt(osd.Prolog, int64(objNumber), 10)
+	osd.Prolog = append(osd.Prolog, ' ')
+	osd.Prolog = strconv.AppendInt(osd.Prolog, int64(offset), 10)
+
+	var err error
+	osd.Content, err = appendPDFObject(osd.Content, obj)
+	if err != nil {
+		return osd, err
+	}
+	osd.ObjCount++
+	return osd, nil
+}
+
 func writeToObjectStream(ctx *model.Context, objNumber, genNumber int) (ok bool, err error) {
 	if log.WriteEnabled() {
 		log.Write.Printf("addToObjectStream begin, obj#:%d gen#:%d\n", objNumber, genNumber)
@@ -181,9 +204,8 @@ func writeToObjectStream(ctx *model.Context, objNumber, genNumber int) (ok bool,
 		entry.ObjectStreamInd = &i
 		w.SetWriteOffset(objNumber) // for a compressed obj this is supposed to be a fake offset. value does not matter.
 
-		// Append to prolog & content
-		s := entry.Object.PDFString()
-		if err = objStreamDict.AddObject(objNumber, s); err != nil {
+		objStreamDict, err = addObjectStreamObject(objStreamDict, objNumber, entry.Object)
+		if err != nil {
 			return false, err
 		}
 
@@ -345,8 +367,70 @@ func writeFloatObject(ctx *model.Context, objNumber, genNumber int, float types.
 	return writeObject(ctx, objNumber, genNumber, float.PDFString())
 }
 
-func writeDictObject(ctx *model.Context, objNumber, genNumber int, d types.Dict) error {
-	ok, err := writeToObjectStream(ctx, objNumber, genNumber)
+func sigDict(d types.Dict) bool {
+	if v, ok := d["Type"]; ok {
+		if name, ok := v.(types.Name); ok && name.String() == "Sig" {
+			return true
+		}
+	}
+
+	_, hasContents := d["Contents"]
+	_, hasByteRange := d["ByteRange"]
+
+	if hasContents && hasByteRange {
+		return true
+	}
+
+	return false
+}
+
+func sigDictPDFString(ctx *model.Context, d types.Dict, objNr, genNr int) string {
+	// worst case [0 0000000000 0000000000 0000000000]
+	byteRangePDFString := fmt.Sprintf("/ByteRange%-36v", d["ByteRange"].PDFString())
+	contentsPDFString := fmt.Sprintf("/Contents%s", d["Contents"].PDFString())
+
+	header := objectHeader(objNr, genNr, ctx.Write.Eol)
+	i := ctx.Write.Offset + int64(len(header)+2)
+	ctx.Write.OffsetSigByteRange = i + int64(len("/ByteRange"))
+	ctx.Write.OffsetSigContents = i + int64(len(byteRangePDFString)+len("/Contents"))
+
+	s := []string{}
+	s = append(s, "<<")
+	s = append(s, byteRangePDFString)
+	s = append(s, contentsPDFString)
+	s = append(s, fmt.Sprintf("/Type%s", d["Type"].PDFString()))
+	s = append(s, fmt.Sprintf("/Filter%s", d["Filter"].PDFString()))
+	s = append(s, fmt.Sprintf("/SubFilter%s", d["SubFilter"].PDFString()))
+
+	if *d.NameEntry("SubFilter") != "ETSI.RFC3161" {
+		if d["M"] != nil {
+			s = append(s, fmt.Sprintf("/M%s", d["M"].PDFString()))
+		}
+		if d["Name"] != nil {
+			s = append(s, fmt.Sprintf("/Name%s", d["Name"].PDFString()))
+		}
+		if d["ContactInfo"] != nil {
+			s = append(s, fmt.Sprintf("/ContactInfo%s", d["ContactInfo"].PDFString()))
+		}
+		if d["Location"] != nil {
+			s = append(s, fmt.Sprintf("/Location%s", d["Location"].PDFString()))
+		}
+		if d["Reason"] != nil {
+			s = append(s, fmt.Sprintf("/Reason%s", d["Reason"].PDFString()))
+		}
+		// TODO Reference
+		// TODO Changes
+		// TODO Prop_Build
+		// TODO Prop_AuthTime
+		// TODO Prop_AuthType
+	}
+
+	s = append(s, ">>")
+	return strings.Join(s, "")
+}
+
+func writeDictObject(ctx *model.Context, objNr, genNr int, d types.Dict) error {
+	ok, err := writeToObjectStream(ctx, objNr, genNr)
 	if err != nil {
 		return err
 	}
@@ -356,13 +440,18 @@ func writeDictObject(ctx *model.Context, objNumber, genNumber int, d types.Dict)
 	}
 
 	if ctx.EncKey != nil {
-		_, err := encryptDeepObject(d, objNumber, genNumber, ctx.EncKey, ctx.AES4Strings, ctx.E.R)
+		_, err := encryptDeepObject(d, objNr, genNr, ctx.EncKey, ctx.AES4Strings, ctx.E.R)
 		if err != nil {
 			return err
 		}
 	}
 
-	return writeObject(ctx, objNumber, genNumber, d.PDFString())
+	s := d.PDFString()
+	if sigDict(d) {
+		s = sigDictPDFString(ctx, d, objNr, genNr)
+	}
+
+	return writeObject(ctx, objNr, genNr, s)
 }
 
 func writeArrayObject(ctx *model.Context, objNumber, genNumber int, a types.Array) error {
@@ -385,22 +474,22 @@ func writeArrayObject(ctx *model.Context, objNumber, genNumber int, a types.Arra
 }
 
 func writeStream(w *model.WriteContext, sd types.StreamDict) (int64, error) {
-	b, err := w.WriteString(fmt.Sprintf("%sstream%s", w.Eol, w.Eol))
+	b, err := fmt.Fprintf(w, "%sstream%s", w.Eol, w.Eol)
 	if err != nil {
-		return 0, errors.Wrapf(err, "writeStream: failed to write raw content")
+		return 0, fmt.Errorf("failed to write raw content: %w", err)
 	}
 
 	c, err := w.Write(sd.Raw)
 	if err != nil {
-		return 0, errors.Wrapf(err, "writeStream: failed to write raw content")
+		return 0, fmt.Errorf("failed to write raw content: %w", err)
 	}
 	if int64(c) != *sd.StreamLength {
-		return 0, errors.Errorf("writeStream: failed to write raw content: %d bytes written - streamlength:%d", c, *sd.StreamLength)
+		return 0, fmt.Errorf("failed to write raw content: %d bytes written - streamlength:%d", c, *sd.StreamLength)
 	}
 
-	e, err := w.WriteString(fmt.Sprintf("%sendstream", w.Eol))
+	e, err := fmt.Fprintf(w, "%sendstream", w.Eol)
 	if err != nil {
-		return 0, errors.Wrapf(err, "writeStream: failed to write raw content")
+		return 0, fmt.Errorf("failed to write raw content: %w", err)
 	}
 
 	written := int64(b+e) + *sd.StreamLength
@@ -565,11 +654,10 @@ func writeNullObject(ctx *model.Context, objNumber, genNumber int) error {
 }
 
 func writeDeepDict(ctx *model.Context, d types.Dict, objNr, genNr int) error {
-
 	if d.IsPage() {
 		valid, err := ctx.IsObjValid(objNr, genNr)
 		if err != nil {
-			return err
+			return fmt.Errorf("write page dict obj#%d gen#%d: check valid: %w", objNr, genNr, err)
 		}
 		if !valid {
 			return nil
@@ -673,7 +761,7 @@ func writeObjectGeneric(ctx *model.Context, o types.Object, objNr, genNr int) (e
 		err = writeLazyObjectStreamObject(ctx, objNr, genNr, o)
 
 	default:
-		err = errors.Errorf("writeIndirectObject: undefined PDF object #%d %T\n", objNr, o)
+		err = fmt.Errorf("writeIndirectObject: undefined PDF object #%d %T", objNr, o)
 	}
 
 	return err
@@ -692,7 +780,7 @@ func writeIndirectObject(ctx *model.Context, ir types.IndirectRef) error {
 
 	o, err := ctx.DereferenceForWrite(ir)
 	if err != nil {
-		return errors.Wrapf(err, "writeIndirectObject: unable to dereference indirect object #%d", objNr)
+		return fmt.Errorf("unable to dereference indirect object #%d: %w", objNr, err)
 	}
 
 	if log.WriteEnabled() {
@@ -774,7 +862,7 @@ func writeEntry(ctx *model.Context, d types.Dict, dictName, entryName string) (t
 func writeFlatObject(ctx *model.Context, objNr int) error {
 	e, ok := ctx.FindTableEntryLight(objNr)
 	if !ok {
-		return errors.Errorf("writeFlatObject: undefined PDF object #%d ", objNr)
+		return fmt.Errorf("undefined PDF object #%d ", objNr)
 	}
 
 	if e.Free {
@@ -816,7 +904,7 @@ func writeFlatObject(ctx *model.Context, objNr int) error {
 		err = writeNameObject(ctx, objNr, genNr, o)
 
 	default:
-		err = errors.Errorf("writeFlatObject: unexpected PDF object #%d %T\n", objNr, o)
+		err = fmt.Errorf("unexpected PDF object #%d %T", objNr, o)
 
 	}
 

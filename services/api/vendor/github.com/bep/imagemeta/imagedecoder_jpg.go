@@ -83,10 +83,20 @@ func (e *imageDecoderJPEG) decode() error {
 			if err == nil && bytes.Equal(b, markerXMP) {
 				length -= xmpMarkerLen
 				sourceSet = sourceSet.Remove(XMP)
-				r := io.LimitReader(e.r, int64(length))
-				if err := decodeXMP(r, e.opts); err != nil {
+				if err := func() error {
+					// Use bufferedReader so the entire XMP segment is consumed
+					// from e.r up front.
+					r, err := e.bufferedReader(int64(length))
+					if err != nil {
+						return err
+					}
+					defer r.Close()
+
+					return decodeXMP(r, e.opts)
+				}(); err != nil {
 					return err
 				}
+
 				continue
 			} else {
 				// Not XMP, rewind.

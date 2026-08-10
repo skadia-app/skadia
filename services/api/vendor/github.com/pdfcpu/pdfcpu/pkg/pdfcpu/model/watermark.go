@@ -170,6 +170,7 @@ func (wm Watermark) Typ() string {
 	return "text"
 }
 
+// String returns the string value of wm.
 func (wm Watermark) String() string {
 	var s string
 	if !wm.OnTop {
@@ -242,11 +243,17 @@ func (wm *Watermark) CalcBoundingBox(pageNr int) {
 	bb := types.RectForDim(float64(wm.Width), float64(wm.Height))
 
 	if wm.IsPDF() {
-		wm.bbPDF = wm.PdfRes[wm.PdfPageNrSrc].Bb
+		i := wm.PdfPageNrSrc
 		if wm.MultiStamp() {
-			i := wm.PdfResIndex(pageNr)
-			wm.bbPDF = wm.PdfRes[i].Bb
+			i = wm.PdfResIndex(pageNr)
 		}
+		pdfRes, ok := wm.PdfRes[i]
+		if !ok || pdfRes.Bb == nil {
+			wm.bbPDF = nil
+			wm.Bb = nil
+			return
+		}
+		wm.bbPDF = pdfRes.Bb
 		wm.Width = int(wm.bbPDF.Width())
 		wm.Height = int(wm.bbPDF.Height())
 		bb = wm.bbPDF.CroppedCopy(0)
@@ -448,6 +455,7 @@ func (wm *Watermark) CalcTransformMatrix() matrix.Matrix {
 	return matrix.CalcTransformMatrix(1, 1, sin, cos, dx, dy)
 }
 
+// PdfResIndex returns the PDF resource index for wm and pageNr.
 func (wm *Watermark) PdfResIndex(pageNr int) int {
 	if !wm.MultiStamp() {
 		return wm.PdfPageNrSrc

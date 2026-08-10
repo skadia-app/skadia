@@ -134,6 +134,10 @@ func ensureInfoDict(ctx *model.Context) error {
 
 		ctx.Info = ir
 
+		if ctx.Write.Increment {
+			ctx.Write.IncrementWithObjNr((*ctx.Info).ObjectNumber.Value())
+		}
+
 		return nil
 	}
 
@@ -149,6 +153,10 @@ func ensureInfoDict(ctx *model.Context) error {
 	d.Update("CreationDate", types.StringLiteral(now))
 	d.Update("ModDate", types.StringLiteral(now))
 	d.Update("Producer", types.StringLiteral(v))
+
+	if ctx.Write.Increment {
+		ctx.Write.IncrementWithObjNr((*ctx.Info).ObjectNumber.Value())
+	}
 
 	return nil
 }
@@ -380,31 +388,31 @@ func (info PDFInfo) renderFlagsPart1(ss *[]string, separator string) {
 	if info.Tagged {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("              Tagged: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Tagged", s))
 
 	s = "No"
 	if info.Hybrid {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("              Hybrid: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Hybrid", s))
 
 	s = "No"
 	if info.Linearized {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("          Linearized: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Linearized", s))
 
 	s = "No"
 	if info.UsingXRefStreams {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("  Using XRef streams: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Using XRef streams", s))
 
 	s = "No"
 	if info.UsingObjectStreams {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("Using object streams: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Using object streams", s))
 }
 
 func (info PDFInfo) renderFlagsPart2(ss *[]string, separator string) {
@@ -412,43 +420,45 @@ func (info PDFInfo) renderFlagsPart2(ss *[]string, separator string) {
 	if info.Watermarked {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("         Watermarked: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Watermarked", s))
 
 	s = "No"
 	if info.Thumbnails {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("          Thumbnails: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Thumbnails", s))
 
 	s = "No"
-	if info.Form {
+	if info.Signatures || info.AppendOnly {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("                Form: %s", s))
-
-	if info.Signatures || info.AppendOnly {
-		*ss = append(*ss, "          Signatures: Yes")
-	}
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Signatures", s))
 
 	if info.Form {
 		s = "No"
 		if info.AppendOnly {
 			s = "Yes"
 		}
-		*ss = append(*ss, fmt.Sprintf("          AppendOnly: %s", s))
+		*ss = append(*ss, fmt.Sprintf("%20s: %s", "AppendOnly", s))
 	}
 
 	s = "No"
 	if info.Outlines {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("            Outlines: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Outlines", s))
 
 	s = "No"
 	if info.Names {
 		s = "Yes"
 	}
-	*ss = append(*ss, fmt.Sprintf("               Names: %s", s))
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Names", s))
+
+	s = "No"
+	if info.Form {
+		s = "Yes"
+	}
+	*ss = append(*ss, fmt.Sprintf("%20s: %s", "Form", s))
 
 	*ss = append(*ss, separator)
 
@@ -538,6 +548,13 @@ func setupFontInfos(ctx *model.Context, fontInfos *[]model.FontInfo) {
 
 // Info returns info about ctx.
 func Info(ctx *model.Context, fileName string, selectedPages types.IntSet, fonts bool) (*PDFInfo, error) {
+	if ctx == nil {
+		return nil, ErrMissingPDFContext
+	}
+	if ctx.XRefTable == nil {
+		return nil, ErrMissingXRefTable
+	}
+
 	info := &PDFInfo{FileName: fileName, Unit: ctx.Unit, UnitString: ctx.UnitString()}
 
 	v := ctx.HeaderVersion
@@ -551,14 +568,14 @@ func Info(ctx *model.Context, fileName string, selectedPages types.IntSet, fonts
 	// PageBoundaries for selected pages.
 	pbs, err := ctx.PageBoundaries(selectedPages)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("page boundaries: %w", err)
 	}
 	info.PageBoundaries = pbs
 
 	// Media box dimensions for all pages.
 	pd, err := ctx.PageDims()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("page dimensions: %w", err)
 	}
 	m := map[types.Dim]bool{}
 	for _, d := range pd {
@@ -588,7 +605,7 @@ func Info(ctx *model.Context, fileName string, selectedPages types.IntSet, fonts
 
 	kwl, err := KeywordsList(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keywords: %w", err)
 	}
 	info.Keywords = kwl
 
@@ -614,7 +631,7 @@ func Info(ctx *model.Context, fileName string, selectedPages types.IntSet, fonts
 
 	aa, err := ctx.ListAttachments()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("attachments: %w", err)
 	}
 	info.Attachments = aa
 
@@ -631,6 +648,10 @@ func Info(ctx *model.Context, fileName string, selectedPages types.IntSet, fonts
 
 // ListInfo returns formatted info about ctx.
 func ListInfo(info *PDFInfo, selectedPages types.IntSet, fonts bool) ([]string, error) {
+	if info == nil {
+		return nil, ErrMissingPDFInfo
+	}
+
 	var separator = draw.HorSepLine([]int{44})
 
 	var ss []string
