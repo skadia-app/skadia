@@ -15,18 +15,19 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	ht "html/template"
 	"io"
 	"io/fs"
 	"mime"
 	"net/mail"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
-	tt "text/template"
 	"time"
+
+	"github.com/wneessen/go-mail/internal/dkim"
 )
 
 var (
@@ -35,6 +36,11 @@ var (
 
 	// ErrNoRcptAddresses indicates that no recipient addresses have been set.
 	ErrNoRcptAddresses = errors.New("no recipient addresses set")
+
+	// ErrNoHTTPSUnsubURL is returned when one-click unsubscribe is requested
+	// without a usable HTTPS URL, which RFC 8058 requires.
+	ErrNoHTTPSUnsubURL = errors.New("one-click unsubscribe requires at least one HTTPS " +
+		"URI in List-Unsubscribe")
 )
 
 const (
@@ -63,6 +69,12 @@ const (
 	// the corresponding go-mail-middleware.
 	PGPSignature
 )
+
+// oneClickPostValue is the fixed token required by RFC 8058 for the
+// List-Unsubscribe-Post header field.
+//
+// See: https://datatracker.ietf.org/doc/html/rfc8058#section-3.2
+const oneClickPostValue = "List-Unsubscribe=One-Click"
 
 // MiddlewareType is a type wrapper for a string. It describes the type of the Middleware and needs to be
 // returned by the Middleware.Type method to satisfy the Middleware interface.
@@ -165,6 +177,9 @@ type Msg struct {
 
 	// sMIME holds a SMIME type to sign a Msg using S/MIME
 	sMIME *SMIME
+
+	// dkim holds the DKIM configuration for signing the Msg
+	dkim *dkim.Signer
 }
 
 // SendmailPath is the default system path to the sendmail binary - at least on standard Unix-like OS.
@@ -339,6 +354,25 @@ func WithPGPType(pgptype PGPType) MsgOption {
 	}
 }
 
+// WithDKIM sets the DKIM signer for the Msg during its creation or initialization,
+//
+// This MsgOption function allows you to specify the DKIM signer to be used for digitally
+// signing the message header and body.
+//
+// Parameters:
+//   - signer: The dkim.Signer instance to be used for signing the message.
+//
+// Returns:
+//   - A MsgOption function that can be used to customize the Msg instance.
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc6376
+func WithDKIM(signer *dkim.Signer) MsgOption {
+	return func(m *Msg) {
+		m.dkim = signer
+	}
+}
+
 // WithNoDefaultUserAgent disables the inclusion of a default User-Agent header in the Msg during
 // its creation or initialization.
 //
@@ -435,6 +469,23 @@ func (m *Msg) SetMIMEVersion(version MIMEVersion) {
 //     or signature method used for the email message.
 func (m *Msg) SetPGPType(pgptype PGPType) {
 	m.pgptype = pgptype
+}
+
+// SetDKIM sets or overrides the currently set DKIM signer for the Msg.
+//
+// This method allows the user to assign a DKIMSigner to a Msg to be used for digitally
+// signing the message header and body.
+//
+// Parameters:
+//   - signer: The dkim.Signer instance to be used for signing the message.
+//
+// Returns:
+//   - A MsgOption function that can be used to customize the Msg instance.
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc6376
+func (m *Msg) SetDKIM(signer *dkim.Signer) {
+	m.dkim = signer
 }
 
 // Encoding returns the currently set Encoding of the Msg as a string.
@@ -625,9 +676,13 @@ func (m *Msg) SetAddrHeaderFromMailAddress(header AddrHeader, values ...*mail.Ad
 	}
 
 	switch header {
-	case HeaderEnvelopeFrom, HeaderFrom, HeaderReplyTo:
+	case HeaderEnvelopeFrom, HeaderFrom:
 		if len(addresses) > 0 {
 			m.addrHeader[header] = []*mail.Address{addresses[0]}
+		}
+	case HeaderReplyTo:
+		if len(addresses) > 0 {
+			m.addrHeader[header] = addresses
 		}
 	default:
 		m.addrHeader[header] = addresses
@@ -1168,7 +1223,7 @@ func (m *Msg) ReplyTo(addr string) error {
 	return m.SetAddrHeader(HeaderReplyTo, addr)
 }
 
-// ReplyToMailAddress sets one or more "BCC" (blind carbon copy) addresses in the mail body for the Msg.
+// ReplyToMailAddress sets one or more "Reply-To" addresses for the Msg, specifying where replies should be sent.
 //
 // The "Reply-To" address can be different from the "From" address, allowing the sender to specify an alternate
 // address for responses.
@@ -1178,8 +1233,8 @@ func (m *Msg) ReplyTo(addr string) error {
 //
 // References:
 //   - https://datatracker.ietf.org/doc/html/rfc5322#section-3.6.3
-func (m *Msg) ReplyToMailAddress(addr *mail.Address) {
-	m.SetAddrHeaderFromMailAddress(HeaderReplyTo, addr)
+func (m *Msg) ReplyToMailAddress(addrs ...*mail.Address) {
+	m.SetAddrHeaderFromMailAddress(HeaderReplyTo, addrs...)
 }
 
 // ReplyToFormat sets the "Reply-To" address for the Msg using the provided name and email address, specifying
@@ -1366,6 +1421,58 @@ func (m *Msg) SetOrganization(org string) {
 func (m *Msg) SetUserAgent(userAgent string) {
 	m.SetGenHeader(HeaderUserAgent, userAgent)
 	m.SetGenHeader(HeaderXMailer, userAgent)
+}
+
+// SetListUnsubscribe sets the "List-Unsubscribe" header field (RFC 2369) of the
+// Msg to the provided list of URIs. Each URI is wrapped in angle brackets and
+// the entries are comma-separated as required by the RFC. Typical values are a
+// "mailto:" URI and/or an "https" URL.
+//
+// This only advertises an unsubscribe method; it does not enable one-click
+// functionality. For one-click support use SetListUnsubscribeOneClick()
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc2369#section-3.2
+func (m *Msg) SetListUnsubscribe(uris ...string) {
+	m.SetGenHeaderPreformatted(HeaderListUnsubscribe, formatUnsubURIs(uris))
+}
+
+// SetListUnsubscribePost sets the "List-Unsubscribe-Post" header field to the
+// fixed value "List-Unsubscribe=One-Click" as defined in RFC 8058. It should
+// only be set together with a List-Unsubscribe header that contains at least
+// an HTTPS URI.
+//
+// It is preferred to use SetListUnsubscribeOneClick(), which sets both headers
+// and validates the input.
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc8058#section-3.2
+func (m *Msg) SetListUnsubscribePost() {
+	m.SetGenHeaderPreformatted(HeaderListUnsubscribePost, oneClickPostValue)
+}
+
+// SetListUnsubscribeOneClick configures RFC 8058 compliant one-click unsubscribe
+// headers for the Msg. It sets both the "List-Unsubscribe" and
+// "List-Unsubscribe-Post" header fields.
+//
+// httpsURL is the endpoint that will receive the one-click HTTP POST and must
+// use the "https" scheme. Any additionalURIs (e.g. a "mailto:" fallback) are
+// appended to the List-Unsubscribe header.
+//
+// An error is returned if the required httpsURL is not a valid https URL.
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc8058
+func (m *Msg) SetListUnsubscribeOneClick(httpsURL string, additionalURIs ...string) error {
+	parsed, err := url.Parse(strings.TrimSpace(httpsURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("failed to parse HTTPS URI %q: %w", httpsURL, ErrNoHTTPSUnsubURL)
+	}
+
+	uris := append([]string{parsed.String()}, additionalURIs...)
+	m.SetGenHeaderPreformatted(HeaderListUnsubscribe, formatUnsubURIs(uris))
+	m.SetGenHeaderPreformatted(HeaderListUnsubscribePost, oneClickPostValue)
+	return nil
 }
 
 // IsDelivered indicates whether the Msg has been delivered.
@@ -1703,6 +1810,20 @@ func (m *Msg) GetGenHeader(header Header) []string {
 	return m.genHeader[header]
 }
 
+// GetReplyTo returns the content of the "ReplyTo" address header of the Msg.
+//
+// This method retrieves the list of email addresses set in the "ReplyTo" header of the message.
+// It returns a slice of pointers to `mail.Address` objects representing the return path(s) of the email.
+//
+// Returns:
+//   - A slice of `*mail.Address` containing the "ReplyTo" header addresses.
+//
+// References:
+//   - https://datatracker.ietf.org/doc/html/rfc5322#section-3.6.3
+func (m *Msg) GetReplyTo() []*mail.Address {
+	return m.GetAddrHeader(HeaderReplyTo)
+}
+
 // GetParts returns the message parts of the Msg.
 //
 // This method retrieves the list of parts that make up the email message. Each part may represent
@@ -1885,68 +2006,6 @@ func (m *Msg) SetBodyWriter(
 	m.parts = []*Part{p}
 }
 
-// SetBodyHTMLTemplate sets the body of the message from a given html/template.Template pointer.
-//
-// This method sets the body of the message using the provided HTML template and data. The content type
-// will be set to "text/html" automatically. The method executes the template with the provided data
-// and writes the output to the message body. If the template is nil or fails to execute, an error will
-// be returned.
-//
-// Parameters:
-//   - tpl: A pointer to the html/template.Template to be used for the message body.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the body part.
-//
-// Returns:
-//   - An error if the template is nil or fails to execute, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2045
-//   - https://datatracker.ietf.org/doc/html/rfc2046
-func (m *Msg) SetBodyHTMLTemplate(tpl *ht.Template, data interface{}, opts ...PartOption) error {
-	if tpl == nil {
-		return errors.New(errTplPointerNil)
-	}
-	buffer := bytes.NewBuffer(nil)
-	if err := tpl.Execute(buffer, data); err != nil {
-		return fmt.Errorf(errTplExecuteFailed, err)
-	}
-	writeFunc := writeFuncFromBuffer(buffer)
-	m.SetBodyWriter(TypeTextHTML, writeFunc, opts...)
-	return nil
-}
-
-// SetBodyTextTemplate sets the body of the message from a given text/template.Template pointer.
-//
-// This method sets the body of the message using the provided text template and data. The content type
-// will be set to "text/plain" automatically. The method executes the template with the provided data
-// and writes the output to the message body. If the template is nil or fails to execute, an error will
-// be returned.
-//
-// Parameters:
-//   - tpl: A pointer to the text/template.Template to be used for the message body.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the body part.
-//
-// Returns:
-//   - An error if the template is nil or fails to execute, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2045
-//   - https://datatracker.ietf.org/doc/html/rfc2046
-func (m *Msg) SetBodyTextTemplate(tpl *tt.Template, data interface{}, opts ...PartOption) error {
-	if tpl == nil {
-		return errors.New(errTplPointerNil)
-	}
-	buffer := bytes.NewBuffer(nil)
-	if err := tpl.Execute(buffer, data); err != nil {
-		return fmt.Errorf(errTplExecuteFailed, err)
-	}
-	writeFunc := writeFuncFromBuffer(buffer)
-	m.SetBodyWriter(TypeTextPlain, writeFunc, opts...)
-	return nil
-}
-
 // AddAlternativeString sets the alternative body of the message.
 //
 // This method adds an alternative representation of the message body using the specified content type
@@ -1989,66 +2048,6 @@ func (m *Msg) AddAlternativeWriter(
 	part := m.newPart(contentType, opts...)
 	part.writeFunc = writeFunc
 	m.parts = append(m.parts, part)
-}
-
-// AddAlternativeHTMLTemplate sets the alternative body of the message to an html/template.Template output.
-//
-// The content type will be set to "text/html" automatically. This method executes the provided HTML template
-// with the given data and adds the result as an alternative version of the message body. If the template
-// is nil or fails to execute, an error will be returned.
-//
-// Parameters:
-//   - tpl: A pointer to the html/template.Template to be used for the alternative body.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the alternative body part.
-//
-// Returns:
-//   - An error if the template is nil or fails to execute, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2045
-//   - https://datatracker.ietf.org/doc/html/rfc2046
-func (m *Msg) AddAlternativeHTMLTemplate(tpl *ht.Template, data interface{}, opts ...PartOption) error {
-	if tpl == nil {
-		return errors.New(errTplPointerNil)
-	}
-	buffer := bytes.NewBuffer(nil)
-	if err := tpl.Execute(buffer, data); err != nil {
-		return fmt.Errorf(errTplExecuteFailed, err)
-	}
-	writeFunc := writeFuncFromBuffer(buffer)
-	m.AddAlternativeWriter(TypeTextHTML, writeFunc, opts...)
-	return nil
-}
-
-// AddAlternativeTextTemplate sets the alternative body of the message to a text/template.Template output.
-//
-// The content type will be set to "text/plain" automatically. This method executes the provided text template
-// with the given data and adds the result as an alternative version of the message body. If the template
-// is nil or fails to execute, an error will be returned.
-//
-// Parameters:
-//   - tpl: A pointer to the text/template.Template to be used for the alternative body.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the alternative body part.
-//
-// Returns:
-//   - An error if the template is nil or fails to execute, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2045
-//   - https://datatracker.ietf.org/doc/html/rfc2046
-func (m *Msg) AddAlternativeTextTemplate(tpl *tt.Template, data interface{}, opts ...PartOption) error {
-	if tpl == nil {
-		return errors.New(errTplPointerNil)
-	}
-	buffer := bytes.NewBuffer(nil)
-	if err := tpl.Execute(buffer, data); err != nil {
-		return fmt.Errorf(errTplExecuteFailed, err)
-	}
-	writeFunc := writeFuncFromBuffer(buffer)
-	m.AddAlternativeWriter(TypeTextPlain, writeFunc, opts...)
-	return nil
 }
 
 // AttachFile adds an attachment File to the Msg.
@@ -2112,62 +2111,6 @@ func (m *Msg) AttachReader(name string, reader io.Reader, opts ...FileOption) er
 func (m *Msg) AttachReadSeeker(name string, reader io.ReadSeeker, opts ...FileOption) {
 	file := fileFromReadSeeker(name, reader)
 	m.attachments = m.appendFile(m.attachments, file, opts...)
-}
-
-// AttachHTMLTemplate adds the output of a html/template.Template pointer as a File attachment to the Msg.
-//
-// This method allows you to attach the rendered output of an HTML template as a file to the message.
-// The template is executed with the provided data, and its output is attached as a file. If the template
-// fails to execute, an error will be returned.
-//
-// Parameters:
-//   - name: The name of the file to be attached.
-//   - tpl: A pointer to the html/template.Template to be executed for the attachment.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the attachment.
-//
-// Returns:
-//   - An error if the template fails to execute or cannot be attached, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func (m *Msg) AttachHTMLTemplate(
-	name string, tpl *ht.Template, data interface{}, opts ...FileOption,
-) error {
-	file, err := fileFromHTMLTemplate(name, tpl, data)
-	if err != nil {
-		return fmt.Errorf("failed to attach template: %w", err)
-	}
-	m.attachments = m.appendFile(m.attachments, file, opts...)
-	return nil
-}
-
-// AttachTextTemplate adds the output of a text/template.Template pointer as a File attachment to the Msg.
-//
-// This method allows you to attach the rendered output of a text template as a file to the message.
-// The template is executed with the provided data, and its output is attached as a file. If the template
-// fails to execute, an error will be returned.
-//
-// Parameters:
-//   - name: The name of the file to be attached.
-//   - tpl: A pointer to the text/template.Template to be executed for the attachment.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the attachment.
-//
-// Returns:
-//   - An error if the template fails to execute or cannot be attached, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func (m *Msg) AttachTextTemplate(
-	name string, tpl *tt.Template, data interface{}, opts ...FileOption,
-) error {
-	file, err := fileFromTextTemplate(name, tpl, data)
-	if err != nil {
-		return fmt.Errorf("failed to attach template: %w", err)
-	}
-	m.attachments = m.appendFile(m.attachments, file, opts...)
-	return nil
 }
 
 // AttachFromEmbedFS adds an attachment File from an embed.FS to the Msg.
@@ -2280,62 +2223,6 @@ func (m *Msg) EmbedReadSeeker(name string, reader io.ReadSeeker, opts ...FileOpt
 	m.embeds = m.appendFile(m.embeds, file, opts...)
 }
 
-// EmbedHTMLTemplate adds the output of a html/template.Template pointer as an embedded File to the Msg.
-//
-// This method embeds the rendered output of an HTML template into the email message. The template is
-// executed with the provided data, and its output is embedded as a file. If the template fails to execute,
-// an error will be returned.
-//
-// Parameters:
-//   - name: The name of the embedded file.
-//   - tpl: A pointer to the html/template.Template to be executed for the embedded content.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the embedded file.
-//
-// Returns:
-//   - An error if the template fails to execute or cannot be embedded, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func (m *Msg) EmbedHTMLTemplate(
-	name string, tpl *ht.Template, data interface{}, opts ...FileOption,
-) error {
-	file, err := fileFromHTMLTemplate(name, tpl, data)
-	if err != nil {
-		return fmt.Errorf("failed to embed template: %w", err)
-	}
-	m.embeds = m.appendFile(m.embeds, file, opts...)
-	return nil
-}
-
-// EmbedTextTemplate adds the output of a text/template.Template pointer as an embedded File to the Msg.
-//
-// This method embeds the rendered output of a text template into the email message. The template is
-// executed with the provided data, and its output is embedded as a file. If the template fails to execute,
-// an error will be returned.
-//
-// Parameters:
-//   - name: The name of the embedded file.
-//   - tpl: A pointer to the text/template.Template to be executed for the embedded content.
-//   - data: The data to populate the template.
-//   - opts: Optional parameters for customizing the embedded file.
-//
-// Returns:
-//   - An error if the template fails to execute or cannot be embedded, otherwise nil.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func (m *Msg) EmbedTextTemplate(
-	name string, tpl *tt.Template, data interface{}, opts ...FileOption,
-) error {
-	file, err := fileFromTextTemplate(name, tpl, data)
-	if err != nil {
-		return fmt.Errorf("failed to embed template: %w", err)
-	}
-	m.embeds = m.appendFile(m.embeds, file, opts...)
-	return nil
-}
-
 // EmbedFromEmbedFS adds an embedded File from an embed.FS to the Msg.
 //
 // This method embeds a file from an embedded filesystem (embed.FS) into the email message. If the
@@ -2431,19 +2318,33 @@ func (m *Msg) applyMiddlewares(msg *Msg) *Msg {
 //
 // References:
 //   - https://datatracker.ietf.org/doc/html/rfc5322
-func (m *Msg) WriteTo(writer io.Writer) (int64, error) {
-	mw := &msgWriter{writer: writer, charset: m.charset, encoder: m.encoder}
-	msg := m.applyMiddlewares(m)
-
-	if m.hasSMIME() {
-		if err := m.signMessage(); err != nil {
-			return 0, err
-		}
+func (m *Msg) WriteTo(w io.Writer) (int64, error) {
+	if !m.hasDKIM() {
+		return m.writeToInner(w)
+	}
+	if err := m.dkim.ValidateConfig(); err != nil {
+		return 0, err
 	}
 
-	mw.writeMsg(msg)
-	m.headerCount = 0
-	return mw.bytesWritten, mw.err
+	buffer := bytes.NewBuffer(nil)
+	if _, err := m.writeToInner(buffer); err != nil {
+		return 0, err
+	}
+
+	headers, body := splitMessage(buffer.Bytes())
+	signature, err := m.dkim.Sign(headers, body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to DKIM sign message: %w", err)
+	}
+
+	var total int64
+	length, err := io.WriteString(w, signature)
+	total += int64(length)
+	if err != nil {
+		return total, err
+	}
+	n2, err := w.Write(buffer.Bytes())
+	return total + int64(n2), err
 }
 
 // WriteToSkipMiddleware writes the formatted Msg into the given io.Writer, but skips the specified
@@ -3167,62 +3068,6 @@ func fileFromReadSeeker(name string, reader io.ReadSeeker) *File {
 	}
 }
 
-// fileFromHTMLTemplate returns a File pointer from a given html/template.Template.
-//
-// This method executes the provided HTML template with the given data and creates a File structure
-// representing the output. The rendered template content is stored in a buffer and then processed
-// as a file attachment or embed.
-//
-// Parameters:
-//   - name: The name of the file to be created from the template output.
-//   - tpl: A pointer to the html/template.Template to be executed.
-//   - data: The data to populate the template.
-//
-// Returns:
-//   - A pointer to the File structure representing the rendered template.
-//   - An error if the template is nil or if it fails to execute.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func fileFromHTMLTemplate(name string, tpl *ht.Template, data interface{}) (*File, error) {
-	if tpl == nil {
-		return nil, errors.New(errTplPointerNil)
-	}
-	buffer := bytes.Buffer{}
-	if err := tpl.Execute(&buffer, data); err != nil {
-		return nil, fmt.Errorf(errTplExecuteFailed, err)
-	}
-	return fileFromReader(name, &buffer)
-}
-
-// fileFromTextTemplate returns a File pointer from a given text/template.Template.
-//
-// This method executes the provided text template with the given data and creates a File structure
-// representing the output. The rendered template content is stored in a buffer and then processed
-// as a file attachment or embed.
-//
-// Parameters:
-//   - name: The name of the file to be created from the template output.
-//   - tpl: A pointer to the text/template.Template to be executed.
-//   - data: The data to populate the template.
-//
-// Returns:
-//   - A pointer to the File structure representing the rendered template.
-//   - An error if the template is nil or if it fails to execute.
-//
-// References:
-//   - https://datatracker.ietf.org/doc/html/rfc2183
-func fileFromTextTemplate(name string, tpl *tt.Template, data interface{}) (*File, error) {
-	if tpl == nil {
-		return nil, errors.New(errTplPointerNil)
-	}
-	buffer := bytes.Buffer{}
-	if err := tpl.Execute(&buffer, data); err != nil {
-		return nil, fmt.Errorf(errTplExecuteFailed, err)
-	}
-	return fileFromReader(name, &buffer)
-}
-
 // getEncoder creates a new mime.WordEncoder based on the encoding setting of the message.
 //
 // This function returns a mime.WordEncoder based on the specified encoding (e.g., quoted-printable or base64).
@@ -3304,6 +3149,21 @@ func (m *Msg) signMessage() error {
 	return nil
 }
 
+func (m *Msg) writeToInner(writer io.Writer) (int64, error) {
+	mw := &msgWriter{writer: writer, charset: m.charset, encoder: m.encoder}
+	msg := m.applyMiddlewares(m)
+
+	if m.hasSMIME() {
+		if err := m.signMessage(); err != nil {
+			return 0, err
+		}
+	}
+
+	mw.writeMsg(msg)
+	m.headerCount = 0
+	return mw.bytesWritten, mw.err
+}
+
 // writeFuncFromBuffer converts a byte buffer into a writeFunc, which is commonly required by go-mail.
 //
 // This function wraps a byte buffer into a write function that can be used to write the buffer's content
@@ -3327,7 +3187,37 @@ func writeFuncFromBuffer(buffer *bytes.Buffer) func(io.Writer) (int64, error) {
 	return writeFunc
 }
 
+// mailAddressStringWithoutName returns the string representation of a mail address without the name.
 func mailAddressStringWithoutName(addr mail.Address) string {
 	addr.Name = ""
 	return addr.String()
+}
+
+// hasDKIM returns true if the Msg has a DKIM config.
+func (m *Msg) hasDKIM() bool {
+	return m.dkim != nil
+}
+
+// splitMessage returns bytes before, and bytes after, the first blank line.
+func splitMessage(b []byte) (headers, body []byte) {
+	if i := bytes.Index(b, []byte("\r\n\r\n")); i >= 0 {
+		// keep trailing CRLF on the header block
+		return b[:i+2], b[i+4:]
+	}
+	return b, nil
+}
+
+// formatUnsubURIs wraps each URI in angle brackets and joins them with ", "
+// per the RFC 2369 header syntax.
+func formatUnsubURIs(uris []string) string {
+	parts := make([]string, 0, len(uris))
+	for _, url := range uris {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+		url = strings.TrimPrefix(strings.TrimSuffix(url, ">"), "<")
+		parts = append(parts, "<"+url+">")
+	}
+	return strings.Join(parts, ", ")
 }

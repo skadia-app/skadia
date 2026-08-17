@@ -17,18 +17,26 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
-	"github.com/pkg/errors"
 )
 
 // Collect creates a custom PDF page sequence for selected pages of rs and writes the result to w.
-func Collect(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) error {
+func Collect(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: Collect: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
@@ -38,60 +46,67 @@ func Collect(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.
 
 	ctx, err := ReadValidateAndOptimize(rs, conf)
 	if err != nil {
-		return err
+		return fmt.Errorf("collect: %w", err)
 	}
 
 	pages, err := PagesForPageCollection(ctx.PageCount, selectedPages)
 	if err != nil {
-		return err
+		return fmt.Errorf("collect: parse page selection: %w", err)
 	}
 
 	ctxDest, err := pdfcpu.ExtractPages(ctx, pages, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("collect: extract pages: %w", err)
 	}
 
-	return Write(ctxDest, w, conf)
+	if err = Write(ctxDest, w, conf); err != nil {
+		return fmt.Errorf("collect: write output: %w", err)
+	}
+	return nil
 }
 
 // CollectFile creates a custom PDF page sequence for inFile and writes the result to outFile.
 func CollectFile(inFile, outFile string, selectedPages []string, conf *model.Configuration) (err error) {
-	tmpFile := inFile + ".tmp"
+	var f1, f2 *os.File
+	ok := false
+
+	if inFile == "" {
+		return ErrMissingPDFInput
+	}
+
+	if f1, err = os.Open(inFile); err != nil {
+		return fmt.Errorf("collect: open input %s: %w", inFile, err)
+	}
+
+	tmpFile := ""
 	if outFile != "" && inFile != outFile {
 		tmpFile = outFile
 		logWritingTo(outFile)
 	} else {
 		logWritingTo(inFile)
 	}
-
-	var f1, f2 *os.File
-
-	if f1, err = os.Open(inFile); err != nil {
-		return err
+	staged, err := openStagedOutput(f1, inFile, tmpFile, "collect")
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("collect: create output: %w", err),
+			closeFile(f1, "collect: close input"),
+		)
 	}
-
-	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
-		return err
-	}
+	f2 = staged.output.file
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
+		if !ok {
+			err = staged.cleanup(err)
 			return
 		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
+		err = staged.commit()
 	}()
 
-	return Collect(f1, f2, selectedPages, conf)
+	if err = Collect(f1, f2, selectedPages, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }

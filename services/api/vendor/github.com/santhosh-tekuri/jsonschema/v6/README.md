@@ -85,3 +85,4 @@ Options:
 - [x] http(s) url support
   - [x] custom certs for validation, use `--cacert`
   - [x] flag to skip certificate verification, use `--insecure`
+
