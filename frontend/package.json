@@ -20,7 +20,7 @@
     "@tanstack/react-query-devtools": "^5.67.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "echarts": "^6.0.0",
+    "echarts": "^6.1.0",
     "i18next": "^26.3.0",
     "lucide-react": "^0.577.0",
     "maplibre-gl": "^5.3.0",
