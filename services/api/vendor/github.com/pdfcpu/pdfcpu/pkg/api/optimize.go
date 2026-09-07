@@ -17,25 +17,18 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
-	"github.com/pkg/errors"
 )
 
-// Optimize reads a PDF stream from rs and writes the optimized PDF stream to w.
-func Optimize(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
-	if rs == nil {
-		return errors.New("pdfcpu: Optimize: missing rs")
-	}
-
-	if conf == nil {
-		conf = model.NewDefaultConfiguration()
-	}
-
+func optimize(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
 	ctx, err := ReadValidateAndOptimize(rs, conf)
 	if err != nil {
 		return err
@@ -45,32 +38,60 @@ func Optimize(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) error {
 		log.Stats.Printf("XRefTable:\n%s\n", ctx)
 	}
 
-	if err = WriteContext(ctx, w); err != nil {
-		return err
+	if err := WriteContext(ctx, w); err != nil {
+		return fmt.Errorf("write output: %w", err)
 	}
 
-	// For Optimize only.
 	if ctx.StatsFileName != "" {
-		err = pdfcpu.AppendStatsFile(ctx)
-		if err != nil {
-			return errors.Wrap(err, "Write stats failed.")
+		if err := pdfcpu.AppendStatsFile(ctx); err != nil {
+			return fmt.Errorf("write stats: %w", err)
 		}
 	}
 
 	return nil
 }
 
+// Optimize reads a PDF stream from rs and writes the optimized PDF stream to w.
+// noEncryption ensures w writes without encryption.
+func Optimize(rs io.ReadSeeker, w io.Writer, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
+	if rs == nil {
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
+	}
+
+	if conf == nil {
+		conf = model.NewDefaultConfiguration()
+	}
+	conf.Cmd = model.OPTIMIZE
+
+	if err := optimize(rs, w, conf); err != nil {
+		return fmt.Errorf("optimize: %w", err)
+	}
+	return nil
+}
+
 // OptimizeFile reads inFile and writes the optimized PDF to outFile.
 // If outFile is not provided then inFile gets overwritten
 // which leads to the same result as when inFile equals outFile.
+// noEncryption ensures outFile is not encrypted.
 func OptimizeFile(inFile, outFile string, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
-	if f1, err = os.Open(inFile); err != nil {
-		return err
+	if inFile == "" {
+		return ErrMissingPDFInput
 	}
 
-	tmpFile := inFile + ".tmp"
+	if f1, err = os.Open(inFile); err != nil {
+		return fmt.Errorf("optimize: open input %s: %w", inFile, err)
+	}
+
+	tmpFile := ""
 	if outFile != "" && inFile != outFile {
 		tmpFile = outFile
 		logWritingTo(outFile)
@@ -78,26 +99,21 @@ func OptimizeFile(inFile, outFile string, conf *model.Configuration) (err error)
 		logWritingTo(inFile)
 	}
 
-	if f2, err = os.Create(tmpFile); err != nil {
-		return err
+	staged, err := openStagedOutput(f1, inFile, tmpFile, "optimize")
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("optimize: create output: %w", err),
+			closeFile(f1, "optimize: close input"),
+		)
 	}
+	f2 = staged.output.file
 
 	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
+		if !ok {
+			err = staged.cleanup(err)
 			return
 		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
+		err = staged.commit()
 	}()
 
 	if conf == nil {
@@ -105,5 +121,11 @@ func OptimizeFile(inFile, outFile string, conf *model.Configuration) (err error)
 	}
 	conf.Cmd = model.OPTIMIZE
 
-	return Optimize(f1, f2, conf)
+	if err = Optimize(f1, f2, conf); err != nil {
+		return err
+	}
+
+	ok = true
+
+	return nil
 }

@@ -1,94 +1,24 @@
-# TZF: a fast timezone finder for Go. [![Go Reference](https://pkg.go.dev/badge/github.com/ringsaturn/tzf.svg)](https://pkg.go.dev/github.com/ringsaturn/tzf) [![codecov](https://codecov.io/gh/ringsaturn/tzf/branch/main/graph/badge.svg?token=9KIU85IERM)](https://codecov.io/gh/ringsaturn/tzf)
+# tzf: a fast timezone finder for Go. [![Go Reference](https://pkg.go.dev/badge/github.com/ringsaturn/tzf.svg)](https://pkg.go.dev/github.com/ringsaturn/tzf) [![codecov](https://codecov.io/gh/ringsaturn/tzf/branch/main/graph/badge.svg?token=9KIU85IERM)](https://codecov.io/gh/ringsaturn/tzf) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fringsaturn%2Ftzf.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fringsaturn%2Ftzf?ref=badge_shield)
 
 ![](https://github.com/ringsaturn/tzf/blob/gh-pages/docs/tzf-social-media.png?raw=true)
 
-TZF is a fast timezone finder package designed for Go. It allows you to quickly
-find the timezone for a given latitude and longitude, making it ideal for geo
-queries and services such as weather forecast APIs. With optimized performance
-and two different data options, TZF is a powerful tool for any Go developer's
-toolkit.
-
----
-
-> [!NOTE]
->
-> Here are some language or server which built with tzf or it's other language
-> bindings:
-
-| Language or Sever         | Link                                                                    | Note                |
-| ------------------------- | ----------------------------------------------------------------------- | ------------------- |
-| Go                        | [`ringsaturn/tzf`](https://github.com/ringsaturn/tzf)                   |                     |
-| Ruby                      | [`HarlemSquirrel/tzf-rb`](https://github.com/HarlemSquirrel/tzf-rb)     | build with tzf-rs   |
-| Rust                      | [`ringsaturn/tzf-rs`](https://github.com/ringsaturn/tzf-rs)             |                     |
-| Swift                     | [`ringsaturn/tzf-swift`](https://github.com/ringsaturn/tzf-swift)       |                     |
-| Python                    | [`ringsaturn/tzfpy`](https://github.com/ringsaturn/tzfpy)               | build with tzf-rs   |
-| HTTP API                  | [`ringsaturn/tzf-server`](https://github.com/ringsaturn/tzf-server)     | build with tzf      |
-| HTTP API                  | [`racemap/rust-tz-service`](https://github.com/racemap/rust-tz-service) | build with tzf-rs   |
-| Redis Server              | [`ringsaturn/tzf-server`](https://github.com/ringsaturn/tzf-server)     | build with tzf      |
-| Redis Server              | [`ringsaturn/redizone`](https://github.com/ringsaturn/redizone)         | build with tzf-rs   |
-| JS via Wasm(browser only) | [`ringsaturn/tzf-wasm`](https://github.com/ringsaturn/tzf-wasm)         | build with tzf-rs   |
-| Online                    | [`ringsaturn/tzf-web`](https://github.com/ringsaturn/tzf-web)           | build with tzf-wasm |
+- Released documentation: <https://pkg.go.dev/github.com/ringsaturn/tzf>
+- Try it online: [tzf-web](https://ringsaturn.github.io/tzf-web/)
 
 ## Quick Start
 
-To start using TZF in your Go project, you first need to install the package:
+Install via:
 
 ```bash
 go get github.com/ringsaturn/tzf
 ```
 
-Then, you can use the following code to locate:
-
-```go
-// Use about 150MB memory for init, and 60MB after GC.
-package main
-
-import (
-	"fmt"
-
-	"github.com/ringsaturn/tzf"
-)
-
-func main() {
-	finder, err := tzf.NewDefaultFinder()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(finder.GetTimezoneName(116.6386, 40.0786))  // In longitude-latitude order
-}
-```
-
-If you require a query result that is 100% accurate, use the following to
-locate:
-
-```go
-// Use about 900MB memory for init, and 660MB after GC.
-package main
-
-import (
-	"fmt"
-
-	"github.com/ringsaturn/tzf"
-	tzfrel "github.com/ringsaturn/tzf-rel"
-	pb "github.com/ringsaturn/tzf/gen/go/tzf/v1"
-	"google.golang.org/protobuf/proto"
-)
-
-func main() {
-	input := &pb.Timezones{}
-
-	// Full data, about 83.5MB
-	dataFile := tzfrel.FullData
-
-	if err := proto.Unmarshal(dataFile, input); err != nil {
-		panic(err)
-	}
-	finder, _ := tzf.NewFinderFromPB(input)
-	fmt.Println(finder.GetTimezoneName(116.6386, 40.0786))  // In longitude-latitude order
-}
-```
-
-### Best Practice
+> [!NOTE]
+>
+> This `NewDefaultFinder` uses simplified shape data so it is not entirely
+> accurate around the border, but the error is small and bounded: every
+> simplified boundary stays within ~111 m of the full-precision border. See
+> [Accuracy](#accuracy) for measured numbers.
 
 It's expensive to init tzf's Finder/FuzzyFinder/DefaultFinder, please consider
 reuse it or as a global var. Below is a global var example:
@@ -119,9 +49,38 @@ func main() {
 }
 ```
 
+### Best Practice: Setup 100% Accuracy via `NewFullFinder`
+
+If you require a query result that is 100% accurate, use the following to
+locate(also, **reuse it when possible**):
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/ringsaturn/tzf"
+)
+
+func main() {
+	finder, err := tzf.NewFullFinder()
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(finder.GetTimezoneName(139.6917, 35.6895))
+}
+```
+
+Please note that `NewFullFinder()` is more expensive to init and has higher
+memory usage than `NewDefaultFinder()`, but it provides 100% accuracy.
+
+See the [Performance](#performance) section for more details.
+
 ## CLI Tool
 
-In addition to using TZF as a library in your Go projects, you can also use the
+In addition to using tzf as a library in your Go projects, you can also use the
 tzf command-line interface (CLI) tool to quickly get the timezone name for a set
 of coordinates. To use the CLI tool, you first need to install it using the
 following command:
@@ -151,129 +110,202 @@ You can download the original data from
 <https://github.com/evansiroky/timezone-boundary-builder>.
 
 The preprocessed protobuf data can be obtained from
-<https://github.com/ringsaturn/tzf-rel>, which has Go's `embedded` support.
+<https://github.com/ringsaturn/tzf-dist>, which has Go's `embedded` support.
 These files are Protocol Buffers messages for more efficient binary
-distribution, similar to Python wheels. You can view the
-[`pb/tzinfo.proto file`](./pb/tzinfo.proto) or its
-[HTML format documentation][pb_html] for information about the internal format.
+distribution. You can view the [`pb/tzinfo.proto file`](./pb/tzinfo.proto) or
+its [HTML format documentation][pb_html] for information about the internal
+format.
 
 The data pipeline for tzf can be illustrated as follows:
 
 ```mermaid
 graph TD
     Raw[GeoJSON from evansiroky/timezone-boundary-builder]
-    Full[Full: Probuf based data]
-    Lite[Lite: smaller of Full data]
-    Compressed[Compressed: Lite compressed via Polyline]
-    Preindex[Tile based data]
+    Full[Timezones .bin ~92MB]
+    Simplified[Timezones .topology.bin ~13MB<br/>topology-aware simplified]
+    SimplifiedTopo[TopoTimezones .topology.topo.bin ~10MB]
+    FullTopo[TopoTimezones .topo.bin ~52MB]
+    SimplifiedCompressTopo[CompressedTopoTimezones<br/>.topology.compress.topo.bin ~5.4MB]
+    FullCompressTopo[CompressedTopoTimezones<br/>.compress.topo.bin ~17MB]
+    Preindex[PreindexTimezones<br/>.topology.preindex.bin ~2MB]
 
     Finder[Finder: Polygon Based Finder]
     FuzzyFinder[FuzzyFinder: Tile based Finder]
-    DefaultFinder[DefaultFinder: combine FuzzyFinder and Compressed Finder]
+    DefaultFinder[DefaultFinder: FuzzyFinder + Finder fallback]
 
     Raw --> |cmd/geojson2tzpb|Full
-    Full --> |cmd/reducetzpb|Lite
-    Lite --> |cmd/compresstzpb|Compressed
-    Lite --> |cmd/preindextzpb|Preindex
+    Full --> |cmd/reducetzpb -topology|Simplified
+    Full --> |cmd/deduplicatetzpb|FullTopo
+    FullTopo --> |cmd/compresstopotzpb|FullCompressTopo
+    Simplified --> |cmd/deduplicatetzpb|SimplifiedTopo
+    SimplifiedTopo --> |cmd/compresstopotzpb|SimplifiedCompressTopo
+    Simplified --> |cmd/preindextzpb|Preindex
 
-    Full --> |tzf.NewFinderFromPB|Finder
-    Lite --> |tzf.NewFinderFromPB|Finder
-    Compressed --> |tzf.NewFinderFromCompressed|Finder --> |tzf.NewDefaultFinder|DefaultFinder
-    Preindex --> |tzf.NewFuzzyFinderFromPB|FuzzyFinder --> |tzf.NewDefaultFinder|DefaultFinder
+    FullCompressTopo --> |tzf.NewFinderFromCompressedTopo|Finder
+    SimplifiedCompressTopo --> |tzf.NewFinderFromCompressedTopo|Finder
+    Preindex --> |tzf.NewFuzzyFinderFromPB|FuzzyFinder
+    SimplifiedCompressTopo --> |tzf.NewDefaultFinder|DefaultFinder
+    Preindex --> |tzf.NewDefaultFinder|DefaultFinder
+    FullCompressTopo --> |tzf.NewFullFinder|DefaultFinder
+    Preindex --> |tzf.NewFullFinder|DefaultFinder
 ```
 
-The [complete dataset (~80MB)][full-link] can be used anywhere, but requires
-higher memory usage.
+The [combined-with-oceans.compress.topo.bin] (~17MB) preserves full geometric
+precision with shared-edge deduplication and polyline compression. Use
+`NewFullFinder()` to load it.
 
-The [lightweight dataset (~10MB)][lite-link] may not function optimally in some
-border areas.
+The [combined-with-oceans.topology.compress.topo.bin] (~5.4MB) applies
+topology-aware Douglas-Peucker simplification (~85% point reduction) before
+deduplication and compression. It is used by the default `NewDefaultFinder()`
+and may not be perfectly accurate at some border areas; the deviation is
+bounded to ~111 m (see [Accuracy](#accuracy)).
 
-You can observe points with different outcomes on this [page][points_not_equal].
-
-If a slightly longer initialization time is tolerable, the
-[compressed dataset (~5MB)][compressed-link] derived from the lightweight
-dataset will be **more suitable for binary distribution.**
-
-The [pre-indexed dataset (~1.78MB)][preindex-link] consists of multiple tiles.
-It is used within the `DefaultFinder`, which is built on `FuzzyFinder`, to
-reduce execution times of the raycasting algorithm.
+The [combined-with-oceans.topology.preindex.bin] (~2MB) consists of multiple map
+tiles and is used within both `DefaultFinder` and `FullFinder` as the fast-path
+`FuzzyFinder`, handling most queries without polygon ray-casting.
 
 [pb_html]: https://ringsaturn.github.io/tzf/pb.html
-[full-link]: https://github.com/ringsaturn/tzf-rel/blob/main/combined-with-oceans.bin
-[lite-link]: https://github.com/ringsaturn/tzf-rel/blob/main/combined-with-oceans.reduce.bin
-[preindex-link]: https://github.com/ringsaturn/tzf-rel/blob/main/combined-with-oceans.reduce.preindex.bin
-[compressed-link]: https://github.com/ringsaturn/tzf-rel/blob/main/combined-with-oceans.reduce.compress.bin
-[points_not_equal]: https://geojson.io/#id=gist:ringsaturn/2d958e7f0a279a7411c04907f255955a
+[combined-with-oceans.compress.topo.bin]: https://github.com/ringsaturn/tzf-dist/blob/data/combined-with-oceans.compress.topo.bin
+[combined-with-oceans.topology.compress.topo.bin]: https://github.com/ringsaturn/tzf-dist/blob/data/combined-with-oceans.topology.compress.topo.bin
+[combined-with-oceans.topology.preindex.bin]: https://github.com/ringsaturn/tzf-dist/blob/data/combined-with-oceans.topology.preindex.bin
 
 I have written an article about the history of tzf, its Rust port, and its Rust
 port's Python binding; you can view it
 [here](https://blog.ringsaturn.me/en/posts/2023-01-31-history-of-tzf/).
 
+## Accuracy
+
+The Douglas-Peucker simplification uses an epsilon of 0.001 degrees, which
+caps boundary displacement at roughly 111 m by construction. Measured against
+the full-precision 2026c dataset with `internal/cmd/borderchange` (spherical
+model, certified via Lipschitz interval subdivision):
+
+| Metric                                             |                          Result |
+| -------------------------------------------------- | ------------------------------: |
+| Certified maximum boundary displacement            | 111.2 m (+1.0 m tolerance)      |
+| Boundary length displaced more than 100 m          | 0.41%                           |
+| Boundary length displaced more than 500 m          | 0%                              |
+| Total mis-assigned area                            | 16,828 km² (~0.003% of Earth)   |
+| Mis-assigned area within 100 m of the true border  | 92.8%                           |
+
+In other words, only queries that land within ~111 m of a timezone border can
+ever differ from the full-precision result, and most of that band is far
+narrower. If your use case is sensitive inside that band, use
+`NewFullFinder()`.
+
+Verify the accuracy yourself by running the following commands:
+
+```bash
+gh release download v0.0.2026-c-fix1 --repo ringsaturn/tzf-dist \
+  --pattern "combined-with-oceans.compress.topo.bin"
+
+go run ./internal/cmd/topodecode \
+  combined-with-oceans.compress.topo.bin combined-with-oceans.dist.bin
+
+go run ./internal/cmd/borderchange \
+  -epsilon 0.001 \
+  -certification-tolerance-m 0.5 \
+  -top-pairs 20 \
+  combined-with-oceans.dist.bin > BORDER_CHANGE.md
+```
+
+Output like:
+
+```
+➜  tzf git:(main) ✗ go run ./internal/cmd/borderchange \
+  -epsilon 0.001 \
+  -certification-tolerance-m 0.5 \
+  -top-pairs 20 \
+  combined-with-oceans.dist.bin > BORDER_CHANGE.md
+2026/07/13 10:46:00 borderchange: dataset loaded in 441ms
+2026/07/13 10:46:15 borderchange: simplification finished in 14.276s
+2026/07/13 10:46:16 borderchange: 532881 arcs collected, analyzing with 16 workers
+```
+
+More details: [BORDER_CHANGE.md](./BORDER_CHANGE.md).
+
 ## Performance
 
-The tzf package is intended for high-performance geospatial query services, such
-as weather forecasting APIs. Most queries can be returned within a very short
-time, averaging around 2000 nanoseconds.
+The tzf package is intended for high-performance geospatial query backend
+services, such as weather forecasting APIs. Most queries can be returned within
+a very short time, averaging around 1000 nanoseconds.
 
 Here is what has been done to improve performance:
 
-1. Using pre-indexing to handle most queries takes approximately 1000
+1. Using the simplified dataset by default.
+2. Using pre-indexing to handle most queries takes approximately 500
    nanoseconds.
-2. Using an RTree to filter candidate polygons, instead of iterating through all
-   polygons, reduces the execution times of the Ray Casting algorithm.
-3. Using a finely-tuned Ray Casting algorithm package
-   <https://github.com/tidwall/geojson> to verify whether a polygon contains a
-   point.
+3. Using the internal `geom` package(fork of
+   [geojson](https://github.com/tidwall/geojson)) with a YStripes index
+   (inspired by Josh Baker's [`tg`](https://github.com/tidwall/tg)'s ) to verify
+   whether a polygon contains a point. Also a grid-index to quickly find
+   candidate polygons, inspired by Aaron Roney's
+   [rtz](https://github.com/twitchax/rtz).
 
 That's all. There are no black magic tricks inside the tzf package.
 
-The benchmark was conducted using version
-<https://github.com/ringsaturn/tzf/releases/tag/v0.16.0>
+Below is a benchmark run on my MacBook Pro with Apple M3 Max:
 
-```
-goos: darwin
-goarch: arm64
-pkg: github.com/ringsaturn/tzf
-cpu: Apple M3 Max
-BenchmarkDefaultFinder_GetTimezoneName_Random_WorldCities-16    	  823786	      1261 ns/op	      1000 ns/p50	      5000 ns/p90	      8000 ns/p99	       8 B/op	       0 allocs/op
-BenchmarkFuzzyFinder_GetTimezoneName_Random_WorldCities-16      	 2239102	       572.1 ns/op	      1000 ns/p50	      1000 ns/p90	      1000 ns/p99	       8 B/op	       0 allocs/op
-BenchmarkGetTimezoneName-16                                     	  423015	      2852 ns/op	      3000 ns/p50	      3000 ns/p90	      4000 ns/p99	       8 B/op	       0 allocs/op
-BenchmarkGetTimezoneNameAtEdge-16                               	  399050	      3036 ns/op	      3000 ns/p50	      3000 ns/p90	      4000 ns/p99	       8 B/op	       0 allocs/op
-BenchmarkGetTimezoneName_Random_WorldCities-16                  	  288864	      3867 ns/op	      4000 ns/p50	      6000 ns/p90	      8000 ns/p99	       8 B/op	       0 allocs/op
-PASS
-coverage: 65.5% of statements
-ok  	github.com/ringsaturn/tzf	7.995s
-```
+| Target        | Dataset                            | Scenario                               | Median (ns) | p99 (ns) | Approx throughput (ops/s) | Memory (MiB) |
+| ------------- | ---------------------------------- | -------------------------------------- | ----------: | -------: | ------------------------: | -----------: |
+| DefaultFinder | topology-simplified + preindex     | edge case · GetTimezoneName            |       583.0 |   1708.0 |                   1439.3K |        31.90 |
+| FuzzyFinder   | preindex                           | edge case · GetTimezoneName            |       250.0 |    500.0 |                   2682.4K |         2.40 |
+| Finder        | topology-simplified                | edge case · GetTimezoneName            |       416.0 |   2291.0 |                   1734.0K |        29.70 |
+| FullFinder    | full-precision + preindex          | edge case · GetTimezoneName            |       625.0 |   2083.0 |                   1317.7K |       155.30 |
+| Finder        | full-precision                     | edge case · GetTimezoneName            |       416.0 |   2000.0 |                   1827.5K |       153.00 |
+| DefaultFinder | topology-simplified + preindex     | random world cities · GetTimezoneName  |       208.0 |    959.0 |                   3499.0K |        31.90 |
+| FuzzyFinder   | preindex                           | random world cities · GetTimezoneName  |       208.0 |    416.0 |                   3461.4K |         2.40 |
+| Finder        | topology-simplified                | random world cities · GetTimezoneName  |       292.0 |   1708.0 |                   2275.8K |        29.70 |
+| FullFinder    | full-precision + preindex          | random world cities · GetTimezoneName  |       208.0 |   1542.0 |                   3003.0K |       155.30 |
+| Finder        | full-precision                     | random world cities · GetTimezoneName  |       291.0 |   1500.0 |                   2498.8K |       153.00 |
+| Finder        | topology-simplified + GridIndex    | random world cities · GetTimezoneName  |       250.0 |   1459.0 |                   2606.9K |        29.70 |
+| Finder        | topology-simplified (no GridIndex) | random world cities · GetTimezoneName  |      2292.0 |   4208.0 |                    473.0K |        24.00 |
+| DefaultFinder | topology-simplified + preindex     | random world cities · GetTimezoneNames |       625.0 |   3250.0 |                    888.1K |        31.90 |
+| FuzzyFinder   | preindex                           | random world cities · GetTimezoneNames |       209.0 |    541.0 |                   2751.8K |         2.40 |
+| Finder        | topology-simplified                | random world cities · GetTimezoneNames |       542.0 |   2416.0 |                   1377.6K |        29.70 |
+| FullFinder    | full-precision + preindex          | random world cities · GetTimezoneNames |       583.0 |   2458.0 |                   1312.9K |       155.30 |
 
-- <https://ringsaturn.github.io/tzf/> displays continuous benchmarking results.
 - <https://ringsaturn.github.io/tz-benchmark/> displays a continuous benchmark
   comparison with other packages.
 
 ## Related Repos
 
-- <https://github.com/ringsaturn/tzf-rel> Preprocessed probuf data release repo
-- <https://github.com/ringsaturn/tz-benchmark> Continuous Benchmark Compared
-  with other packages
-- <https://github.com/ringsaturn/tzf-rs> Rust port of tzf
-- <https://github.com/ringsaturn/tzfpy> Rust port's Python binding
-- <https://github.com/ringsaturn/tzf-server> HTTP&Redis server build with tzf
-- <https://github.com/ringsaturn/redizone> Redis compatible server build with
-  tzf-rs
+| Language or Sever         | Link                                                                    | Note                |
+| ------------------------- | ----------------------------------------------------------------------- | ------------------- |
+| Go                        | [`ringsaturn/tzf`](https://github.com/ringsaturn/tzf)                   |                     |
+| Ruby                      | [`HarlemSquirrel/tzf-rb`](https://github.com/HarlemSquirrel/tzf-rb)     | build with tzf-rs   |
+| Rust                      | [`ringsaturn/tzf-rs`](https://github.com/ringsaturn/tzf-rs)             |                     |
+| Swift                     | [`ringsaturn/tzf-swift`](https://github.com/ringsaturn/tzf-swift)       |                     |
+| Python                    | [`ringsaturn/tzfpy`](https://github.com/ringsaturn/tzfpy)               | build with tzf-rs   |
+| HTTP API                  | [`racemap/rust-tz-service`](https://github.com/racemap/rust-tz-service) | build with tzf-rs   |
+| JS via Wasm(browser only) | [`ringsaturn/tzf-wasm`](https://github.com/ringsaturn/tzf-wasm)         | build with tzf-rs   |
+| Online                    | [`ringsaturn/tzf-web`](https://github.com/ringsaturn/tzf-web)           | build with tzf-wasm |
+
+See [Project tzf](https://project-tzf.ringsaturn.me/docs/getting-started/) for
+more information.
 
 ## Thanks
 
-- <https://github.com/paulmach/orb>
+- <https://github.com/paulmach/orb> (used via the
+  [ringsaturn/orb](https://github.com/ringsaturn/orb) fork, which drops the
+  BSON/`mongo-driver` dependency)
 - <https://github.com/tidwall/geojson>
+- <https://github.com/tidwall/tg>
 - <https://github.com/jannikmi/timezonefinder>
 - <https://github.com/evansiroky/timezone-boundary-builder>
+- And other projects listed in [NOTICE](./NOTICE)
 
 ## LICENSE
 
 This project is licensed under the [MIT license](./LICENSE) and
 [Anti CSDN License](./LICENSE_ANTI_CSDN.md)[^anti_csdn]. The data is licensed
 under the
-[ODbL license](https://github.com/ringsaturn/tzf-rel/blob/main/LICENSE), same as
+[ODbL license](https://github.com/ringsaturn/tzf-dist/blob/main/LICENSE_DATA),
+same as
 [`evansiroky/timezone-boundary-builder`](https://github.com/evansiroky/timezone-boundary-builder)
 
-[^anti_csdn]: This license is to prevent the use of this project by CSDN, has no
+[^anti_csdn]:
+    This license is to prevent the use of this project by CSDN, has no
     effect on other use cases.
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fringsaturn%2Ftzf.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fringsaturn%2Ftzf?ref=badge_large)
