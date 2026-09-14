@@ -17,21 +17,29 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sort"
 
 	"github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/fault"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
-	"github.com/pkg/errors"
 )
 
 // Trim generates a trimmed version of rs
 // containing all selected pages and writes the result to w.
-func Trim(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) error {
+func Trim(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Configuration) (err error) {
+	defer fault.Catch(&err)
+
 	if rs == nil {
-		return errors.New("pdfcpu: Trim: missing rs")
+		return ErrMissingPDFReadSeeker
+	}
+
+	if w == nil {
+		return ErrMissingPDFWriter
 	}
 
 	if conf == nil {
@@ -41,12 +49,12 @@ func Trim(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Con
 
 	ctx, err := ReadValidateAndOptimize(rs, conf)
 	if err != nil {
-		return err
+		return fmt.Errorf("trim: %w", err)
 	}
 
 	pages, err := PagesForPageSelection(ctx.PageCount, selectedPages, false, true)
 	if err != nil {
-		return err
+		return fmt.Errorf("trim: parse page selection: %w", err)
 	}
 
 	if len(pages) == 0 {
@@ -66,56 +74,64 @@ func Trim(rs io.ReadSeeker, w io.Writer, selectedPages []string, conf *model.Con
 
 	ctxDest, err := pdfcpu.ExtractPages(ctx, pageNrs, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("trim: extract pages: %w", err)
 	}
 
 	if conf.PostProcessValidate {
 		if err = ValidateContext(ctxDest); err != nil {
-			return err
+			return fmt.Errorf("trim: validate output: %w", err)
 		}
 	}
 
-	return WriteContext(ctxDest, w)
+	if err = WriteContext(ctxDest, w); err != nil {
+		return fmt.Errorf("trim: write output: %w", err)
+	}
+	return nil
 }
 
 // TrimFile generates a trimmed version of inFile
 // containing all selected pages and writes the result to outFile.
 func TrimFile(inFile, outFile string, selectedPages []string, conf *model.Configuration) (err error) {
 	var f1, f2 *os.File
+	ok := false
 
-	if f1, err = os.Open(inFile); err != nil {
-		return err
+	if inFile == "" {
+		return ErrMissingPDFInput
 	}
 
-	tmpFile := inFile + ".tmp"
+	if f1, err = os.Open(inFile); err != nil {
+		return fmt.Errorf("trim: open input %s: %w", inFile, err)
+	}
+
+	tmpFile := ""
 	if outFile != "" && inFile != outFile {
 		tmpFile = outFile
 		logWritingTo(outFile)
 	} else {
 		logWritingTo(inFile)
 	}
-	if f2, err = os.Create(tmpFile); err != nil {
-		f1.Close()
+	staged, err := openStagedOutput(f1, inFile, tmpFile, "trim")
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("trim: create output: %w", err),
+			closeFile(f1, "trim: close input"),
+		)
+	}
+	f2 = staged.output.file
+
+	defer func() {
+		if !ok {
+			err = staged.cleanup(err)
+			return
+		}
+		err = staged.commit()
+	}()
+
+	if err = Trim(f1, f2, selectedPages, conf); err != nil {
 		return err
 	}
 
-	defer func() {
-		if err != nil {
-			f2.Close()
-			f1.Close()
-			os.Remove(tmpFile)
-			return
-		}
-		if err = f2.Close(); err != nil {
-			return
-		}
-		if err = f1.Close(); err != nil {
-			return
-		}
-		if outFile == "" || inFile == outFile {
-			err = os.Rename(tmpFile, inFile)
-		}
-	}()
+	ok = true
 
-	return Trim(f1, f2, selectedPages, conf)
+	return nil
 }
