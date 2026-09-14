@@ -18,6 +18,7 @@ package validate
 
 import (
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,9 +32,10 @@ func validateMetadataStream(xRefTable *model.XRefTable, d types.Dict, required b
 		sinceVersion = model.V10
 	}
 
+	rawEntry := d["Metadata"]
 	sd, err := validateStreamDictEntry(xRefTable, d, "dict", "Metadata", required, sinceVersion, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", dictEntryContext("dict", "Metadata", rawEntry), err)
 	}
 	if sd == nil {
 		delete(d, "Metadata")
@@ -43,11 +45,18 @@ func validateMetadataStream(xRefTable *model.XRefTable, d types.Dict, required b
 	dictName := "metaDataDict"
 
 	if _, err = validateNameEntry(xRefTable, sd.Dict, dictName, "Type", OPTIONAL, sinceVersion, func(s string) bool { return s == "Metadata" }); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %s.Type: %w", objectContext(dictEntryContext("dict", "Metadata", rawEntry), rawEntry), dictName, err)
 	}
 
-	if _, err = validateNameEntry(xRefTable, sd.Dict, dictName, "Subtype", OPTIONAL, sinceVersion, func(s string) bool { return s == "XML" }); err != nil {
-		return nil, err
+	relaxed := xRefTable.ValidationMode == model.ValidationRelaxed
+	subtype, err := validateNameEntry(xRefTable, sd.Dict, dictName, "Subtype", OPTIONAL, sinceVersion, func(s string) bool {
+		return s == "XML" || relaxed && s == "XMP"
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s.Subtype: %w", objectContext(dictEntryContext("dict", "Metadata", rawEntry), rawEntry), dictName, err)
+	}
+	if subtype != nil && relaxed && subtype.Value() == "XMP" {
+		model.ShowDigestedSpecViolation("dict=" + dictName + " entry=Subtype invalid dict entry: XMP")
 	}
 
 	return sd, nil
@@ -67,7 +76,10 @@ func validateMetadata(xRefTable *model.XRefTable, d types.Dict, required bool, s
 func catalogMetaData(xRefTable *model.XRefTable, rootDict types.Dict, required bool, sinceVersion model.Version) (*model.XMPMeta, error) {
 	sd, err := validateMetadataStream(xRefTable, rootDict, required, sinceVersion)
 	if err != nil || sd == nil {
-		return nil, err
+		if err != nil {
+			return nil, fmt.Errorf("catalog metadata stream: %w", err)
+		}
+		return nil, nil
 	}
 
 	// if xRefTable.Version() < model.V20 {
@@ -80,14 +92,14 @@ func catalogMetaData(xRefTable *model.XRefTable, rootDict types.Dict, required b
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode catalog metadata: %w", err)
 	}
 
 	x := model.XMPMeta{}
 
 	if err = xml.Unmarshal(sd.Content, &x); err != nil {
 		if xRefTable.ValidationMode == model.ValidationStrict {
-			return nil, err
+			return nil, fmt.Errorf("parse catalog metadata: %w", err)
 		}
 		model.ShowSkipped("metadata parse error")
 		return nil, nil
@@ -96,8 +108,15 @@ func catalogMetaData(xRefTable *model.XRefTable, rootDict types.Dict, required b
 	return &x, nil
 }
 
-func validateRootMetadata(xRefTable *model.XRefTable, rootDict types.Dict, required bool, sinceVersion model.Version) error {
+func populateKeywordList(xRefTable *model.XRefTable, d model.Description) {
+	ss := strings.FieldsFunc(d.Keywords, func(c rune) bool { return c == ',' || c == ';' || c == '\r' })
+	for _, s := range ss {
+		keyword := strings.TrimSpace(s)
+		xRefTable.KeywordList[keyword] = true
+	}
+}
 
+func validateRootMetadata(xRefTable *model.XRefTable, rootDict types.Dict, required bool, sinceVersion model.Version) error {
 	if xRefTable.CatalogXMPMeta == nil {
 		return nil
 	}
@@ -115,20 +134,45 @@ func validateRootMetadata(xRefTable *model.XRefTable, rootDict types.Dict, requi
 	// fmt.Printf("    Keywords: %s\n", x.RDF.Description.Keywords)
 
 	d := x.RDF.Description
-	xRefTable.Title = strings.Join(d.Title.Alt.Entries, ", ")
-	xRefTable.Author = strings.Join(d.Author.Seq.Entries, ", ")
-	xRefTable.Subject = strings.Join(d.Subject.Alt.Entries, ", ")
-	xRefTable.Creator = d.Creator
-	xRefTable.CreationDate = time.Time(d.CreationDate).Format(time.RFC3339Nano)
-	xRefTable.ModDate = time.Time(d.ModDate).Format(time.RFC3339Nano)
-	xRefTable.Producer = d.Producer
-	//xRefTable.Trapped = d.Trapped
 
-	ss := strings.FieldsFunc(d.Keywords, func(c rune) bool { return c == ',' || c == ';' || c == '\r' })
-	for _, s := range ss {
-		keyword := strings.TrimSpace(s)
-		xRefTable.KeywordList[keyword] = true
+	s := strings.Join(d.Title.Alt.Entries, ", ")
+	if len(s) > 0 || len(xRefTable.Title) == 0 {
+		xRefTable.Title = s
 	}
+
+	s = strings.Join(d.Author.Seq.Entries, ", ")
+	if len(s) > 0 || len(xRefTable.Author) == 0 {
+		xRefTable.Author = s
+	}
+
+	s = strings.Join(d.Subject.Alt.Entries, ", ")
+	if len(s) > 0 || len(xRefTable.Subject) == 0 {
+		xRefTable.Subject = s
+	}
+
+	s = d.Creator
+	if len(s) > 0 || len(xRefTable.Creator) == 0 {
+		xRefTable.Creator = s
+	}
+
+	t := time.Time(d.CreationDate)
+	if !t.IsZero() {
+		xRefTable.CreationDate = types.DateString(t)
+	}
+
+	t = time.Time(d.ModDate)
+	if !t.IsZero() {
+		xRefTable.ModDate = types.DateString(t)
+	}
+
+	s = d.Producer
+	if len(s) > 0 || len(xRefTable.Producer) == 0 {
+		xRefTable.Producer = s
+	}
+
+	// TODO xRefTable.Trapped = d.Trapped
+
+	populateKeywordList(xRefTable, d)
 
 	return nil
 }
