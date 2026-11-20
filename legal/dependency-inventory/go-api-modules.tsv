@@ -22,7 +22,7 @@ github.com/aws/aws-sdk-go-v2/service/sts	v1.53.0	transitive	-
 github.com/aws/smithy-go	v1.28.9	transitive	LICENSE; NOTICE; internal/sync/singleflight/LICENSE; transport/http/protocol/internal/json/internal/stdlib/LICENSE
 github.com/aymerick/douceur	v0.2.0	transitive	LICENSE
 github.com/beorn7/perks	v1.0.1	transitive	LICENSE
-github.com/bep/imagemeta	v0.17.0	direct	LICENSE; testdata/images/bep/license.txt; testdata/images/goexif/license.txt; testdata/images/license.txt; testdata/images/metadata-extractor/license.txt
+github.com/bep/imagemeta	v0.17.3	direct	LICENSE; testdata/images/bep/license.txt; testdata/images/goexif/license.txt; testdata/images/license.txt; testdata/images/metadata-extractor/license.txt
 github.com/cespare/xxhash/v2	v2.3.0	transitive	LICENSE.txt
 github.com/client9/misspell	v0.3.4	transitive	-
 github.com/clipperhouse/uax29/v2	v2.7.0	transitive	LICENSE
