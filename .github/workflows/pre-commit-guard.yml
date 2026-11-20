@@ -268,18 +268,20 @@ jobs:
         # the identical gitleaks engine and .gitleaks.toml ruleset.
         env:
           GITLEAKS_VERSION: v8.30.1
-          # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz from the release's
-          # official checksums.txt. Bump together with GITLEAKS_VERSION.
+          # SHA-256 of the linux_x64 release archive from official checksums.txt.
+          # Bump together with GITLEAKS_VERSION.
           GITLEAKS_TARBALL_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
           set -euo pipefail
           NUM="${GITLEAKS_VERSION#v}"
-          TARBALL="/tmp/gitleaks.tar.gz"
-          curl -sSfL -o "$TARBALL" \
+          TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          ARCHIVE="${TMPDIR}/gitleaks-release"
+          curl -sSfL -o "$ARCHIVE" \
               "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${NUM}_linux_x64.tar.gz"
-          echo "${GITLEAKS_TARBALL_SHA256}  ${TARBALL}" | sha256sum -c -
-          mkdir -p /tmp/gitleaks && tar -xzf "$TARBALL" -C /tmp/gitleaks
-          install -m 0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
+          echo "${GITLEAKS_TARBALL_SHA256}  ${ARCHIVE}" | sha256sum -c -
+          tar -xzf "$ARCHIVE" -C "$TMPDIR"
+          install -m 0755 "${TMPDIR}/gitleaks" /usr/local/bin/gitleaks
           gitleaks version
 
       - name: Run gitleaks

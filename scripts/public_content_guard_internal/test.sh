@@ -235,6 +235,24 @@ npm_registry_readme_diff='diff --git a/README.md b/README.md
 @@ -1,1 +1,2 @@
 +See https://registry.npmjs.org/vite/-/vite-7.3.8.tgz for details.'
 
+workflow_release_download_diff='diff --git a/.github/workflows/pre-commit-guard.yml b/.github/workflows/pre-commit-guard.yml
+--- a/.github/workflows/pre-commit-guard.yml
++++ b/.github/workflows/pre-commit-guard.yml
+@@ -1,1 +1,2 @@
++          curl -sSfL -o "$ARCHIVE" "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${NUM}_linux_x64.tar.gz"'
+
+workflow_release_trailing_sensitive_diff='diff --git a/.github/workflows/pre-commit-guard.yml b/.github/workflows/pre-commit-guard.yml
+--- a/.github/workflows/pre-commit-guard.yml
++++ b/.github/workflows/pre-commit-guard.yml
+@@ -1,1 +1,2 @@
++          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz" # real_ride.fit'
+
+readme_release_download_diff='diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,1 +1,2 @@
++Download https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz'
+
 agents_coordinate_diff='diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
 +++ b/AGENTS.md
@@ -309,6 +327,9 @@ assert_passes "$npm_registry_lockfile_diff"
 assert_passes "$npm_registry_inventory_diff"
 assert_blocks_with "$npm_registry_lockfile_trailing_sensitive_diff" "sensitive filename in public/private text"
 assert_blocks_with "$npm_registry_readme_diff" "sensitive filename in public/private text"
+assert_passes "$workflow_release_download_diff"
+assert_blocks_with "$workflow_release_trailing_sensitive_diff" "sensitive filename in public/private text"
+assert_blocks_with "$readme_release_download_diff" "sensitive filename in public/private text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"

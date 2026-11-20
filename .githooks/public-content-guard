@@ -101,11 +101,19 @@ has_blocking_sensitive_filename() {
 
     # Public npm registry tarball URLs in lockfiles and dependency inventories
     # are package-manager metadata, not private filenames.
+    # Official GitHub release download URLs in CI workflows fetch pinned tools.
     case "$path" in
         frontend/package-lock.json|legal/dependency-inventory/npm-frontend.tsv)
             case "$text" in
                 *"https://registry.npmjs.org/"*)
                     text="$(printf '%s\n' "$text" | sed -E 's#https://registry\.npmjs\.org/(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+/-/[A-Za-z0-9._-]+\.tgz([^[:alnum:]_.-]|$)# \2#g')"
+                    ;;
+            esac
+            ;;
+        .github/workflows/*.yml)
+            case "$text" in
+                *"https://github.com/"*"/releases/download/"*)
+                    text="$(printf '%s\n' "$text" | sed -E 's#https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/releases/download/[A-Za-z0-9._${}-]+/[A-Za-z0-9._${}-]+\.(tar\.gz|tgz|zip)([^[:alnum:]_.-]|$)# \2#g')"
                     ;;
             esac
             ;;
