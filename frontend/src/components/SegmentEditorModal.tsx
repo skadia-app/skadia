@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import type { RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import

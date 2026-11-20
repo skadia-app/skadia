@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import { useTranslation } from 'react-i18next'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'

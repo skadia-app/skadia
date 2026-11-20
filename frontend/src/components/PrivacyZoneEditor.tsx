@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createPrivacyZone, updatePrivacyZone, type PrivacyZone } from '@/api/privacy'
 import ColorPicker from '@/components/ColorPicker'

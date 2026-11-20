@@ -1,6 +1,6 @@
 // frontend/src/components/activity/useMetricColoring.ts
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from '@/lib/useDebounce'
 import type { Activity, StreamPoint } from '@/api/types'

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { type SummitVisit } from '@/api/summits'
 import SummitActivityList from './SummitActivityList'

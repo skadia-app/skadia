@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import type { RequestParameters } from 'maplibre-gl'
 import type { StyleSpecification } from 'maplibre-gl'
 import { getToken } from '@/lib/auth'

@@ -1,4 +1,4 @@
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 
 export interface SummitMarker {
   marker: maplibregl.Marker

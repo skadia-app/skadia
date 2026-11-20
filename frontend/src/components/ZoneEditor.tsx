@@ -14,7 +14,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as maplibregl from 'maplibre-gl'
+import * as maplibregl from '@/lib/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { circlePolygon, clampToCircle, pointInPolygon, centroid } from '@/lib/geoUtils'
 import { elevationFromDisplayValue, elevationInputUnit, elevationToDisplayValue } from '@/lib/units'
