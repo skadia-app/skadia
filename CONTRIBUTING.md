@@ -64,9 +64,8 @@ Full setup notes are in `docs/documentation/dev/`. The short version:
   made, what hidden constraint applies, or which bug a workaround papers
   over.
 - **No third-party-platform name-dropping in code/UI/comments** unless an
-  ATTRIBUTIONS file, vendor LICENSE, or package metadata in the repo
-  already names the source. See the project root `CLAUDE.md` /
-  `AGENTS.md` for the full rule.
+  ATTRIBUTIONS/THIRD_PARTY_NOTICES file, vendor LICENSE, or package metadata
+  in the repo already names the source.
 - **Verify before claiming.** API names, struct field names, config keys —
   read the actual source, never quote from memory or generated docs.
 - **Database migrations are append-only.** Never edit a migration that has
