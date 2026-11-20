@@ -261,10 +261,57 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Run gitleaks
-        # gitleaks-action v3.0.0 — pinned by SHA against tag-move attacks.
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+      - name: Install gitleaks CLI
+        # Direct binary download from the official MIT-licensed gitleaks
+        # release, pinned to a specific version + SHA-256 of the tarball.
+        # Avoids gitleaks-action's paid organization license gate while running
+        # the identical gitleaks engine and .gitleaks.toml ruleset.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Free Starter license for public repos; private/org repos need
-          # GITLEAKS_LICENSE in the repo's secrets.
+          GITLEAKS_VERSION: v8.30.1
+          # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz from the release's
+          # official checksums.txt. Bump together with GITLEAKS_VERSION.
+          GITLEAKS_TARBALL_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          NUM="${GITLEAKS_VERSION#v}"
+          TARBALL="/tmp/gitleaks.tar.gz"
+          curl -sSfL -o "$TARBALL" \
+              "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${NUM}_linux_x64.tar.gz"
+          echo "${GITLEAKS_TARBALL_SHA256}  ${TARBALL}" | sha256sum -c -
+          mkdir -p /tmp/gitleaks && tar -xzf "$TARBALL" -C /tmp/gitleaks
+          install -m 0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            before="$PUSH_BEFORE_SHA"
+            head="$PUSH_AFTER_SHA"
+            if [ -z "$before" ] \
+                || [ "$before" = "0000000000000000000000000000000000000000" ] \
+                || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+                base=$(git merge-base origin/main "$head" 2>/dev/null || git rev-parse "${head}~1" 2>/dev/null || true)
+            else
+                base="$before"
+            fi
+          fi
+
+          if [ -n "$base" ]; then
+            if [ -z "$(git rev-list "${base}..${head}")" ]; then
+              echo "No new commits in ${base}..${head} — skipping gitleaks scan."
+              exit 0
+            fi
+            gitleaks git --redact --verbose --config=.gitleaks.toml --log-opts="${base}..${head}" .
+          else
+            gitleaks git --redact --verbose --config=.gitleaks.toml --log-opts="$head" .
+          fi

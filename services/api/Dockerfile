@@ -14,8 +14,8 @@ RUN VITE_SKADIA_GIT_COMMIT="$SKADIA_GIT_COMMIT" \
     VITE_SKADIA_GIT_COMMIT_TIME="$SKADIA_GIT_COMMIT_TIME" \
     VITE_SKADIA_BUILD_TIME="$SKADIA_BUILD_TIME" \
     VITE_SKADIA_CONFIG_VERSION="$SKADIA_CONFIG_VERSION" \
-    npm run build
-RUN printf '{ "service": "frontend", "git_commit": "%s", "commit_time": "%s", "build_time": "%s", "config_version": "%s" }\n' \
+    npm run build \
+    && printf '{ "service": "frontend", "git_commit": "%s", "commit_time": "%s", "build_time": "%s", "config_version": "%s" }\n' \
       "$SKADIA_GIT_COMMIT" "$SKADIA_GIT_COMMIT_TIME" "$SKADIA_BUILD_TIME" "$SKADIA_CONFIG_VERSION" \
       > /frontend/dist/skadia-build.json
 
@@ -73,9 +73,9 @@ EXPOSE 8080
 # container when this fails. /healthz is the cheapest server-up check
 # (no DB roundtrip); /readyz can be probed separately for readiness.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
-    CMD curl -fsS --max-time 2 http://localhost:8080/healthz || exit 1
+    CMD ["curl", "-fsS", "-o", "/dev/null", "--max-time", "2", "http://localhost:8080/healthz"]
 
-RUN groupadd -r skadia && useradd -r -g skadia -d /nonexistent -s /usr/sbin/nologin skadia
-USER skadia
+RUN groupadd -r -g 10001 skadia && useradd -r -u 10001 -g skadia -d /nonexistent -s /usr/sbin/nologin skadia
+USER 10001:10001
 
 CMD ["/api"]

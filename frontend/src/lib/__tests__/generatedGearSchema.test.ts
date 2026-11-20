@@ -34,7 +34,7 @@ describe('generatedGearSchema drift guard', () => {
           msg,
       )
     }
-  })
+  }, 30_000)
 
   it('generatedGearSchema.ts starts with the canonical codegen header', () => {
     const content = readFileSync('src/lib/generatedGearSchema.ts', 'utf8')

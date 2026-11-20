@@ -238,28 +238,29 @@ test_same_number_with_order_prefix_fails() {
   [[ "$out" == *"same provisional number"* ]] || fail "missing duplicate-number error: $out"
 }
 
-test_base_999999_finalizes_to_seven_digits() {
-  local repo dir
+test_rejects_provisional_base_migration_number() {
+  local repo out code
   repo="$(mktemp -d)"
   TMP_DIRS+=("$repo")
   git -C "$repo" init -q -b main
   git -C "$repo" config user.email "test@example.invalid"
   git -C "$repo" config user.name "Test User"
   mkdir -p "$repo/services/api/internal/migrate/migrations"
-  add_migration "$repo" "999999" "base"
+  add_migration "$repo" "900001" "provisional_base"
   git -C "$repo" add .
-  git -C "$repo" commit -q -m "base migrations"
+  git -C "$repo" commit -q -m "base with accidental provisional migration"
   git -C "$repo" switch -q -c feature
-  add_migration "$repo" "1000001" "alpha"
+  add_migration "$repo" "900002" "alpha"
   git -C "$repo" add .
-  git -C "$repo" commit -q -m "add provisional migration"
-  dir="$repo/services/api/internal/migrate/migrations"
+  git -C "$repo" commit -q -m "add branch migration"
 
-  finalize "$repo" >/dev/null
+  set +e
+  out="$(finalize "$repo" 2>&1)"
+  code=$?
+  set -e
 
-  assert_file "$dir/1000000_alpha.up.sql"
-  assert_file "$dir/1000000_alpha.down.sql"
-  assert_no_file "$dir/1000001_alpha.up.sql"
+  [[ "$code" -ne 0 ]] || fail "provisional base migration number was accepted"
+  [[ "$out" == *"contains provisional migration number"* ]] || fail "missing provisional-base error: $out"
 }
 
 test_placeholder_000999_still_finalizes() {
@@ -298,7 +299,7 @@ run_test test_refinalizes_colliding_branch_number_after_base_advances
 run_test test_check_rejects_renamed_base_migration
 run_test test_same_number_without_order_prefix_fails
 run_test test_same_number_with_order_prefix_fails
-run_test test_base_999999_finalizes_to_seven_digits
+run_test test_rejects_provisional_base_migration_number
 run_test test_placeholder_000999_still_finalizes
 run_test test_check_passes_after_finalize_commit
 
