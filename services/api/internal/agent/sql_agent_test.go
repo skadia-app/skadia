@@ -10,6 +10,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestValidateSQLRejectsUnsafeQueries(t *testing.T) {
@@ -199,6 +200,10 @@ func (r *countingRows) RawValues() [][]byte {
 }
 
 func (r *countingRows) Conn() *pgx.Conn {
+	return nil
+}
+
+func (r *countingRows) TypeMap() *pgtype.Map {
 	return nil
 }
 

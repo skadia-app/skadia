@@ -187,6 +187,7 @@ ALLOWED_BINARY_PATHS=(
     "frontend/src/assets/"
     "docs/documentation/assets/"
     "docs/documentation/static/"
+    "services/api/internal/garmin/testdata/"
     "vendor/"
     "services/api/vendor/"
 )

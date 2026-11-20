@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1698,7 +1699,7 @@ func extractPDFText(pdfData []byte) string {
 	}
 	defer os.RemoveAll(outDir)
 
-	if err := pdfcpuapi.ExtractContentFile(tmpFile.Name(), outDir, nil, conf); err != nil {
+	if err := pdfcpuapi.ExtractContentFile(context.Background(), tmpFile.Name(), outDir, nil, conf); err != nil {
 		slog.Debug("pdfcpu: content extraction failed", "error", err)
 		return ""
 	}

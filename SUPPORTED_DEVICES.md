@@ -66,11 +66,15 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Approach S 6 | SDK |
 | Garmin | Approach S 60 | SDK |
 | Garmin | Approach S 70 | SDK |
+| Garmin | Approach S 72 43mm | SDK |
+| Garmin | Approach S 72 47mm | SDK |
 | Garmin | Approach S44 | SDK |
 | Garmin | Approach S50 | SDK |
 | Garmin | Approach X 10 | SDK |
 | Garmin | Approach X 40 | SDK |
 | Garmin | Bounce 2 | SDK |
+| Garmin | Cirqa Smart Band | SDK |
+| Garmin | D 2 Mach 2 Pro | SDK |
 | Garmin | D2 Air Venu | SDK |
 | Garmin | D2 Air X10 | SDK |
 | Garmin | D2 Air X15 | SDK |
@@ -88,11 +92,13 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Descent Mk3i | SDK |
 | Garmin | Descent T 1 | SDK |
 | Garmin | Descent T 2 | SDK |
+| Garmin | Descent X 10 | SDK |
 | Garmin | Edge 1000 | SDK |
 | Garmin | Edge 1030 | SDK |
 | Garmin | Edge 1030 Plus | SDK |
 | Garmin | Edge 1040 | SDK |
 | Garmin | Edge 1050 | SDK |
+| Garmin | Edge 1060 | SDK |
 | Garmin | Edge 130 | SDK |
 | Garmin | Edge 130 Plus | SDK |
 | Garmin | Edge 20 | SDK |
@@ -114,12 +120,15 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Edge Explore | SDK |
 | Garmin | Edge Explore 1000 | SDK |
 | Garmin | Edge Explore 2 | SDK |
+| Garmin | Edge Explore 3 | SDK |
+| Garmin | Edge Explore 3 Plus | SDK |
 | Garmin | Edge Explore 820 | SDK |
 | Garmin | Edge MTB | SDK |
 | Garmin | Edge Touring | SDK |
 | Garmin | Enduro | SDK |
 | Garmin | Enduro 2 | SDK |
 | Garmin | Enduro 3 | SDK |
+| Garmin | Enduro 4 | SDK |
 | Garmin | Epix | SDK |
 | Garmin | Epix Gen 2 | SDK |
 | Garmin | Epix Gen 2 Pro 42 | SDK |
@@ -131,6 +140,8 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | FR15 | SDK |
 | Garmin | FR165 | SDK |
 | Garmin | FR165 Music | SDK |
+| Garmin | FR170 | SDK |
+| Garmin | FR170 Music | SDK |
 | Garmin | FR210 Japan | SDK |
 | Garmin | FR220 | SDK |
 | Garmin | FR225 | SDK |
@@ -157,7 +168,8 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | FR45 | SDK |
 | Garmin | FR50 | SDK |
 | Garmin | FR55 | SDK |
-| Garmin | FR570 | Map |
+| Garmin | FR570 Large | SDK |
+| Garmin | FR570 Small | SDK |
 | Garmin | FR60 | SDK |
 | Garmin | FR610 | SDK |
 | Garmin | FR620 | SDK |
@@ -165,6 +177,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | FR645 | SDK |
 | Garmin | FR645M | SDK |
 | Garmin | FR70 | SDK |
+| Garmin | FR70 2026 | SDK |
 | Garmin | FR735XT | SDK |
 | Garmin | FR745 | SDK |
 | Garmin | FR910XT | SDK |
@@ -174,7 +187,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | FR945 LTE | SDK |
 | Garmin | FR955 | SDK |
 | Garmin | FR965 | SDK |
-| Garmin | FR970 | Map |
+| Garmin | FR970 | SDK |
 | Garmin | Fenix | SDK |
 | Garmin | Fenix 2 | SDK |
 | Garmin | Fenix 3 | SDK |
@@ -193,6 +206,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Fenix 6X | SDK |
 | Garmin | Fenix 7 | SDK |
 | Garmin | Fenix 7 Pro Solar | SDK |
+| Garmin | Fenix 7 Pro Solar NO Wifi | SDK |
 | Garmin | Fenix 7S | SDK |
 | Garmin | Fenix 7S Pro Solar | SDK |
 | Garmin | Fenix 7X | SDK |
@@ -202,6 +216,13 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Fenix 8 Small | SDK |
 | Garmin | Fenix 8 Solar | SDK |
 | Garmin | Fenix 8 Solar Large | SDK |
+| Garmin | Fenix 9 | SDK |
+| Garmin | Fenix 9 43mm | SDK |
+| Garmin | Fenix 9 Pro 43mm | SDK |
+| Garmin | Fenix 9 Pro 47mm | SDK |
+| Garmin | Fenix 9 Pro 51mm | SDK |
+| Garmin | Fenix 9 Pro Solar 47mm | SDK |
+| Garmin | Fenix 9 Pro Solar 51mm | SDK |
 | Garmin | Fenix E | SDK |
 | Garmin | Foretrex 601/701 | SDK |
 | Garmin | GPSMAP 66 | SDK |
@@ -237,6 +258,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | MARQ Gen 2 Aviator | SDK |
 | Garmin | MARQ Gen 2 Commander | SDK |
 | Garmin | MARQ Golfer | SDK |
+| Garmin | MARQ3 | SDK |
 | Garmin | Oregon 7XX | SDK |
 | Garmin | Rino 7XX | SDK |
 | Garmin | Swim | SDK |
@@ -244,6 +266,11 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Tactix 7 | SDK |
 | Garmin | Tactix 8 AMOLED | SDK |
 | Garmin | Tactix 8 Solar | SDK |
+| Garmin | Training Peaks Virtual Android | SDK |
+| Garmin | Training Peaks Virtual Apple TV | SDK |
+| Garmin | Training Peaks Virtual Ios | SDK |
+| Garmin | Training Peaks Virtual Mac OS | SDK |
+| Garmin | Training Peaks Virtual Windows | SDK |
 | Garmin | Venu | SDK |
 | Garmin | Venu 2 | SDK |
 | Garmin | Venu 2 Plus | SDK |
