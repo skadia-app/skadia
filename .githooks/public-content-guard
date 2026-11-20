@@ -98,6 +98,14 @@ has_blocking_sensitive_filename() {
         return 1
     fi
 
+    # Public npm registry tarball URLs in lockfiles and dependency inventories
+    # are package-manager metadata, not private filenames.
+    case "$text" in
+        *"https://registry.npmjs.org/"*)
+            text="$(printf '%s\n' "$text" | sed -E 's#https://registry\.npmjs\.org/[^[:space:]"'"'"']+\.tgz##g')"
+            ;;
+    esac
+
     while IFS= read -r token; do
         [ -n "$token" ] || continue
         token=$(printf '%s\n' "$token" | sed -E 's/^[^[:alnum:]_.-]+//; s/[^[:alnum:]_-]+$//')

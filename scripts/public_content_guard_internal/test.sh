@@ -215,6 +215,12 @@ public_protocol_compatible_diff='diff --git a/docs/documentation/user/how-to/sto
 @@ -1,1 +1,2 @@
 +Use an S3-compatible object store.'
 
+npm_registry_lockfile_diff='diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -1,1 +1,2 @@
++      "resolved": "https://registry.npmjs.org/vite/-/vite-7.3.8.tgz",'
+
 agents_coordinate_diff='diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
 +++ b/AGENTS.md
@@ -285,6 +291,7 @@ assert_blocks_with "$public_backtick_tag_diff" "private tag marker in public tex
 assert_blocks_with "$public_third_party_inspired_diff" "third-party platform framing in public text"
 assert_blocks_with "$public_third_party_standard_diff" "third-party platform framing in public text"
 assert_passes "$public_protocol_compatible_diff"
+assert_passes "$npm_registry_lockfile_diff"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"
