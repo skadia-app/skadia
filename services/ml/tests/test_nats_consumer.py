@@ -1273,3 +1273,56 @@ def test_bounded_semaphore_map_logs_warning_above_double_cap(caplog):
         "2x cap" in record.message or "above 2x cap" in record.message
         for record in caplog.records
     ), f"Expected 2x-cap warning, got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.asyncio
+async def test_publish_progress_sanitizes_subject_for_strict_nats_validation():
+    from progress import publish_progress
+
+    published: list[tuple[str, bytes]] = []
+
+    class _RecordingNC:
+        async def publish(self, subject: str, payload: bytes):
+            published.append((subject, payload))
+
+    nc = _RecordingNC()
+    await publish_progress(nc, DOC_ID, "step", "running", user_id=USER_ID)
+    await publish_progress(nc, DOC_ID, "step", "running", user_id="  " + USER_ID + "  ")
+    await publish_progress(nc, DOC_ID, "step", "running", user_id="bad.user>* id")
+    await publish_progress(nc, DOC_ID, "step", "running", user_id="")
+
+    assert [s for s, _ in published] == [
+        f"skadia.enrichment.progress.{USER_ID}",
+        f"skadia.enrichment.progress.{USER_ID}",
+        "skadia.enrichment.progress",
+        "skadia.enrichment.progress",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_process_message_normalizes_uuids_before_progress_publish(monkeypatch):
+    published: list[str] = []
+
+    class _RecordingNC:
+        async def publish(self, subject: str, payload: bytes):
+            published.append(subject)
+
+    async def fake_get_pool():
+        return _FakePool(object())
+
+    seen: list[tuple[str, str]] = []
+
+    async def fake_step(_pool, activity_id: str, user_id: str):
+        seen.append((activity_id, user_id))
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    msg = _FakeMsg({"activity_id": f"{{{DOC_ID.upper()}}}", "user_id": f"urn:uuid:{USER_ID.upper()}"})
+
+    await nats_consumer._process_message(msg, [("demo", fake_step)], _RecordingNC())
+
+    assert msg.acked == 1
+    assert seen == [(DOC_ID, USER_ID)]
+    assert published == [
+        f"skadia.enrichment.progress.{USER_ID}",
+        f"skadia.enrichment.progress.{USER_ID}",
+    ]

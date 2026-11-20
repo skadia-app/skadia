@@ -31,9 +31,11 @@ async def get_readonly_pool() -> asyncpg.Pool:
 
 async def close_pool() -> None:
     global _pool, _readonly_pool
-    if _pool:
-        await _pool.close()
-        _pool = None
-    if _readonly_pool:
-        await _readonly_pool.close()
-        _readonly_pool = None
+    pool, _pool = _pool, None
+    readonly_pool, _readonly_pool = _readonly_pool, None
+    try:
+        if pool:
+            await pool.close()
+    finally:
+        if readonly_pool:
+            await readonly_pool.close()

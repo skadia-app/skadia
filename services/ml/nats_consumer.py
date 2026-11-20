@@ -440,16 +440,17 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
         await msg.ack()
         return
 
-    try:
-        uuid.UUID(str(activity_id))
-        uuid.UUID(str(user_id))
-    except (ValueError, AttributeError):
+    valid_activity_id = _valid_uuid(activity_id)
+    valid_user_id = _valid_uuid(user_id)
+    if not valid_activity_id or not valid_user_id:
         logger.warning(
             "Invalid UUID in NATS message: activity_id=%s user_id=%s",
             activity_id, user_id,
         )
         await msg.ack()
         return
+    activity_id = valid_activity_id
+    user_id = valid_user_id
 
     # enabled_modules: empty list (or missing) means all modules run.
     # Non-empty list means only the listed modules run (backwards-compatible).
@@ -484,9 +485,17 @@ async def _process_message(msg, steps: list, nc: nats.NATS) -> None:
                             activity_id,
                             e,
                         )
-                        await publish_progress(
-                            nc, activity_id, step_name, "error", str(e), user_id=user_id
-                        )
+                        try:
+                            await publish_progress(
+                                nc, activity_id, step_name, "error", str(e), user_id=user_id
+                            )
+                        except Exception as pub_err:
+                            logger.warning(
+                                "Failed to publish error progress for activity %s step %s: %s",
+                                activity_id,
+                                step_name,
+                                pub_err,
+                            )
                         # Continue with remaining steps even if one fails
 
                 await msg.ack()

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -37,49 +38,54 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("ML service starting up")
+    try:
+        # Initialize database pool
+        await get_pool()
+        logger.info("Database pool initialized")
 
-    # Initialize database pool
-    await get_pool()
-    logger.info("Database pool initialized")
+        # Connect to NATS with resilience callbacks
+        nats_url = os.environ.get("NATS_URL", "nats://nats:4222")
 
-    # Connect to NATS with resilience callbacks
-    nats_url = os.environ.get("NATS_URL", "nats://nats:4222")
+        async def _on_disconnect():
+            logger.warning("NATS disconnected")
 
-    async def _on_disconnect():
-        logger.warning("NATS disconnected")
+        async def _on_reconnect():
+            logger.info("NATS reconnected")
 
-    async def _on_reconnect():
-        logger.info("NATS reconnected")
+        async def _on_error(e):
+            logger.error("NATS error: %s", e)
 
-    async def _on_error(e):
-        logger.error("NATS error: %s", e)
+        _nc = await nats.connect(
+            nats_url,
+            error_cb=_on_error,
+            disconnected_cb=_on_disconnect,
+            reconnected_cb=_on_reconnect,
+            max_reconnect_attempts=-1,
+            reconnect_time_wait=2,
+        )
+        logger.info("Connected to NATS at %s", nats_url)
 
-    _nc = await nats.connect(
-        nats_url,
-        error_cb=_on_error,
-        disconnected_cb=_on_disconnect,
-        reconnected_cb=_on_reconnect,
-        max_reconnect_attempts=-1,
-        reconnect_time_wait=2,
-    )
-    logger.info("Connected to NATS at %s", nats_url)
+        # Start JetStream pull consumers (returns asyncio.Task list)
+        _consumer_tasks = await start_consumers(_nc)
 
-    # Start JetStream pull consumers (returns asyncio.Task list)
-    _consumer_tasks = await start_consumers(_nc)
+        yield
+    finally:
+        # Shutdown — always clean up consumers, NATS, and DB pools (including
+        # asyncpg >= 0.32 min_size background maintainers) even if startup fails.
+        logger.info("ML service shutting down")
 
-    yield
+        tasks, _consumer_tasks = _consumer_tasks, []
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Shutdown — cancel pull consumer tasks (no unsubscribe needed for pull)
-    logger.info("ML service shutting down")
+        nc, _nc = _nc, None
+        if nc and not nc.is_closed:
+            await nc.close()
 
-    for task in _consumer_tasks:
-        task.cancel()
-
-    if _nc and not _nc.is_closed:
-        await _nc.close()
-
-    await close_pool()
-    logger.info("ML service shut down complete")
+        await close_pool()
+        logger.info("ML service shut down complete")
 
 
 app = FastAPI(title="Skadia ML Service", lifespan=lifespan)

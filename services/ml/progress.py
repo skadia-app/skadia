@@ -1,5 +1,16 @@
 import json
+import re
 import nats
+
+_SAFE_SUBJECT_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _progress_subject(user_id: str) -> str:
+    """Build a NATS-valid progress subject (nats-py >= 2.16 validates strictly)."""
+    token = (user_id or "").strip()
+    if token and _SAFE_SUBJECT_TOKEN_RE.match(token):
+        return f"skadia.enrichment.progress.{token}"
+    return "skadia.enrichment.progress"
 
 
 async def publish_progress(
@@ -13,5 +24,5 @@ async def publish_progress(
         "detail": detail,
         "user_id": user_id,
     }
-    subject = f"skadia.enrichment.progress.{user_id}" if user_id else "skadia.enrichment.progress"
+    subject = _progress_subject(user_id)
     await nc.publish(subject, json.dumps(payload).encode())
