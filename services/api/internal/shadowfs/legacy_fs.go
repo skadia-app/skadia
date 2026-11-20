@@ -45,20 +45,29 @@ func WriteShadowFile(basePath, relativePath string, originalData []byte, metaDat
 	if err := validatePath(basePath, relativePath); err != nil {
 		return err
 	}
-	fullPath := filepath.Join(basePath, relativePath)
-	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
+		return fmt.Errorf("create base directory %s: %w", basePath, err)
+	}
+	root, err := os.OpenRoot(basePath)
+	if err != nil {
+		return fmt.Errorf("open base directory %s: %w", basePath, err)
+	}
+	defer root.Close()
 
-	if err := EnsureDir(dir); err != nil {
-		return fmt.Errorf("create directory %s: %w", dir, err)
+	rel := filepath.Clean(relativePath)
+	if dir := filepath.Dir(rel); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create directory %s: %w", dir, err)
+		}
 	}
 
-	if err := os.WriteFile(fullPath, originalData, 0644); err != nil {
-		return fmt.Errorf("write file %s: %w", fullPath, err)
+	if err := root.WriteFile(rel, originalData, 0o644); err != nil {
+		return fmt.Errorf("write file %s: %w", rel, err)
 	}
 
-	metaPath := fullPath + ".meta"
-	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
-		return fmt.Errorf("write meta %s: %w", metaPath, err)
+	metaRel := rel + ".meta"
+	if err := root.WriteFile(metaRel, metaData, 0o644); err != nil {
+		return fmt.Errorf("write meta %s: %w", metaRel, err)
 	}
 
 	return nil
@@ -73,29 +82,36 @@ func MoveShadowFile(basePath, oldPath, newPath string) error {
 	if err := validatePath(basePath, newPath); err != nil {
 		return err
 	}
-	oldFull := filepath.Join(basePath, oldPath)
-	newFull := filepath.Join(basePath, newPath)
+	root, err := os.OpenRoot(basePath)
+	if err != nil {
+		return fmt.Errorf("open base directory %s: %w", basePath, err)
+	}
+	defer root.Close()
 
-	newDir := filepath.Dir(newFull)
-	if err := EnsureDir(newDir); err != nil {
-		return fmt.Errorf("create directory %s: %w", newDir, err)
+	oldRel := filepath.Clean(oldPath)
+	newRel := filepath.Clean(newPath)
+
+	if newDir := filepath.Dir(newRel); newDir != "." {
+		if err := root.MkdirAll(newDir, 0o755); err != nil {
+			return fmt.Errorf("create directory %s: %w", newDir, err)
+		}
 	}
 
-	if err := os.Rename(oldFull, newFull); err != nil {
-		return fmt.Errorf("move %s -> %s: %w", oldFull, newFull, err)
+	if err := root.Rename(oldRel, newRel); err != nil {
+		return fmt.Errorf("move %s -> %s: %w", oldRel, newRel, err)
 	}
 
 	// Move .meta sidecar if it exists
-	oldMeta := oldFull + ".meta"
-	if _, err := os.Stat(oldMeta); err == nil {
-		newMeta := newFull + ".meta"
-		if err := os.Rename(oldMeta, newMeta); err != nil {
+	oldMeta := oldRel + ".meta"
+	if _, err := root.Stat(oldMeta); err == nil {
+		newMeta := newRel + ".meta"
+		if err := root.Rename(oldMeta, newMeta); err != nil {
 			return fmt.Errorf("move meta %s -> %s: %w", oldMeta, newMeta, err)
 		}
 	}
 
 	// Try to remove empty parent directories (best-effort)
-	cleanEmptyDirs(filepath.Dir(oldFull), basePath)
+	cleanEmptyDirs(filepath.Dir(filepath.Join(basePath, oldRel)), basePath)
 
 	return nil
 }
@@ -105,18 +121,26 @@ func DeleteShadowFile(basePath, relativePath string) error {
 	if err := validatePath(basePath, relativePath); err != nil {
 		return err
 	}
-	fullPath := filepath.Join(basePath, relativePath)
+	root, err := os.OpenRoot(basePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("open base directory %s: %w", basePath, err)
+	}
+	defer root.Close()
 
-	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("delete %s: %w", fullPath, err)
+	rel := filepath.Clean(relativePath)
+	if err := root.Remove(rel); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete %s: %w", rel, err)
 	}
 
-	metaPath := fullPath + ".meta"
-	if err := os.Remove(metaPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("delete meta %s: %w", metaPath, err)
+	metaRel := rel + ".meta"
+	if err := root.Remove(metaRel); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete meta %s: %w", metaRel, err)
 	}
 
-	cleanEmptyDirs(filepath.Dir(fullPath), basePath)
+	cleanEmptyDirs(filepath.Dir(filepath.Join(basePath, rel)), basePath)
 
 	return nil
 }

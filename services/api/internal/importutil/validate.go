@@ -37,7 +37,9 @@ func ValidateImportSourcePathWithDirs(sourcePath string, allowedDirs []string) (
 		return cleaned == dir || strings.HasPrefix(cleaned, dir+string(filepath.Separator))
 	}
 
-	if within(tmpDir) {
+	// Never allow os.TempDir() itself as an import source (only subdirectories
+	// inside it) so cleanup helpers cannot ever target the system temp root.
+	if strings.HasPrefix(cleaned, tmpDir+string(filepath.Separator)) {
 		return cleaned, nil
 	}
 	for _, dir := range allowedDirs {

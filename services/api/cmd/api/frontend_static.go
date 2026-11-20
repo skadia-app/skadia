@@ -26,17 +26,36 @@ func mountFrontendStatic(r chi.Router, dir string) bool {
 		slog.Warn("frontend static directory is invalid", "dir", absDir, "error", err)
 		return false
 	}
-	indexPath := filepath.Join(realDir, "index.html")
-	if info, err := os.Stat(indexPath); err != nil || info.IsDir() {
+	root, err := os.OpenRoot(realDir)
+	if err != nil {
+		slog.Warn("frontend static directory could not be opened", "dir", realDir, "error", err)
+		return false
+	}
+	if info, err := root.Stat("index.html"); err != nil || info.IsDir() {
+		_ = root.Close()
 		slog.Warn("frontend static directory does not contain index.html", "dir", realDir, "error", err)
 		return false
 	}
 
-	r.NotFound(frontendStaticHandler(realDir, indexPath))
+	r.NotFound(frontendStaticHandler(root))
 	return true
 }
 
-func frontendStaticHandler(dir, indexPath string) http.HandlerFunc {
+func frontendStaticHandler(root *os.Root) http.HandlerFunc {
+	serveFromRoot := func(w http.ResponseWriter, r *http.Request, rel string) bool {
+		f, err := root.Open(rel)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil || info.IsDir() {
+			return false
+		}
+		http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+		return true
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
@@ -47,13 +66,13 @@ func frontendStaticHandler(dir, indexPath string) http.HandlerFunc {
 			return
 		}
 
-		candidate, ok := frontendStaticCandidate(dir, r.URL.Path)
-		if ok {
-			if resolved, ok := resolveFrontendStaticFile(dir, candidate); ok {
-				if strings.HasPrefix(r.URL.Path, "/assets/") {
+		if rel, ok := frontendStaticRelPath(r.URL.Path); ok {
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				if info, err := root.Stat(rel); err == nil && !info.IsDir() {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				}
-				http.ServeFile(w, r, resolved)
+			}
+			if serveFromRoot(w, r, rel) {
 				return
 			}
 		}
@@ -61,37 +80,18 @@ func frontendStaticHandler(dir, indexPath string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, indexPath)
+		if !serveFromRoot(w, r, "index.html") {
+			http.NotFound(w, r)
+		}
 	}
 }
 
-func frontendStaticCandidate(dir, requestPath string) (string, bool) {
+func frontendStaticRelPath(requestPath string) (string, bool) {
 	clean := strings.TrimPrefix(path.Clean("/"+requestPath), "/")
-	if clean == "" || clean == "." {
+	if clean == "" || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", false
 	}
-	candidate := filepath.Join(dir, filepath.FromSlash(clean))
-	rel, err := filepath.Rel(dir, candidate)
-	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return "", false
-	}
-	return candidate, true
-}
-
-func resolveFrontendStaticFile(dir, candidate string) (string, bool) {
-	info, err := os.Stat(candidate)
-	if err != nil || info.IsDir() {
-		return "", false
-	}
-	resolved, err := filepath.EvalSymlinks(candidate)
-	if err != nil {
-		return "", false
-	}
-	rel, err := filepath.Rel(dir, resolved)
-	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return "", false
-	}
-	return resolved, true
+	return clean, true
 }
 
 func isBackendPath(p string) bool {

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -64,8 +63,12 @@ func (h *Handler) hasCustomBRouterProfile(profile string) bool {
 	if !isSafeBRouterProfileName(profile) || h == nil || h.Config == nil || h.Config.BRouterProfilesDir == "" {
 		return false
 	}
-	path := filepath.Join(h.Config.BRouterProfilesDir, profile+".brf")
-	info, err := os.Stat(path)
+	root, err := os.OpenRoot(h.Config.BRouterProfilesDir)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	info, err := root.Stat(profile + ".brf")
 	return err == nil && !info.IsDir()
 }
 

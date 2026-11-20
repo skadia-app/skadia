@@ -173,7 +173,19 @@ func (w *Watcher) processFile(filePath string) {
 // and error files left from previous runs.
 // Files are processed sequentially to avoid overwhelming DB/S3 on startup.
 func (w *Watcher) scanExisting() {
-	entries, err := os.ReadDir(w.dir)
+	root, err := os.OpenRoot(w.dir)
+	if err != nil {
+		slog.Warn("hotfolder: startup scan failed", "dir", w.dir, "error", err)
+		return
+	}
+	defer root.Close()
+	dirFile, err := root.Open(".")
+	if err != nil {
+		slog.Warn("hotfolder: startup scan open failed", "dir", w.dir, "error", err)
+		return
+	}
+	entries, err := dirFile.ReadDir(-1)
+	_ = dirFile.Close()
 	if err != nil {
 		slog.Warn("hotfolder: startup scan failed", "dir", w.dir, "error", err)
 		return
@@ -236,7 +248,7 @@ func NewWatcherManager(basePath string, callback func(userID, filePath string) e
 // UserPath returns the hotfolder path for a specific user.
 // Returns an error if userID contains path traversal sequences.
 func (wm *WatcherManager) UserPath(userID string) (string, error) {
-	if strings.Contains(userID, "..") || strings.ContainsAny(userID, "/\\") {
+	if userID == "" || userID == "." || strings.Contains(userID, "..") || strings.ContainsAny(userID, "/\\") {
 		return "", fmt.Errorf("invalid userID: %q", userID)
 	}
 	return filepath.Join(wm.basePath, userID), nil
@@ -259,6 +271,11 @@ func (wm *WatcherManager) EnableUser(userID string, isAdmin bool) error {
 		}
 	}
 
+	userPath, err := wm.UserPath(userID)
+	if err != nil {
+		return err
+	}
+
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	if _, exists := wm.watchers[userID]; exists {
@@ -267,7 +284,18 @@ func (wm *WatcherManager) EnableUser(userID string, isAdmin bool) error {
 		// return nil without creating a duplicate.
 		return nil // already watching
 	}
-	userPath := filepath.Join(wm.basePath, userID)
+	if err := os.MkdirAll(wm.basePath, 0o755); err != nil {
+		return fmt.Errorf("hotfolder: create base dir: %w", err)
+	}
+	root, err := os.OpenRoot(wm.basePath)
+	if err != nil {
+		return fmt.Errorf("hotfolder: open base dir: %w", err)
+	}
+	if err := root.MkdirAll(userID, 0o755); err != nil {
+		_ = root.Close()
+		return fmt.Errorf("hotfolder: create user dir: %w", err)
+	}
+	_ = root.Close()
 	w := NewWatcher(userPath, func(filePath string) error {
 		return wm.callback(userID, filePath)
 	})

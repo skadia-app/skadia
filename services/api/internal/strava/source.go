@@ -28,17 +28,27 @@ func NewDirSource(path string) *DirSource {
 	return &DirSource{DirSource: importutil.NewDirSource(path)}
 }
 
+// openContained opens relativePath inside s.Dir using os.Root so path
+// traversal and symlink escapes are enforced by the OS.
+func (s *DirSource) openContained(relativePath string) (*os.File, error) {
+	cleaned := filepath.Clean(relativePath)
+	if cleaned == "" || cleaned == "." || filepath.IsAbs(cleaned) ||
+		cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path traversal detected: %q", relativePath)
+	}
+	root, err := os.OpenRoot(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.Open(cleaned)
+}
+
 // ReadCSV reads a CSV file and returns all rows (including header as row 0).
 // Handles the BOM that some Strava exports include.
 func (s *DirSource) ReadCSV(relativePath string) ([][]string, error) {
-	// Containment check — relativePath must stay within the export directory.
-	fullPath := filepath.Join(s.Dir, relativePath)
-	cleanDir := filepath.Clean(s.Dir)
-	if !strings.HasPrefix(filepath.Clean(fullPath)+string(filepath.Separator), cleanDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("path traversal detected in ReadCSV: %q", relativePath)
-	}
 	// Size limit to prevent OOM.
-	f, err := os.Open(fullPath)
+	f, err := s.openContained(relativePath)
 	if err != nil {
 		return nil, fmt.Errorf("read csv %s: %w", relativePath, err)
 	}
@@ -70,14 +80,8 @@ func (s *DirSource) ReadCSV(relativePath string) ([][]string, error) {
 const maxReadFileBytes = 500 << 20
 
 func (s *DirSource) ReadFile(relativePath string) ([]byte, error) {
-	// M18: Containment check — relativePath must stay within the export directory.
-	fullPath := filepath.Join(s.Dir, relativePath)
-	cleanDir := filepath.Clean(s.Dir)
-	if !strings.HasPrefix(filepath.Clean(fullPath)+string(filepath.Separator), cleanDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("path traversal detected in ReadFile: %q", relativePath)
-	}
-	// M19: Size limit to prevent OOM — read limit+1 to detect truncation and error.
-	f, err := os.Open(fullPath)
+	// M18/M19: Kernel-confined open + size limit to prevent traversal and OOM.
+	f, err := s.openContained(relativePath)
 	if err != nil {
 		return nil, err
 	}

@@ -92,7 +92,20 @@ func MmapFCOV(path string) (FCOVHeader, []byte, func(), error) {
 	if err != nil {
 		return FCOVHeader{}, nil, nil, err
 	}
+	return mmapFCOVFile(f, path)
+}
 
+// MmapFCOVFromRoot opens relPath inside root (kernel-confined via os.Root) and
+// mmaps the FCOV file.
+func MmapFCOVFromRoot(root *os.Root, relPath string) (FCOVHeader, []byte, func(), error) {
+	f, err := root.Open(relPath)
+	if err != nil {
+		return FCOVHeader{}, nil, nil, err
+	}
+	return mmapFCOVFile(f, relPath)
+}
+
+func mmapFCOVFile(f *os.File, label string) (FCOVHeader, []byte, func(), error) {
 	info, err := f.Stat()
 	if err != nil {
 		f.Close()
@@ -103,7 +116,7 @@ func MmapFCOV(path string) (FCOVHeader, []byte, func(), error) {
 		syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		f.Close()
-		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: mmap %s: %w", path, err)
+		return FCOVHeader{}, nil, nil, fmt.Errorf("fcov: mmap %s: %w", label, err)
 	}
 
 	cleanup := func() {

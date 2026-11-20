@@ -664,20 +664,31 @@ func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Requ
 	name := chi.URLParam(r, "name")
 
 	// Reject path traversal
-	if strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid profile name", r.URL.Path)
 		return
 	}
 
 	brouterDir := h.Config.BRouterProfilesDir
-	dest := filepath.Join(brouterDir, name+".brf")
-
-	if err := os.Remove(dest); err != nil {
+	root, err := os.OpenRoot(brouterDir)
+	if err != nil {
 		if os.IsNotExist(err) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "BRouter profile not found", r.URL.Path)
 			return
 		}
-		slog.Error("HandleDeleteBrouterProfile: remove failed", "dest", dest, "error", err)
+		slog.Error("HandleDeleteBrouterProfile: open profiles dir failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to delete profile file", r.URL.Path)
+		return
+	}
+	defer root.Close()
+
+	filename := name + ".brf"
+	if err := root.Remove(filename); err != nil {
+		if os.IsNotExist(err) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "BRouter profile not found", r.URL.Path)
+			return
+		}
+		slog.Error("HandleDeleteBrouterProfile: remove failed", "filename", filename, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to delete profile file", r.URL.Path)
 		return
 	}

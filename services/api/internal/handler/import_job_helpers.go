@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -53,7 +54,7 @@ func (h *Handler) startImportAsync(
 	if err != nil {
 		slog.Error("create "+cb.label+" import job failed", "error", err)
 		if isTempPath {
-			os.RemoveAll(sourcePath)
+			removeTempImportDir(sourcePath)
 		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create import job", r.URL.Path)
 		return
@@ -61,7 +62,7 @@ func (h *Handler) startImportAsync(
 
 	go func() {
 		if isTempPath {
-			defer os.RemoveAll(sourcePath)
+			defer removeTempImportDir(sourcePath)
 		}
 		runFn(context.Background(), jobID)
 	}()
@@ -117,8 +118,51 @@ func buildScanResult(
 	return result
 }
 
-// isTempSourcePath reports whether sourcePath is inside the OS temp directory and
+const tempImportDirPrefix = "skadia-import-"
+
+func resolvedOSTempDir() string {
+	tmpDir := filepath.Clean(os.TempDir())
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil {
+		return resolved
+	}
+	return tmpDir
+}
+
+// isTempSourcePath reports whether sourcePath is a Skadia-created temporary
+// import directory (skadia-import-*) directly inside the OS temp directory and
 // therefore should be cleaned up after the import finishes.
 func isTempSourcePath(sourcePath string) bool {
-	return strings.HasPrefix(sourcePath, os.TempDir())
+	if sourcePath == "" {
+		return false
+	}
+	cleaned := filepath.Clean(sourcePath)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	tmpDir := resolvedOSTempDir()
+	base := filepath.Base(cleaned)
+	return filepath.Dir(cleaned) == tmpDir && strings.HasPrefix(base, tempImportDirPrefix)
+}
+
+// removeTempImportDir deletes a Skadia-created temporary import directory via
+// os.OpenRoot(os.TempDir()), guaranteeing deletion can never target os.TempDir()
+// itself or escape outside it.
+func removeTempImportDir(sourcePath string) {
+	if !isTempSourcePath(sourcePath) {
+		return
+	}
+	cleaned := filepath.Clean(sourcePath)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	base := filepath.Base(cleaned)
+	if !strings.HasPrefix(base, tempImportDirPrefix) || strings.ContainsAny(base, "/\\") || base == "." || base == ".." {
+		return
+	}
+	root, err := os.OpenRoot(resolvedOSTempDir())
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	_ = root.RemoveAll(base)
 }

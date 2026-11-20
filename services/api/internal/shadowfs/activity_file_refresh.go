@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/activitytitle"
@@ -104,32 +103,40 @@ func RefreshActivityFilePath(ctx context.Context, req ActivityFileRefreshRequest
 		}
 	}()
 
-	oldFull := filepath.Join(req.BasePath, rendered.OldPath)
-	newRel, err := copyActivityFileWithCollisionRetry(req.BasePath, oldFull, rendered.NewPath)
+	root, err := os.OpenRoot(req.BasePath)
+	if err != nil {
+		return false, fmt.Errorf("shadowfs: activity refresh open root: %w", err)
+	}
+	defer root.Close()
+
+	oldRel := filepath.Clean(rendered.OldPath)
+	if err := ValidateRelPath(req.BasePath, oldRel); err != nil {
+		return false, fmt.Errorf("shadowfs: activity refresh source validation: %w", err)
+	}
+	newRel, err := copyActivityFileWithCollisionRetry(root, req.BasePath, oldRel, rendered.NewPath)
 	if err != nil {
 		return false, err
 	}
-	newFull := filepath.Join(req.BasePath, newRel)
 	cmd, err = conn.Exec(ctx,
 		`UPDATE user_files SET storage_path = $1, is_renaming = false, updated_at = NOW()
 		 WHERE id = $2 AND user_id = $3 AND storage_backend = 'local' AND storage_path = $4`,
 		newRel, rendered.FileID, req.UserID, rendered.OldPath)
 	if err != nil {
-		_ = os.Remove(newFull)
+		_ = root.Remove(filepath.Clean(newRel))
 		return false, fmt.Errorf("shadowfs: activity refresh update storage_path: %w", err)
 	}
 	if cmd.RowsAffected() != 1 {
-		_ = os.Remove(newFull)
+		_ = root.Remove(filepath.Clean(newRel))
 		return false, fmt.Errorf("shadowfs: activity refresh update storage_path affected %d rows", cmd.RowsAffected())
 	}
 	clearRenaming = false
-	if err := os.Remove(oldFull); err != nil && !os.IsNotExist(err) {
-		slog.Warn("shadowfs: activity refresh remove old file failed", "file_id", rendered.FileID, "path", oldFull, "error", err)
+	if err := root.Remove(oldRel); err != nil && !os.IsNotExist(err) {
+		slog.Warn("shadowfs: activity refresh remove old file failed", "file_id", rendered.FileID, "path", oldRel, "error", err)
 	}
 	if renderedHasSidecar(ctx, req.Pool, rendered.FileID, req.UserID) {
-		moveMetaSidecar(oldFull, newFull)
+		moveMetaSidecarInRoot(root, oldRel, filepath.Clean(newRel))
 	}
-	cleanEmptyDirs(filepath.Dir(oldFull), req.BasePath)
+	cleanEmptyDirs(filepath.Dir(filepath.Join(req.BasePath, oldRel)), req.BasePath)
 	return true, nil
 }
 
@@ -254,25 +261,24 @@ func renderedHasSidecar(ctx context.Context, pool *pgxpool.Pool, fileID, userID 
 	return err == nil && hasSidecar
 }
 
-func copyActivityFileWithCollisionRetry(basePath, oldFull, targetRel string) (string, error) {
+func copyActivityFileWithCollisionRetry(root *os.Root, basePath, oldRel, targetRel string) (string, error) {
 	rel := targetRel
 	for attempt := 0; attempt < 10; attempt++ {
 		if err := ValidateRelPath(basePath, rel); err != nil {
 			return "", fmt.Errorf("shadowfs: activity refresh target validation: %w", err)
 		}
-		newFull := filepath.Join(basePath, rel)
-		if !strings.HasPrefix(filepath.Clean(newFull), filepath.Clean(basePath)+string(filepath.Separator)) {
-			return "", fmt.Errorf("shadowfs: activity refresh target escapes base path")
+		cleanRel := filepath.Clean(rel)
+		if dir := filepath.Dir(cleanRel); dir != "." {
+			if err := root.MkdirAll(dir, 0o755); err != nil {
+				return "", fmt.Errorf("shadowfs: activity refresh mkdir: %w", err)
+			}
 		}
-		if err := os.MkdirAll(filepath.Dir(newFull), 0o755); err != nil {
-			return "", fmt.Errorf("shadowfs: activity refresh mkdir: %w", err)
-		}
-		if err := copyFileExclusive(oldFull, newFull); err != nil {
+		if err := copyFileExclusiveInRoot(root, oldRel, cleanRel); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				rel = ResolveCollision(basePath, rel)
 				continue
 			}
-			_ = os.Remove(newFull)
+			_ = root.Remove(cleanRel)
 			return "", fmt.Errorf("shadowfs: activity refresh copy: %w", err)
 		}
 		return rel, nil
@@ -280,14 +286,14 @@ func copyActivityFileWithCollisionRetry(basePath, oldFull, targetRel string) (st
 	return "", fmt.Errorf("shadowfs: activity refresh collision retry exhausted")
 }
 
-func copyFileExclusive(src, dst string) (retErr error) {
-	in, err := os.Open(src)
+func copyFileExclusiveInRoot(root *os.Root, srcRel, dstRel string) (retErr error) {
+	in, err := root.Open(srcRel)
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	out, err := root.OpenFile(dstRel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}
@@ -302,17 +308,19 @@ func copyFileExclusive(src, dst string) (retErr error) {
 	return nil
 }
 
-func moveMetaSidecar(oldMainPath, newMainPath string) {
-	oldSidecar := oldMainPath + ".meta"
-	newSidecar := newMainPath + ".meta"
-	if _, err := os.Stat(oldSidecar); os.IsNotExist(err) {
+func moveMetaSidecarInRoot(root *os.Root, oldMainRel, newMainRel string) {
+	oldSidecar := oldMainRel + ".meta"
+	newSidecar := newMainRel + ".meta"
+	if _, err := root.Stat(oldSidecar); os.IsNotExist(err) {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(newSidecar), 0o755); err != nil {
-		slog.Warn("shadowfs: activity refresh sidecar mkdir failed", "error", err)
-		return
+	if dir := filepath.Dir(newSidecar); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			slog.Warn("shadowfs: activity refresh sidecar mkdir failed", "error", err)
+			return
+		}
 	}
-	if err := os.Rename(oldSidecar, newSidecar); err != nil {
+	if err := root.Rename(oldSidecar, newSidecar); err != nil {
 		slog.Warn("shadowfs: activity refresh sidecar rename failed", "from", oldSidecar, "to", newSidecar, "error", err)
 	}
 }

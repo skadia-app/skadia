@@ -291,7 +291,13 @@ func TestCopyActivityFileWithCollisionRetry(t *testing.T) {
 		t.Fatalf("write collision: %v", err)
 	}
 
-	gotRel, err := copyActivityFileWithCollisionRetry(basePath, oldFull, "target.fit")
+	root, err := os.OpenRoot(basePath)
+	if err != nil {
+		t.Fatalf("open root: %v", err)
+	}
+	defer root.Close()
+
+	gotRel, err := copyActivityFileWithCollisionRetry(root, basePath, oldRel, "target.fit")
 	if err != nil {
 		t.Fatalf("copyActivityFileWithCollisionRetry: %v", err)
 	}

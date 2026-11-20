@@ -74,19 +74,40 @@ func (r *DiskCoverageReader) Close() {
 	r.lruList.Init()
 }
 
-// tileFilePath returns the filesystem path for a layer/tile, reusing the shared
-// tileFilename function from diskwriter.go to keep naming consistent.
-func (r *DiskCoverageReader) tileFilePath(layer string, tileID uint32) string {
+var validCoverageLayers = func() map[string]bool {
+	m := make(map[string]bool, len(allVisLayers)+len(internalTrafficLayers))
+	for _, l := range allVisLayers {
+		m[l] = true
+	}
+	for _, l := range internalTrafficLayers {
+		m[l] = true
+	}
+	return m
+}()
+
+func isValidCoverageLayer(layer string) bool {
+	return validCoverageLayers[layer]
+}
+
+// tileRelPath returns the validated relative path for a layer/tile inside baseDir.
+func tileRelPath(layer string, tileID uint32) (string, error) {
+	if !isValidCoverageLayer(layer) {
+		return "", fmt.Errorf("coverage: invalid layer %q", layer)
+	}
 	bbox := graphpkg.TileBBox(tileID)
 	core := orb.Bound{
 		Min: orb.Point{bbox[1], bbox[0]},
 		Max: orb.Point{bbox[3], bbox[2]},
 	}
-	return filepath.Join(r.baseDir, layer, tileFilename(core))
+	return filepath.Join(layer, tileFilename(core)), nil
 }
 
 // loadGrid mmap's a single layer/tile combination. Caller must hold write lock.
 func (r *DiskCoverageReader) loadGrid(layer string, tileID uint32) (*MappedGrid, error) {
+	relPath, err := tileRelPath(layer, tileID)
+	if err != nil {
+		return nil, err
+	}
 	key := layerTileKey{layer, tileID}
 	if e, ok := r.mappings[key]; ok {
 		r.lruList.MoveToBack(e.elem)
@@ -102,8 +123,13 @@ func (r *DiskCoverageReader) loadGrid(layer string, tileID uint32) (*MappedGrid,
 		delete(r.mappings, entry.key)
 	}
 
-	path := r.tileFilePath(layer, tileID)
-	header, data, cleanup, err := MmapFCOV(path)
+	root, err := os.OpenRoot(r.baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	header, data, cleanup, err := MmapFCOVFromRoot(root, relPath)
 	if err != nil {
 		return nil, err
 	}
@@ -194,8 +220,16 @@ func (r *DiskCoverageReader) SamplePointByLayer(ctx context.Context, layer strin
 }
 
 func (r *DiskCoverageReader) HasTile(layer string, tileID uint32) bool {
-	path := r.tileFilePath(layer, tileID)
-	_, err := os.Stat(path)
+	relPath, err := tileRelPath(layer, tileID)
+	if err != nil {
+		return false
+	}
+	root, err := os.OpenRoot(r.baseDir)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	_, err = root.Stat(relPath)
 	return err == nil
 }
 

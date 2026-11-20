@@ -757,30 +757,38 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 		// Resolve collision so we never silently overwrite another file.
 		newRelPath = shadowfs.ResolveCollision(basePath, newRelPath)
 
-		// Security: validate new relative path for traversal and symlink escapes.
+		// Security: validate both source and target paths for traversal and symlink escapes.
+		if err := shadowfs.ValidateRelPath(basePath, f.storagePath); err != nil {
+			slog.Error("rename-execute: old path failed validation", "error", err, "rel", f.storagePath)
+			continue
+		}
 		if err := shadowfs.ValidateRelPath(basePath, newRelPath); err != nil {
 			slog.Error("rename-execute: new path failed validation", "error", err, "rel", newRelPath)
 			continue
 		}
 
-		oldFullPath := filepath.Join(basePath, f.storagePath)
-		newFullPath := filepath.Join(basePath, newRelPath)
-
-		// Security: new path must stay inside basePath.
-		if !strings.HasPrefix(filepath.Clean(newFullPath), filepath.Clean(basePath)+string(filepath.Separator)) {
-			slog.Error("rename-execute: new path escapes basePath", "new", newFullPath)
+		root, err := os.OpenRoot(basePath)
+		if err != nil {
+			slog.Error("rename-execute: open basePath", "error", err)
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(newFullPath), 0o755); err != nil {
-			slog.Error("rename-execute: mkdir", "error", err, "path", newFullPath)
-			continue
+		oldRel := filepath.Clean(f.storagePath)
+		newRel := filepath.Clean(newRelPath)
+
+		if dir := filepath.Dir(newRel); dir != "." {
+			if err := root.MkdirAll(dir, 0o755); err != nil {
+				slog.Error("rename-execute: mkdir", "error", err, "path", newRel)
+				_ = root.Close()
+				continue
+			}
 		}
 
 		// Atomic strategy: copy → update DB → delete old.
-		if err := copyFileRename(oldFullPath, newFullPath); err != nil {
-			slog.Error("rename-execute: copy file", "error", err, "from", oldFullPath, "to", newFullPath)
-			os.Remove(newFullPath) //nolint:errcheck
+		if err := copyFileRenameInRoot(root, oldRel, newRel); err != nil {
+			slog.Error("rename-execute: copy file", "error", err, "from", oldRel, "to", newRel)
+			_ = root.Remove(newRel)
+			_ = root.Close()
 			continue
 		}
 
@@ -790,19 +798,21 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 			newRelPath, f.id,
 		); err != nil {
 			slog.Error("rename-execute: update storage_path", "error", err, "id", f.id)
-			os.Remove(newFullPath) //nolint:errcheck
+			_ = root.Remove(newRel)
+			_ = root.Close()
 			continue
 		}
 
 		// Remove old file only after DB is updated.
-		if err := os.Remove(oldFullPath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("rename-execute: remove old file", "error", err, "path", oldFullPath)
+		if err := root.Remove(oldRel); err != nil && !os.IsNotExist(err) {
+			slog.Warn("rename-execute: remove old file", "error", err, "path", oldRel)
 		}
 
 		// Move sidecars best-effort (no rollback on failure).
 		if f.hasSidecar {
-			moveRenameSidecar(oldFullPath, newFullPath, fileType)
+			moveRenameSidecarInRoot(root, oldRel, newRel, fileType)
 		}
+		_ = root.Close()
 
 		renamed++
 	}
@@ -810,15 +820,15 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 	slog.Info("rename-execute: done", "user_id", userID, "file_type", fileType, "renamed", renamed)
 }
 
-// copyFileRename copies src to dst using O_EXCL — never overwrites an existing file.
-func copyFileRename(src, dst string) (retErr error) {
-	in, err := os.Open(src)
+// copyFileRenameInRoot copies srcRel to dstRel inside root using O_EXCL — never overwrites an existing file.
+func copyFileRenameInRoot(root *os.Root, srcRel, dstRel string) (retErr error) {
+	in, err := root.Open(srcRel)
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	out, err := root.OpenFile(dstRel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}
@@ -834,24 +844,26 @@ func copyFileRename(src, dst string) (retErr error) {
 	return nil
 }
 
-// moveRenameSidecar moves a sidecar file alongside the renamed main file (best-effort).
-func moveRenameSidecar(oldMainPath, newMainPath, fileType string) {
+// moveRenameSidecarInRoot moves a sidecar file alongside the renamed main file inside root (best-effort).
+func moveRenameSidecarInRoot(root *os.Root, oldMainRel, newMainRel, fileType string) {
 	var oldSidecar, newSidecar string
 	switch fileType {
 	case "media", "activity":
-		oldSidecar = oldMainPath + ".meta"
-		newSidecar = newMainPath + ".meta"
+		oldSidecar = oldMainRel + ".meta"
+		newSidecar = newMainRel + ".meta"
 	default:
 		return
 	}
-	if _, err := os.Stat(oldSidecar); os.IsNotExist(err) {
+	if _, err := root.Stat(oldSidecar); os.IsNotExist(err) {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(newSidecar), 0o755); err != nil {
-		slog.Warn("moveRenameSidecar: mkdir", "error", err)
-		return
+	if dir := filepath.Dir(newSidecar); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			slog.Warn("moveRenameSidecar: mkdir", "error", err)
+			return
+		}
 	}
-	if err := os.Rename(oldSidecar, newSidecar); err != nil {
+	if err := root.Rename(oldSidecar, newSidecar); err != nil {
 		slog.Warn("moveRenameSidecar: rename failed", "error", err, "from", oldSidecar, "to", newSidecar)
 	}
 }

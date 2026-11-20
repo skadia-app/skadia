@@ -123,7 +123,20 @@ func (s *LocalStore) CreateWriter(ctx context.Context, spec ObjectSpec) (ObjectW
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	base, _, err := s.baseForKind(spec.Kind)
+	if err != nil {
+		return nil, err
+	}
+	tempRel, err := filepath.Rel(base, tempPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	file, err := root.OpenFile(tempRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -265,16 +278,24 @@ func (s *LocalStore) DeletePrefix(ctx context.Context, prefix ArtifactPrefix) er
 		}
 		return err
 	}
-	target := filepath.Join(parent, prefix.JobID)
-	if info, err := os.Lstat(target); err != nil {
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer root.Close()
+	targetRel := filepath.Join(prefix.UserID, prefix.JobID)
+	if info, err := root.Lstat(targetRel); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	} else if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refuse to delete symlink prefix %q", target)
+		return fmt.Errorf("refuse to delete symlink prefix %q", targetRel)
 	}
-	if err := os.RemoveAll(target); err != nil {
+	if err := root.RemoveAll(targetRel); err != nil {
 		return err
 	}
 	return fsyncDir(parent)
@@ -573,26 +594,35 @@ func ensureDirChainNoSymlink(base string, parts []string) error {
 	if err := ensurePrivateBaseDir(base); err != nil {
 		return err
 	}
-	current := base
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	currentRel := ""
 	for _, part := range parts {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
+		if currentRel == "" {
+			currentRel = part
+		} else {
+			currentRel = filepath.Join(currentRel, part)
+		}
+		info, err := root.Lstat(currentRel)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			if err := os.Mkdir(current, 0o700); err != nil {
+			if err := root.Mkdir(currentRel, 0o700); err != nil {
 				return err
 			}
 			continue
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path component must not be a symlink: %s", current)
+			return fmt.Errorf("path component must not be a symlink: %s", currentRel)
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("path component is not a directory: %s", current)
+			return fmt.Errorf("path component is not a directory: %s", currentRel)
 		}
-		if err := os.Chmod(current, 0o700); err != nil {
+		if err := root.Chmod(currentRel, 0o700); err != nil {
 			return err
 		}
 	}
