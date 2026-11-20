@@ -4,6 +4,32 @@ All notable user-facing, administrator-facing, security, operational and API-rel
 
 ---
 
+## 2026-11-21
+
+### Security
+
+- Hardened the tile proxy to validate forwarded host and scheme headers, rewrite JSON responses structurally, set `X-Content-Type-Options: nosniff`, and cache per-user responses privately instead of publicly.
+- Enforced kernel-level filesystem path confinement (`os.Root`) across static asset serving, ShadowFS storage, Strava/ZIP archive imports, coverage readers, BRouter profile handling, and GDPR artifact storage, and restricted temporary import cleanup to Skadia-created temp subdirectories.
+- Hardened outbound HTTP clients for URL imports and admin LLM backend checks against redirect-based SSRF, CGNAT/multicast targets, and unvalidated requests.
+- Enforced relative same-origin API paths in the frontend API client before attaching bearer tokens or credentials, and eliminated a backtracking regular expression in the hardcoded-text audit helper.
+- Prevented raw exception messages from being returned in ML service `/readyz` and `/status` responses.
+- Updated backend, frontend, ML, and container base dependencies to address known security advisories.
+
+### Changed
+
+- Upgraded the Go backend toolchain to Go 1.27, migrated JWT verification to `jwx/v4`, and removed vendored Go modules in favor of the standard module cache.
+- Upgraded the map stack to MapLibre GL v6 with a dedicated worker bundle and scoped drawing styles to the segment editor.
+- Switched container runtime users in the API and ML Dockerfiles to deterministic numeric non-root IDs (`10001:10001`), JSON-form healthchecks, and `--no-install-recommends` for the ML image.
+- Hardened CI workflows with pinned Node 24-compatible actions, manual Go CodeQL indexing, Dependabot cooldowns, and the MIT-licensed `gitleaks` CLI.
+
+### Fixed
+
+- Fixed PostgreSQL parameter typing (`$1::text`) when automatically synchronizing the `skadia_readonly` database role password on startup.
+- Clamped negative `mph` speed values in OSM `maxspeed` parsing so they cannot underflow `uint8`.
+- Added bounded request context propagation for PDF text extraction during gear document uploads.
+
+---
+
 ## 2026-06-01
 
 ### Added

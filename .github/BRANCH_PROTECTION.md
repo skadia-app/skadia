@@ -66,13 +66,12 @@ Two of the required checks above need an empirical confirmation that they
 actually fail when they should fail. Do this BEFORE adding them to the
 required-checks list, otherwise a passing-by-default check blocks nothing.
 
-1. **`pre-commit guard / gitleaks`** — gitleaks-action's exit-code
-   semantics on the Free Starter license (used here, no license key) are
-   version-dependent. Verify by opening a draft PR that adds a fake but
+1. **`pre-commit guard / gitleaks`** — runs the pinned, SHA-256-verified
+   MIT-licensed `gitleaks` CLI directly with `.gitleaks.toml` and `--redact`
+   over the PR commit range. Verify by opening a draft PR that adds a fake but
    well-shaped credential to a non-allowlisted file (e.g.
    `frontend/src/lib/test.ts` with a `sk-ant-api03-` + 60 random
-   alphanumerics). Expected: workflow goes red. If green: switch to a
-   manually-driven `gitleaks git --staged` invocation in the workflow.
+   alphanumerics). Expected: workflow goes red without printing the raw token.
 2. **`CodeQL / Analyze (go)`** (`build-mode: manual`) — verify after
    the first run that the manual Go build step indexed all Go modules
    (`services/api` and `scripts/lift_fixture_promote`) rather than
