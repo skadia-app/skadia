@@ -32,27 +32,26 @@ func findStuckPowerRegions[T model.BestEffortPoint](stream []T, medianPower floa
 		return nil
 	}
 	var regions []StuckRegion
-	runStart := 0
-	for i := 1; i <= len(stream); i++ {
-		sameValue := false
-		if i < len(stream) {
-			pCur := powerVal(stream[i])
-			pPrev := powerVal(stream[runStart])
-			if pCur > 0 && pPrev > 0 && math.Abs(pCur-pPrev) < 0.5 {
-				sameValue = true
+	flushRun := func(startIdx, endIdx int) {
+		val := powerVal(stream[startIdx])
+		if val > 0 && val > medianPower*thresholdMultiplier {
+			durationS := stream[endIdx].BETime().Sub(stream[startIdx].BETime()).Seconds()
+			if durationS >= minDurationS {
+				regions = append(regions, StuckRegion{StartIdx: startIdx, EndIdx: endIdx})
 			}
-		}
-		if !sameValue {
-			val := powerVal(stream[runStart])
-			if val > 0 && val > medianPower*thresholdMultiplier {
-				durationS := stream[i-1].BETime().Sub(stream[runStart].BETime()).Seconds()
-				if durationS >= minDurationS {
-					regions = append(regions, StuckRegion{StartIdx: runStart, EndIdx: i - 1})
-				}
-			}
-			runStart = i
 		}
 	}
+	runStart := 0
+	for i := 1; i < len(stream); i++ {
+		pCur := powerVal(stream[i])
+		pPrev := powerVal(stream[runStart])
+		if pCur > 0 && pPrev > 0 && math.Abs(pCur-pPrev) < 0.5 {
+			continue
+		}
+		flushRun(runStart, i-1)
+		runStart = i
+	}
+	flushRun(runStart, len(stream)-1)
 	return regions
 }
 

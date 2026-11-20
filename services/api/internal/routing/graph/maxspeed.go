@@ -47,18 +47,24 @@ func ParseMaxspeed(s string) uint8 {
 		numStr := strings.TrimSuffix(strings.TrimSuffix(s, " mph"), "mph")
 		numStr = strings.TrimSpace(numStr)
 		if n, err := strconv.Atoi(numStr); err == nil {
-			kmh := min(int(math.Round(float64(n)*1.609)), 255)
+			if n <= 0 {
+				return 0
+			}
+			kmh := math.Round(float64(n) * 1.609)
+			if kmh >= 255 {
+				return 255
+			}
 			return uint8(kmh)
 		}
 	}
 
 	// Plain numeric.
 	if n, err := strconv.Atoi(s); err == nil {
-		if n > 255 {
-			n = 255
+		if n <= 0 {
+			return 0
 		}
-		if n < 0 {
-			n = 0
+		if n >= 255 {
+			return 255
 		}
 		return uint8(n)
 	}

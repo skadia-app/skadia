@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,29 +155,55 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build BRouter query URL.
+	baseURL, err := url.Parse(brouterURL)
+	if err != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") || baseURL.Host == "" {
+		slog.Warn("BRouter URL invalid", "url", brouterURL)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status": "brouter_unavailable",
+			"error":  "BRouter nicht verfügbar",
+		})
+		return
+	}
+
+	// Build BRouter query URL against the server-configured base URL.
 	// BRouter expects: lonlats=lon1,lat1|lon2,lat2|...
 	// Frontend sends [lat, lon] (latlng convention), so we swap to [lon, lat] for BRouter.
+	// Keep literal `|` in lonlats and `profile:` prefix as expected by BRouter's parser,
+	// while QueryEscape-encoding all validated profile tokens and values.
 	lonlats := make([]string, 0, len(req.Waypoints))
 	for _, wp := range req.Waypoints {
 		lonlats = append(lonlats, fmt.Sprintf("%.6f,%.6f", wp[1], wp[0]))
 	}
-	var queryURL strings.Builder
-	queryURL.WriteString(fmt.Sprintf(
-		"%s/brouter?lonlats=%s&profile=%s&alternativeidx=%d&format=geojson",
-		brouterURL,
+	var rawQuery strings.Builder
+	rawQuery.WriteString(fmt.Sprintf(
+		"lonlats=%s&profile=%s&alternativeidx=%d&format=geojson",
 		strings.Join(lonlats, "|"),
-		req.Profile,
+		url.QueryEscape(req.Profile),
 		req.Alternatives,
 	))
 
-	// profile:key=value Parameter für Fein-Tuning anhängen
+	// Append validated profile:key=value overrides for BRouter profile tuning.
 	for k, v := range req.ProfileParams {
-		queryURL.WriteString(fmt.Sprintf("&profile:%s=%s", k, v))
+		rawQuery.WriteString("&profile:")
+		rawQuery.WriteString(url.QueryEscape(k))
+		rawQuery.WriteByte('=')
+		rawQuery.WriteString(url.QueryEscape(v))
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, queryURL.String(), nil)
+	targetURL := &url.URL{
+		Scheme:   baseURL.Scheme,
+		Host:     baseURL.Host,
+		Path:     strings.TrimRight(baseURL.Path, "/") + "/brouter",
+		RawQuery: rawQuery.String(),
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL.String(), nil)
 	if err != nil {
 		slog.Warn("BRouter: failed to create request", "error", err)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
@@ -189,7 +216,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("BRouter request failed",
 			"error", err,
-			"url", queryURL.String(),
+			"url", targetURL.String(),
 		)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": "brouter_unavailable",

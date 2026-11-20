@@ -881,11 +881,11 @@ func extractTagsFromPath(stem, fileName, fileType string) map[string]string {
 			// Pure 2-digit segment → month.
 			tags["month"] = part
 		case len(part) >= 10 && isDigits(part[:4]) && part[4] == '-':
-			// Segment starts with YYYY-MM-DD.
+			// Segment starts with YYYY-MM-DD (length >= 10 already guaranteed above).
 			tags["year"] = part[:4]
-			if len(part) >= 7 && isDigits(part[5:7]) {
+			if isDigits(part[5:7]) {
 				tags["month"] = part[5:7]
-				if len(part) >= 10 && part[7] == '-' && isDigits(part[8:10]) {
+				if part[7] == '-' && isDigits(part[8:10]) {
 					tags["day"] = part[8:10]
 				}
 			}

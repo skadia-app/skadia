@@ -409,7 +409,13 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 
 	// Query Ollama /api/tags
 	client := llmwire.NewSSRFProtectedHTTPClient(10*time.Second, nil)
-	resp, err := client.Get(discoveryBase + "/api/tags")
+	defer client.CloseIdleConnections()
+	ollamaReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, discoveryBase+"/api/tags", nil)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid Ollama URL", r.URL.Path)
+		return
+	}
+	resp, err := client.Do(ollamaReq)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", "failed to reach Ollama: "+err.Error(), r.URL.Path)
 		return
@@ -477,7 +483,8 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	switch req.BackendType {
 	case model.LLMBackendOllama, model.LLMBackendLlamaServer, model.LLMBackendOpenAI:
 		client := llmwire.NewSSRFProtectedHTTPClient(10*time.Second, nil)
-		testReq, err := http.NewRequest("GET", testAPIBase+"/models", nil)
+		defer client.CloseIdleConnections()
+		testReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, testAPIBase+"/models", nil)
 		if err != nil {
 			result.MessageCode = "invalid_url"
 			result.Message = err.Error()

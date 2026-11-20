@@ -23,6 +23,9 @@ func NewSSRFProtectedHTTPClient(timeout time.Duration, allowlist []string) *http
 	}
 	return &http.Client{
 		Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: &http.Transport{
 			DialContext: ssrfProtectedDialContext(allowlist),
 		},
@@ -77,6 +80,11 @@ func isAllowedLLMAddress(allowed map[string]bool, host, port string) bool {
 	return allowed[net.JoinHostPort(host, port)] || allowed[host+":"+port]
 }
 
+var cgnatRange = func() *net.IPNet {
+	_, cidr, _ := net.ParseCIDR("100.64.0.0/10")
+	return cidr
+}()
+
 func isBlockedLLMIP(ipStr string) bool {
 	if after, ok := strings.CutPrefix(ipStr, "::ffff:"); ok {
 		ipStr = after
@@ -88,6 +96,9 @@ func isBlockedLLMIP(ipStr string) bool {
 	if ip.Equal(net.IPv4zero) || ipStr == "0.0.0.0" {
 		return true
 	}
+	if cgnatRange.Contains(ip) {
+		return true
+	}
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsPrivate() || ip.IsUnspecified()
+		ip.IsMulticast() || ip.IsPrivate() || ip.IsUnspecified()
 }

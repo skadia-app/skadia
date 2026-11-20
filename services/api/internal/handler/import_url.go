@@ -108,9 +108,13 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(dialCtx, network, net.JoinHostPort(ips[0].IP.String(), port))
 		},
 	}
+	defer secureTransport.CloseIdleConnections()
 	secureClient := &http.Client{
 		Transport: secureTransport,
 		CheckRedirect: func(redirectReq *http.Request, via []*http.Request) error {
+			if redirectReq.URL.Scheme != "http" && redirectReq.URL.Scheme != "https" {
+				return fmt.Errorf("redirect to disallowed scheme blocked")
+			}
 			if isInternalHost(redirectReq.URL.Hostname()) {
 				return fmt.Errorf("redirect to internal host blocked")
 			}
@@ -122,7 +126,11 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		Timeout: 30 * time.Second,
 	}
 
-	httpReq, _ := http.NewRequestWithContext(ctx, "GET", req.URL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid URL", r.URL.Path)
+		return
+	}
 	dlResp, err := secureClient.Do(httpReq)
 	if err != nil {
 		slog.Error("import-url: download failed", "url", req.URL, "error", err)
@@ -448,24 +456,30 @@ func isPrivateIP(ip net.IP) bool {
 	return isBlockedIP(ip.String())
 }
 
+var importURLCGNATRange = func() *net.IPNet {
+	_, cidr, _ := net.ParseCIDR("100.64.0.0/10")
+	return cidr
+}()
+
 // isInternalHost returns true for RFC-1918 / loopback / link-local hosts to
 // prevent SSRF attacks. It resolves hostnames to IPs before checking.
 func isInternalHost(host string) bool {
-	if host == "localhost" {
+	normalized := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if normalized == "" || normalized == "localhost" {
 		return true
 	}
 
 	// Resolve hostname to IPs and check each resolved address
-	ips, err := net.LookupHost(host)
+	ips, err := net.LookupHost(normalized)
 	if err != nil {
 		// If we can't resolve, also check the raw host string as an IP
-		ips = []string{host}
+		ips = []string{normalized}
 	}
 
 	return slices.ContainsFunc(ips, isBlockedIP)
 }
 
-// isBlockedIP checks whether a single IP string belongs to a private/loopback/link-local range.
+// isBlockedIP checks whether a single IP string belongs to a private/loopback/link-local/CGNAT range.
 func isBlockedIP(ipStr string) bool {
 	// Block IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) — extract the IPv4 part
 	if after, ok := strings.CutPrefix(ipStr, "::ffff:"); ok {
@@ -482,13 +496,18 @@ func isBlockedIP(ipStr string) bool {
 		return true
 	}
 
+	// Carrier-grade NAT / shared address space (100.64.0.0/10)
+	if importURLCGNATRange.Contains(ip) {
+		return true
+	}
+
 	// Loopback (127.0.0.0/8, ::1)
 	if ip.IsLoopback() {
 		return true
 	}
 
-	// Link-local (169.254.0.0/16, fe80::/10)
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+	// Link-local (169.254.0.0/16, fe80::/10) & multicast
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
 		return true
 	}
 

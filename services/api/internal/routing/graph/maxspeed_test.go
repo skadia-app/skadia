@@ -12,8 +12,11 @@ func TestParseMaxspeed(t *testing.T) {
 		{"120", 120},
 		{"255", 255},
 		{"300", 255}, // clamped
+		{"-10", 0},   // negative clamped
 		{"30 mph", 48},
 		{"60 mph", 97},
+		{"-10 mph", 0},  // negative mph must not underflow uint8
+		{"500 mph", 255}, // large mph clamped
 		{"DE:urban", 50},
 		{"DE:rural", 100},
 		{"DE:motorway", 130},
