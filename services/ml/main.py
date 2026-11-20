@@ -121,8 +121,9 @@ async def readyz():
                 await conn.execute("SELECT 1")
         else:
             issues["db"] = "not configured"
-    except Exception as e:
-        issues["db"] = str(e)
+    except Exception:
+        logger.warning("Readiness DB check failed", exc_info=True)
+        issues["db"] = "unavailable"
 
     # Check NATS (only if configured)
     try:
@@ -130,15 +131,17 @@ async def readyz():
             if not _nc.is_connected:
                 issues["nats"] = "disconnected"
         # If _nc is None, NATS isn't configured — skip check
-    except Exception as e:
-        issues["nats"] = str(e)
+    except Exception:
+        logger.warning("Readiness NATS check failed", exc_info=True)
+        issues["nats"] = "unavailable"
 
     try:
         llm_broker = await get_llm_broker_readiness()
         if llm_broker.get("status") == "degraded":
             issues["llm_broker"] = llm_broker
-    except Exception as e:
-        llm_broker = {"status": "unavailable", "error": str(e)}
+    except Exception:
+        logger.warning("Readiness LLM broker check failed", exc_info=True)
+        llm_broker = {"status": "unavailable", "error": "readiness_check_failed"}
         issues["llm_broker"] = llm_broker
 
     shadowfs = get_local_shadowfs_readiness()
@@ -170,8 +173,9 @@ async def status(x_ml_callback_secret: str | None = Header(default=None, alias="
     require_internal_status_token(x_ml_callback_secret)
     try:
         llm_broker = await get_llm_broker_readiness()
-    except Exception as e:
-        llm_broker = {"status": "unavailable", "roles": {}, "error": str(e)}
+    except Exception:
+        logger.warning("Status LLM broker readiness check failed", exc_info=True)
+        llm_broker = {"status": "unavailable", "roles": {}, "error": "readiness_check_failed"}
     return {
         "service": "ml",
         "git_commit": os.getenv("SKADIA_GIT_COMMIT", "unknown") or "unknown",
