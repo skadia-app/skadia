@@ -26,7 +26,7 @@ const (
 )
 
 // workoutSplitTypes are FIT split types that indicate structured interval training.
-// See: vendor/github.com/muktihari/fit/profile/typedef/split_type_gen.go
+// See: github.com/muktihari/fit/profile/typedef (SplitType)
 var workoutSplitTypes = map[string]bool{
 	"interval_active":   true,
 	"interval_rest":     true,

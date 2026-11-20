@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -22,7 +23,7 @@ func TestNormalizeGearDefaultSportsForStorageAllowsImportedDefaults(t *testing.T
 
 func TestExtractPDFTextDoesNotExitWhenConfigHomeIsNotWritable(t *testing.T) {
 	if os.Getenv("SKADIA_TEST_EXTRACT_PDF_TEXT_CHILD") == "1" {
-		_ = extractPDFText([]byte("%PDF-1.4\n%%EOF\n"))
+		_ = extractPDFText(context.Background(), []byte("%PDF-1.4\n%%EOF\n"))
 		return
 	}
 
@@ -35,6 +36,15 @@ func TestExtractPDFTextDoesNotExitWhenConfigHomeIsNotWritable(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("extractPDFText child exited unexpectedly: %v\n%s", err, out)
+	}
+}
+
+func TestExtractPDFTextCanceledContextReturnsEmpty(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := extractPDFText(ctx, []byte("%PDF-1.4\n%%EOF\n")); got != "" {
+		t.Fatalf("extractPDFText() with canceled context = %q, want empty string", got)
 	}
 }
 

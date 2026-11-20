@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	_ "golang.org/x/image/bmp"
@@ -1532,7 +1533,7 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	var extractedText *string
 	var isTextPDF bool
 	if cfg.extractPDF && contentType == "application/pdf" {
-		if text := extractPDFText(data); text != "" {
+		if text := extractPDFText(r.Context(), data); text != "" {
 			extractedText = &text
 			isTextPDF = true
 			var err error
@@ -1667,9 +1668,20 @@ func generatePDFThumbnail(pdfData []byte, maxWidth int) ([]byte, error) {
 	return os.ReadFile(outPath)
 }
 
+const pdfTextExtractTimeout = 30 * time.Second
+
 // extractPDFText uses pdfcpu to extract content streams from PDF data.
 // Returns concatenated text content, or empty string on failure.
-func extractPDFText(pdfData []byte) string {
+func extractPDFText(ctx context.Context, pdfData []byte) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	extractCtx, cancel := context.WithTimeout(ctx, pdfTextExtractTimeout)
+	defer cancel()
+	if extractCtx.Err() != nil {
+		return ""
+	}
+
 	tmpDir, err := os.MkdirTemp("", "pdfcpu-extract-*")
 	if err != nil {
 		slog.Warn("pdfcpu: failed to create temp dir", "error", err)
@@ -1699,7 +1711,7 @@ func extractPDFText(pdfData []byte) string {
 	}
 	defer os.RemoveAll(outDir)
 
-	if err := pdfcpuapi.ExtractContentFile(context.Background(), tmpFile.Name(), outDir, nil, conf); err != nil {
+	if err := pdfcpuapi.ExtractContentFile(extractCtx, tmpFile.Name(), outDir, nil, conf); err != nil {
 		slog.Debug("pdfcpu: content extraction failed", "error", err)
 		return ""
 	}

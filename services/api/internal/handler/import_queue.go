@@ -334,7 +334,7 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 
 	var extractedText *string
 	var isTextPDF bool
-	if text := extractPDFText(data); text != "" {
+	if text := extractPDFText(r.Context(), data); text != "" {
 		extractedText = &text
 		isTextPDF = true
 		var updateErr error

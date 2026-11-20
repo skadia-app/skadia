@@ -92,23 +92,6 @@ import subprocess
 
 root = Path.cwd()
 api_dir = root / "services/api"
-go_mod = api_dir / "go.mod"
-
-direct = set()
-in_require = False
-for raw in go_mod.read_text().splitlines():
-    line = raw.strip()
-    if line == "require (":
-        in_require = True
-        continue
-    if in_require and line == ")":
-        in_require = False
-        continue
-    if in_require and line and not line.startswith("//"):
-        parts = line.split()
-        if len(parts) >= 2 and parts[-2].startswith("v"):
-            if "// indirect" not in line:
-                direct.add(parts[0])
 
 subprocess.run(["go", "mod", "download"], cwd=api_dir, check=True)
 raw_json = subprocess.check_output(
@@ -136,7 +119,7 @@ for obj in sorted(modules, key=lambda m: m.get("Path", "")):
     version = obj.get("Version", "")
     if not module or not version:
         continue
-    rel = "direct" if (module in direct or not obj.get("Indirect")) else "transitive"
+    rel = "direct" if not obj.get("Indirect") else "transitive"
     mod_dir = Path(obj["Dir"]) if obj.get("Dir") else None
     notice_files = []
     if mod_dir and mod_dir.exists():
@@ -169,7 +152,7 @@ fetch = os.environ.get("SKADIA_FETCH_PYPI") == "1"
 def normalize_name(spec: str) -> str:
     if " @ " in spec:
         return spec.split(" @ ", 1)[0].strip()
-    name = re.split(r"[<>=!~;\[]", spec, 1)[0].strip()
+    name = re.split(r"[<>=!~;\[]", spec, maxsplit=1)[0].strip()
     return name
 
 def exact_version(spec: str) -> str:

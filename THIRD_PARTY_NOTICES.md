@@ -39,7 +39,7 @@ Notable upstream notice files include:
 - `github.com/microcosm-cc/bluemonday` — license and credits files.
 - `github.com/ringsaturn/tzf` — MIT license, NOTICE file, and additional
   `LICENSE_ANTI_CSDN.md` file retained from upstream.
-- `go.yaml.in/yaml/v2`, `gopkg.in/yaml.v2`, and `gopkg.in/yaml.v3` — license
+- `go.yaml.in/yaml/v2`, `go.yaml.in/yaml/v3`, and `gopkg.in/yaml.v3` — license
   and NOTICE files.
 
 ## Frontend Packages
@@ -50,10 +50,6 @@ BSD variants, ISC, MPL-2.0, OFL-1.1, CC0-1.0, and related permissive forms.
 
 Known npm metadata exceptions:
 
-- `@mapbox/jsonlint-lines-primitives@2.0.2` declares no license in the package
-  metadata and ships no license file in the npm package. It is transitive via
-  the MapLibre style stack and must be reviewed when upgrading or replacing that
-  stack.
 - `rw@0.1.4` has no package-lock license field, but the generator records the
   BSD-style license file shipped in the installed npm package.
 - `get-closest@0.0.4` has no package-lock license field, but the generator
