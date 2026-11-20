@@ -10,8 +10,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
 // writeJSONError writes a JSON error response. Used by all middleware in this package.
@@ -49,7 +49,7 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 		tokenStr := strings.TrimPrefix(auth, "Bearer ")
 
 		token, err := jwt.Parse([]byte(tokenStr),
-			jwt.WithKey(jwa.HS256, j.jwtSecret),
+			jwt.WithKey(jwa.HS256(), j.jwtSecret),
 			jwt.WithValidate(true),
 			jwt.WithAudience("skadia-api"),
 			jwt.WithIssuer("skadia"),
@@ -60,18 +60,18 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		sub := token.Subject()
-		if sub == "" {
+		sub, ok := token.Subject()
+		if !ok || sub == "" {
 			writeJSONError(w, http.StatusUnauthorized, "token missing sub claim")
 			return
 		}
 
 		// Extract custom claims from JWT into context
-		isAdminVal, _ := token.Get("is_admin")
+		isAdminVal, _ := token.Field("is_admin")
 		isAdmin, _ := isAdminVal.(bool)
-		emailVerifiedVal, _ := token.Get("email_verified")
+		emailVerifiedVal, _ := token.Field("email_verified")
 		emailVerified, _ := emailVerifiedVal.(bool)
-		mustChangePWVal, _ := token.Get("must_change_password")
+		mustChangePWVal, _ := token.Field("must_change_password")
 		mustChangePW, _ := mustChangePWVal.(bool)
 
 		if j.db != nil && j.db.Pool != nil {

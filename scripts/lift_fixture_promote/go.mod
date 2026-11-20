@@ -1,6 +1,6 @@
 module github.com/skadia-app/skadia/services/api/scripts/lift_fixture_promote
 
-go 1.26.10
+go 1.27.0
 
 require (
 	github.com/skadia-app/skadia/services/api v0.0.0

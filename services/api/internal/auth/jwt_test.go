@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
 func TestIssueJWT_Roundtrip(t *testing.T) {
@@ -21,28 +21,32 @@ func TestIssueJWT_Roundtrip(t *testing.T) {
 
 	// Parse back.
 	token, err := jwt.Parse([]byte(tokenStr),
-		jwt.WithKey(jwa.HS256, secret),
+		jwt.WithKey(jwa.HS256(), secret),
 		jwt.WithValidate(true))
 	if err != nil {
 		t.Fatalf("jwt.Parse failed: %v", err)
 	}
 
-	if token.Subject() != "user-123" {
-		t.Errorf("expected subject user-123, got %q", token.Subject())
+	if sub, ok := token.Subject(); !ok || sub != "user-123" {
+		t.Errorf("expected subject user-123, got %q (ok=%v)", sub, ok)
 	}
 
-	foundAud := slices.Contains(token.Audience(), JWTAudience)
-	if !foundAud {
-		t.Errorf("expected audience to contain %q, got %v", JWTAudience, token.Audience())
+	aud, ok := token.Audience()
+	if !ok || !slices.Contains(aud, JWTAudience) {
+		t.Errorf("expected audience to contain %q, got %v (ok=%v)", JWTAudience, aud, ok)
 	}
 
-	if token.Issuer() != JWTIssuer {
-		t.Errorf("expected issuer %q, got %q", JWTIssuer, token.Issuer())
+	if iss, ok := token.Issuer(); !ok || iss != JWTIssuer {
+		t.Errorf("expected issuer %q, got %q (ok=%v)", JWTIssuer, iss, ok)
 	}
 
 	expectedExp := time.Now().Add(JWTExpiry)
-	if diff := expectedExp.Sub(token.Expiration()); diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("expiration off by %v (expected ~%v, got %v)", diff, expectedExp, token.Expiration())
+	exp, ok := token.Expiration()
+	if !ok {
+		t.Fatal("expected expiration claim to be present")
+	}
+	if diff := expectedExp.Sub(exp); diff < -5*time.Second || diff > 5*time.Second {
+		t.Errorf("expiration off by %v (expected ~%v, got %v)", diff, expectedExp, exp)
 	}
 }
 

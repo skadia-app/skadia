@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
 const (
@@ -32,7 +32,7 @@ func IssueJWT(userID string, isAdmin bool, emailVerified bool, mustChangePW bool
 		return "", fmt.Errorf("build JWT: %w", err)
 	}
 
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, secret))
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.HS256(), secret))
 	if err != nil {
 		return "", fmt.Errorf("sign JWT: %w", err)
 	}

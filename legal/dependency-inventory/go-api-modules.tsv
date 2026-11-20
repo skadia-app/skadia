@@ -28,15 +28,12 @@ github.com/client9/misspell	v0.3.4	transitive	-
 github.com/clipperhouse/uax29/v2	v2.7.0	transitive	LICENSE
 github.com/corona10/goimagehash	v1.1.0	direct	LICENSE
 github.com/davecgh/go-spew	v1.1.1	transitive	LICENSE
-github.com/decred/dcrd/crypto/blake256	v1.1.0	transitive	-
-github.com/decred/dcrd/dcrec/secp256k1/v4	v4.4.1	transitive	LICENSE
 github.com/disintegration/imaging	v1.6.2	direct	LICENSE
 github.com/dlclark/regexp2	v1.11.0	transitive	LICENSE
 github.com/fogleman/delaunay	v0.0.0-20180910191513-63f09b4c883d	direct	LICENSE.md
 github.com/frankban/quicktest	v1.14.6	transitive	LICENSE
 github.com/fsnotify/fsnotify	v1.10.1	direct	LICENSE
 github.com/go-chi/chi/v5	v5.5.0	direct	LICENSE
-github.com/goccy/go-json	v0.10.6	transitive	LICENSE
 github.com/gogo/protobuf	v1.3.2	transitive	-
 github.com/golang-jwt/jwt/v5	v5.3.1	transitive	-
 github.com/golang/protobuf	v1.5.0	transitive	-
@@ -58,12 +55,9 @@ github.com/klauspost/cpuid/v2	v2.2.10	transitive	LICENSE
 github.com/kr/pretty	v0.3.1	transitive	License
 github.com/kr/text	v0.2.0	transitive	License
 github.com/kylelemons/godebug	v1.1.0	transitive	LICENSE
-github.com/lestrrat-go/blackmagic	v1.0.4	transitive	LICENSE
-github.com/lestrrat-go/httpcc	v1.0.1	transitive	LICENSE
-github.com/lestrrat-go/httprc	v1.0.6	transitive	LICENSE
-github.com/lestrrat-go/iter	v1.0.2	transitive	LICENSE
-github.com/lestrrat-go/jwx/v2	v2.1.7	direct	LICENSE
-github.com/lestrrat-go/option	v1.0.1	transitive	LICENSE
+github.com/lestrrat-go/dsig	v1.4.0	transitive	LICENSE
+github.com/lestrrat-go/jwx/v4	v4.6.0	direct	LICENSE
+github.com/lestrrat-go/option/v3	v3.0.0-alpha1	transitive	LICENSE
 github.com/mattn/go-runewidth	v0.0.31	transitive	LICENSE
 github.com/microcosm-cc/bluemonday	v1.0.27	direct	CREDITS.md; LICENSE.md
 github.com/modern-go/concurrent	v0.0.0-20180306012644-bacd9c7ef1dd	transitive	-
@@ -91,7 +85,6 @@ github.com/ringsaturn/tzf-dist	v0.0.2026-c-fix1	transitive	LICENSE; LICENSE_DATA
 github.com/rogpeppe/go-internal	v1.14.1	transitive	LICENSE
 github.com/rwcarlsen/goexif	v0.0.0-20190401172101-9e8deecbddbd	transitive	LICENSE
 github.com/santhosh-tekuri/jsonschema/v6	v6.0.3	direct	LICENSE
-github.com/segmentio/asm	v1.2.1	transitive	LICENSE
 github.com/sixdouglas/suncalc	v0.0.0-20250114185126-291b1938b70c	direct	LICENSE
 github.com/spf13/cobra	v1.10.2	transitive	-
 github.com/spf13/pflag	v1.0.10	transitive	-
