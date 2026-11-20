@@ -64,7 +64,7 @@ Full setup notes are in `docs/documentation/dev/`. The short version:
   made, what hidden constraint applies, or which bug a workaround papers
   over.
 - **No third-party-platform name-dropping in code/UI/comments** unless an
-  ATTRIBUTIONS/THIRD_PARTY_NOTICES file, vendor LICENSE, or package metadata
+  ATTRIBUTIONS/THIRD_PARTY_NOTICES file, upstream LICENSE, or package metadata
   in the repo already names the source.
 - **Verify before claiming.** API names, struct field names, config keys —
   read the actual source, never quote from memory or generated docs.

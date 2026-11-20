@@ -73,13 +73,12 @@ required-checks list, otherwise a passing-by-default check blocks nothing.
    `frontend/src/lib/test.ts` with a `sk-ant-api03-` + 60 random
    alphanumerics). Expected: workflow goes red. If green: switch to a
    manually-driven `gitleaks git --staged` invocation in the workflow.
-2. **`CodeQL / Analyze (go)`** with `build-mode: none` — buildless mode
-   can silently produce zero alerts on monorepos whose extractor cannot
-   resolve types across vendor boundaries. After the first run, open
-   `Security tab → Code scanning` and verify alerts > 0 (Skadia has
-   ~145k lines of Go, expect several informational findings on the
-   security-and-quality query suite). Zero alerts on first run = extractor
-   problem; switch to `build-mode: autobuild` and re-test.
+2. **`CodeQL / Analyze (go)`** (`build-mode: manual`) — verify after
+   the first run that the manual Go build step indexed all Go modules
+   (`services/api` and `scripts/lift_fixture_promote`) rather than
+   silently producing an empty database. Open `Security tab → Code
+   scanning` and confirm Go files were scanned and findings appear as
+   expected on the `security-and-quality` query suite.
 
 After both verifications pass, add the checks to the required list.
 

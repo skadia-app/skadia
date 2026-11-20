@@ -102,11 +102,12 @@ done
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^frontend/.*\.(ts|tsx)$'; then
     REPO_ROOT_FOR_TSC="$(git rev-parse --show-toplevel)"
     BASELINE_FILE="$REPO_ROOT_FOR_TSC/frontend/.tsc-baseline"
+    TSC_BIN="$REPO_ROOT_FOR_TSC/frontend/node_modules/.bin/tsc"
 
-    if ! command -v npx >/dev/null 2>&1; then
-        echo "pre-commit: npx not found, skipping tsc baseline gate (install Node to enable)" >&2
+    if [ ! -x "$TSC_BIN" ]; then
+        echo "pre-commit: local frontend tsc not found, skipping tsc baseline gate (run 'cd frontend && npm ci' to enable)" >&2
     else
-        TSC_OUTPUT=$(cd "$REPO_ROOT_FOR_TSC/frontend" && npx tsc -b --pretty false 2>&1)
+        TSC_OUTPUT=$(cd "$REPO_ROOT_FOR_TSC/frontend" && "$TSC_BIN" -b --pretty false 2>&1)
         TSC_ERRORS=$(printf '%s\n' "$TSC_OUTPUT" | grep -c "error TS" || true)
         TSC_BASELINE=$(cat "$BASELINE_FILE" 2>/dev/null || echo "0")
 
@@ -187,9 +188,19 @@ ALLOWED_BINARY_PATHS=(
     "frontend/src/assets/"
     "docs/documentation/assets/"
     "docs/documentation/static/"
-    "services/api/internal/garmin/testdata/"
-    "vendor/"
-    "services/api/vendor/"
+)
+
+# Exact paths of synthetic generated fitness fixtures permitted by Check 2a
+# (FITNESS_DATA). Kept separate from ALLOWED_BINARY_PATHS so arbitrary .fit,
+# .gpx, or media files dropped into testdata/ are still blocked.
+ALLOWED_SYNTHETIC_FITNESS_FILES=(
+    "services/api/internal/garmin/testdata/sample_type32_monitoring_b.fit"
+    "services/api/internal/garmin/testdata/sample_type32_monitoring_b_large.fit"
+    "services/api/internal/garmin/testdata/sample_type44_hrv_night.fit"
+    "services/api/internal/garmin/testdata/sample_type44_hrv_night_large.fit"
+    "services/api/internal/garmin/testdata/sample_type49_sleep.fit"
+    "services/api/internal/garmin/testdata/sample_type58_spo2.fit"
+    "services/api/internal/garmin/testdata/sample_type68_monitor_main.fit"
 )
 
 # Strings that should NOT count as secrets even if they match a pattern.
@@ -295,6 +306,18 @@ path_is_allowed() {
     return 1
 }
 
+# Returns 0 if the given path is an exact match in ALLOWED_SYNTHETIC_FITNESS_FILES.
+is_allowed_synthetic_fitness_file() {
+    local f="$1"
+    local allowed
+    for allowed in "${ALLOWED_SYNTHETIC_FITNESS_FILES[@]}"; do
+        if [ "$f" = "$allowed" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Returns 0 if the given path is exempt from the size check.
 size_exempt() {
     local f="$1"
@@ -334,8 +357,8 @@ while IFS= read -r f; do
     lower=$(lower_basename "$f")
     case "$lower" in
         *.fit|*.gpx|*.tcx|*.kml|*.kmz)
-            if ! path_is_allowed "$f"; then
-                WARNINGS+=("FITNESS_DATA: $f — looks like a personal GPS/fitness track. Even anonymized tracks leak home and work location via start/end points. If this is synthetic test data, add its path to ALLOWED_BINARY_PATHS.")
+            if ! is_allowed_synthetic_fitness_file "$f"; then
+                WARNINGS+=("FITNESS_DATA: $f — looks like a personal GPS/fitness track. Even anonymized tracks leak home and work location via start/end points. If this is synthetic test data, add its exact path to ALLOWED_SYNTHETIC_FITNESS_FILES.")
             fi
             ;;
     esac
@@ -376,7 +399,7 @@ while IFS= read -r f; do
         *.fit|*.gpx|*.tcx|*.kml|*.kmz) continue ;;
     esac
     # Archives are ALWAYS flagged regardless of ALLOWED_BINARY_PATHS — opaque
-    # blobs that could hide secrets even under vendor/ or other allowed paths.
+    # blobs that could hide secrets even under allowed paths.
     case "$lower" in
         *.zip|*.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.7z|*.rar|*.gz|*.bz2|*.xz|*.zst)
             WARNINGS+=("ARCHIVE: $f — archive blobs are opaque to this scanner and to gitleaks. If intentional (test fixtures, vendored bundle), document why; otherwise unstage and check contents first.")

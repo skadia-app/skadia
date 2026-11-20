@@ -70,8 +70,9 @@ jobs:
 
       - name: Build Go modules for CodeQL
         if: matrix.language == 'go'
-        working-directory: services/api
-        run: go build ./...
+        run: |
+          (cd services/api && go build ./...)
+          (cd scripts/lift_fixture_promote && go build ./...)
 
       - name: Perform CodeQL analysis
         # github/codeql-action v4.39.4 — pinned by SHA.

@@ -221,6 +221,20 @@ npm_registry_lockfile_diff='diff --git a/frontend/package-lock.json b/frontend/p
 @@ -1,1 +1,2 @@
 +      "resolved": "https://registry.npmjs.org/vite/-/vite-7.3.8.tgz",'
 
+npm_registry_inventory_diff=$'diff --git a/legal/dependency-inventory/npm-frontend.tsv b/legal/dependency-inventory/npm-frontend.tsv\n--- a/legal/dependency-inventory/npm-frontend.tsv\n+++ b/legal/dependency-inventory/npm-frontend.tsv\n@@ -1,1 +1,2 @@\n+@adobe/css-tools\t4.5.0\tMIT\tpackage-lock\tnode_modules/@adobe/css-tools\thttps://registry.npmjs.org/@adobe/css-tools/-/css-tools-4.5.0.tgz'
+
+npm_registry_lockfile_trailing_sensitive_diff='diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -1,1 +1,2 @@
++      "resolved": "https://registry.npmjs.org/a/-/a-1.0.0.tgz,real_ride.fit",'
+
+npm_registry_readme_diff='diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,1 +1,2 @@
++See https://registry.npmjs.org/vite/-/vite-7.3.8.tgz for details.'
+
 agents_coordinate_diff='diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
 +++ b/AGENTS.md
@@ -292,6 +306,9 @@ assert_blocks_with "$public_third_party_inspired_diff" "third-party platform fra
 assert_blocks_with "$public_third_party_standard_diff" "third-party platform framing in public text"
 assert_passes "$public_protocol_compatible_diff"
 assert_passes "$npm_registry_lockfile_diff"
+assert_passes "$npm_registry_inventory_diff"
+assert_blocks_with "$npm_registry_lockfile_trailing_sensitive_diff" "sensitive filename in public/private text"
+assert_blocks_with "$npm_registry_readme_diff" "sensitive filename in public/private text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"

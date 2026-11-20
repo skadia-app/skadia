@@ -32,8 +32,9 @@ jobs:
           cache-dependency-path: services/api/go.sum
 
       - name: Run Go tests
-        working-directory: services/api
-        run: go test ./...
+        run: |
+          (cd services/api && go test ./...)
+          (cd scripts/lift_fixture_promote && go test ./...)
 
   sport-taxonomy-generator:
     name: Tests / Sport taxonomy generator

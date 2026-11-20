@@ -16,6 +16,4 @@
 # a node_modules tree would otherwise bypass the size gate. .gitignore
 # already keeps it out of normal commits; the gate stays strict for the
 # `git add -f` corner case.
-vendor/
-services/api/vendor/
 frontend/dist/

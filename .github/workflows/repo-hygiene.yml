@@ -120,12 +120,12 @@ jobs:
       - name: Run hadolint on all Dockerfiles
         # hadolint/hadolint-action v3.5.0 — pinned by SHA.
         # `recursive: true` finds Dockerfiles anywhere in the tree (excluding
-        # the worktree-sibling-cleanup directory and vendor).
+        # the worktree-sibling-cleanup directory).
         uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387
         with:
           recursive: true
           ignore: DL3008,DL3009  # apt without version pin (we accept the trade-off, like Dependabot's docker-tag stance)
-          # Bypass DL3007 (latest tag) only inside vendor / .worktrees; recursive walk skips dot-dirs by default.
+          # Recursive walk skips dot-dirs such as .worktrees by default.
 
   shellcheck:
     name: shellcheck (shell-script lint)
@@ -144,9 +144,9 @@ jobs:
         # ludeeus/action-shellcheck v2.0.0 — pinned by SHA.
         uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
         with:
-          # Skip vendor + worktree directories. The .githooks tree is in
+          # Skip node_modules + worktree directories. The .githooks tree is in
           # scope so the pre-commit hook itself gets linted by CI.
-          ignore_paths: "vendor services/api/vendor frontend/node_modules .worktrees"
+          ignore_paths: "frontend/node_modules .worktrees"
           # SC1091: "shell file not found" — fires on `source` of files
           # the linter cannot resolve at lint time (our hook sources
           # config.local.sh which may not exist). Acceptable noise.
@@ -164,6 +164,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+
+      - name: Set up Go
+        # actions/setup-go v7.1.0 — pinned by SHA.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
 
       - name: Run DATABASE_URL test guard
         run: |
