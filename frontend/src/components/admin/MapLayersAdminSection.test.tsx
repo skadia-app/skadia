@@ -246,7 +246,7 @@ describe('MapLayersAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Layer bearbeiten')).toBeInTheDocument())
 
     // Change the URL (input has a recognizable placeholder)
-    const urlInput = screen.getByPlaceholderText(/tile\.example\.com/)
+    const urlInput = screen.getByPlaceholderText('https://tile.example.com/{z}/{x}/{y}.png')
     fireEvent.change(urlInput, { target: { value: 'https://newurl.example.com/{z}/{x}/{y}.png' } })
 
     const saveBtn = screen.getAllByRole('button').find(b => b.textContent === 'Speichern')!
@@ -274,7 +274,7 @@ describe('MapLayersAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Layer bearbeiten')).toBeInTheDocument())
 
     // Modify URL to trigger If-Match path
-    const urlInput = screen.getByPlaceholderText(/tile\.example\.com/)
+    const urlInput = screen.getByPlaceholderText('https://tile.example.com/{z}/{x}/{y}.png')
     fireEvent.change(urlInput, { target: { value: 'https://changed.example.com/{z}/{x}/{y}.png' } })
 
     const saveBtn = screen.getAllByRole('button').find(b => b.textContent === 'Speichern')!

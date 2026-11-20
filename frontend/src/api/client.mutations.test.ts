@@ -154,4 +154,13 @@ describe('throwOnApiResponse', () => {
     const deleteCalls = calls.filter(call => call.url.endsWith('/import-queue/q1'))
     expect(deleteCalls).toHaveLength(2)
   })
+
+  it('rejects cross-origin and protocol-relative URLs before sending credentials', async () => {
+    setToken('secret-token')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    await expect(apiClient('https://evil.example/api/v1/me')).rejects.toMatchObject({ status: 400 })
+    await expect(apiClient('//evil.example/api/v1/me')).rejects.toMatchObject({ status: 400 })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })

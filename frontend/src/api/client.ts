@@ -120,6 +120,33 @@ function isIdempotentMethod(method: string | undefined): boolean {
   return normalized === 'GET' || normalized === 'HEAD' || normalized === 'PUT' || normalized === 'DELETE'
 }
 
+function resolveApiRequestUrl(path: string): string {
+  const trimmed = path.trim()
+  // Reject protocol-relative URLs and arbitrary cross-origin URLs so Bearer
+  // tokens and credentials are never sent to untrusted origins.
+  if (trimmed.startsWith('//')) {
+    throw new ApiError(400, 'Invalid API URL')
+  }
+  const url = /^https?:\/\//i.test(trimmed) ? trimmed : `${API_BASE}${trimmed}`
+  const browserOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost'
+  const candidate = new URL(url, browserOrigin)
+  const apiBase = new URL(API_BASE, browserOrigin)
+  const apiBasePath = apiBase.pathname.endsWith('/') ? apiBase.pathname : `${apiBase.pathname}/`
+
+  const sameOriginApiPath = candidate.origin === browserOrigin && candidate.pathname.startsWith('/api/')
+  const configuredApiPath =
+    candidate.origin === apiBase.origin &&
+    (candidate.pathname === apiBase.pathname || candidate.pathname.startsWith(apiBasePath))
+
+  if (!sameOriginApiPath && !configuredApiPath) {
+    throw new ApiError(400, 'Invalid API URL')
+  }
+  return url
+}
+
 function doFetch(path: string, options: RequestOptions): Promise<Response> {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -144,7 +171,7 @@ function doFetch(path: string, options: RequestOptions): Promise<Response> {
     if (cached) headers['If-Match'] = cached
   }
 
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const url = resolveApiRequestUrl(path)
 
   return fetch(url, {
     ...options,
@@ -164,7 +191,13 @@ export function apiUploadWithProgress<T>(
   onUploaded?: () => void,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+    let url: string
+    try {
+      url = resolveApiRequestUrl(path)
+    } catch (err) {
+      reject(err)
+      return
+    }
     const token = getToken()
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url)
@@ -199,7 +232,7 @@ export function apiUploadWithProgress<T>(
 
 /** Upload FormData with automatic token refresh on 401 */
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const url = resolveApiRequestUrl(path)
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`

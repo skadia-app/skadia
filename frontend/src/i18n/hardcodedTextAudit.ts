@@ -33,7 +33,7 @@ function isHumanText(text: string): boolean {
   if (value.length < 2) return false
   if (value.startsWith('/api/') || value.startsWith('/')) return false
   if (/^(text|bg|border|rounded|font|flex|grid|items|justify|gap|p|m|w|h)-/.test(value)) return false
-  if (/^[a-z][a-z0-9]*(?:[.-][A-Za-z0-9_{}-]+)+$/.test(value)) return false
+  if (/^[a-z][a-z0-9]*(?:[.-]+[A-Za-z0-9_{}]+)+$/.test(value)) return false
   return /[A-Za-zÄÖÜäöüßÀ-ÿ]/.test(value)
 }
 

@@ -94,6 +94,16 @@ describe('auditSourceText', () => {
     expect(issues).toEqual([])
   })
 
+  it('handles pathological hyphen sequences in linear time without ReDoS', () => {
+    const pathological = `a-${'--'.repeat(60)}!`
+    const start = performance.now()
+    const issues = auditSourceText('Example.tsx', `export function E() { return <span>${pathological}</span> }`)
+    const elapsedMs = performance.now() - start
+
+    expect(elapsedMs).toBeLessThan(250)
+    expect(issues).toHaveLength(1)
+  })
+
   it('flags user-visible call arguments', () => {
     const issues = auditSourceText(
       'Example.tsx',
