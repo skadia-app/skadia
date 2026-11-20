@@ -1,144 +1,132 @@
 module	version	relationship	license_notice_files
 cloud.google.com/go/compute/metadata	v0.3.0	transitive	LICENSE
 github.com/alecthomas/kingpin/v2	v2.4.0	transitive	-
-github.com/alecthomas/units	v0.0.0-20211218093645-b94a6e3cc137	transitive	-
+github.com/alecthomas/units	v0.0.0-20240927000941-0f3dac36c52b	transitive	-
 github.com/alexedwards/argon2id	v1.0.0	direct	LICENSE
-github.com/aws/aws-sdk-go-v2	v1.41.4	direct	.github/workflows/license-check.yml; LICENSE.txt; NOTICE.txt; internal/sync/singleflight/LICENSE
-github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream	v1.7.7	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/credentials	v1.19.12	direct	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/feature/ec2/imds	v1.18.20	transitive	-
-github.com/aws/aws-sdk-go-v2/internal/configsources	v1.4.20	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/internal/endpoints/v2	v2.7.20	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/internal/v4a	v1.4.21	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding	v1.13.7	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/internal/checksum	v1.9.12	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/internal/presigned-url	v1.13.20	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/internal/s3shared	v1.19.20	transitive	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/s3	v1.97.1	direct	LICENSE.txt
-github.com/aws/aws-sdk-go-v2/service/signin	v1.0.8	transitive	-
-github.com/aws/aws-sdk-go-v2/service/sso	v1.30.13	transitive	-
-github.com/aws/aws-sdk-go-v2/service/ssooidc	v1.35.17	transitive	-
-github.com/aws/aws-sdk-go-v2/service/sts	v1.41.9	transitive	-
-github.com/aws/smithy-go	v1.24.2	transitive	LICENSE; NOTICE; internal/sync/singleflight/LICENSE
+github.com/aws/aws-sdk-go-v2	v1.48.0	direct	.github/workflows/license-check.yml; LICENSE.txt; NOTICE.txt; internal/sync/singleflight/LICENSE
+github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream	v1.7.27	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/credentials	v1.21.3	direct	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/feature/ec2/imds	v1.20.9	transitive	-
+github.com/aws/aws-sdk-go-v2/internal/configsources	v1.5.12	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/internal/endpoints/v2	v2.8.12	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/internal/v4a	v1.5.12	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding	v1.13.25	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/checksum	v1.11.13	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/presigned-url	v1.14.12	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/internal/s3shared	v1.20.12	transitive	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/s3	v1.116.0	direct	LICENSE.txt
+github.com/aws/aws-sdk-go-v2/service/signin	v1.14.0	transitive	-
+github.com/aws/aws-sdk-go-v2/service/sso	v1.39.5	transitive	-
+github.com/aws/aws-sdk-go-v2/service/ssooidc	v1.44.5	transitive	-
+github.com/aws/aws-sdk-go-v2/service/sts	v1.53.0	transitive	-
+github.com/aws/smithy-go	v1.28.9	transitive	LICENSE; NOTICE; internal/sync/singleflight/LICENSE; transport/http/protocol/internal/json/internal/stdlib/LICENSE
 github.com/aymerick/douceur	v0.2.0	transitive	LICENSE
 github.com/beorn7/perks	v1.0.1	transitive	LICENSE
 github.com/bep/imagemeta	v0.17.0	direct	LICENSE; testdata/images/bep/license.txt; testdata/images/goexif/license.txt; testdata/images/license.txt; testdata/images/metadata-extractor/license.txt
 github.com/cespare/xxhash/v2	v2.3.0	transitive	LICENSE.txt
 github.com/client9/misspell	v0.3.4	transitive	-
-github.com/clipperhouse/uax29/v2	v2.2.0	transitive	LICENSE
+github.com/clipperhouse/uax29/v2	v2.7.0	transitive	LICENSE
 github.com/corona10/goimagehash	v1.1.0	direct	LICENSE
 github.com/davecgh/go-spew	v1.1.1	transitive	LICENSE
 github.com/decred/dcrd/crypto/blake256	v1.1.0	transitive	-
-github.com/decred/dcrd/dcrec/secp256k1/v4	v4.4.0	transitive	LICENSE
+github.com/decred/dcrd/dcrec/secp256k1/v4	v4.4.1	transitive	LICENSE
 github.com/disintegration/imaging	v1.6.2	direct	LICENSE
 github.com/dlclark/regexp2	v1.11.0	transitive	LICENSE
-github.com/dvyukov/go-fuzz	v0.0.0-20200318091601-be3528f3a813	transitive	-
 github.com/fogleman/delaunay	v0.0.0-20180910191513-63f09b4c883d	direct	LICENSE.md
 github.com/frankban/quicktest	v1.14.6	transitive	LICENSE
-github.com/fsnotify/fsnotify	v1.9.0	direct	LICENSE
-github.com/go-chi/chi/v5	v5.2.5	direct	LICENSE
-github.com/goccy/go-json	v0.10.3	transitive	LICENSE
+github.com/fsnotify/fsnotify	v1.10.1	direct	LICENSE
+github.com/go-chi/chi/v5	v5.5.0	direct	LICENSE
+github.com/goccy/go-json	v0.10.6	transitive	LICENSE
 github.com/gogo/protobuf	v1.3.2	transitive	-
+github.com/golang-jwt/jwt/v5	v5.3.1	transitive	-
 github.com/golang/protobuf	v1.5.0	transitive	-
-github.com/golang/snappy	v0.0.1	transitive	-
 github.com/google/go-cmp	v0.7.0	transitive	LICENSE
+github.com/google/jsonschema-go	v0.4.3	transitive	LICENSE
 github.com/google/uuid	v1.6.0	direct	LICENSE
 github.com/gorilla/css	v1.0.1	transitive	LICENSE
-github.com/hhrutter/lzw	v1.0.0	transitive	LICENSE
-github.com/hhrutter/pkcs7	v0.2.0	transitive	LICENSE
-github.com/hhrutter/tiff	v1.0.2	transitive	LICENSE
+github.com/hhrutter/tiff	v1.0.7	transitive	LICENSE; internal/lzw/LICENSE
+github.com/inconshreveable/mousetrap	v1.1.0	transitive	-
 github.com/jackc/pgpassfile	v1.0.0	transitive	LICENSE
 github.com/jackc/pgservicefile	v0.0.0-20240606120523-5a60cdf6a761	transitive	LICENSE
-github.com/jackc/pgx/v5	v5.8.0	direct	LICENSE
-github.com/jackc/puddle/v2	v2.2.2	transitive	LICENSE
+github.com/jackc/pgx/v5	v5.13.0	direct	LICENSE
+github.com/jackc/puddle/v2	v2.2.3	transitive	LICENSE
 github.com/jpillora/backoff	v1.0.0	transitive	-
 github.com/json-iterator/go	v1.1.12	transitive	-
 github.com/julienschmidt/httprouter	v1.3.0	transitive	-
-github.com/kisielk/errcheck	v1.5.0	transitive	-
-github.com/kisielk/gotool	v1.0.0	transitive	-
-github.com/klauspost/compress	v1.18.2	transitive	LICENSE; gzhttp/LICENSE; internal/lz4ref/LICENSE; internal/snapref/LICENSE; s2/LICENSE; s2/cmd/internal/filepathx/LICENSE; s2/cmd/internal/readahead/LICENSE; snappy/LICENSE; snappy/xerial/LICENSE; zstd/internal/xxhash/LICENSE.txt
+github.com/klauspost/compress	v1.20.1	transitive	LICENSE; gzhttp/LICENSE; internal/lz4ref/LICENSE; internal/snapref/LICENSE; s2/LICENSE; s2/cmd/internal/filepathx/LICENSE; s2/cmd/internal/readahead/LICENSE; snappy/LICENSE; snappy/xerial/LICENSE; zstd/internal/xxhash/LICENSE.txt
 github.com/klauspost/cpuid/v2	v2.2.10	transitive	LICENSE
 github.com/kr/pretty	v0.3.1	transitive	License
-github.com/kr/pty	v1.1.1	transitive	-
 github.com/kr/text	v0.2.0	transitive	License
 github.com/kylelemons/godebug	v1.1.0	transitive	LICENSE
-github.com/lestrrat-go/blackmagic	v1.0.3	transitive	LICENSE
+github.com/lestrrat-go/blackmagic	v1.0.4	transitive	LICENSE
 github.com/lestrrat-go/httpcc	v1.0.1	transitive	LICENSE
 github.com/lestrrat-go/httprc	v1.0.6	transitive	LICENSE
 github.com/lestrrat-go/iter	v1.0.2	transitive	LICENSE
-github.com/lestrrat-go/jwx/v2	v2.1.6	direct	LICENSE
+github.com/lestrrat-go/jwx/v2	v2.1.7	direct	LICENSE
 github.com/lestrrat-go/option	v1.0.1	transitive	LICENSE
-github.com/loov/hrtime	v1.0.4	transitive	LICENSE
-github.com/mattn/go-runewidth	v0.0.19	transitive	LICENSE
+github.com/mattn/go-runewidth	v0.0.31	transitive	LICENSE
 github.com/microcosm-cc/bluemonday	v1.0.27	direct	CREDITS.md; LICENSE.md
-github.com/mitchellh/mapstructure	v1.5.0	transitive	LICENSE
 github.com/modern-go/concurrent	v0.0.0-20180306012644-bacd9c7ef1dd	transitive	-
 github.com/modern-go/reflect2	v1.0.2	transitive	-
-github.com/montanaflynn/stats	v0.0.0-20171201202039-1bf9dbcd8cbe	transitive	-
 github.com/muktihari/carto	v0.1.1	transitive	-
-github.com/muktihari/fit	v0.28.0	direct	LICENSE; LICENSE-FIT-SDK
+github.com/muktihari/fit	v0.28.7	direct	LICENSE; LICENSE-FIT-SDK
 github.com/munnerz/goautoneg	v0.0.0-20191010083416-a7dc8b61c822	transitive	LICENSE
 github.com/mwitkow/go-conntrack	v0.0.0-20190716064945-2f068394615f	transitive	-
-github.com/nats-io/nats.go	v1.49.0	direct	LICENSE
-github.com/nats-io/nkeys	v0.4.12	transitive	LICENSE
+github.com/nats-io/nats.go	v1.56.0	direct	LICENSE
+github.com/nats-io/nkeys	v0.4.16	transitive	LICENSE
 github.com/nats-io/nuid	v1.0.1	transitive	LICENSE
 github.com/nfnt/resize	v0.0.0-20180221191011-83c6a9932646	transitive	LICENSE
-github.com/paulmach/orb	v0.12.0	direct	LICENSE.md
+github.com/paulmach/orb	v0.14.0	direct	LICENSE.md
 github.com/paulmach/protoscan	v0.2.1	transitive	-
-github.com/pdfcpu/pdfcpu	v0.11.1	direct	LICENSE.txt; pkg/testdata/fonts/LICENSE.txt
-github.com/pkg/errors	v0.9.1	transitive	LICENSE
-github.com/pmezard/go-difflib	v1.0.0	transitive	LICENSE
-github.com/prometheus/client_golang	v1.23.2	direct	LICENSE; NOTICE; internal/github.com/golang/gddo/LICENSE
-github.com/prometheus/client_model	v0.6.2	direct	LICENSE; NOTICE
-github.com/prometheus/common	v0.66.1	transitive	LICENSE; NOTICE
-github.com/prometheus/procfs	v0.16.1	transitive	LICENSE; NOTICE
+github.com/pdfcpu/pdfcpu	v0.16.4	direct	LICENSE.txt; internal/filter/lzw/LICENSE; pkg/pdfcpu/pkcs7/LICENSE
+github.com/pmezard/go-difflib	v1.0.0	transitive	-
+github.com/prometheus/client_golang	v1.25.0	direct	LICENSE; NOTICE; internal/github.com/golang/gddo/LICENSE
+github.com/prometheus/client_model	v0.6.3	direct	LICENSE; NOTICE
+github.com/prometheus/common	v0.72.0	transitive	LICENSE; NOTICE
+github.com/prometheus/procfs	v0.22.0	transitive	LICENSE; NOTICE
 github.com/ringsaturn/go-cities.json	v0.6.13	transitive	LICENSE; data/LICENSE
-github.com/ringsaturn/polyf	v0.2.2	transitive	-
-github.com/ringsaturn/tzf	v1.0.4	direct	LICENSE; LICENSE_ANTI_CSDN.md; NOTICE; THIRD_PARTY_LICENSES/github.com/mitchellh/mapstructure/LICENSE; THIRD_PARTY_LICENSES/github.com/paulmach/orb/LICENSE.md; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/LICENSE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/NOTICE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/internal/maps/LICENSE; THIRD_PARTY_LICENSES/github.com/tidwall/geoindex/child/LICENSE; THIRD_PARTY_LICENSES/github.com/tidwall/geojson/geometry/LICENSE; THIRD_PARTY_LICENSES/github.com/tidwall/rtree/LICENSE; THIRD_PARTY_LICENSES/github.com/twpayne/go-polyline/LICENSE; THIRD_PARTY_LICENSES/go.mongodb.org/mongo-driver/LICENSE; THIRD_PARTY_LICENSES/google.golang.org/protobuf/LICENSE; internal/maps/LICENSE
-github.com/ringsaturn/tzf-rel-lite	v0.0.2026-a	transitive	LICENSE
+github.com/ringsaturn/orb	v0.15.0	transitive	LICENSE.md
+github.com/ringsaturn/tzf	v1.2.5	direct	LICENSE; LICENSE_ANTI_CSDN.md; NOTICE; THIRD_PARTY_LICENSES/github.com/ringsaturn/orb/LICENSE.md; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf-dist/LICENSE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf-dist/LICENSE_DATA; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/LICENSE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/NOTICE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/internal/geom/LICENSE_GEOJSON; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/internal/maps/LICENSE; THIRD_PARTY_LICENSES/github.com/ringsaturn/tzf/internal/polyline/LICENSE; THIRD_PARTY_LICENSES/github.com/tidwall/geoindex/child/LICENSE; THIRD_PARTY_LICENSES/github.com/tidwall/rtree/LICENSE; THIRD_PARTY_LICENSES/golang.org/x/sync/errgroup/LICENSE; THIRD_PARTY_LICENSES/google.golang.org/protobuf/LICENSE; internal/geom/LICENSE_GEOJSON; internal/maps/LICENSE; internal/polyline/LICENSE
+github.com/ringsaturn/tzf-dist	v0.0.2026-c-fix1	transitive	LICENSE; LICENSE_DATA
 github.com/rogpeppe/go-internal	v1.14.1	transitive	LICENSE
 github.com/rwcarlsen/goexif	v0.0.0-20190401172101-9e8deecbddbd	transitive	LICENSE
-github.com/santhosh-tekuri/jsonschema/v6	v6.0.2	direct	LICENSE
-github.com/segmentio/asm	v1.2.0	transitive	LICENSE
+github.com/santhosh-tekuri/jsonschema/v6	v6.0.3	direct	LICENSE
+github.com/segmentio/asm	v1.2.1	transitive	LICENSE
 github.com/sixdouglas/suncalc	v0.0.0-20250114185126-291b1938b70c	direct	LICENSE
-github.com/stretchr/objx	v0.3.0	transitive	-
-github.com/stretchr/testify	v1.11.1	transitive	LICENSE
+github.com/spf13/cobra	v1.10.2	transitive	-
+github.com/spf13/pflag	v1.0.10	transitive	-
+github.com/stretchr/objx	v0.1.0	transitive	-
+github.com/stretchr/testify	v1.12.1	transitive	LICENSE; internal/difflib/LICENSE; internal/spew/LICENSE
 github.com/thedatashed/xlsxreader	v1.2.8	transitive	-
 github.com/tidwall/cities	v0.1.0	transitive	LICENSE
 github.com/tidwall/geoindex	v1.7.0	transitive	LICENSE
-github.com/tidwall/geojson	v1.4.6	transitive	LICENSE
-github.com/tidwall/gjson	v1.12.1	transitive	-
-github.com/tidwall/lotsa	v1.0.5	transitive	LICENSE
-github.com/tidwall/match	v1.1.1	transitive	-
-github.com/tidwall/pretty	v1.2.1	transitive	LICENSE
+github.com/tidwall/lotsa	v1.0.2	transitive	LICENSE
 github.com/tidwall/rtree	v1.10.0	transitive	LICENSE
-github.com/tidwall/sjson	v1.2.4	transitive	-
-github.com/twpayne/go-polyline	v1.1.1	transitive	LICENSE
-github.com/wneessen/go-mail	v0.7.2	direct	LICENSE; smtp/LICENSE
+github.com/wneessen/go-mail	v0.8.2	direct	LICENSE; smtp/LICENSE
 github.com/xdg-go/pbkdf2	v1.0.0	transitive	-
-github.com/xdg-go/scram	v1.1.1	transitive	-
-github.com/xdg-go/stringprep	v1.0.3	transitive	-
+github.com/xdg-go/scram	v1.2.0	transitive	-
+github.com/xdg-go/stringprep	v1.0.4	transitive	LICENSE
 github.com/xhit/go-str2duration/v2	v2.1.0	transitive	-
-github.com/youmark/pkcs8	v0.0.0-20181117223130-1be2e3e5546d	transitive	-
+github.com/youmark/pkcs8	v0.0.0-20240726163527-a2c0da244d78	transitive	-
 github.com/yuin/goldmark	v1.4.13	transitive	-
 github.com/zeebo/assert	v1.3.0	transitive	LICENSE
 github.com/zeebo/xxh3	v1.1.0	direct	LICENSE
-go.mongodb.org/mongo-driver	v1.11.4	transitive	LICENSE
+go.mongodb.org/mongo-driver/v2	v2.5.0	transitive	LICENSE
 go.uber.org/goleak	v1.3.0	transitive	LICENSE
-go.yaml.in/yaml/v2	v2.4.2	transitive	LICENSE; LICENSE.libyaml; NOTICE
-golang.org/x/crypto	v0.46.0	transitive	LICENSE
-golang.org/x/image	v0.32.0	direct	LICENSE
-golang.org/x/mod	v0.33.0	transitive	-
-golang.org/x/net	v0.47.0	transitive	LICENSE
-golang.org/x/oauth2	v0.36.0	direct	LICENSE
-golang.org/x/sync	v0.20.0	direct	LICENSE
-golang.org/x/sys	v0.39.0	transitive	LICENSE
-golang.org/x/term	v0.38.0	transitive	-
-golang.org/x/text	v0.35.0	direct	LICENSE
-golang.org/x/time	v0.15.0	direct	LICENSE
-golang.org/x/tools	v0.42.0	transitive	-
-golang.org/x/xerrors	v0.0.0-20200804184101-5ec99f83aff1	transitive	-
-google.golang.org/protobuf	v1.36.11	transitive	LICENSE
+go.yaml.in/yaml/v2	v2.4.4	transitive	LICENSE; LICENSE.libyaml; NOTICE
+go.yaml.in/yaml/v3	v3.0.5	transitive	LICENSE; NOTICE
+golang.org/x/crypto	v0.59.0	transitive	LICENSE
+golang.org/x/image	v0.48.0	direct	LICENSE
+golang.org/x/mod	v0.42.0	transitive	-
+golang.org/x/net	v0.63.0	transitive	LICENSE
+golang.org/x/oauth2	v0.38.0	direct	LICENSE
+golang.org/x/sync	v0.25.0	direct	LICENSE
+golang.org/x/sys	v0.50.0	direct	LICENSE
+golang.org/x/term	v0.48.0	transitive	-
+golang.org/x/text	v0.44.0	direct	LICENSE
+golang.org/x/time	v0.16.0	direct	LICENSE
+golang.org/x/tools	v0.52.0	transitive	-
+golang.org/x/xerrors	v0.0.0-20190717185122-a985d3407aa7	transitive	-
+google.golang.org/protobuf	v1.36.12	transitive	LICENSE
 gopkg.in/check.v1	v1.0.0-20201130134442-10cb98267c6c	transitive	LICENSE
-gopkg.in/yaml.v2	v2.4.0	transitive	LICENSE; LICENSE.libyaml; NOTICE
 gopkg.in/yaml.v3	v3.0.1	direct	LICENSE; NOTICE

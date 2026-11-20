@@ -19,7 +19,7 @@ RUN printf '{ "service": "frontend", "git_commit": "%s", "commit_time": "%s", "b
       "$SKADIA_GIT_COMMIT" "$SKADIA_GIT_COMMIT_TIME" "$SKADIA_BUILD_TIME" "$SKADIA_CONFIG_VERSION" \
       > /frontend/dist/skadia-build.json
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
