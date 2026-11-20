@@ -122,29 +122,26 @@ function isIdempotentMethod(method: string | undefined): boolean {
 
 function resolveApiRequestUrl(path: string): string {
   const trimmed = path.trim()
-  // Reject protocol-relative URLs and arbitrary cross-origin URLs so Bearer
-  // tokens and credentials are never sent to untrusted origins.
-  if (trimmed.startsWith('//')) {
+  // Only relative API paths are allowed so Bearer tokens and credentials
+  // can never be sent to an untrusted origin or traverse outside API_BASE.
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('\\')) {
     throw new ApiError(400, 'Invalid API URL')
   }
-  const url = /^https?:\/\//i.test(trimmed) ? trimmed : `${API_BASE}${trimmed}`
   const browserOrigin =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin
       : 'http://localhost'
-  const candidate = new URL(url, browserOrigin)
   const apiBase = new URL(API_BASE, browserOrigin)
   const apiBasePath = apiBase.pathname.endsWith('/') ? apiBase.pathname : `${apiBase.pathname}/`
+  const candidate = new URL(`${API_BASE}${trimmed}`, browserOrigin)
 
-  const sameOriginApiPath = candidate.origin === browserOrigin && candidate.pathname.startsWith('/api/')
-  const configuredApiPath =
-    candidate.origin === apiBase.origin &&
-    (candidate.pathname === apiBase.pathname || candidate.pathname.startsWith(apiBasePath))
-
-  if (!sameOriginApiPath && !configuredApiPath) {
+  if (
+    candidate.origin !== apiBase.origin ||
+    !(candidate.pathname === apiBase.pathname || candidate.pathname.startsWith(apiBasePath))
+  ) {
     throw new ApiError(400, 'Invalid API URL')
   }
-  return url
+  return `${API_BASE}${trimmed}`
 }
 
 function doFetch(path: string, options: RequestOptions): Promise<Response> {

@@ -42,7 +42,7 @@ func TestSanitizeTileProxyHost(t *testing.T) {
 		"",
 		`evil.example"><script>alert(1)</script>`,
 		`evil.example/path`,
-		`user@evil.example`,
+		`user@example.invalid`,
 		`evil.example?x=1`,
 		`evil.example#frag`,
 		"evil.example\r\nX-Injected: 1",
