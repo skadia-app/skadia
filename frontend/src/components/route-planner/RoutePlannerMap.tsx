@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import maplibregl, { type RequestParameters } from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
+import type { RequestParameters } from 'maplibre-gl'
 import type { StyleSpecification } from 'maplibre-gl'
 import { getToken } from '@/lib/auth'
 import { pickMaxZoomForBounds } from '@/lib/geoUtils'

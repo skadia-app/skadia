@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ChangeEvent, type KeyboardEvent } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 import { apiFetch } from '@/lib/auth'
 import { useTranslation } from 'react-i18next'
 

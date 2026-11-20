@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import maplibregl, { type RequestParameters } from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
+import type { RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
 import MapboxDraw from 'maplibre-gl-draw'
@@ -672,9 +673,14 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
             setDrawnCoords([])
           }
         }
-        map.on('draw.create', refreshCoords)
-        map.on('draw.update', refreshCoords)
-        map.on('draw.delete', refreshCoords)
+        const drawEvents: Array<keyof maplibregl.MapEventType> = [
+          'draw.create' as keyof maplibregl.MapEventType,
+          'draw.update' as keyof maplibregl.MapEventType,
+          'draw.delete' as keyof maplibregl.MapEventType,
+        ]
+        for (const evt of drawEvents) {
+          map.on(evt, refreshCoords)
+        }
       }
     })
 

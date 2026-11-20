@@ -38,7 +38,7 @@ import {
   type SportModifierKey,
 } from '@/lib/sportModifiers'
 import { RulesApplicableModifierKeys } from '@/lib/generatedRulesApplicableModifiers'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
 

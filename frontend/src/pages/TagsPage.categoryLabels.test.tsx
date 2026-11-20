@@ -46,12 +46,13 @@ vi.mock('@/api/tags', async () => {
   }
 })
 
-vi.mock('maplibre-gl', () => ({
-  default: {
+vi.mock('maplibre-gl', () => {
+  const api = {
     Map: vi.fn(),
     Marker: vi.fn(),
-  },
-}))
+  }
+  return { ...api, default: api }
+})
 
 vi.mock('@/components/ZoneEditor', () => ({
   default: () => null,

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { SummitVisit } from '@/api/summits'
 import { buildLayerStyle } from '@/lib/mapStyles'

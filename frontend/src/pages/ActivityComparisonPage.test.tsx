@@ -44,8 +44,8 @@ vi.mock('echarts/components', () => ({
 }))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 
-vi.mock('maplibre-gl', () => ({
-  default: {
+vi.mock('maplibre-gl', () => {
+  const api = {
     Map: vi.fn(() => ({
       addControl: vi.fn(),
       on: vi.fn(),
@@ -55,8 +55,9 @@ vi.mock('maplibre-gl', () => ({
     LngLatBounds: vi.fn(() => ({
       extend: vi.fn(),
     })),
-  },
-}))
+  }
+  return { ...api, default: api }
+})
 
 function activity(id: string, overrides: Partial<Activity> = {}): Activity {
   return {

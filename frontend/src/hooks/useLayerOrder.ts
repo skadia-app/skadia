@@ -1,6 +1,6 @@
 // frontend/src/hooks/useLayerOrder.ts
 import { useCallback, useState } from 'react'
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 
 export interface LayerEntry {
   key: string

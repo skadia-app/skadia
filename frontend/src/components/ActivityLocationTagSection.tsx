@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useTransition, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { assignActivitiesToTag, unassignActivitiesFromTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'

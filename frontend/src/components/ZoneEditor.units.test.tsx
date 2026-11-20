@@ -27,8 +27,8 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-vi.mock('maplibre-gl', () => ({
-  default: {
+vi.mock('maplibre-gl', () => {
+  const api = {
     Map: vi.fn(function () {
       return {
         addControl: vi.fn(),
@@ -61,8 +61,9 @@ vi.mock('maplibre-gl', () => ({
         extend: vi.fn(),
       }
     }),
-  },
-}))
+  }
+  return { ...api, default: api }
+})
 
 describe('ZoneEditor unit preferences', () => {
   it('formats circle radius controls with the selected user unit', () => {

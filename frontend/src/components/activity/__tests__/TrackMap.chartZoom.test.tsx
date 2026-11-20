@@ -80,8 +80,8 @@ const mapMocks = vi.hoisted(() => {
   return { instances, popupSetHtml, FakeMap, FakeBounds }
 })
 
-vi.mock('maplibre-gl', () => ({
-  default: {
+vi.mock('maplibre-gl', () => {
+  const api = {
     Map: class extends mapMocks.FakeMap {
       constructor() {
         super()
@@ -101,8 +101,9 @@ vi.mock('maplibre-gl', () => ({
     },
     NavigationControl: class {},
     LngLatBounds: mapMocks.FakeBounds,
-  },
-}))
+  }
+  return { ...api, default: api }
+})
 
 vi.mock('@/api/activityPhotos', () => ({
   listActivityPhotos: vi.fn(async () => []),

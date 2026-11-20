@@ -65,18 +65,17 @@ vi.mock('maplibre-gl', () => {
   class Popup {
     setHTML = vi.fn(() => this)
   }
-  return {
-    default: {
-      Map,
-      Marker,
-      Popup,
-      NavigationControl: class {},
-      LngLatBounds: class {
-        extend = vi.fn(() => this)
-        isEmpty = vi.fn(() => false)
-      },
+  const api = {
+    Map,
+    Marker,
+    Popup,
+    NavigationControl: class {},
+    LngLatBounds: class {
+      extend = vi.fn(() => this)
+      isEmpty = vi.fn(() => false)
     },
   }
+  return { ...api, default: api }
 })
 
 function renderPrivacySettings() {

@@ -15,7 +15,7 @@
 // useRouteEditor.ts and MapPage.tsx intentionally: the strings are stable, and
 // importing them here would introduce a cycle between MapPage/useRouteEditor
 // and this shared helper.
-import type maplibregl from 'maplibre-gl'
+import type * as maplibregl from 'maplibre-gl'
 
 const ROUTE_LAYERS_BOTTOM_TO_TOP = [
   'route-planner-line-casing',

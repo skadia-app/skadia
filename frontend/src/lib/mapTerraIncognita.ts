@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 
 // ── Terra Incognita: Canvas Fog Overlay (Approach B) ─────────────────────────
 // Instead of MapLibre line-blur (zoom-dependent, spike artifacts at vertices):

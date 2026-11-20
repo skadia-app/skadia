@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import { useTranslation } from 'react-i18next'
 import type { RouteWaypoint, RouteSegment } from '@/api/routes'
 import type { SegmentKey } from '@/hooks/useRoutePlanner'
@@ -640,7 +640,7 @@ export function useRouteEditor(
     if (hlMap && hlMap.getLayer(LAYER_HIGHLIGHT)) {
       const DEFAULT_HL_COLOR = '#FACC15'
       let color = DEFAULT_HL_COLOR
-      let dash: number[] | null = null
+      let dash: number[] | undefined
       if (ht.kind === 'descriptor') {
         switch (ht.descriptorKey) {
           case 'mtb_technical':  color = '#F59E0B'; break
@@ -650,7 +650,7 @@ export function useRouteEditor(
         }
       }
       hlMap.setPaintProperty(LAYER_HIGHLIGHT, 'line-color', color)
-      // null → unsets property, MapLibre falls back to solid line (NOT [1] which = dotted)
+      // undefined unsets the property so MapLibre falls back to a solid line (NOT [1] which = dotted)
       hlMap.setPaintProperty(LAYER_HIGHLIGHT, 'line-dasharray', dash)
     }
 
