@@ -9,6 +9,7 @@ import type { RequestParameters } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // @ts-ignore — maplibre-gl-draw has no bundled TS types for default import
 import MapboxDraw from 'maplibre-gl-draw'
+import 'maplibre-gl-draw/dist/mapbox-gl-draw.css'
 import { X } from 'lucide-react'
 import { SegmentSidebar, type SegmentMetadata } from './segment-editor/SegmentSidebar'
 import { TrackModeBottomBar, type TrackPoint } from './segment-editor/TrackModeBottomBar'

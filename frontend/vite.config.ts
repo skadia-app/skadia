@@ -44,7 +44,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/maplibre-gl')) {
+          if (id.includes('node_modules/maplibre-gl/')) {
             return 'vendor-maplibre'
           }
           if (id.includes('node_modules/echarts')) {
