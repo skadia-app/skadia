@@ -47,7 +47,7 @@ func (db *DB) EnsureReadonlyRolePassword(ctx context.Context, databaseURL string
 
 	var stmt string
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT format('ALTER ROLE skadia_readonly WITH PASSWORD %L', $1)`,
+		`SELECT format('ALTER ROLE skadia_readonly WITH PASSWORD %L', $1::text)`,
 		password,
 	).Scan(&stmt); err != nil {
 		return fmt.Errorf("render readonly role password update: %w", err)
