@@ -32,6 +32,7 @@ __pycache__/
 *.pyo
 
 # Go binaries
+services/api/vendor/
 services/api/api
 services/api/restore
 services/api/applicablemodifiersgen

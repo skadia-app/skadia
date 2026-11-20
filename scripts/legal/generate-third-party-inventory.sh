@@ -87,11 +87,12 @@ NODE
 
 python3 <<'PY' > "$OUT/go-api-modules.tsv"
 from pathlib import Path
+import json
+import subprocess
 
 root = Path.cwd()
-go_mod = root / "services/api/go.mod"
-modules_txt = root / "services/api/vendor/modules.txt"
-vendor = root / "services/api/vendor"
+api_dir = root / "services/api"
+go_mod = api_dir / "go.mod"
 
 direct = set()
 in_require = False
@@ -109,24 +110,45 @@ for raw in go_mod.read_text().splitlines():
             if "// indirect" not in line:
                 direct.add(parts[0])
 
+subprocess.run(["go", "mod", "download"], cwd=api_dir, check=True)
+raw_json = subprocess.check_output(
+    ["go", "list", "-mod=readonly", "-m", "-json", "all"],
+    cwd=api_dir,
+    text=True,
+)
+
+decoder = json.JSONDecoder()
+pos = 0
+modules = []
+while pos < len(raw_json):
+    while pos < len(raw_json) and raw_json[pos].isspace():
+        pos += 1
+    if pos >= len(raw_json):
+        break
+    obj, pos = decoder.raw_decode(raw_json, pos)
+    if obj.get("Main"):
+        continue
+    modules.append(obj)
+
 rows = []
-lines = modules_txt.read_text().splitlines()
-for i, line in enumerate(lines):
-    if not line.startswith("# ") or line.startswith("## "):
+for obj in sorted(modules, key=lambda m: m.get("Path", "")):
+    module = obj.get("Path", "")
+    version = obj.get("Version", "")
+    if not module or not version:
         continue
-    parts = line[2:].split()
-    if len(parts) < 2:
-        continue
-    module, version = parts[0], parts[1]
-    explicit = i + 1 < len(lines) and lines[i + 1].startswith("## explicit")
-    module_dir = vendor / module
+    rel = "direct" if (module in direct or not obj.get("Indirect")) else "transitive"
+    mod_dir = Path(obj["Dir"]) if obj.get("Dir") else None
     notice_files = []
-    if module_dir.exists():
-        for p in module_dir.rglob("*"):
-            if p.is_file() and p.name.lower().startswith(("license", "notice", "credit", "copying")):
-                notice_files.append(str(p.relative_to(root)))
+    if mod_dir and mod_dir.exists():
+        for p in mod_dir.rglob("*"):
+            if (
+                p.is_file()
+                and p.suffix.lower() not in {".go", ".s", ".c", ".h"}
+                and p.name.lower().startswith(("license", "notice", "credit", "copying"))
+            ):
+                notice_files.append(str(p.relative_to(mod_dir)))
     notice_summary = "; ".join(sorted(notice_files)) if notice_files else "-"
-    rows.append((module, version, "direct" if module in direct or explicit else "transitive", notice_summary))
+    rows.append((module, version, rel, notice_summary))
 
 print("module\tversion\trelationship\tlicense_notice_files")
 for row in rows:

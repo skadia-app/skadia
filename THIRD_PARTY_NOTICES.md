@@ -18,21 +18,21 @@ SKADIA_FETCH_PYPI=1 scripts/legal/generate-third-party-inventory.sh
 | Inventory | Source |
 |---|---|
 | [`npm-frontend.tsv`](legal/dependency-inventory/npm-frontend.tsv) | `frontend/package-lock.json` |
-| [`go-api-modules.tsv`](legal/dependency-inventory/go-api-modules.tsv) | `services/api/go.mod` and `services/api/vendor/modules.txt` |
+| [`go-api-modules.tsv`](legal/dependency-inventory/go-api-modules.tsv) | `services/api/go.mod` and `services/api/go.sum` |
 | [`python-ml-direct.tsv`](legal/dependency-inventory/python-ml-direct.tsv) | `services/ml/requirements.txt` |
 | [`container-images.tsv`](legal/dependency-inventory/container-images.tsv) | `docker-compose.yml` and Dockerfiles |
 | [`data-sources.tsv`](legal/dependency-inventory/data-sources.tsv) | Curated runtime data/source inventory |
 
-## Bundled And Vendored Software
+## Go API Modules
 
-The API vendors Go modules under `services/api/vendor/`. Their upstream
-license, notice, credit, and copying files are retained there and listed in
-`go-api-modules.tsv`.
+Go API dependencies are pinned in `services/api/go.mod` and verified via
+`services/api/go.sum`. Their upstream license, notice, credit, and copying
+files are recorded in `go-api-modules.tsv`.
 
-Notable vendored notice files include:
+Notable upstream notice files include:
 
 - `github.com/muktihari/fit` — BSD-3-Clause plus the accompanying FIT SDK
-  license file retained at `services/api/vendor/github.com/muktihari/fit/LICENSE-FIT-SDK`.
+  license file (`LICENSE-FIT-SDK` in the upstream module).
 - `github.com/aws/aws-sdk-go-v2` and `github.com/aws/smithy-go` — Apache-2.0
   license and NOTICE files.
 - `github.com/prometheus/*` modules — Apache-2.0 license and NOTICE files.
