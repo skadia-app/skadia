@@ -43,14 +43,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 — pinned by SHA.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 — pinned by SHA.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Run analysis
-        # ossf/scorecard-action v2.4.3 — pinned by SHA.
-        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        # ossf/scorecard-action v2.6.0 — pinned by SHA.
+        uses: ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5
         with:
           results_file: results.sarif
           results_format: sarif
@@ -62,17 +62,17 @@ jobs:
           publish_results: true
 
       - name: Upload SARIF artifact
-        # actions/upload-artifact v4 — pinned by SHA. Keeps a 5-day copy of
+        # actions/upload-artifact v7.0.2 — pinned by SHA. Keeps a 5-day copy of
         # the raw SARIF as a fallback if the security-tab upload below fails.
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: scorecard-results
           path: results.sarif
           retention-days: 5
 
       - name: Upload SARIF to code-scanning
-        # github/codeql-action v3 — pinned by SHA.
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        # github/codeql-action v4.39.4 — pinned by SHA.
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           sarif_file: results.sarif
           category: scorecard

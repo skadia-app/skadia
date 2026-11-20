@@ -5,9 +5,9 @@ name: CodeQL
 # secret scanner sees — SQLi, XSS, path traversal, command injection,
 # unvalidated redirects, etc.
 #
-# Free for public AGPL-3.0 repositories. Buildless mode (`build-mode: none`)
-# means no project-specific build step is needed; CodeQL extracts directly
-# from source.
+# Free for public AGPL-3.0 repositories. JavaScript/TypeScript and Python run
+# in buildless mode (`build-mode: none`); Go requires a build (`build-mode:
+# manual` with `actions/setup-go` matching services/api/go.mod).
 
 on:
   push:
@@ -38,24 +38,43 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript, python]
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 — pinned by SHA against tag-move attacks.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 — pinned by SHA against tag-move attacks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
+      - name: Set up Go
+        if: matrix.language == 'go'
+        # actions/setup-go v7.1.0 — pinned by SHA.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+
       - name: Initialize CodeQL
-        # github/codeql-action v3 — pinned by SHA.
-        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        # github/codeql-action v4.39.4 — pinned by SHA.
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
           config-file: ./.github/codeql/codeql-config.yml
 
+      - name: Build Go modules for CodeQL
+        if: matrix.language == 'go'
+        working-directory: services/api
+        run: go build ./...
+
       - name: Perform CodeQL analysis
-        # github/codeql-action v3 — pinned by SHA.
-        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        # github/codeql-action v4.39.4 — pinned by SHA.
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           category: "/language:${{ matrix.language }}"

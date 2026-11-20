@@ -15,6 +15,8 @@ updates:
       day: monday
       time: "06:00"
       timezone: "Europe/Berlin"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       go-deps:
@@ -28,6 +30,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       ml-deps:
@@ -49,6 +53,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       frontend-deps:
@@ -64,6 +70,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: [dependencies, actions]
 
@@ -80,6 +88,8 @@ updates:
     directory: /services/api
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels: [dependencies, docker]
 
@@ -87,6 +97,8 @@ updates:
     directory: /services/ml
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels: [dependencies, docker]
 
@@ -94,5 +106,7 @@ updates:
     directory: /frontend
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels: [dependencies, docker]

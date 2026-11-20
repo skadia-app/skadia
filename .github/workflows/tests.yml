@@ -19,14 +19,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        # actions/setup-go v6.4.0 - pinned by SHA.
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        # actions/setup-go v7.1.0 - pinned by SHA.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
@@ -41,14 +41,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Go
-        # actions/setup-go v6.4.0 - pinned by SHA.
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        # actions/setup-go v7.1.0 - pinned by SHA.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
@@ -85,15 +85,15 @@ jobs:
           --health-retries 12
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        # actions/setup-go v6.4.0 - pinned by SHA.
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        # actions/setup-go v7.1.0 - pinned by SHA.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
@@ -115,12 +115,16 @@ jobs:
           scripts/init_garage_internal/test.sh
 
       - name: Check migration numbering finalized
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            BASE_REF="origin/${{ github.base_ref }}" ./scripts/finalize-migration.sh --check
-          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE_REF="${{ github.event.before }}" ./scripts/finalize-migration.sh --check
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+            BASE_REF="origin/${PR_BASE_REF}" ./scripts/finalize-migration.sh --check
+          elif [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            BASE_REF="$PUSH_BEFORE_SHA" ./scripts/finalize-migration.sh --check
           else
             echo "Skipping migration numbering check for this event."
           fi
@@ -147,14 +151,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        # actions/checkout v7.0.1 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up Node
-        # actions/setup-node v5.0.0 - pinned by SHA.
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        # actions/setup-node v7.1.0 - pinned by SHA.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "22"
           cache: npm
