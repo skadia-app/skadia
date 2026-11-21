@@ -38,15 +38,19 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Manufacturer | Model | Source |
 |---|---|---|
 | Amazfit | All models<sup>1</sup> | Pattern |
+| Amazfit | Helio Strap | Map |
 | Apple | All Watch models<sup>1</sup> | Pattern |
 | COROS | APEX | Map |
 | COROS | APEX 2 | Map |
 | COROS | APEX 2 Pro | Map |
 | COROS | APEX Pro | Map |
 | COROS | DURA | Map |
+| COROS | DURA 2 | Map |
+| COROS | NOMAD | Map |
 | COROS | PACE | Map |
 | COROS | PACE 2 | Map |
 | COROS | PACE 3 | Map |
+| COROS | PACE 4 Pro | Map |
 | COROS | PACE Pro | Map |
 | COROS | VERTIX | Map |
 | COROS | VERTIX 2 | Map |
@@ -74,7 +78,6 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Approach X 40 | SDK |
 | Garmin | Bounce 2 | SDK |
 | Garmin | Cirqa Smart Band | SDK |
-| Garmin | D 2 Mach 2 Pro | SDK |
 | Garmin | D2 Air Venu | SDK |
 | Garmin | D2 Air X10 | SDK |
 | Garmin | D2 Air X15 | SDK |
@@ -83,6 +86,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | D2 Charlie | SDK |
 | Garmin | D2 Mach 1 Pro | SDK |
 | Garmin | D2 Mach 2 | SDK |
+| Garmin | D2 Mach 2 Pro | SDK |
 | Garmin | Descent | SDK |
 | Garmin | Descent G 1 | SDK |
 | Garmin | Descent G 2 | SDK |
@@ -206,7 +210,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Fenix 6X | SDK |
 | Garmin | Fenix 7 | SDK |
 | Garmin | Fenix 7 Pro Solar | SDK |
-| Garmin | Fenix 7 Pro Solar NO Wifi | SDK |
+| Garmin | Fenix 7 Pro Solar No WiFi | SDK |
 | Garmin | Fenix 7S | SDK |
 | Garmin | Fenix 7S Pro Solar | SDK |
 | Garmin | Fenix 7X | SDK |
@@ -257,8 +261,8 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | MARQ Gen 2 | SDK |
 | Garmin | MARQ Gen 2 Aviator | SDK |
 | Garmin | MARQ Gen 2 Commander | SDK |
+| Garmin | MARQ Gen 3 | SDK |
 | Garmin | MARQ Golfer | SDK |
-| Garmin | MARQ3 | SDK |
 | Garmin | Oregon 7XX | SDK |
 | Garmin | Rino 7XX | SDK |
 | Garmin | Swim | SDK |
@@ -266,11 +270,6 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Garmin | Tactix 7 | SDK |
 | Garmin | Tactix 8 AMOLED | SDK |
 | Garmin | Tactix 8 Solar | SDK |
-| Garmin | Training Peaks Virtual Android | SDK |
-| Garmin | Training Peaks Virtual Apple TV | SDK |
-| Garmin | Training Peaks Virtual Ios | SDK |
-| Garmin | Training Peaks Virtual Mac OS | SDK |
-| Garmin | Training Peaks Virtual Windows | SDK |
 | Garmin | Venu | SDK |
 | Garmin | Venu 2 | SDK |
 | Garmin | Venu 2 Plus | SDK |
@@ -348,6 +347,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Polar | Ignite 3 | Map |
 | Polar | Loop | Map |
 | Polar | Loop 2 | Map |
+| Polar | Loop Gen 2 | Map |
 | Polar | M200 | Map |
 | Polar | M400 | Map |
 | Polar | M430 | Map |
@@ -356,6 +356,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Polar | M600 | Map |
 | Polar | Pacer | Map |
 | Polar | Pacer Pro | Map |
+| Polar | Street X | Map |
 | Polar | Unite | Map |
 | Polar | V650 | Map |
 | Polar | V800 | Map |
@@ -397,6 +398,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Suunto | Ocean | Map |
 | Suunto | Race | Map |
 | Suunto | Race S | Map |
+| Suunto | Run 2 | Map |
 | Suunto | Spartan Sport | Map |
 | Suunto | Spartan Sport Wrist HR | Map |
 | Suunto | Spartan Trainer | Map |
@@ -406,6 +408,7 @@ FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import source
 | Timex | Ironman GPS | Map |
 | TomTom | Runner 3 Cardio | Map |
 | Wahoo | ELEMNT | Map |
+| Wahoo | ELEMNT ACE | Map |
 | Wahoo | ELEMNT BOLT | Map |
 | Wahoo | ELEMNT BOLT v2 | Map |
 | Wahoo | ELEMNT BOLT v3 | Map |
@@ -442,6 +445,7 @@ Some sensor-like devices and apps, including Stryd, use FIT Developer Fields ins
 | Garmin | Gen 3 BCM | Cadence | SDK |
 | Garmin | Gen 3 BSM | Speed | SDK |
 | Garmin | HRM 200 | Heart Rate | SDK |
+| Garmin | HRM 600 | Heart Rate | Map |
 | Garmin | HRM Dual | Heart Rate | SDK |
 | Garmin | HRM Fit | Heart Rate | SDK |
 | Garmin | HRM Pro | Heart Rate | SDK |
@@ -493,6 +497,7 @@ Some sensor-like devices and apps, including Stryd, use FIT Developer Fields ins
 | SRM | PC7 | Power Meter | Map |
 | SRM | PC8 | Power Meter | Map |
 | Scosche | Rhythm+ | Heart Rate | Map |
+| Shimano | Di2 | Shifting | Map |
 | Stages | Power Gen 1 | Power Meter | Map |
 | Stages | Power Gen 2 | Power Meter | Map |
 | Stages | Power Gen 3 | Power Meter | Map |
@@ -533,6 +538,7 @@ Developer Apps use FIT Developer Fields to embed custom data and are detected by
 | Garmin | Tacx Neo 2 T Smart | SDK |
 | Garmin | Tacx Neo Smart | SDK |
 | Garmin | Tacx Neo Smart Bike | SDK |
+| Garmin | Tacx Nera | Map |
 | Garmin | Tacx Satori Smart | SDK |
 | Garmin | Tacx Vortex Smart | SDK |
 | Wattbike | Atom | Map |
@@ -550,6 +556,7 @@ Developer Apps use FIT Developer Fields to embed custom data and are detected by
 | RGT Cycling | Pattern |
 | Rouvy | Pattern |
 | TrainerRoad | Pattern |
+| TrainingPeaks Virtual | SDK |
 | Virtugo | Pattern |
 | Wahoo SYSTM | Pattern |
 | Zwift | Pattern |

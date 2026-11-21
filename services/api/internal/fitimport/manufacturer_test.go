@@ -12,6 +12,9 @@ func TestResolveDevelopmentManufacturer(t *testing.T) {
 		// Apple Watch models
 		{"Watch7,5", "", "Apple", "Apple Watch Ultra 2"},
 		{"Watch7,12", "", "Apple", "Apple Watch Ultra 3"},
+		{"Watch8,1", "", "Apple", "Apple Watch Ultra 4"},
+		{"Watch8,2", "", "Apple", "Apple Watch Series 12 42mm"},
+		{"Watch8,5", "", "Apple", "Apple Watch Series 12 46mm Cellular"},
 		{"Watch6,18", "", "Apple", "Apple Watch Ultra"},
 		{"Watch6,17", "", "Apple", "Apple Watch Series 8 45mm Cellular"},
 		{"Watch5,10", "", "Apple", "Apple Watch SE 44mm"},
@@ -29,6 +32,9 @@ func TestResolveDevelopmentManufacturer(t *testing.T) {
 		{"Pixel Watch 3", "", "Google", "Pixel Watch 3"},
 		// Huawei via Health Sync — descriptor identifies it
 		{"iPhone17,1", "Health Sync (1)", "Huawei", ""},
+		// WHOOP / Wahoo HealthKit export — descriptor identifies brand
+		{"iPhone18,1", "WHOOP", "WHOOP", "WHOOP"},
+		{"iPhone18,1", "Wahoo", "Wahoo", "Wahoo"},
 		// FitnessSyncer — keep as-is, no real device
 		{"FitnessSyncer", "", "FitnessSyncer", "FitnessSyncer"},
 		// Unknown development device — fallback

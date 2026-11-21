@@ -104,6 +104,11 @@ var displayNameOverrides = map[string]string{
 	"d2_air_x15":        "D2 Air X15",
 	"d2_mach1_pro":      "D2 Mach 1 Pro",
 	"d2_mach2":          "D2 Mach 2",
+	"d2_mach2_pro":      "D2 Mach 2 Pro",
+	// MARQ Gen 3: SDK enum omits space/Gen prefix
+	"marq3": "MARQ Gen 3",
+	// Fenix 7 Pro Solar No WiFi: two-letter "no" would otherwise be uppercased
+	"fenix7_pro_solar_no_wifi": "Fenix 7 Pro Solar No WiFi",
 	// GPSMAP: acronym match keeps number attached ("GPSMAP66"), need space
 	"gpsmap66":  "GPSMAP 66",
 	"gpsmap66i": "GPSMAP 66i",
@@ -186,6 +191,9 @@ func categorizeGarminEnum(enumStr string) (category, sensorType string) {
 	if strings.HasPrefix(s, "tacx") {
 		return "trainer", ""
 	}
+	if strings.HasPrefix(s, "training_peaks_virtual") {
+		return "virtual", ""
+	}
 
 	return "recording", ""
 }
@@ -228,6 +236,7 @@ var mfrClassMap = map[uint16]mfrClass{
 	29:  {brand: "Power2max", category: "sensor", sType: "Power Meter"},
 	32:  {brand: "Wahoo", category: "recording"},
 	38:  {brand: "o_synce", category: "recording"},
+	41:  {brand: "Shimano", category: "sensor", sType: "Shifting"},
 	45:  {brand: "Xplova", category: "recording"},
 	54:  {brand: "IpBike", category: "recording"},
 	69:  {brand: "Stages", category: "sensor", sType: "Power Meter"},
@@ -248,6 +257,7 @@ var mfrClassMap = map[uint16]mfrClass{
 	289: {brand: "Hammerhead", category: "recording"},
 	292: {brand: "XOSS", category: "recording"},
 	294: {brand: "COROS", category: "recording"},
+	339: {brand: "Amazfit", category: "recording"},
 }
 
 var productOverrides = map[[2]uint16]productOverride{
@@ -258,6 +268,7 @@ var productOverrides = map[[2]uint16]productOverride{
 	{45, 20051}: {category: "trainer"},
 	// Polar HRM overrides
 	{123, 2}:   {category: "sensor", sType: "Heart Rate"},
+	{123, 3}:   {category: "sensor", sType: "Heart Rate"},
 	{123, 7}:   {category: "sensor", sType: "Heart Rate"},
 	{123, 133}: {category: "sensor", sType: "Heart Rate"},
 	{123, 151}: {category: "sensor", sType: "Heart Rate"},
@@ -482,6 +493,7 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 	garminSDKProductIDs := map[uint16]bool{}
 	// Dedup by normalized (regional-stripped) lowered enum key — first occurrence wins.
 	garminSeen := map[string]bool{}
+	virtualSeen := map[string]bool{}
 
 	for _, gp := range typedef.ListGarminProduct() {
 		raw := gp.String()
@@ -524,6 +536,15 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 			sensors = append(sensors, e)
 		case "trainer":
 			trainers = append(trainers, e)
+		case "virtual":
+			if !virtualSeen["TrainingPeaks Virtual"] {
+				virtualSeen["TrainingPeaks Virtual"] = true
+				virtuals = append(virtuals, deviceEntry{
+					model:    "TrainingPeaks Virtual",
+					source:   "SDK",
+					category: "virtual",
+				})
+			}
 		}
 	}
 
@@ -590,11 +611,16 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 		var cat, sType, brand string
 		if k.mfrID == 1 {
 			brand = "Garmin"
-			// Infer category from the display name (e.g. "Garmin Varia RTL515" → sensor/Radar)
+			// Infer category from the display name (e.g. Varia → Radar, HRM → Heart Rate, Tacx → Smart Trainer)
 			nameLower := strings.ToLower(displayName)
-			if strings.Contains(nameLower, "varia") {
+			switch {
+			case strings.Contains(nameLower, "varia"):
 				cat, sType = "sensor", "Radar"
-			} else {
+			case strings.Contains(nameLower, "hrm"):
+				cat, sType = "sensor", "Heart Rate"
+			case strings.Contains(nameLower, "tacx"):
+				cat = "trainer"
+			default:
 				cat = "recording"
 			}
 		} else {
@@ -689,7 +715,6 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 		"wahoo_fitness": true,
 		"whoop":         true,
 	}
-	virtualSeen := map[string]bool{}
 	// Sort map keys for deterministic output
 	vKeys := make([]string, 0, len(virtualPlatformMap))
 	for k := range virtualPlatformMap {
@@ -1012,6 +1037,30 @@ func TestSupportedDevicesPolarSensorsStayMapBacked(t *testing.T) {
 	}
 	if strings.Contains(section, "| Polar | H10 | Heart Rate | Product name |") {
 		t.Fatal("Polar H10 should be listed through the static map capability, not a generator-only product-name side list")
+	}
+}
+
+func TestSupportedDevicesGarminVirtualAndFormatting(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+
+	recStart := strings.Index(generated, "\n## Recording Devices\n")
+	recEnd := strings.Index(generated[recStart:], "\n## Sensors\n")
+	recordingSection := generated[recStart : recStart+recEnd]
+
+	virtStart := strings.Index(generated, "\n### Virtual Platforms\n")
+	virtualSection := generated[virtStart:]
+
+	if strings.Contains(recordingSection, "Training Peaks Virtual") {
+		t.Fatal("Recording Devices should not list TrainingPeaks Virtual software apps")
+	}
+	if !strings.Contains(virtualSection, "| TrainingPeaks Virtual | SDK |") {
+		t.Fatal("Virtual Platforms should list deduplicated TrainingPeaks Virtual entry")
+	}
+	if !strings.Contains(recordingSection, "| Garmin | D2 Mach 2 Pro | SDK |") {
+		t.Fatal("Recording Devices should format D2 Mach 2 Pro without splitting D2")
+	}
+	if !strings.Contains(recordingSection, "| Garmin | MARQ Gen 3 | SDK |") {
+		t.Fatal("Recording Devices should format MARQ Gen 3 cleanly")
 	}
 }
 

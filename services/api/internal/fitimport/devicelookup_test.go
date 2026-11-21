@@ -20,6 +20,7 @@ func TestResolveProductName(t *testing.T) {
 	}{
 		{"Wahoo ELEMNT from map", 32, 28, "", "Wahoo ELEMNT"},
 		{"Polar H10 from observed sensor product", 123, 2, "", "Polar H10"},
+		{"Polar H9 from observed sensor product", 123, 3, "", "Polar H9"},
 		{"Polar H10 from alternate map", 123, 133, "", "Polar H10"},
 		{"Polar H9 from map", 123, 222, "", "Polar H9"},
 		{"Polar OH1 from map", 123, 151, "", "Polar OH1"},
@@ -32,6 +33,22 @@ func TestResolveProductName(t *testing.T) {
 		{"Lezyne Super GPS", 258, 4, "", "Lezyne Super GPS"},
 		{"Unknown Garmin product returns empty (RC4)", 1, 21, "", ""},
 		{"Unknown Garmin product 20 returns empty (RC4)", 1, 20, "", ""},
+		{"Garmin Varia RTL515 from extension map", 1, 3592, "", "Garmin Varia RTL515"},
+		{"Garmin HRM 600 from extension map", 1, 4607, "", "Garmin HRM 600"},
+		{"Garmin Tacx Nera from extension map", 1, 4614, "", "Garmin Tacx Nera"},
+		{"Garmin FR970 from SDK", 1, 4565, "", "Garmin FR970"},
+		{"Garmin FR570 Small from SDK", 1, 4574, "", "Garmin FR570 Small"},
+		{"Garmin D2 Mach 2 Pro acronym formatting", 1, 5056, "", "Garmin D2 Mach 2 Pro"},
+		{"Wahoo ELEMNT ACE from map", 32, 57, "", "Wahoo ELEMNT ACE"},
+		{"Suunto Run 2 from map", 23, 74, "", "Suunto Run 2"},
+		{"Polar Loop Gen 2 from map", 123, 269, "", "Polar Loop Gen 2"},
+		{"Polar Street X from map", 123, 271, "", "Polar Street X"},
+		{"COROS PACE 4 Pro from map", 294, 808, "", "COROS PACE 4 Pro"},
+		{"COROS DURA 2 from map", 294, 852, "", "COROS DURA 2"},
+		{"COROS NOMAD from map", 294, 861, "", "COROS NOMAD"},
+		{"Amazfit Helio Strap from map", 339, 157, "", "Amazfit Helio Strap"},
+		{"Amazfit Helio Strap product_name under Zepp avoids double brand", 339, 157, "Amazfit Helio Strap", "Amazfit Helio Strap"},
+		{"Shimano Di2 from map", 41, 12954, "", "Shimano Di2"},
 	}
 
 	// Dynamischer Garmin-Test (SDK-versionsabhängig)

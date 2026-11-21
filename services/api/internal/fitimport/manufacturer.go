@@ -64,6 +64,11 @@ var appleWatchModels = map[string]string{
 	"Watch7,18": "Apple Watch Series 11 46mm",
 	"Watch7,19": "Apple Watch Series 11 42mm Cellular",
 	"Watch7,20": "Apple Watch Series 11 46mm Cellular",
+	"Watch8,1":  "Apple Watch Ultra 4",
+	"Watch8,2":  "Apple Watch Series 12 42mm",
+	"Watch8,3":  "Apple Watch Series 12 46mm",
+	"Watch8,4":  "Apple Watch Series 12 42mm Cellular",
+	"Watch8,5":  "Apple Watch Series 12 46mm Cellular",
 }
 
 // ResolveDevelopmentManufacturer identifies the real manufacturer and device name
@@ -110,6 +115,18 @@ func ResolveDevelopmentManufacturer(productName, descriptor string) (source, dev
 	// 5. Huawei via Health Sync: descriptor contains "Health Sync"
 	if strings.Contains(descriptor, "Health Sync") {
 		return "Huawei", ""
+	}
+
+	// 5b. HealthKit exports where productName is an iPhone model string and
+	// the creator descriptor identifies the actual wearable/app brand.
+	if strings.HasPrefix(productName, "iPhone") && descriptor != "" {
+		descLower := strings.ToLower(strings.TrimSpace(descriptor))
+		switch {
+		case descLower == "whoop":
+			return "WHOOP", "WHOOP"
+		case descLower == "wahoo":
+			return "Wahoo", "Wahoo"
+		}
 	}
 
 	// 6. Known third-party sync apps — keep source as app name

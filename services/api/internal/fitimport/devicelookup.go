@@ -23,12 +23,14 @@ var productNameMap = map[[2]uint16]string{
 	{32, 41}: "Wahoo PowrLink",
 	{32, 43}: "Wahoo ELEMNT BOLT v2",
 	{32, 47}: "Wahoo ELEMNT ROAM v2",
+	{32, 57}: "Wahoo ELEMNT ACE",
 	{32, 63}: "Wahoo ELEMNT ROAM v3",
 	{32, 64}: "Wahoo ELEMNT BOLT v3",
 
 	// Polar Electro (123)
 	{123, 1}:   "Polar Loop",
 	{123, 2}:   "Polar H10",
+	{123, 3}:   "Polar H9",
 	{123, 7}:   "Polar H7",
 	{123, 13}:  "Polar V800",
 	{123, 19}:  "Polar V650",
@@ -62,7 +64,9 @@ var productNameMap = map[[2]uint16]string{
 	{123, 263}: "Polar Vantage V3",
 	{123, 264}: "Polar Grit X Pro",
 	{123, 268}: "Polar Vantage M3",
+	{123, 269}: "Polar Loop Gen 2",
 	{123, 270}: "Polar Grit X2",
+	{123, 271}: "Polar Street X",
 
 	// Favero Electronics (263) — Assioma Uno/Duo im FIT SDK als FaveroProduct definiert
 	{263, 10}: "Favero Assioma Uno",
@@ -168,11 +172,12 @@ var productNameMap = map[[2]uint16]string{
 	{23, 60}: "Suunto Race",
 	{23, 61}: "Suunto Race S",
 	{23, 67}: "Suunto Vertical 2",
+	{23, 74}: "Suunto Run 2",
 	// Note: Suunto Run uses product_id=65535 (invalid) with no product_name string
 	// — cannot be identified via map lookup alone; requires product_name string in FIT.
 
 	// COROS (294)
-	// Legacy IDs (unconfirmed, from third-party references) map to the same display name as current IDs.
+	// Legacy IDs map to the same display name as current IDs.
 	// Both are kept to handle files from older firmware versions.
 	{294, 1}:  "COROS PACE",
 	{294, 2}:  "COROS PACE 2",
@@ -191,11 +196,15 @@ var productNameMap = map[[2]uint16]string{
 	// Current IDs (verified from actual FIT files):
 	{294, 802}: "COROS PACE 2",
 	{294, 804}: "COROS PACE 3",
+	{294, 805}: "COROS PACE Pro",
+	{294, 808}: "COROS PACE 4 Pro",
 	{294, 812}: "COROS APEX 2",
 	{294, 822}: "COROS APEX 2 Pro",
 	{294, 831}: "COROS VERTIX",
 	{294, 832}: "COROS VERTIX 2",
 	{294, 851}: "COROS DURA",
+	{294, 852}: "COROS DURA 2",
+	{294, 861}: "COROS NOMAD",
 	// Note: product_id=899 ("COROS Wearables") is a generic ID used by PACE 4,
 	// APEX 4, NOMAD, VERTIX 2S — cannot distinguish models via ID alone.
 
@@ -209,11 +218,17 @@ var productNameMap = map[[2]uint16]string{
 	{73, 29}: "Wattbike Icon",
 	{73, 30}: "Wattbike Atom X",
 
-	// Garmin — newer models not yet in GarminProduct SDK enum (manufacturer_id=1)
-	// These are looked up after SDK resolution fails.
+	// Garmin — models not in GarminProduct SDK enum (manufacturer_id=1)
+	// Looked up after SDK resolution fails.
 	{1, 3592}: "Garmin Varia RTL515",
-	{1, 4565}: "Garmin FR970",
-	{1, 4574}: "Garmin FR570",
+	{1, 4607}: "Garmin HRM 600",
+	{1, 4614}: "Garmin Tacx Nera",
+
+	// Shimano (41)
+	{41, 12954}: "Shimano Di2",
+
+	// Zepp / Amazfit (339)
+	{339, 157}: "Amazfit Helio Strap",
 
 	// Hammerhead (289)
 	{289, 1}: "Hammerhead Karoo",
@@ -270,6 +285,10 @@ func ResolveProductName(manufacturerID, productID uint16, productName string) st
 
 	// 1. Explicit product_name from FIT message
 	if productName != "" {
+		// Zepp is the parent manufacturer for Amazfit hardware — avoid "Zepp Amazfit ..."
+		if mfr == typedef.ManufacturerZepp && strings.HasPrefix(strings.ToLower(productName), "amazfit") {
+			return productName
+		}
 		mfrDisplay := FormatManufacturer(mfrStr)
 		if mfrDisplay != "" {
 			// Use only the first word of the manufacturer name as prefix (e.g. "Wahoo" from "Wahoo Fitness")
@@ -409,6 +428,11 @@ func formatEnumToken(token string) []string {
 	runes := []rune(token)
 	if len(runes) == 0 {
 		return nil
+	}
+
+	// Exact acronym match (including alphanumeric acronyms like "d2").
+	if a, ok := garminEnumAcronyms[strings.ToLower(token)]; ok {
+		return []string{a}
 	}
 
 	// Find the index of the first digit

@@ -137,3 +137,92 @@ func TestMergeSessionTotals_SingleSession(t *testing.T) {
 		t.Errorf("DistanceM = %f, want 5000.0 (unchanged)", ad.DistanceM)
 	}
 }
+
+func TestExtractFITSource_NewSDKManufacturers(t *testing.T) {
+	tests := []struct {
+		mfr        typedef.Manufacturer
+		wantSource string
+	}{
+		{typedef.ManufacturerHuawei, "Huawei"},
+		{typedef.ManufacturerZepp, "Zepp"},
+		{typedef.ManufacturerRunna, "Runna"},
+		{typedef.ManufacturerGotoes, "GOTOES"},
+		{typedef.ManufacturerUnaWatch, "UNA Watch"},
+		{typedef.ManufacturerTymewear, "Tymewear"},
+	}
+	for _, tt := range tests {
+		fileID := &mesgdef.FileId{Manufacturer: tt.mfr}
+		gotSource, _, _ := extractFITSource(fileID, nil)
+		if gotSource != tt.wantSource {
+			t.Errorf("extractFITSource(%v) source = %q, want %q", tt.mfr, gotSource, tt.wantSource)
+		}
+	}
+}
+
+func TestIsVirtualGarminProduct(t *testing.T) {
+	tpVirtual := &mesgdef.FileId{
+		Manufacturer: typedef.ManufacturerGarmin,
+		Product:      uint16(typedef.GarminProductTrainingPeaksVirtualWindows),
+	}
+	if !isVirtualGarminProduct(tpVirtual) {
+		t.Error("expected TrainingPeaks Virtual Windows to be detected as virtual")
+	}
+
+	edge1060 := &mesgdef.FileId{
+		Manufacturer: typedef.ManufacturerGarmin,
+		Product:      uint16(typedef.GarminProductEdge1060),
+	}
+	if isVirtualGarminProduct(edge1060) {
+		t.Error("expected Edge 1060 not to be detected as virtual")
+	}
+}
+
+func TestExtractFITSource_DevelopmentNoSyntheticSerialOrProductOverwrite(t *testing.T) {
+	// Exporter apps using manufacturer_id=255 often emit a constant serial number
+	// across different watch models (e.g. 27753) and repeat raw machine IDs in DeviceInfo.
+	fileID := &mesgdef.FileId{
+		Manufacturer: typedef.ManufacturerDevelopment,
+		Product:      65535,
+		ProductName:  "iPhone18,1",
+		SerialNumber: 27754,
+	}
+	devInfos := []*mesgdef.DeviceInfo{
+		{
+			DeviceIndex: typedef.DeviceIndexCreator,
+			ProductName: "iPhone18,1",
+			Descriptor:  "WHOOP",
+		},
+	}
+
+	src, dev, du := extractFITSource(fileID, devInfos)
+	if src != "WHOOP" {
+		t.Errorf("source = %q, want %q", src, "WHOOP")
+	}
+	if dev != "WHOOP" {
+		t.Errorf("device = %q, want %q (must not be overwritten by DeviceInfo.ProductName)", dev, "WHOOP")
+	}
+	if du == nil {
+		t.Fatal("expected non-nil DeviceUpsert")
+	}
+	if du.SerialNumber != nil {
+		t.Errorf("SerialNumber = %v, want nil for ManufacturerDevelopment", *du.SerialNumber)
+	}
+	if du.ProductName != "WHOOP" {
+		t.Errorf("DeviceUpsert.ProductName = %q, want %q", du.ProductName, "WHOOP")
+	}
+
+	// Apple Watch models must also omit synthetic exporter serial numbers so distinct models do not collide.
+	watchID := &mesgdef.FileId{
+		Manufacturer: typedef.ManufacturerDevelopment,
+		Product:      65535,
+		ProductName:  "Watch8,5",
+		SerialNumber: 27753,
+	}
+	wSrc, wDev, wDU := extractFITSource(watchID, nil)
+	if wSrc != "Apple" || wDev != "Apple Watch Series 12 46mm Cellular" {
+		t.Errorf("got (%q, %q), want (Apple, Apple Watch Series 12 46mm Cellular)", wSrc, wDev)
+	}
+	if wDU == nil || wDU.SerialNumber != nil || wDU.ProductName != "Apple Watch Series 12 46mm Cellular" {
+		t.Errorf("unexpected DeviceUpsert: %+v", wDU)
+	}
+}

@@ -494,7 +494,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
-	// Path 2: Known virtual platform manufacturers
+	// Path 2: Known virtual platform manufacturers and products
 	if fileId != nil {
 		switch fileId.Manufacturer {
 		case typedef.ManufacturerZwift, typedef.ManufacturerZwiftByte,
@@ -503,6 +503,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 			typedef.ManufacturerVirtugo,
 			typedef.ManufacturerRgtCycling:
 			isVirtual = true
+		case typedef.ManufacturerGarmin:
+			if isVirtualGarminProduct(fileId) {
+				isVirtual = true
+			}
 		}
 	}
 
@@ -1781,6 +1785,32 @@ func assignHeadingToStreams(streams []model.StreamPoint, headings []gpsHeadingPo
 	}
 }
 
+// isVirtualGarminProduct reports whether a Garmin FileId identifies a virtual
+// platform client (e.g. TrainingPeaks Virtual) rather than physical hardware.
+func isVirtualGarminProduct(fileId *mesgdef.FileId) bool {
+	if fileId == nil || fileId.Manufacturer != typedef.ManufacturerGarmin {
+		return false
+	}
+	prodName, prodVal := fileId.GetProduct()
+	if prodName != "garmin_product" {
+		return false
+	}
+	gp, ok := prodVal.(typedef.GarminProduct)
+	if !ok {
+		return false
+	}
+	switch gp {
+	case typedef.GarminProductTrainingPeaksVirtualIos,
+		typedef.GarminProductTrainingPeaksVirtualAndroid,
+		typedef.GarminProductTrainingPeaksVirtualWindows,
+		typedef.GarminProductTrainingPeaksVirtualMacOs,
+		typedef.GarminProductTrainingPeaksVirtualAppleTv:
+		return true
+	default:
+		return false
+	}
+}
+
 // extractFITSource determines source app and recording device from FIT metadata.
 // It also builds a DeviceUpsert for the recording device (from FileId fields).
 func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo) (source, device string, du *model.DeviceUpsert) {
@@ -1837,6 +1867,18 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 			source = "iGPSport"
 		case mfr == typedef.ManufacturerCycplus:
 			source = "Cycplus"
+		case mfr == typedef.ManufacturerHuawei:
+			source = "Huawei"
+		case mfr == typedef.ManufacturerZepp:
+			source = "Zepp"
+		case mfr == typedef.ManufacturerRunna:
+			source = "Runna"
+		case mfr == typedef.ManufacturerGotoes:
+			source = "GOTOES"
+		case mfr == typedef.ManufacturerUnaWatch:
+			source = "UNA Watch"
+		case mfr == typedef.ManufacturerTymewear:
+			source = "Tymewear"
 		case mfr == typedef.ManufacturerDevelopment:
 			// manufacturer_id=255: Apple Watch, Amazfit, Huawei etc.
 			// Resolve from ProductName pattern (Watch7,12 → Apple Watch Ultra 3).
@@ -1893,12 +1935,14 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 		}
 	}
 
-	// Enrich device name from DeviceInfo with DeviceIndex=0 (the recording device)
+	// Enrich device name from DeviceInfo with DeviceIndex=0 (the recording device).
+	// Skip for Development manufacturer (255): ResolveDevelopmentManufacturer already
+	// resolved raw machine identifiers (e.g. "Watch8,1", "iPhone18,1") into display names.
 	for _, di := range deviceInfos {
 		if di.DeviceIndex != typedef.DeviceIndexCreator {
 			continue
 		}
-		if di.ProductName != "" && (device == "" || len(di.ProductName) > len(device)) {
+		if di.ProductName != "" && mfrID != uint16(typedef.ManufacturerDevelopment) && (device == "" || len(di.ProductName) > len(device)) {
 			device = di.ProductName
 		}
 		if source == "" {
@@ -1913,7 +1957,10 @@ func extractFITSource(fileId *mesgdef.FileId, deviceInfos []*mesgdef.DeviceInfo)
 	// Build DeviceUpsert for the recording device
 	if mfrID != 0 && mfrID != uint16(typedef.ManufacturerInvalid) {
 		var serialNumber *int64
-		if fileId != nil && fileId.SerialNumber != 0 && fileId.SerialNumber != 0xFFFFFFFF {
+		// Development manufacturer (255) exports often emit constant/synthetic serial numbers
+		// shared across different physical models from the same exporter app; omit serialNumber
+		// so device deduplication keys on the resolved product name instead.
+		if fileId != nil && mfrID != uint16(typedef.ManufacturerDevelopment) && fileId.SerialNumber != 0 && fileId.SerialNumber != 0xFFFFFFFF {
 			sn := int64(fileId.SerialNumber)
 			serialNumber = &sn
 		}
